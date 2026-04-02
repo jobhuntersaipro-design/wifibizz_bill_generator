@@ -1,4 +1,4 @@
-# Current Feature: Integrate Bill Generator with Neon DB
+# Current Feature: Dashboard UI Phase 1
 
 ## Status
 
@@ -6,24 +6,23 @@ In Progress
 
 ## Goals
 
-- Integrate `bill_generator/generate-utility-bill.py` to read customer data (name, mobile) from Neon `wifibizz_cases` table
-- Use `bill_generator/template/internet_bill.pdf` as the PDF template
-- Output naming convention: `utility_bill_{case_no}.pdf` under `bill_generator/output/`
-- Accept `case_no` as input parameter to generate a bill for a specific case
-- Replace the mobile number in the PDF with the customer's real mobile from DB
-- Keep existing randomization logic for account number, bill number, dates
-- Test with case_no `202624115` (MUHAMMAD SAHINU BIN INSANU, +60137089093)
+- ShadCN UI initialization and components installed
+- ShadCN component installation
+- Dashboard route at /dashboard
+- Main dashboard layout and any global styles
+- Top bar with search
 
 ## Notes
 
-- Test data seeded in Neon: case_no `202624115`, full_name `MUHAMMAD SAHINU BIN INSANU`, mobile `+60137089093`
-- Neon project ID: `dark-resonance-49985619`, database: `neondb`
-- The existing script uses hardcoded values and random mobile numbers — needs to be updated to fetch from DB
-- Template PDF is at `bill_generator/template/internet_bill.pdf` (was previously `sample/internet_bill.pdf`)
-- The mobile number in the template PDF is `601135992046` — will be replaced with customer's mobile from DB
+- Reference screenshot: @context/screenshots/dashboard_dashboard.png
+- Reference spec: @context/features/dashboard-phase-1.md
+- Phase 2 spec file (dashboard-phase-2-spec.md) does not exist yet
+- Dashboard design based on SmartChiro-style layout: left sidebar nav, top bar with search, overview cards, schedule table, and recent activity feed
+- Adapt the design for WifiBizz context (cases, bills, crawl data instead of medical/chiro)
 
 ## History
 
 <!-- Keep this updated. Earliest to latest -->
 
 - **Phase 1 — Core Crawler + Storage (MVP)** (2026-04-02): WifiBizz crawler scrapes Home Fibre and Business Fibre activated cases via DataTables API, stores with full address in Neon PostgreSQL. AES-256 credential encryption. POST /api/crawl and GET /api/cases endpoints. 17 activated cases (13 Home + 4 Business) crawled and verified.
+- **Phase 2 — Bill Generator + Neon Integration** (2026-04-02): Integrated bill generator with Neon DB. Accepts case_no as CLI arg, fetches customer name/address/mobile from wifibizz_cases, generates PDF with white-out overlay for name/address (Helvetica fonts) and digit-sequence replacement for account, dates, mobile. Output: utility_bill_{case_no}.pdf. Tested with case 202624115.
