@@ -44,3 +44,7 @@ bill_generator/output/
 next-env.d.ts
 
 /src/generated/prisma
+
+# playwright
+.playwright-mcp/
+*.png

@@ -10,7 +10,9 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
   session: { strategy: "jwt" },
   ...authConfig,
   providers: [
-    ...authConfig.providers,
+    ...authConfig.providers.filter(
+      (p) => (p as { id?: string }).id !== "credentials"
+    ),
     Credentials({
       credentials: {
         email: { label: "Email", type: "email" },
