@@ -47,18 +47,6 @@ ORIG_PAYMENT_TIME = '151229'      # 15:12:29
 # Original mobile number (page 2)
 ORIGINAL_MOBILE = '601135992046'  # 6011 359 92046
 
-# Original amounts (digit-only sequences, i.e. without decimal points)
-# The amounts are mathematically related:
-#   total = line_total + rounding = 72.08 + 0.02 = 72.10
-#   line_total = subtotal - discount_sub = 82.68 - 10.60 = 72.08
-#   subtotal = fee + tax = 78.00 + 4.68 = 82.68
-#   tax = fee * 0.06 = 78.00 * 0.06 = 4.68
-ORIG_TOTAL = '7210'       # 72.10 (bill total, previous balance, payment, etc.)
-ORIG_FEE = '7800'         # 78.00 (access fee)
-ORIG_TAX = '468'          # 4.68 (6% service tax)
-ORIG_SUBTOTAL = '8268'    # 82.68 (fee + tax)
-ORIG_LINE_TOTAL = '7208'  # 72.08 (subtotal - discount)
-
 # Original name and address positions on page 1 (for white-out overlay)
 # Name: "Mr FOO GUAN ZHENG" at y=646.75, x starts at 48.024
 # Address line 1: "30 JALAN BELIMBING INDAH D'BOULEVARD" at y=635.95, x=48.024
@@ -154,21 +142,6 @@ def compute_values(customer_mobile):
         mobile_digits = mobile_digits[:12]
     new_mobile = mobile_digits
 
-    # Random bill amount between 10.00 and 89.99 (4 digits to match original)
-    # Discount stays fixed at 10.00 (tax 0.60, subtotal 10.60), rounding at 0.02
-    new_total_cents = random.randint(1000, 8999)
-    new_total = new_total_cents / 100.0
-    rounding = 0.02
-    discount_sub = 10.60
-    new_line_total = round(new_total - rounding, 2)
-    new_gross_sub = round(new_line_total + discount_sub, 2)
-    new_fee = round(new_gross_sub / 1.06, 2)
-    new_tax = round(new_gross_sub - new_fee, 2)
-
-    # Format as digit-only strings (remove decimal point)
-    def amt_digits(amount):
-        return f'{amount:.2f}'.replace('.', '')
-
     new_bill_date = ddmmyyyy(bill_date)
     new_period_start = ddmmyyyy(period_start)
     new_period_end = ddmmyyyy(period_end)
@@ -191,12 +164,6 @@ def compute_values(customer_mobile):
         'period_end': period_end,
         'due_date': due_date,
         'payment_date': payment_date,
-        'new_total': new_total,
-        'new_total_digits': amt_digits(new_total),
-        'new_fee_digits': amt_digits(new_fee),
-        'new_tax_digits': amt_digits(new_tax),
-        'new_subtotal_digits': amt_digits(new_gross_sub),
-        'new_line_total_digits': amt_digits(new_line_total),
     }
 
 def split_address(full_address):
@@ -263,22 +230,15 @@ def split_address(full_address):
 def build_replacements(v):
     """Build stream and text replacement lists from computed values."""
     stream_replacements = [
-        # Longest first to avoid partial matches
-        (ORIGINAL_BILL_DIGITS, v['new_bill_digits']),    # 16 digits
-        (ORIGINAL_MOBILE, v['new_mobile']),                # 12 digits
-        (ORIGINAL_ACCOUNT, v['new_account']),              # 11 digits
-        (ORIG_BILL_DATE, v['new_bill_date']),              #  8 digits
+        (ORIGINAL_BILL_DIGITS, v['new_bill_digits']),
+        (ORIGINAL_ACCOUNT, v['new_account']),
+        (ORIG_BILL_DATE, v['new_bill_date']),
         (ORIG_PERIOD_START, v['new_period_start']),
         (ORIG_PERIOD_END, v['new_period_end']),
         (ORIG_DUE_DATE, v['new_due_date']),
         (ORIG_PAYMENT_DATE, v['new_payment_date']),
-        (ORIG_PAYMENT_TIME, v['new_payment_time']),        #  6 digits
-        # Amount replacements (4 digits, then 3 digits)
-        (ORIG_SUBTOTAL, v['new_subtotal_digits']),         #  4 digits: 82.68
-        (ORIG_LINE_TOTAL, v['new_line_total_digits']),     #  4 digits: 72.08
-        (ORIG_FEE, v['new_fee_digits']),                   #  4 digits: 78.00
-        (ORIG_TOTAL, v['new_total_digits']),               #  4 digits: 72.10
-        (ORIG_TAX, v['new_tax_digits']),                   #  3 digits: 4.68
+        (ORIG_PAYMENT_TIME, v['new_payment_time']),
+        (ORIGINAL_MOBILE, v['new_mobile']),
     ]
 
     text_replacements = [
@@ -564,11 +524,6 @@ def main():
     print(f'  Payment Date : {ORIG_PAYMENT_DATE} -> {v["new_payment_date"]}')
     print(f'  Payment Time : {ORIG_PAYMENT_TIME} -> {v["new_payment_time"]}')
     print(f'  Mobile No    : {ORIGINAL_MOBILE} -> {v["new_mobile"]}')
-    print(f'  Amount Due   : 72.10 -> {v["new_total"]:.2f}')
-    print(f'  Access Fee   : 78.00 -> {float(v["new_fee_digits"])/100:.2f}')
-    print(f'  Tax          : 4.68 -> {float(v["new_tax_digits"])/100:.2f}')
-    print(f'  Subtotal     : 82.68 -> {float(v["new_subtotal_digits"])/100:.2f}')
-    print(f'  Line Total   : 72.08 -> {float(v["new_line_total_digits"])/100:.2f}')
     print(f'Saved to: {output_path}')
 
 
