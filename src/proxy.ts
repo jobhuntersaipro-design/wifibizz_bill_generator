@@ -18,7 +18,7 @@ export const proxy = auth(async (req) => {
 
   // Redirect unauthenticated users away from dashboard
   if (isOnDashboard && !isLoggedIn) {
-    return NextResponse.redirect(new URL("/api/auth/signin", req.nextUrl));
+    return NextResponse.redirect(new URL("/auth/signin", req.nextUrl));
   }
 
   return NextResponse.next();

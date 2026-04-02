@@ -2,11 +2,41 @@
 
 ## Status
 
-Not Started
+In Progress
 
 ## Goals
 
+- Add Credentials provider for email/password authentication with registration
+- Use bcryptjs for password hashing
+- Add password field to User model via migration if not already there
+- Update `auth.config.ts` with Credentials provider placeholder
+- Update `auth.ts` to override Credentials with bcrypt validation
+- Create registration API route at `/api/auth/register`
+
 ## Notes
+
+### Registration API Route
+`POST /api/auth/register`
+- Accept: name, email, password, confirmPassword
+- Validate passwords match
+- Check if user already exists
+- Hash password with bcryptjs
+- Create user in database
+- Return success/error response
+
+### Credentials Provider in Split Pattern
+- `auth.config.ts`: Add Credentials provider with `authorize: () => null` placeholder
+- `auth.ts`: Override the Credentials provider with actual bcrypt validation logic
+
+### Testing
+1. Test registration via curl
+2. Go to `/api/auth/signin`
+3. Sign in with email/password
+4. Verify redirect to `/dashboard`
+5. Verify Google OAuth still works
+
+### Source Spec
+- [auth-spec-phase2.md](context/features/auth-spec-files/auth-spec-phase2.md)
 
 ## History
 
