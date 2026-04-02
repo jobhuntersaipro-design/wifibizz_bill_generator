@@ -18,7 +18,7 @@ def fetch_case(case_no):
     conn = psycopg2.connect(database_url)
     cur = conn.cursor()
     cur.execute(
-        'SELECT case_no, full_name, mobile FROM wifibizz_cases WHERE case_no = %s',
+        'SELECT case_no, full_name, full_address, mobile FROM wifibizz_cases WHERE case_no = %s',
         (case_no,)
     )
     row = cur.fetchone()
@@ -29,7 +29,7 @@ def fetch_case(case_no):
         print(f'Error: No case found with case_no = {case_no}')
         sys.exit(1)
 
-    return {'case_no': row[0], 'full_name': row[1], 'mobile': row[2]}
+    return {'case_no': row[0], 'full_name': row[1], 'full_address': row[2], 'mobile': row[3]}
 
 
 # ── Original values (from the source PDF) ──────────────────────────
@@ -46,6 +46,64 @@ ORIG_PAYMENT_TIME = '151229'      # 15:12:29
 
 # Original mobile number (page 2)
 ORIGINAL_MOBILE = '601135992046'  # 6011 359 92046
+
+# Original amounts (digit-only sequences, i.e. without decimal points)
+# The amounts are mathematically related:
+#   total = line_total + rounding = 72.08 + 0.02 = 72.10
+#   line_total = subtotal - discount_sub = 82.68 - 10.60 = 72.08
+#   subtotal = fee + tax = 78.00 + 4.68 = 82.68
+#   tax = fee * 0.06 = 78.00 * 0.06 = 4.68
+ORIG_TOTAL = '7210'       # 72.10 (bill total, previous balance, payment, etc.)
+ORIG_FEE = '7800'         # 78.00 (access fee)
+ORIG_TAX = '468'          # 4.68 (6% service tax)
+ORIG_SUBTOTAL = '8268'    # 82.68 (fee + tax)
+ORIG_LINE_TOTAL = '7208'  # 72.08 (subtotal - discount)
+
+# Original name and address positions on page 1 (for white-out overlay)
+# Name: "Mr FOO GUAN ZHENG" at y=646.75, x starts at 48.024
+# Address line 1: "30 JALAN BELIMBING INDAH D'BOULEVARD" at y=635.95, x=48.024
+# Address line 2: "43300 SERI KEMBANGAN SELANGOR MALAYSIA" at y=624.91, x=48.024
+NAME_ADDR_OVERLAY = {
+    'x': 48.024,
+    'name_y': 646.75,
+    'addr1_y': 635.95,
+    'addr2_y': 624.91,
+    'box_x': 44,        # white-out box left edge
+    'box_y': 621,       # white-out box bottom (below addr2 baseline)
+    'box_w': 290,       # wide enough for long names but stops before right column (x=343)
+    'box_h': 36,        # tall enough to cover name top (646.75 + ~8pt font = ~655)
+    'font_size': 7.92,
+}
+
+# Original TJ byte patterns to blank out (replace chars with spaces)
+# These are the exact TJ arrays from the template PDF stream
+BLANK_TJ_PATTERNS = [
+    # MCID 5: "M"
+    b'[(M)] TJ',
+    # MCID 6: "r FOO GUAN ZHENG"
+    b'[(r)-9( )-6(F)-44(O)-20(O)-48( )-6(G)-48(U)-19(A)-47(N)-19( )-6(Z)-44(H)-19(E)-45(N)-19(G)] TJ',
+    # MCID 8 addr line 1: "30 JALAN BELIMBING INDAH D'BOULEVARD "
+    b"[(3)-11(0)-11( )-5(J)-39(A)-14(L)-40(A)-14(N)-16( )-33(B)-14(E)-14(L)-40(I)-5(M)-47(B)-14(I)-5(N)-44(G)-16( )-5(I)-33(N)-16(D)-16(A)-42(H)-16( )-33(D)-16(')-7(B)-42(O)-16(U)-16(L)-40(E)-14(V)-42(A)-14(R)-44(D)-16( )] TJ",
+    # MCID 8 addr line 2: "43300 SERI KEMBANGAN SELANGOR MALAYSIA"
+    b'[(4)-11(3)-11(3)-11(0)-40(0)-11( )-33(S)-14(E)-14(R)-44(I)-5( )-5(K)-42(E)-14(M)-47(B)-14(A)-42(N)-16(G)-16(A)-42(N)-16( )-33(S)-14(E)-14(L)-40(A)-14(N)-44(G)-16(O)-45(R)-16( )-33(M)-18(A)-14(L)-40(A)-14(Y)-42(S)-14(I)-5(A)] TJ',
+]
+
+
+def blank_tj_pattern(pattern):
+    """Replace all printable chars inside (...) with spaces, preserving byte count."""
+    result = bytearray(pattern)
+    i = 0
+    while i < len(result):
+        if result[i] == 0x28:  # '('
+            j = i + 1
+            while j < len(result) and result[j] != 0x29:  # ')'
+                if result[j] != 0x5C:  # not backslash escape
+                    result[j] = 0x20  # space
+                j += 1
+            i = j + 1
+        else:
+            i += 1
+    return bytes(result)
 
 
 def compute_values(customer_mobile):
@@ -96,6 +154,21 @@ def compute_values(customer_mobile):
         mobile_digits = mobile_digits[:12]
     new_mobile = mobile_digits
 
+    # Random bill amount between 10.00 and 89.99 (4 digits to match original)
+    # Discount stays fixed at 10.00 (tax 0.60, subtotal 10.60), rounding at 0.02
+    new_total_cents = random.randint(1000, 8999)
+    new_total = new_total_cents / 100.0
+    rounding = 0.02
+    discount_sub = 10.60
+    new_line_total = round(new_total - rounding, 2)
+    new_gross_sub = round(new_line_total + discount_sub, 2)
+    new_fee = round(new_gross_sub / 1.06, 2)
+    new_tax = round(new_gross_sub - new_fee, 2)
+
+    # Format as digit-only strings (remove decimal point)
+    def amt_digits(amount):
+        return f'{amount:.2f}'.replace('.', '')
+
     new_bill_date = ddmmyyyy(bill_date)
     new_period_start = ddmmyyyy(period_start)
     new_period_end = ddmmyyyy(period_end)
@@ -118,20 +191,94 @@ def compute_values(customer_mobile):
         'period_end': period_end,
         'due_date': due_date,
         'payment_date': payment_date,
+        'new_total': new_total,
+        'new_total_digits': amt_digits(new_total),
+        'new_fee_digits': amt_digits(new_fee),
+        'new_tax_digits': amt_digits(new_tax),
+        'new_subtotal_digits': amt_digits(new_gross_sub),
+        'new_line_total_digits': amt_digits(new_line_total),
     }
+
+def split_address(full_address):
+    """Split a full address into two lines matching the template layout.
+
+    Template format:
+      Line 1: street address (e.g. "NO 12 JALAN MERPATI 3 TAMAN BUKIT INDAH")
+      Line 2: postcode + city + state (e.g. "81200 JOHOR BAHRU JOHOR")
+
+    Handles two common formats:
+      - Postcode in middle: "... TAMAN BUKIT INDAH 81200 JOHOR BAHRU"
+      - Postcode at end: "... LAHAD DATU SABAH MALAYSIA 91100"
+    """
+    import re
+    # Clean up: replace commas with spaces, collapse whitespace
+    addr = re.sub(r',\s*', ' ', full_address).strip()
+    addr = re.sub(r'\s+', ' ', addr)
+
+    # Find all 5-digit postcode patterns (skip leading numbers like house/lot no)
+    matches = list(re.finditer(r'\b(\d{5})\b', addr))
+
+    if matches:
+        # Use the last 5-digit number as the postcode
+        # (first digits are often house/lot numbers like "99347292")
+        postcode_match = matches[-1]
+        postcode_pos = postcode_match.start()
+        postcode_end = postcode_match.end()
+
+        # Check if postcode is at the end of the address
+        after_postcode = addr[postcode_end:].strip()
+        if not after_postcode:
+            # Postcode at end — line 2 needs to be built differently
+            # Find a sensible split point before the postcode
+            before = addr[:postcode_pos].strip()
+            # Try to find state/city keywords to split at
+            # Look for the last occurrence of common separators
+            # Split roughly: keep street on line 1, city/state/postcode on line 2
+            words = before.split()
+            # Find where the "city" part starts — heuristic: after TAMAN/KAMPUNG etc.
+            # or just split at roughly half
+            mid = len(words) // 2
+            line1 = ' '.join(words[:mid])
+            line2 = ' '.join(words[mid:]) + ' ' + addr[postcode_pos:postcode_end]
+        else:
+            # Postcode in middle — standard format
+            line1 = addr[:postcode_pos].strip()
+            line2 = addr[postcode_pos:].strip()
+    else:
+        # No postcode found — split at roughly half
+        mid = len(addr) // 2
+        space = addr.find(' ', mid)
+        if space == -1:
+            space = addr.rfind(' ', 0, mid)
+        if space == -1:
+            line1 = addr
+            line2 = ''
+        else:
+            line1 = addr[:space].strip()
+            line2 = addr[space:].strip()
+
+    return line1, line2
+
 
 def build_replacements(v):
     """Build stream and text replacement lists from computed values."""
     stream_replacements = [
-        (ORIGINAL_BILL_DIGITS, v['new_bill_digits']),
-        (ORIGINAL_ACCOUNT, v['new_account']),
-        (ORIG_BILL_DATE, v['new_bill_date']),
+        # Longest first to avoid partial matches
+        (ORIGINAL_BILL_DIGITS, v['new_bill_digits']),    # 16 digits
+        (ORIGINAL_MOBILE, v['new_mobile']),                # 12 digits
+        (ORIGINAL_ACCOUNT, v['new_account']),              # 11 digits
+        (ORIG_BILL_DATE, v['new_bill_date']),              #  8 digits
         (ORIG_PERIOD_START, v['new_period_start']),
         (ORIG_PERIOD_END, v['new_period_end']),
         (ORIG_DUE_DATE, v['new_due_date']),
         (ORIG_PAYMENT_DATE, v['new_payment_date']),
-        (ORIG_PAYMENT_TIME, v['new_payment_time']),
-        (ORIGINAL_MOBILE, v['new_mobile']),
+        (ORIG_PAYMENT_TIME, v['new_payment_time']),        #  6 digits
+        # Amount replacements (4 digits, then 3 digits)
+        (ORIG_SUBTOTAL, v['new_subtotal_digits']),         #  4 digits: 82.68
+        (ORIG_LINE_TOTAL, v['new_line_total_digits']),     #  4 digits: 72.08
+        (ORIG_FEE, v['new_fee_digits']),                   #  4 digits: 78.00
+        (ORIG_TOTAL, v['new_total_digits']),               #  4 digits: 72.10
+        (ORIG_TAX, v['new_tax_digits']),                   #  3 digits: 4.68
     ]
 
     text_replacements = [
@@ -199,15 +346,95 @@ def replace_digit_sequence(buf, positions, old_str, new_str):
     return count
 
 
-def process_stream(stream_bytes, stream_replacements):
+def process_stream(stream_bytes, stream_replacements, blank_patterns=None):
     """Apply all digit-sequence replacements to a PDF content stream."""
     buf = bytearray(stream_bytes)
     total = 0
+
+    # Blank out original name/address TJ arrays (replace chars with spaces)
+    if blank_patterns:
+        for pattern in blank_patterns:
+            blanked = blank_tj_pattern(pattern)
+            idx = buf.find(pattern)
+            if idx >= 0:
+                buf[idx:idx + len(pattern)] = blanked
+                total += 1
+
     for old_str, new_str in stream_replacements:
         positions = collect_digit_positions(buf)
         count = replace_digit_sequence(buf, positions, old_str, new_str)
         total += count
     return bytes(buf), total
+
+
+def overlay_name_address(pdf, page, name, addr_line1, addr_line2):
+    """Overlay new name and address text on page 1 using a standard font.
+
+    Draws a white rectangle over the original name/address area, then
+    writes new text using Helvetica-Bold (name) and Helvetica (address).
+    """
+    o = NAME_ADDR_OVERLAY
+    fs = o['font_size']
+
+    # Register Helvetica and Helvetica-Bold as page fonts
+    resources = page['/Resources']
+    fonts = resources['/Font']
+
+    # Add standard fonts if not already present
+    if '/FHB' not in fonts:
+        fonts[pikepdf.Name('/FHB')] = pdf.make_indirect(pikepdf.Dictionary({
+            '/Type': pikepdf.Name('/Font'),
+            '/Subtype': pikepdf.Name('/Type1'),
+            '/BaseFont': pikepdf.Name('/Helvetica-Bold'),
+        }))
+    if '/FH' not in fonts:
+        fonts[pikepdf.Name('/FH')] = pdf.make_indirect(pikepdf.Dictionary({
+            '/Type': pikepdf.Name('/Font'),
+            '/Subtype': pikepdf.Name('/Type1'),
+            '/BaseFont': pikepdf.Name('/Helvetica'),
+        }))
+
+    # Escape text for PDF string literal
+    def esc(text):
+        return text.replace('\\', '\\\\').replace('(', '\\(').replace(')', '\\)')
+
+    # Build overlay content stream:
+    # 1. White rectangle over original name/address
+    # 2. New text using standard fonts
+    overlay = (
+        f'q\n'
+        f'1 1 1 rg\n'  # white fill
+        f'{o["box_x"]} {o["box_y"]} {o["box_w"]} {o["box_h"]} re f\n'
+        f'Q\n'
+        f'BT\n'
+        f'/FHB {fs} Tf\n'
+        f'0 g\n'
+        f'{o["x"]} {o["name_y"]} Td\n'
+        f'({esc("Mr " + name)}) Tj\n'
+        f'ET\n'
+        f'BT\n'
+        f'/FH {fs} Tf\n'
+        f'0 g\n'
+        f'{o["x"]} {o["addr1_y"]} Td\n'
+        f'({esc(addr_line1)}) Tj\n'
+        f'ET\n'
+        f'BT\n'
+        f'/FH {fs} Tf\n'
+        f'0 g\n'
+        f'{o["x"]} {o["addr2_y"]} Td\n'
+        f'({esc(addr_line2)}) Tj\n'
+        f'ET\n'
+    )
+
+    # Append overlay as a new content stream
+    overlay_stream = pdf.make_stream(overlay.encode('latin-1'))
+    contents = page.get('/Contents')
+    if isinstance(contents, pikepdf.Array):
+        contents.append(overlay_stream)
+    else:
+        page[pikepdf.Name('/Contents')] = pikepdf.Array([contents, overlay_stream])
+
+    return 3  # 3 text replacements (name + 2 address lines)
 
 
 def replace_in_text(text, text_replacements):
@@ -230,11 +457,17 @@ def main():
     print(f'Fetching case {case_no} from database...')
     case = fetch_case(case_no)
     print(f'  Customer: {case["full_name"]}')
+    print(f'  Address : {case["full_address"]}')
     print(f'  Mobile  : {case["mobile"]}')
 
     # Compute replacement values using customer mobile from DB
     v = compute_values(case['mobile'])
     stream_replacements, text_replacements = build_replacements(v)
+
+    # Split address into two lines matching the template layout
+    addr_line1, addr_line2 = split_address(case['full_address'])
+    print(f'  Addr L1 : {addr_line1}')
+    print(f'  Addr L2 : {addr_line2}')
 
     # Resolve paths relative to this script's directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -260,10 +493,20 @@ def main():
         page_count = 0
         for stream in streams:
             raw = stream.read_bytes()
-            modified, count = process_stream(raw, stream_replacements)
+            # Blank out original name/address on page 1 before digit replacement
+            blanks = BLANK_TJ_PATTERNS if page_num == 0 else None
+            modified, count = process_stream(raw, stream_replacements, blanks)
             if count > 0:
                 stream.write(modified)
                 page_count += count
+
+        # Overlay name and address on page 1 using standard fonts
+        if page_num == 0:
+            overlay_count = overlay_name_address(
+                pdf, page, case['full_name'], addr_line1, addr_line2
+            )
+            page_count += overlay_count
+
         if page_count:
             print(f'  Page {page_num + 1}: {page_count} replacement(s)')
             total += page_count
@@ -310,7 +553,9 @@ def main():
     pdf.close()
 
     print(f'\nTotal: {total} replacements')
-    print(f'  Customer     : {case["full_name"]}')
+    print(f'  Name         : FOO GUAN ZHENG -> {case["full_name"]}')
+    print(f'  Address L1   : 30 JALAN BELIMBING INDAH D\'BOULEVARD -> {addr_line1}')
+    print(f'  Address L2   : 43300 SERI KEMBANGAN SELANGOR MALAYSIA -> {addr_line2}')
     print(f'  Account      : {ORIGINAL_ACCOUNT} -> {v["new_account"]}')
     print(f'  Bill No      : INV{ORIGINAL_BILL_DIGITS} -> INV{v["new_bill_digits"]}')
     print(f'  Bill Date    : {ORIG_BILL_DATE} -> {v["new_bill_date"]}')
@@ -319,6 +564,11 @@ def main():
     print(f'  Payment Date : {ORIG_PAYMENT_DATE} -> {v["new_payment_date"]}')
     print(f'  Payment Time : {ORIG_PAYMENT_TIME} -> {v["new_payment_time"]}')
     print(f'  Mobile No    : {ORIGINAL_MOBILE} -> {v["new_mobile"]}')
+    print(f'  Amount Due   : 72.10 -> {v["new_total"]:.2f}')
+    print(f'  Access Fee   : 78.00 -> {float(v["new_fee_digits"])/100:.2f}')
+    print(f'  Tax          : 4.68 -> {float(v["new_tax_digits"])/100:.2f}')
+    print(f'  Subtotal     : 82.68 -> {float(v["new_subtotal_digits"])/100:.2f}')
+    print(f'  Line Total   : 72.08 -> {float(v["new_line_total_digits"])/100:.2f}')
     print(f'Saved to: {output_path}')
 
 
