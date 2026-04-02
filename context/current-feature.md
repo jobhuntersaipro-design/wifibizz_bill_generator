@@ -1,30 +1,23 @@
-# Current Feature: Phase 1 — Core Crawler + Storage (MVP)
+# Current Feature
+
+<!-- Feature Name -->
 
 ## Status
 
-In Progress
+<!-- Not Started|In Progress|Completed -->
+
+Not Started
 
 ## Goals
 
-- End-to-end crawl: user provides WifiBizz credentials → system logs in, crawls activated Home Fibre cases, stores in Neon PostgreSQL
-- Implement WifiBizz authentication flow (CSRF extraction, session cookies, login POST)
-- Query Laravel DataTables API for Home Fibre cases, filter for `status = Activated`
-- Upsert activated cases into `wifibizz_cases` table (scoped per user)
-- Store user credentials encrypted (AES-256) in `wifibizz_users` table
-- `POST /api/crawl` — trigger crawl with email + password
-- `GET /api/cases` — return paginated activated cases for a user
-- Deploy to Vercel with Neon PostgreSQL backend
-- No UI required for MVP
+<!-- Goals & requirements -->
 
 ## Notes
 
-- Crawler replicates a browser session using native `fetch` + Cheerio (no Selenium)
-- DataTables API returns paginated JSON — currently ~50 records fit in 1 call
-- Only "Activated" cases are saved; other statuses (Rejected, Processed, Pending) are discarded
-- Per-user data isolation via `user_id` FK and `UNIQUE(user_id, case_no)` for safe upserts
-- Environment variables needed: `DATABASE_URL`, `WIFIBIZZ_BASE_URL`, `ENCRYPTION_KEY`
-- Full spec: [phase-1-core-crawler.md](features/phase-1-core-crawler.md)
+<!-- Any extra notes -->
 
 ## History
 
 <!-- Keep this updated. Earliest to latest -->
+
+- **Phase 1 — Core Crawler + Storage (MVP)** (2026-04-02): WifiBizz crawler scrapes Home Fibre and Business Fibre activated cases via DataTables API, stores with full address in Neon PostgreSQL. AES-256 credential encryption. POST /api/crawl and GET /api/cases endpoints. 17 activated cases (13 Home + 4 Business) crawled and verified.
