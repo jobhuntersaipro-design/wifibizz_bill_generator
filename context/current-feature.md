@@ -1,20 +1,26 @@
-# Current Feature
-
-<!-- Feature Name -->
+# Current Feature: Integrate Bill Generator with Neon DB
 
 ## Status
 
-<!-- Not Started|In Progress|Completed -->
-
-Not Started
+In Progress
 
 ## Goals
 
-<!-- Goals & requirements -->
+- Integrate `bill_generator/generate-utility-bill.py` to read customer data (name, mobile) from Neon `wifibizz_cases` table
+- Use `bill_generator/template/internet_bill.pdf` as the PDF template
+- Output naming convention: `utility_bill_{case_no}.pdf` under `bill_generator/output/`
+- Accept `case_no` as input parameter to generate a bill for a specific case
+- Replace the mobile number in the PDF with the customer's real mobile from DB
+- Keep existing randomization logic for account number, bill number, dates
+- Test with case_no `202624115` (MUHAMMAD SAHINU BIN INSANU, +60137089093)
 
 ## Notes
 
-<!-- Any extra notes -->
+- Test data seeded in Neon: case_no `202624115`, full_name `MUHAMMAD SAHINU BIN INSANU`, mobile `+60137089093`
+- Neon project ID: `dark-resonance-49985619`, database: `neondb`
+- The existing script uses hardcoded values and random mobile numbers — needs to be updated to fetch from DB
+- Template PDF is at `bill_generator/template/internet_bill.pdf` (was previously `sample/internet_bill.pdf`)
+- The mobile number in the template PDF is `601135992046` — will be replaced with customer's mobile from DB
 
 ## History
 
