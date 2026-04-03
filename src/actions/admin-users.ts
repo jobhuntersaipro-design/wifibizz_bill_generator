@@ -20,29 +20,34 @@ export async function getUsers() {
   const denied = await requireAdmin();
   if (denied) return { success: false, error: denied.error, data: [] };
 
-  const users = await prisma.user.findMany({
-    include: {
-      wifibizzUser: {
-        select: { wifibizzEmail: true, lastCrawlAt: true },
+  try {
+    const users = await prisma.user.findMany({
+      include: {
+        wifibizzUser: {
+          select: { wifibizzEmail: true, lastCrawlAt: true },
+        },
       },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+      orderBy: { createdAt: "desc" },
+    });
 
-  return {
-    success: true,
-    data: users.map((u) => ({
-      id: u.id,
-      name: u.name,
-      email: u.email,
-      passwordRaw: u.passwordRaw,
-      notes: u.notes,
-      caseLimit: u.caseLimit,
-      wifibizzEmail: u.wifibizzUser?.wifibizzEmail ?? null,
-      lastCrawlAt: u.wifibizzUser?.lastCrawlAt?.toISOString() ?? null,
-      createdAt: u.createdAt.toISOString(),
-    })),
-  };
+    return {
+      success: true,
+      data: users.map((u) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        passwordRaw: u.passwordRaw,
+        notes: u.notes,
+        caseLimit: u.caseLimit,
+        wifibizzEmail: u.wifibizzUser?.wifibizzEmail ?? null,
+        lastCrawlAt: u.wifibizzUser?.lastCrawlAt?.toISOString() ?? null,
+        createdAt: u.createdAt.toISOString(),
+      })),
+    };
+  } catch (err) {
+    console.error("getUsers error:", err);
+    return { success: false, error: "Failed to load users", data: [] };
+  }
 }
 
 export async function createUser(data: {

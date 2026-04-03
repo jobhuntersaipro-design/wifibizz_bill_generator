@@ -24,14 +24,22 @@ type ModalMode = "create" | "edit" | null;
 export function UserManagement() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [editingUser, setEditingUser] = useState<UserRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null);
 
   const loadUsers = useCallback(async () => {
-    const result = await getUsers();
-    if (result.success) {
-      setUsers(result.data);
+    try {
+      setError(null);
+      const result = await getUsers();
+      if (result.success) {
+        setUsers(result.data);
+      } else {
+        setError(result.error ?? "Failed to load users");
+      }
+    } catch {
+      setError("Failed to connect to server");
     }
     setLoading(false);
   }, []);
@@ -61,6 +69,19 @@ export function UserManagement() {
         <div className="flex flex-col items-center gap-3">
           <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />
           <p className="text-sm text-[#697386]">Loading users...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-white rounded-lg border border-[#E3E8EF] p-16">
+        <div className="flex flex-col items-center gap-3">
+          <p className="text-sm text-[#DF1B41]">{error}</p>
+          <Button onClick={() => { setLoading(true); loadUsers(); }} variant="outline" className="rounded-lg border-[#E3E8EF]">
+            Retry
+          </Button>
         </div>
       </div>
     );
