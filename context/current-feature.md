@@ -1,16 +1,20 @@
-# Current Feature
+# Current Feature: Root Redirect to Dashboard
 
 ## Status
 
-Not Started
+In Progress
 
 ## Goals
 
-<!-- Define goals here -->
+- When user visits https://bizzflow.top (root `/`), check if they are signed in
+- If not signed in, redirect to `/auth/signin`
+- If signed in, redirect to `/dashboard`
 
 ## Notes
 
-<!-- Additional context -->
+- This is about the root route (`/`) behavior only
+- Auth check should use the existing NextAuth session
+- Should work on both server-side navigation and direct URL access
 
 ## History
 

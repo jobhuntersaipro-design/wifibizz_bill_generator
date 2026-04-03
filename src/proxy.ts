@@ -8,16 +8,24 @@ export const proxy = auth(async (req) => {
   const isLoggedIn = !!req.auth;
   const { pathname } = req.nextUrl;
 
-  const isOnDashboard = pathname.startsWith("/dashboard");
   const isAuthRoute = pathname.startsWith("/api/auth");
+  const isSignInPage = pathname.startsWith("/auth/signin");
 
-  // Allow auth API routes to pass through
-  if (isAuthRoute) {
+  // Allow auth API routes and sign-in page to pass through
+  if (isAuthRoute || isSignInPage) {
     return NextResponse.next();
   }
 
+  // Root route: redirect based on auth status
+  if (pathname === "/") {
+    if (isLoggedIn) {
+      return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
+    }
+    return NextResponse.redirect(new URL("/auth/signin", req.nextUrl));
+  }
+
   // Redirect unauthenticated users away from dashboard
-  if (isOnDashboard && !isLoggedIn) {
+  if (pathname.startsWith("/dashboard") && !isLoggedIn) {
     return NextResponse.redirect(new URL("/auth/signin", req.nextUrl));
   }
 
@@ -25,5 +33,5 @@ export const proxy = auth(async (req) => {
 });
 
 export const config = {
-  matcher: ["/dashboard/:path*"],
+  matcher: ["/", "/dashboard/:path*"],
 };

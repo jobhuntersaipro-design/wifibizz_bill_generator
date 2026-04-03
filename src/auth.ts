@@ -6,7 +6,7 @@ import authConfig from "./auth.config";
 
 export const { auth, handlers, signIn, signOut } = NextAuth({
   ...authConfig,
-  session: { strategy: "jwt" },
+  session: { strategy: "jwt", maxAge: 60 * 60 * 24 * 7 },
   callbacks: {
     async signIn({ user }) {
       console.log("[auth] signIn callback, user:", user?.email);
