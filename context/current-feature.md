@@ -1,22 +1,16 @@
-# Current Feature: WifiBizz Crawler Integration
+# Current Feature
 
 ## Status
 
-In Progress
+Not Started
 
 ## Goals
 
-- Settings page: users can set their WifiBizz email and password (stored in `wifibizz_users` table instead of `.env`)
-- "New Crawl" button reads credentials from DB and triggers `crawler/scraper.ts`
-- Crawled data loads into `wifibizz_cases` table
-- Main dashboard shows `wifibizz_cases` in a paginated table (10/page) with all relevant columns
-- Fuzzy search bar above the table
+<!-- Goals will be added when a new feature is loaded -->
 
 ## Notes
 
-- Currently reads from `.env` (`WIFIBIZZ_EMAIL`, `WIFIBIZZ_PASSWORD`) — this is temporary
-- Credentials should be stored in `wifibizz_users` table (already exists in schema)
-- Reference: `context/project-overview.md` for data model and API details
+<!-- Notes will be added when a new feature is loaded -->
 
 ## History
 
@@ -33,3 +27,4 @@ In Progress
 - **Phase 9 — Root Redirect & Session Duration** (2026-04-03): Root route (/) redirects to /dashboard if signed in, /auth/signin if not, via proxy.ts middleware. JWT session maxAge reduced from 30-day default to 7 days.
 - **Phase 10 — Neon DB Cleanup** (2026-04-03): Dropped Account, Session, VerificationToken tables from both dev and prod branches. Removed emailVerified/image columns from User. Added notes (TEXT) and caseLimit (INT, default 10) to User. Created wifibizz_users and wifibizz_cases on dev branch (matching prod). Added User 1:1 WifibizzUser relationship via user_id_ref. Prisma schema updated with WifibizzUser and WifibizzCase models.
 - **Phase 11 — Case Limit per User** (2026-04-03): Per-user case limit (default 10) enforced on POST /api/crawl with 403 response when at limit and partial insert for remaining slots. GET /api/cases/usage endpoint returns current/limit/remaining. CaseUsage dashboard component with progress bar, red "Contact Us" banner at limit, amber warning at remaining <= 2. Auth required on crawl endpoint.
+- **Phase 12 — WifiBizz Crawler Integration** (2026-04-03): Settings page for WifiBizz credentials (AES-256 encrypted in DB). Crawl page triggers scraper using stored credentials with progress UI. Cases dashboard with sortable columns, expandable rows showing all fields, server-side sorting via sql.unsafe() with whitelist, fuzzy search, status/date filters, pagination. Fixed HTML stripping in status values (cheerio), case_url extraction fallback, agent_remark column added. Cleaned legacy HTML status values in Neon dev branch.
