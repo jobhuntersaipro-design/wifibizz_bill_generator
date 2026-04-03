@@ -1,24 +1,16 @@
-# Current Feature: Rate Limiting for Auth
+# Current Feature
 
 ## Status
 
-In Progress
+Not Started
 
 ## Goals
 
-- Add rate limiting to `/api/auth/callback/credentials` (login): 5 attempts per 15 min, keyed by IP + email
-- Use Upstash Redis with `@upstash/ratelimit` (sliding window algorithm)
-- Create reusable `src/lib/rate-limit.ts` utility
-- Return 429 with `Retry-After` header and user-friendly error message
-- Display error via toast notification on frontend
-- Fail open if Upstash is unavailable (allow request through)
+<!-- Define goals here -->
 
 ## Notes
 
-- Requires `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` env vars
-- Upstash free tier: 10k requests/day (sufficient for auth limiting)
-- Login limiting with NextAuth credentials may need custom sign-in handler
-- API returns JSON: `{ error: "Too many attempts. Please try again in X minutes." }`
+<!-- Additional context -->
 
 ## History
 
@@ -31,3 +23,4 @@ In Progress
 - **Phase 5 — Auth Credentials + Custom Sign-in UI** (2026-04-02): Credentials provider with split pattern (placeholder in auth.config.ts, bcrypt validation in auth.ts). Registration API at /api/auth/register with validation. Custom sign-in and register pages with split-panel gradient design. Vitest setup with 5 unit tests. Proxy redirects to /auth/signin.
 - **Phase 6 — Remove Registration & Google Sign-In** (2026-04-03): Removed /auth/register page, Google OAuth provider, and Google sign-in button. Credentials-only sign-in with server action. Added Sonner toast notifications and user-generator script for admin account creation.
 - **Phase 7 — Fix Sign-In & Logout** (2026-04-03): Replaced manual fetch to NextAuth callback with signIn() from next-auth/react. Added SessionProvider wrapper to root layout. Error message persists on invalid credentials. Validated with Playwright: sign-in, error display, dashboard redirect, logout, and session clearing all working.
+- **Phase 8 — Rate Limiting for Auth** (2026-04-03): Upstash Redis sliding window rate limiting (5 attempts/15 min) keyed by IP + email. Server action (src/actions/auth.ts) replaces client-side signIn() for rate limit integration. Reusable utility at src/lib/rate-limit.ts. Fails open if Upstash unavailable. Inline error message and toast notification on rate limit. Verified with Playwright.
