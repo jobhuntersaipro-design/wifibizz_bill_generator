@@ -33,5 +33,5 @@ export const proxy = auth(async (req) => {
 });
 
 export const config = {
-  matcher: ["/", "/dashboard/:path*"],
+  matcher: ["/", "/dashboard", "/dashboard/:path*"],
 };
