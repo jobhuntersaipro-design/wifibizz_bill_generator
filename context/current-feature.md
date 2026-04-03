@@ -1,12 +1,21 @@
-# Current Feature
+# Current Feature: Remove Registration & Google Sign-In
 
 ## Status
 
-Not Started
+In Progress
 
 ## Goals
 
+- Remove `/auth/register` page entirely (admin manually creates user accounts)
+- Remove Google OAuth provider from auth config
+- Remove Google sign-in button and "Create account" link from sign-in page
+- Keep credentials-only sign-in (email + password)
+
 ## Notes
+
+- Users will be given their credentials manually by admin
+- No self-registration needed
+- Sign-in page becomes the only auth entry point
 
 ## History
 

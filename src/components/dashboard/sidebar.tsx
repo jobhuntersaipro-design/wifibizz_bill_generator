@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -68,7 +69,10 @@ export function Sidebar() {
           <UserIcon className="w-4 h-4" />
           Profile
         </button>
-        <button className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors w-full">
+        <button
+          onClick={() => signOut({ callbackUrl: "/auth/signin" })}
+          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors w-full"
+        >
           <LogOutIcon className="w-4 h-4" />
           Logout
         </button>
