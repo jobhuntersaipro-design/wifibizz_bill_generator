@@ -1,21 +1,16 @@
-# Current Feature: Remove Registration & Google Sign-In
+# Current Feature
 
 ## Status
 
-In Progress
+Not Started
 
 ## Goals
 
-- Remove `/auth/register` page entirely (admin manually creates user accounts)
-- Remove Google OAuth provider from auth config
-- Remove Google sign-in button and "Create account" link from sign-in page
-- Keep credentials-only sign-in (email + password)
+<!-- Define goals here -->
 
 ## Notes
 
-- Users will be given their credentials manually by admin
-- No self-registration needed
-- Sign-in page becomes the only auth entry point
+<!-- Additional context -->
 
 ## History
 
@@ -26,3 +21,4 @@ In Progress
 - **Phase 3 — Dashboard UI Phase 1** (2026-04-02): ShadCN UI v4 initialized with Tailwind v4 CSS config. Dashboard route at /dashboard with sidebar navigation (Dashboard, Cases, Bills, Settings), top bar with search input and notifications, overview page with stats cards, recent cases table, and activity feed. Purple/indigo primary color theme.
 - **Phase 4 — Auth Setup (NextAuth v5)** (2026-04-02): NextAuth v5 with Credentials (email/password + bcrypt) and Google OAuth providers. Split auth config for edge compatibility. Prisma v7 schema with User/Account/Session/VerificationToken models using Neon adapter. Proxy at src/proxy.ts protects /dashboard/* routes, redirecting unauthenticated users to sign-in. JWT session strategy.
 - **Phase 5 — Auth Credentials + Custom Sign-in UI** (2026-04-02): Credentials provider with split pattern (placeholder in auth.config.ts, bcrypt validation in auth.ts). Registration API at /api/auth/register with validation. Custom sign-in and register pages with split-panel gradient design. Vitest setup with 5 unit tests. Proxy redirects to /auth/signin.
+- **Phase 6 — Remove Registration & Google Sign-In** (2026-04-03): Removed /auth/register page, Google OAuth provider, and Google sign-in button. Credentials-only sign-in with server action. Added Sonner toast notifications and user-generator script for admin account creation.
