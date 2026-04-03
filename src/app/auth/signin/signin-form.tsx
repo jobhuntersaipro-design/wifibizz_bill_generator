@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { signIn } from "next-auth/react";
+import { toast } from "sonner";
+import { login } from "@/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,27 +21,23 @@ export function SignInForm() {
     setError("");
     setIsLoading(true);
 
+    const formData = new FormData(e.currentTarget);
+    const email = formData.get("email") as string;
+    const password = formData.get("password") as string;
+
     try {
-      const formData = new FormData(e.currentTarget);
-      const email = formData.get("email") as string;
-      const password = formData.get("password") as string;
-
-      const result = await signIn("credentials", {
-        redirect: false,
-        email,
-        password,
-      });
-
-      setIsLoading(false);
+      const result = await login(email, password, callbackUrl);
 
       if (result?.error) {
-        setError("Invalid email or password");
-      } else {
-        window.location.href = callbackUrl;
+        setError(result.error);
+        if (result.rateLimited) {
+          toast.error(result.error);
+        }
       }
     } catch {
+      // NEXT_REDIRECT throws on successful sign-in — this is expected
+    } finally {
       setIsLoading(false);
-      setError("Something went wrong. Please try again.");
     }
   }
 
