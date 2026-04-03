@@ -2,13 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
@@ -60,55 +53,166 @@ export default function CrawlPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight">New Crawl</h1>
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-semibold text-[#0A2540]">Crawler</h1>
+        <p className="text-sm text-[#697386] mt-1">
+          Fetch activated cases from WifiBizz using your saved credentials
+        </p>
+      </div>
 
-      <Card className="max-w-xl">
-        <CardHeader>
-          <CardTitle className="text-base">Crawl WifiBizz</CardTitle>
-          <CardDescription>
-            Fetches all Home Fibre and Business Fibre cases from WifiBizz
-            using your saved credentials.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Button onClick={handleCrawl} disabled={crawling}>
-            {crawling ? "Crawling..." : "Start Crawl"}
-          </Button>
-
-          {crawling && (
-            <p className="text-sm text-muted-foreground">
-              This may take a moment. Do not close this page.
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* Crawl action card */}
+        <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden">
+          <div className="p-6">
+            <div className="w-10 h-10 rounded-lg bg-[#F6F9FC] flex items-center justify-center mb-5">
+              <CrawlerIcon className="w-5 h-5 text-[#635BFF]" />
+            </div>
+            <h2 className="text-base font-semibold text-[#0A2540] mb-1.5">
+              Start New Crawl
+            </h2>
+            <p className="text-sm text-[#697386] leading-relaxed mb-5">
+              Connects to WifiBizz and fetches all Home Fibre and Business Fibre
+              cases with &quot;Activated&quot; status. New cases will be added and existing
+              ones updated.
             </p>
-          )}
 
-          {result && (
-            <div className="rounded-lg border bg-muted/50 p-4 space-y-1 text-sm">
-              <p>
-                <span className="font-medium">Total cases found:</span>{" "}
-                {result.total}
-              </p>
-              <p>
-                <span className="font-medium">Saved to database:</span>{" "}
-                {result.saved}
-              </p>
-              {result.skipped > 0 && (
-                <p className="text-amber-600">
-                  <span className="font-medium">Skipped (limit):</span>{" "}
-                  {result.skipped}
-                </p>
+            <Button
+              onClick={handleCrawl}
+              disabled={crawling}
+              className="h-10 px-5 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] transition-colors duration-150"
+            >
+              {crawling ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  Crawling...
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <PlayIcon className="w-4 h-4" />
+                  Start Crawl
+                </span>
               )}
+            </Button>
+
+            {crawling && (
+              <p className="text-xs text-[#697386] mt-4 animate-pulse">
+                This may take a moment. Do not close this page.
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Result / info card */}
+        <div>
+          {result ? (
+            <div className="bg-white rounded-lg border border-[#E3E8EF] p-6">
+              <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center mb-5">
+                <CheckIcon className="w-5 h-5 text-[#09825D]" />
+              </div>
+              <h2 className="text-base font-semibold text-[#0A2540] mb-4">
+                Crawl Complete
+              </h2>
+
+              <div className="space-y-3">
+                <ResultRow label="Total cases found" value={result.total} />
+                <ResultRow label="Saved to database" value={result.saved} accent />
+                {result.skipped > 0 && (
+                  <ResultRow label="Skipped (limit)" value={result.skipped} warning />
+                )}
+              </div>
+
               <Button
                 variant="outline"
-                size="sm"
-                className="mt-3"
+                className="mt-5 rounded-lg border-[#E3E8EF] text-[#425466] hover:text-[#0A2540]"
                 onClick={() => router.push("/dashboard/cases")}
               >
                 View Cases
               </Button>
             </div>
+          ) : (
+            <div className="bg-[#F6F9FC] rounded-lg border border-[#E3E8EF] border-dashed p-6 flex flex-col items-center justify-center text-center h-full min-h-[280px]">
+              <div className="w-12 h-12 rounded-lg bg-white border border-[#E3E8EF] flex items-center justify-center mb-4">
+                <InfoIcon className="w-5 h-5 text-[#697386]" />
+              </div>
+              <h3 className="text-sm font-medium text-[#425466] mb-1">
+                Ready to crawl
+              </h3>
+              <p className="text-xs text-[#697386] max-w-[240px] leading-relaxed">
+                Hit &quot;Start Crawl&quot; to fetch the latest activated cases from your
+                WifiBizz account
+              </p>
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
+  );
+}
+
+function ResultRow({
+  label,
+  value,
+  accent,
+  warning,
+}: {
+  label: string;
+  value: number;
+  accent?: boolean;
+  warning?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between py-2 border-b border-[#E3E8EF]/60 last:border-0">
+      <span className="text-sm text-[#697386]">{label}</span>
+      <span
+        className={`text-base font-semibold tabular-nums ${
+          warning
+            ? "text-amber-600"
+            : accent
+              ? "text-[#09825D]"
+              : "text-[#0A2540]"
+        }`}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function CrawlerIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M12 12H3" />
+      <path d="M16 6H3" />
+      <path d="M12 18H3" />
+      <path d="m16 12 5 3-5 3v-6Z" />
+    </svg>
+  );
+}
+
+function PlayIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <polygon points="6 3 20 12 6 21 6 3" />
+    </svg>
+  );
+}
+
+function CheckIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+      <path d="m9 11 3 3L22 4" />
+    </svg>
+  );
+}
+
+function InfoIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 16v-4" />
+      <path d="M12 8h.01" />
+    </svg>
   );
 }

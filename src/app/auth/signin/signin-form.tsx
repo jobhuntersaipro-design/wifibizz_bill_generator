@@ -44,36 +44,26 @@ export function SignInForm() {
   return (
     <div className="flex min-h-screen">
       {/* Left panel — branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-indigo-600 via-purple-600 to-indigo-800 relative overflow-hidden">
+      <div className="hidden lg:flex lg:w-1/2 bg-[#0A2540] relative overflow-hidden">
         <div className="absolute inset-0">
-          <div className="absolute top-20 left-10 w-72 h-72 bg-white/10 rounded-full blur-3xl" />
-          <div className="absolute bottom-20 right-10 w-96 h-96 bg-purple-400/10 rounded-full blur-3xl" />
+          <div className="absolute top-20 left-10 w-72 h-72 bg-[#635BFF]/15 rounded-full blur-3xl" />
+          <div className="absolute bottom-20 right-10 w-96 h-96 bg-[#635BFF]/10 rounded-full blur-3xl" />
         </div>
         <div className="relative z-10 flex flex-col justify-center px-16 text-white">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center backdrop-blur-sm">
-              <svg
-                className="w-6 h-6 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={2}
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z"
-                />
+          <div className="flex items-center gap-3 mb-10">
+            <div className="w-10 h-10 bg-[#635BFF] rounded-lg flex items-center justify-center">
+              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z" />
               </svg>
             </div>
-            <span className="text-2xl font-bold tracking-tight">Bill Generator</span>
+            <span className="text-xl font-semibold tracking-tight">BizzFlow</span>
           </div>
-          <h1 className="text-4xl font-bold leading-tight mb-4">
+          <h1 className="text-3xl font-semibold leading-tight mb-4">
             Manage your fibre cases
             <br />
             and generate bills.
           </h1>
-          <p className="text-lg text-white/70 max-w-md">
+          <p className="text-base text-white/50 max-w-md leading-relaxed">
             Crawl activated cases, track customer data, and generate
             professional utility bills — all in one place.
           </p>
@@ -81,39 +71,30 @@ export function SignInForm() {
       </div>
 
       {/* Right panel — sign in form */}
-      <div className="flex w-full lg:w-1/2 items-center justify-center px-6 py-12">
+      <div className="flex w-full lg:w-1/2 items-center justify-center px-6 py-12 bg-white">
         <div className="w-full max-w-sm">
           {/* Mobile logo */}
-          <div className="lg:hidden flex items-center gap-2 mb-10">
-            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-              <svg
-                className="w-5 h-5 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={2}
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z"
-                />
+          <div className="lg:hidden flex items-center gap-2.5 mb-10">
+            <div className="w-9 h-9 bg-[#635BFF] rounded-lg flex items-center justify-center">
+              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z" />
               </svg>
             </div>
-            <span className="text-xl font-bold">WifiBizz</span>
+            <span className="text-lg font-semibold tracking-tight text-[#0A2540]">BizzFlow</span>
           </div>
 
           <div className="mb-8">
-            <h2 className="text-2xl font-bold tracking-tight">Welcome back</h2>
-            <p className="text-muted-foreground mt-1">
+            <h2 className="text-2xl font-semibold text-[#0A2540]">Welcome back</h2>
+            <p className="text-[#697386] mt-1.5 text-sm">
               Sign in to your account to continue
             </p>
           </div>
 
-          {/* Credentials form */}
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email Address</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="email" className="text-xs font-medium text-[#425466]">
+                Email Address
+              </Label>
               <Input
                 id="email"
                 name="email"
@@ -121,11 +102,14 @@ export function SignInForm() {
                 placeholder="you@example.com"
                 required
                 autoComplete="email"
+                className="rounded-lg h-10 border-[#E3E8EF] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20"
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="password" className="text-xs font-medium text-[#425466]">
+                Password
+              </Label>
               <div className="relative">
                 <Input
                   id="password"
@@ -134,11 +118,12 @@ export function SignInForm() {
                   placeholder="Enter your password"
                   required
                   autoComplete="current-password"
+                  className="rounded-lg h-10 pr-10 border-[#E3E8EF] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#697386] hover:text-[#0A2540] transition-colors"
                   tabIndex={-1}
                 >
                   {showPassword ? (
@@ -154,22 +139,33 @@ export function SignInForm() {
                 </button>
               </div>
               {error && (
-                <p className="text-sm text-black bg-red-100 border border-red-300 rounded-md px-3 py-2">
+                <div className="text-sm text-[#DF1B41] bg-red-50 border border-red-200 rounded-lg px-4 py-2.5">
                   {error}
-                </p>
+                </div>
               )}
             </div>
 
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? "Signing in..." : "Sign in"}
+            <Button
+              type="submit"
+              className="w-full h-10 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] transition-colors duration-150"
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  Signing in...
+                </span>
+              ) : (
+                "Sign in"
+              )}
             </Button>
           </form>
 
-          <p className="mt-4 text-center text-sm text-muted-foreground">
+          <p className="mt-6 text-center text-xs text-[#697386]">
             Have trouble signing in?{" "}
             <a
               href="mailto:jobhunters.ai.pro@gmail.com"
-              className="font-medium text-primary hover:underline"
+              className="font-medium text-[#635BFF] hover:text-[#0A2540] transition-colors"
             >
               Contact Us
             </a>

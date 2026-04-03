@@ -5,12 +5,6 @@ import { getUsers, createUser, updateUser, deleteUser } from "@/actions/admin-us
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { toast } from "sonner";
 
 interface UserRow {
@@ -63,95 +57,108 @@ export function UserManagement() {
 
   if (loading) {
     return (
-      <Card>
-        <CardContent className="py-12">
-          <p className="text-center text-muted-foreground text-sm">Loading users...</p>
-        </CardContent>
-      </Card>
+      <div className="bg-white rounded-lg border border-[#E3E8EF] p-16">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />
+          <p className="text-sm text-[#697386]">Loading users...</p>
+        </div>
+      </div>
     );
   }
 
   return (
     <>
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{users.length} user(s)</p>
-        <Button onClick={openCreate}>
+        <p className="text-sm text-[#697386]">
+          <span className="font-medium text-[#0A2540] tabular-nums">{users.length}</span> user{users.length !== 1 ? "s" : ""}
+        </p>
+        <Button onClick={openCreate} className="rounded-lg h-9 px-4 text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] transition-colors duration-150">
           <PlusIcon className="w-4 h-4 mr-2" />
           Create User
         </Button>
       </div>
 
       {/* Users table */}
-      <Card>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th className="text-left px-4 py-3 font-medium">Name</th>
-                  <th className="text-left px-4 py-3 font-medium">Email</th>
-                  <th className="text-left px-4 py-3 font-medium">Password</th>
-                  <th className="text-left px-4 py-3 font-medium">WifiBizz Email</th>
-                  <th className="text-left px-4 py-3 font-medium">Case Limit</th>
-                  <th className="text-left px-4 py-3 font-medium">Notes</th>
-                  <th className="text-left px-4 py-3 font-medium">Created</th>
-                  <th className="text-right px-4 py-3 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((user) => (
-                  <tr key={user.id} className="border-b last:border-0 hover:bg-muted/30">
-                    <td className="px-4 py-3">{user.name || "—"}</td>
-                    <td className="px-4 py-3">{user.email || "—"}</td>
-                    <td className="px-4 py-3">
-                      {user.passwordRaw ? (
-                        <PasswordCell password={user.passwordRaw} />
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {user.wifibizzEmail ? (
-                        <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
-                          {user.wifibizzEmail}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">Not set</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">{user.caseLimit}</td>
-                    <td className="px-4 py-3 max-w-[200px] truncate">{user.notes || "—"}</td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {new Date(user.createdAt).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-3 text-right space-x-2">
+      <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-[#E3E8EF]">
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Name</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Email</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Password</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">WifiBizz Email</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Case Limit</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Notes</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Created</th>
+                <th className="text-right px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#E3E8EF]/60">
+              {users.map((user) => (
+                <tr key={user.id} className="hover:bg-[#F6F9FC] transition-colors duration-100">
+                  <td className="px-4 py-3 font-medium text-[#0A2540]">{user.name || "—"}</td>
+                  <td className="px-4 py-3 text-[#425466]">{user.email || "—"}</td>
+                  <td className="px-4 py-3">
+                    {user.passwordRaw ? (
+                      <PasswordCell password={user.passwordRaw} />
+                    ) : (
+                      <span className="text-[#697386]">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {user.wifibizzEmail ? (
+                      <span className="inline-flex items-center text-[11px] font-medium bg-blue-50 text-blue-700 px-2 py-0.5 rounded-md">
+                        {user.wifibizzEmail}
+                      </span>
+                    ) : (
+                      <span className="text-[#697386] text-xs">Not set</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="inline-flex items-center text-xs font-medium bg-[#F6F9FC] text-[#0A2540] px-2 py-0.5 rounded-md tabular-nums">
+                      {user.caseLimit}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 max-w-[200px] truncate text-[#697386] text-xs">{user.notes || "—"}</td>
+                  <td className="px-4 py-3 text-xs text-[#697386] tabular-nums">
+                    {new Date(user.createdAt).toLocaleDateString()}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-1">
                       <button
                         onClick={() => openEdit(user)}
-                        className="text-xs text-primary hover:underline"
+                        className="inline-flex items-center px-2.5 py-1 text-xs font-medium text-[#635BFF] hover:bg-[#F6F9FC] rounded-md transition-colors"
                       >
                         Edit
                       </button>
                       <button
                         onClick={() => setDeleteTarget(user)}
-                        className="text-xs text-red-600 hover:underline"
+                        className="inline-flex items-center px-2.5 py-1 text-xs font-medium text-[#DF1B41] hover:bg-red-50 rounded-md transition-colors"
                       >
                         Delete
                       </button>
-                    </td>
-                  </tr>
-                ))}
-                {users.length === 0 && (
-                  <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
-                      No users found. Create one to get started.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {users.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="px-4 py-16 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="w-10 h-10 rounded-lg bg-[#F6F9FC] flex items-center justify-center mb-2">
+                        <UsersEmptyIcon className="w-5 h-5 text-[#697386]" />
+                      </div>
+                      <p className="text-sm font-medium text-[#0A2540]">No users found</p>
+                      <p className="text-xs text-[#697386]">Create one to get started</p>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       {/* Create/Edit Modal */}
       {modalMode && (
@@ -210,7 +217,7 @@ function UserFormModal({
     } else {
       result = await updateUser(user!.id, {
         ...data,
-        password: data.password || undefined, // don't update if empty
+        password: data.password || undefined,
       });
     }
 
@@ -226,36 +233,30 @@ function UserFormModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <Card className="w-full max-w-md mx-4">
-        <CardHeader>
-          <CardTitle className="text-base">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+      <div className="w-full max-w-md mx-4 bg-white rounded-lg border border-[#E3E8EF] shadow-xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-[#E3E8EF]">
+          <h2 className="text-sm font-semibold text-[#0A2540]">
             {mode === "create" ? "Create User" : "Edit User"}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+          </h2>
+        </div>
+        <div className="p-6">
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Name</Label>
-              <Input id="name" name="name" defaultValue={user?.name ?? ""} />
+            <div className="space-y-1.5">
+              <Label htmlFor="name" className="text-xs font-medium text-[#425466]">Name</Label>
+              <Input id="name" name="name" defaultValue={user?.name ?? ""} className="rounded-lg h-9 border-[#E3E8EF]" />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="email">Login Email</Label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                required
-                defaultValue={user?.email ?? ""}
-              />
+            <div className="space-y-1.5">
+              <Label htmlFor="email" className="text-xs font-medium text-[#425466]">Login Email</Label>
+              <Input id="email" name="email" type="email" required defaultValue={user?.email ?? ""} className="rounded-lg h-9 border-[#E3E8EF]" />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password">
+            <div className="space-y-1.5">
+              <Label htmlFor="password" className="text-xs font-medium text-[#425466]">
                 Password
                 {mode === "edit" && (
-                  <span className="text-muted-foreground font-normal ml-1">
+                  <span className="font-normal ml-1 text-[#697386]">
                     (leave blank to keep current)
                   </span>
                 )}
@@ -266,62 +267,53 @@ function UserFormModal({
                 type="password"
                 required={mode === "create"}
                 placeholder={mode === "edit" ? "••••••••" : ""}
+                className="rounded-lg h-9 border-[#E3E8EF]"
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="wifibizzEmail">WifiBizz Email</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="wifibizzEmail" className="text-xs font-medium text-[#425466]">WifiBizz Email</Label>
               <Input
                 id="wifibizzEmail"
                 name="wifibizzEmail"
                 type="email"
                 placeholder="user@wifibizz.com"
                 defaultValue={user?.wifibizzEmail ?? ""}
+                className="rounded-lg h-9 border-[#E3E8EF]"
               />
-              <p className="text-xs text-muted-foreground">
-                Only admin can set this. User will need to enter their WifiBizz password after login.
+              <p className="text-[11px] text-[#697386]">
+                Only admin can set this. User will enter their WifiBizz password after login.
               </p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="caseLimit">Case Limit</Label>
-                <Input
-                  id="caseLimit"
-                  name="caseLimit"
-                  type="number"
-                  min={0}
-                  defaultValue={user?.caseLimit ?? 10}
-                />
+              <div className="space-y-1.5">
+                <Label htmlFor="caseLimit" className="text-xs font-medium text-[#425466]">Case Limit</Label>
+                <Input id="caseLimit" name="caseLimit" type="number" min={0} defaultValue={user?.caseLimit ?? 10} className="rounded-lg h-9 border-[#E3E8EF]" />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="notes">Notes</Label>
-                <Input
-                  id="notes"
-                  name="notes"
-                  defaultValue={user?.notes ?? ""}
-                  placeholder="Optional"
-                />
+              <div className="space-y-1.5">
+                <Label htmlFor="notes" className="text-xs font-medium text-[#425466]">Notes</Label>
+                <Input id="notes" name="notes" defaultValue={user?.notes ?? ""} placeholder="Optional" className="rounded-lg h-9 border-[#E3E8EF]" />
               </div>
             </div>
 
             {error && (
-              <p className="text-sm text-black bg-red-100 border border-red-300 rounded-md px-3 py-2">
+              <div className="text-sm text-[#DF1B41] bg-red-50 border border-red-200 rounded-lg px-4 py-2.5">
                 {error}
-              </p>
+              </div>
             )}
 
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" onClick={onClose}>
+              <Button type="button" variant="outline" onClick={onClose} className="rounded-lg border-[#E3E8EF] text-[#425466]">
                 Cancel
               </Button>
-              <Button type="submit" disabled={saving}>
+              <Button type="submit" disabled={saving} className="rounded-lg bg-[#635BFF] hover:bg-[#0A2540] transition-colors duration-150">
                 {saving ? "Saving..." : mode === "create" ? "Create" : "Save Changes"}
               </Button>
             </div>
           </form>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }
@@ -351,31 +343,32 @@ function DeleteConfirmModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <Card className="w-full max-w-sm mx-4">
-        <CardHeader>
-          <CardTitle className="text-base">Delete User</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+      <div className="w-full max-w-sm mx-4 bg-white rounded-lg border border-[#E3E8EF] shadow-xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-[#E3E8EF]">
+          <h2 className="text-sm font-semibold text-[#0A2540]">Delete User</h2>
+        </div>
+        <div className="p-6 space-y-4">
+          <p className="text-sm text-[#697386] leading-relaxed">
             Are you sure you want to delete{" "}
-            <strong>{user.name || user.email}</strong>? This will also remove
+            <strong className="text-[#0A2540]">{user.name || user.email}</strong>? This will also remove
             their WifiBizz data and cases. This action cannot be undone.
           </p>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose}>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="outline" onClick={onClose} className="rounded-lg border-[#E3E8EF] text-[#425466]">
               Cancel
             </Button>
             <Button
               variant="destructive"
               onClick={handleDelete}
               disabled={deleting}
+              className="rounded-lg bg-[#DF1B41] hover:bg-[#DF1B41]/90"
             >
               {deleting ? "Deleting..." : "Delete"}
             </Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }
@@ -384,13 +377,13 @@ function PasswordCell({ password }: { password: string }) {
   const [visible, setVisible] = useState(false);
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className="font-mono text-xs">
+      <span className="font-mono text-xs tabular-nums">
         {visible ? password : "••••••••"}
       </span>
       <button
         type="button"
         onClick={() => setVisible(!visible)}
-        className="text-muted-foreground hover:text-foreground"
+        className="text-[#697386] hover:text-[#0A2540] p-0.5 rounded transition-colors"
         title={visible ? "Hide password" : "Show password"}
       >
         {visible ? (
@@ -428,6 +421,17 @@ function PlusIcon({ className }: { className?: string }) {
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
       <path d="M5 12h14" />
       <path d="M12 5v14" />
+    </svg>
+  );
+}
+
+function UsersEmptyIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </svg>
   );
 }

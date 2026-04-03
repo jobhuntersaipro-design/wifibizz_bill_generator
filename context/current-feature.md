@@ -1,16 +1,28 @@
-# Current Feature
+# Current Feature: Redesign UI to Stripe Dashboard Style
 
 ## Status
 
-Not Started
+In Progress
 
 ## Goals
 
-<!-- Goals will be added when a new feature is loaded -->
+- Replace current purple/indigo theme with Stripe's clean, light-mode aesthetic
+- Adopt Inter font family with Stripe's typographic scale (24px titles, 18px section headings, 14px body, 12px metadata)
+- Apply Stripe color palette: `#0A2540` primary text, `#425466` secondary, `#697386` tertiary, `#635BFF` links/brand, `#F6F9FC` surface, `#E3E8EF` borders
+- Use font-weight 600 (semi-bold) for headings, 400 (regular) for body — avoid heavy bold
+- Apply `font-variant-numeric: tabular-nums` on all numeric data
+- Update all dashboard pages: overview, cases, crawl, settings
+- Update admin pages: login, dashboard, user management
+- Update auth pages: sign-in
+- Update sidebar, topbar, and shared layout components
+- Use JetBrains Mono or Roboto Mono for monospace/code-like data (IDs, case numbers)
 
 ## Notes
 
-<!-- Notes will be added when a new feature is loaded -->
+- Using Inter (free) instead of Söhne (Stripe's paid font)
+- Tailwind v4 — all theme config goes in `globals.css` via `@theme` directive, NOT in tailwind.config files
+- Keep all existing functionality intact — visual-only changes
+- Reference spec: `context/features/redesign-to-stripe-spec.md`
 
 ## History
 
