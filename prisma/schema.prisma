@@ -39,6 +39,7 @@ model WifibizzCase {
   userId        Int?          @map("user_id")
   user          WifibizzUser? @relation(fields: [userId], references: [id])
   caseNo        String        @map("case_no")
+  caseUrl       String?       @map("case_url")
   fullName      String?       @map("full_name")
   fullAddress   String?       @map("full_address")
   mobile        String?
