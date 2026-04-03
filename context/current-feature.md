@@ -2,22 +2,15 @@
 
 ## Status
 
-In Progress
+Not Started
 
 ## Goals
 
-- Admin page with separate login (BIZZFLOW_ADMIN_USERNAME / BIZZFLOW_ADMIN_PWD), inaccessible to normal users
-- Admin can CRUD users in the User table
-- Admin can set wifibizz_email on wifibizz_users but NOT wifibizz_password
-- After user login, wifibizz_email is read-only (set by Admin only); user must input their own wifibizz_password
-- One User can only have one wifibizz_email (1:1 relationship)
+<!-- Goals will be added when a new feature is loaded -->
 
 ## Notes
 
-- Spec: @context/features/admin-spec.md
-- Requires revamping the current data model for admin user management
-- Admin auth is separate from normal user NextAuth flow (env-based credentials)
-- wifibizz_password remains user-controlled; wifibizz_email is admin-controlled
+<!-- Notes will be added when a new feature is loaded -->
 
 ## History
 
@@ -35,3 +28,4 @@ In Progress
 - **Phase 10 — Neon DB Cleanup** (2026-04-03): Dropped Account, Session, VerificationToken tables from both dev and prod branches. Removed emailVerified/image columns from User. Added notes (TEXT) and caseLimit (INT, default 10) to User. Created wifibizz_users and wifibizz_cases on dev branch (matching prod). Added User 1:1 WifibizzUser relationship via user_id_ref. Prisma schema updated with WifibizzUser and WifibizzCase models.
 - **Phase 11 — Case Limit per User** (2026-04-03): Per-user case limit (default 10) enforced on POST /api/crawl with 403 response when at limit and partial insert for remaining slots. GET /api/cases/usage endpoint returns current/limit/remaining. CaseUsage dashboard component with progress bar, red "Contact Us" banner at limit, amber warning at remaining <= 2. Auth required on crawl endpoint.
 - **Phase 12 — WifiBizz Crawler Integration** (2026-04-03): Settings page for WifiBizz credentials (AES-256 encrypted in DB). Crawl page triggers scraper using stored credentials with progress UI. Cases dashboard with sortable columns, expandable rows showing all fields, server-side sorting via sql.unsafe() with whitelist, fuzzy search, status/date filters, pagination. Fixed HTML stripping in status values (cheerio), case_url extraction fallback, agent_remark column added. Cleaned legacy HTML status values in Neon dev branch.
+- **Phase 13 — Admin Page** (2026-04-03): Admin panel at /admin with env-based login (BIZZFLOW_ADMIN_USERNAME/PWD), JWT cookie auth via jose (8h expiry) separate from NextAuth. User CRUD: create/edit/delete with name, email, password, notes, case limit. Admin sets wifibizz_email per user; users see it read-only in settings and only enter their WifiBizz password. Password column with masked display and eye toggle. Route group structure to avoid layout conflicts. Added password_raw column to User model for admin visibility.
