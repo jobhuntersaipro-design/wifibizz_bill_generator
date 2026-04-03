@@ -1,28 +1,16 @@
-# Current Feature: Redesign UI to Stripe Dashboard Style
+# Current Feature
 
 ## Status
 
-In Progress
+Not Started
 
 ## Goals
 
-- Replace current purple/indigo theme with Stripe's clean, light-mode aesthetic
-- Adopt Inter font family with Stripe's typographic scale (24px titles, 18px section headings, 14px body, 12px metadata)
-- Apply Stripe color palette: `#0A2540` primary text, `#425466` secondary, `#697386` tertiary, `#635BFF` links/brand, `#F6F9FC` surface, `#E3E8EF` borders
-- Use font-weight 600 (semi-bold) for headings, 400 (regular) for body — avoid heavy bold
-- Apply `font-variant-numeric: tabular-nums` on all numeric data
-- Update all dashboard pages: overview, cases, crawl, settings
-- Update admin pages: login, dashboard, user management
-- Update auth pages: sign-in
-- Update sidebar, topbar, and shared layout components
-- Use JetBrains Mono or Roboto Mono for monospace/code-like data (IDs, case numbers)
+<!-- Goals will be added when a new feature is loaded -->
 
 ## Notes
 
-- Using Inter (free) instead of Söhne (Stripe's paid font)
-- Tailwind v4 — all theme config goes in `globals.css` via `@theme` directive, NOT in tailwind.config files
-- Keep all existing functionality intact — visual-only changes
-- Reference spec: `context/features/redesign-to-stripe-spec.md`
+<!-- Notes will be added when a new feature is loaded -->
 
 ## History
 
@@ -41,3 +29,4 @@ In Progress
 - **Phase 11 — Case Limit per User** (2026-04-03): Per-user case limit (default 10) enforced on POST /api/crawl with 403 response when at limit and partial insert for remaining slots. GET /api/cases/usage endpoint returns current/limit/remaining. CaseUsage dashboard component with progress bar, red "Contact Us" banner at limit, amber warning at remaining <= 2. Auth required on crawl endpoint.
 - **Phase 12 — WifiBizz Crawler Integration** (2026-04-03): Settings page for WifiBizz credentials (AES-256 encrypted in DB). Crawl page triggers scraper using stored credentials with progress UI. Cases dashboard with sortable columns, expandable rows showing all fields, server-side sorting via sql.unsafe() with whitelist, fuzzy search, status/date filters, pagination. Fixed HTML stripping in status values (cheerio), case_url extraction fallback, agent_remark column added. Cleaned legacy HTML status values in Neon dev branch.
 - **Phase 13 — Admin Page** (2026-04-03): Admin panel at /admin with env-based login (BIZZFLOW_ADMIN_USERNAME/PWD), JWT cookie auth via jose (8h expiry) separate from NextAuth. User CRUD: create/edit/delete with name, email, password, notes, case limit. Admin sets wifibizz_email per user; users see it read-only in settings and only enter their WifiBizz password. Password column with masked display and eye toggle. Route group structure to avoid layout conflicts. Added password_raw column to User model for admin visibility.
+- **Phase 14 — Redesign UI to Stripe Dashboard Style** (2026-04-03): Full visual redesign matching Stripe Dashboard aesthetic. Switched from Geist to Inter + JetBrains Mono fonts. Stripe color palette: #0A2540 primary text, #635BFF brand, #F6F9FC surface, #E3E8EF borders. Semi-bold (600) headings, tabular-nums on all numeric data. Updated 12 component files across dashboard, admin, and auth pages. Visual-only changes, all functionality preserved.
