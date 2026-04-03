@@ -2,22 +2,15 @@
 
 ## Status
 
-In Progress
+Not Started
 
 ## Goals
 
-- Add `getUserCaseUsage()` helper in `src/lib/case-limit.ts`
-- Enforce case limit on `POST /api/crawl` (return 403 when at limit, insert only up to remaining)
-- Add `GET /api/cases/usage` endpoint returning `{ current, limit, remaining }`
-- Add usage indicator UI on dashboard/cases page (progress bar + count)
-- Show "Contact Us" banner when at limit, disable crawl button
-- Show near-limit warning when remaining <= 2
+<!-- Define goals here -->
 
 ## Notes
 
-- caseLimit column already exists on User table (INT, default 10) from Phase 10
-- Spec: context/wifibizz-case-limit-spec.md
-- Edge cases: partial insert when crawl exceeds remaining, admin override, no deletion on limit decrease
+<!-- Additional context -->
 
 ## History
 
@@ -33,3 +26,4 @@ In Progress
 - **Phase 8 — Rate Limiting for Auth** (2026-04-03): Upstash Redis sliding window rate limiting (5 attempts/15 min) keyed by IP + email. Server action (src/actions/auth.ts) replaces client-side signIn() for rate limit integration. Reusable utility at src/lib/rate-limit.ts. Fails open if Upstash unavailable. Inline error message and toast notification on rate limit. Verified with Playwright.
 - **Phase 9 — Root Redirect & Session Duration** (2026-04-03): Root route (/) redirects to /dashboard if signed in, /auth/signin if not, via proxy.ts middleware. JWT session maxAge reduced from 30-day default to 7 days.
 - **Phase 10 — Neon DB Cleanup** (2026-04-03): Dropped Account, Session, VerificationToken tables from both dev and prod branches. Removed emailVerified/image columns from User. Added notes (TEXT) and caseLimit (INT, default 10) to User. Created wifibizz_users and wifibizz_cases on dev branch (matching prod). Added User 1:1 WifibizzUser relationship via user_id_ref. Prisma schema updated with WifibizzUser and WifibizzCase models.
+- **Phase 11 — Case Limit per User** (2026-04-03): Per-user case limit (default 10) enforced on POST /api/crawl with 403 response when at limit and partial insert for remaining slots. GET /api/cases/usage endpoint returns current/limit/remaining. CaseUsage dashboard component with progress bar, red "Contact Us" banner at limit, amber warning at remaining <= 2. Auth required on crawl endpoint.
