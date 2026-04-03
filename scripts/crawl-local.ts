@@ -14,11 +14,11 @@ async function main() {
   console.log("\nLogging in and crawling...");
 
   const user = await upsertUser(email, password);
-  const { activatedCases } = await crawl(email, password);
+  const { cases } = await crawl(email, password);
 
-  console.log(`Found ${activatedCases.length} activated cases.`);
+  console.log(`Found ${cases.length} cases.`);
 
-  const saved = await upsertCases(user.id, activatedCases);
+  const saved = await upsertCases(user.id, cases);
   await updateLastCrawl(user.id);
 
   console.log(`Saved ${saved} cases to database.`);

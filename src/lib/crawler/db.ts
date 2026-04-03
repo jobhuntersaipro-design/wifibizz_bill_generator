@@ -30,6 +30,7 @@ export async function createTables() {
       id              SERIAL PRIMARY KEY,
       user_id         INTEGER REFERENCES wifibizz_users(id),
       case_no         VARCHAR(20) NOT NULL,
+      case_url        TEXT,
       full_name       VARCHAR(255),
       full_address    TEXT,
       mobile          VARCHAR(50),
@@ -46,6 +47,11 @@ export async function createTables() {
       updated_at      TIMESTAMP DEFAULT NOW(),
       UNIQUE(user_id, case_no)
     )
+  `;
+
+  // Add case_url column if it doesn't exist (for existing tables)
+  await sql`
+    ALTER TABLE wifibizz_cases ADD COLUMN IF NOT EXISTS case_url TEXT
   `;
 }
 
@@ -100,6 +106,7 @@ export async function updateLastCrawl(userId: number) {
 
 export interface CaseData {
   case_no: string;
+  case_url: string;
   full_name: string;
   full_address: string;
   mobile: string;
@@ -110,6 +117,7 @@ export interface CaseData {
   order_no: string;
   agent: string;
   agent_remark: string;
+  status: string;
   case_created_at: string;
 }
 
@@ -120,15 +128,16 @@ export async function upsertCases(userId: number, cases: CaseData[]): Promise<nu
   for (const c of cases) {
     await sql`
       INSERT INTO wifibizz_cases (
-        user_id, case_no, full_name, full_address, mobile, email, id_no,
+        user_id, case_no, case_url, full_name, full_address, mobile, email, id_no,
         provider, package, order_no, agent, agent_remark,
         status, case_created_at, scraped_at, updated_at
       ) VALUES (
-        ${userId}, ${c.case_no}, ${c.full_name}, ${c.full_address}, ${c.mobile}, ${c.email}, ${c.id_no},
+        ${userId}, ${c.case_no}, ${c.case_url}, ${c.full_name}, ${c.full_address}, ${c.mobile}, ${c.email}, ${c.id_no},
         ${c.provider}, ${c.package}, ${c.order_no}, ${c.agent}, ${c.agent_remark},
-        'Activated', ${c.case_created_at}, NOW(), NOW()
+        ${c.status || 'Unknown'}, ${c.case_created_at}, NOW(), NOW()
       )
       ON CONFLICT (user_id, case_no) DO UPDATE SET
+        case_url = ${c.case_url},
         full_name = ${c.full_name},
         full_address = ${c.full_address},
         mobile = ${c.mobile},
@@ -139,6 +148,7 @@ export async function upsertCases(userId: number, cases: CaseData[]): Promise<nu
         order_no = ${c.order_no},
         agent = ${c.agent},
         agent_remark = ${c.agent_remark},
+        status = ${c.status || 'Unknown'},
         case_created_at = ${c.case_created_at},
         scraped_at = NOW(),
         updated_at = NOW()

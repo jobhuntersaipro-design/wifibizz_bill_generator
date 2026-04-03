@@ -178,47 +178,61 @@ async function fetchCaseAddress(
   return address;
 }
 
-// ── Step 4: Filter and extract activated cases ──
+// ── Step 4: Extract all cases ──
 
-function extractActivatedCases(records: Record<string, unknown>[]): CaseData[] {
-  return records
-    .filter((r) => {
-      const status = (r.status as string) || "";
-      return status.toLowerCase().includes("activated");
-    })
-    .map((r) => {
-      const appItem = (r.application_item as Record<string, unknown>) || {};
-      const appDetail = (r.application_detail as Record<string, unknown>) || {};
+export function extractCases(records: Record<string, unknown>[], baseUrl: string): CaseData[] {
+  return records.map((r) => {
+    const appItem = (r.application_item as Record<string, unknown>) || {};
+    const appDetail = (r.application_detail as Record<string, unknown>) || {};
 
-      const agentName = (r.agent_name as string) || "";
-      const staffId = (r.agent_staff_id as string) || "";
-      const agent = staffId ? `${agentName} (${staffId})` : agentName;
+    const agentName = (r.agent_name as string) || "";
+    const staffId = (r.agent_staff_id as string) || "";
+    const agent = staffId ? `${agentName} (${staffId})` : agentName;
 
-      // prefix_with_no contains HTML like <a href="...">202618596</a>
-      const rawCaseNo = (r.prefix_with_no as string) || "";
-      const caseNo = rawCaseNo.replace(/<[^>]*>/g, "").trim();
+    // prefix_with_no contains HTML like:
+    // <a href="/applications/162724?module=home_fibre&amp;application_no=202621915">202621915</a>
+    const rawCaseNo = (r.prefix_with_no as string) || "";
+    const caseNo = rawCaseNo.replace(/<[^>]*>/g, "").trim();
 
-      return {
-        case_no: caseNo,
-        full_name: (r.customer_name as string) || "",
-        full_address: "",
-        mobile: (r.customer_full_mobile_no as string) || "",
-        email: (r.customer_email as string) || "",
-        id_no: (r.customer_id_no as string) || "",
-        provider: (r.operator_name as string) || "",
-        package: (appItem.item_name as string) || (r.package as string) || "",
-        order_no: (appDetail.order_no as string) || (r.order_no as string) || "",
-        agent,
-        agent_remark: (r.agent_remark as string) || "",
-        case_created_at: (r.created_at as string) || "",
-      };
-    });
+    // Extract href from the anchor tag, decode HTML entities
+    const hrefMatch = rawCaseNo.match(/href="([^"]+)"/);
+    let caseUrl = hrefMatch
+      ? `${baseUrl}${hrefMatch[1].replace(/&amp;/g, "&")}`
+      : "";
+
+    // Fallback: build URL from record id + module if href extraction failed
+    if (!caseUrl && r.id) {
+      const module = (r.operator_type as string) || "home_fibre";
+      caseUrl = `${baseUrl}/applications/${r.id}?module=${module}${caseNo ? `&application_no=${caseNo}` : ""}`;
+    }
+
+    // status contains HTML like <span class="badge badge-success">Activated</span>
+    const rawStatus = (r.status as string) || "";
+    const statusText = cheerio.load(rawStatus).root().text().trim() || rawStatus.replace(/<[^>]*>/g, "").trim();
+
+    return {
+      case_no: caseNo,
+      case_url: caseUrl,
+      full_name: (r.customer_name as string) || "",
+      full_address: "",
+      mobile: (r.customer_full_mobile_no as string) || "",
+      email: (r.customer_email as string) || "",
+      id_no: (r.customer_id_no as string) || "",
+      provider: (r.operator_name as string) || "",
+      package: (appItem.item_name as string) || (r.package as string) || "",
+      order_no: (appDetail.order_no as string) || (r.order_no as string) || "",
+      agent,
+      agent_remark: (r.agent_remark as string) || "",
+      status: statusText,
+      case_created_at: (r.created_at as string) || "",
+    };
+  });
 }
 
 // ── Public API ──
 
 export interface CrawlResult {
-  activated: number;
+  total: number;
   saved: number;
   timestamp: string;
 }
@@ -226,7 +240,7 @@ export interface CrawlResult {
 export async function crawl(
   email: string,
   password: string
-): Promise<{ activatedCases: CaseData[] }> {
+): Promise<{ cases: CaseData[] }> {
   const baseUrl = getBaseUrl();
 
   const session = await login(baseUrl, email, password);
@@ -238,10 +252,10 @@ export async function crawl(
     allRecords.push(...records);
   }
 
-  const activatedCases = extractActivatedCases(allRecords);
+  const cases = extractCases(allRecords, baseUrl);
 
   // Fetch address from each case's detail page
-  for (const c of activatedCases) {
+  for (const c of cases) {
     const record = allRecords.find((r) => {
       const raw = (r.prefix_with_no as string) || "";
       return raw.replace(/<[^>]*>/g, "").trim() === c.case_no;
@@ -253,5 +267,5 @@ export async function crawl(
     }
   }
 
-  return { activatedCases };
+  return { cases };
 }

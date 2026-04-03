@@ -1,16 +1,22 @@
-# Current Feature
+# Current Feature: WifiBizz Crawler Integration
 
 ## Status
 
-Not Started
+In Progress
 
 ## Goals
 
-<!-- Define goals here -->
+- Settings page: users can set their WifiBizz email and password (stored in `wifibizz_users` table instead of `.env`)
+- "New Crawl" button reads credentials from DB and triggers `crawler/scraper.ts`
+- Crawled data loads into `wifibizz_cases` table
+- Main dashboard shows `wifibizz_cases` in a paginated table (10/page) with all relevant columns
+- Fuzzy search bar above the table
 
 ## Notes
 
-<!-- Additional context -->
+- Currently reads from `.env` (`WIFIBIZZ_EMAIL`, `WIFIBIZZ_PASSWORD`) — this is temporary
+- Credentials should be stored in `wifibizz_users` table (already exists in schema)
+- Reference: `context/project-overview.md` for data model and API details
 
 ## History
 

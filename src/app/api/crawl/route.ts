@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { crawl } from "@/lib/crawler/scraper";
-import { upsertUser, upsertCases, updateLastCrawl } from "@/lib/crawler/db";
+import { upsertCases, updateLastCrawl, decryptUserPassword } from "@/lib/crawler/db";
 import { getUserCaseUsage } from "@/lib/case-limit";
+import { prisma } from "@/lib/prisma";
 
-export async function POST(request: Request) {
+export async function POST() {
   try {
     const session = await auth();
     if (!session?.user?.id) {
@@ -14,12 +15,18 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = await request.json();
-    const { email, password } = body as { email?: string; password?: string };
+    // Get WifiBizz credentials from DB
+    const wifibizzUser = await prisma.wifibizzUser.findUnique({
+      where: { userId: session.user.id },
+    });
 
-    if (!email || !password) {
+    if (!wifibizzUser) {
       return NextResponse.json(
-        { success: false, error: "Email and password are required" },
+        {
+          success: false,
+          error: "no_credentials",
+          message: "Set your WifiBizz credentials in Settings first.",
+        },
         { status: 400 }
       );
     }
@@ -38,25 +45,29 @@ export async function POST(request: Request) {
       );
     }
 
-    // Upsert user with encrypted credentials
-    const user = await upsertUser(email, password);
+    // Decrypt password and crawl
+    const password = decryptUserPassword({
+      id: wifibizzUser.id,
+      wifibizz_email: wifibizzUser.wifibizzEmail,
+      wifibizz_password_enc: wifibizzUser.wifibizzPasswordEnc,
+      last_crawl_at: wifibizzUser.lastCrawlAt?.toISOString() ?? null,
+    });
 
-    // Crawl WifiBizz for activated cases
-    const { activatedCases } = await crawl(email, password);
+    const { cases } = await crawl(wifibizzUser.wifibizzEmail, password);
 
     // Only insert up to remaining slots
-    const casesToInsert = activatedCases.slice(0, usage.remaining);
-    const skipped = activatedCases.length - casesToInsert.length;
+    const casesToInsert = cases.slice(0, usage.remaining);
+    const skipped = cases.length - casesToInsert.length;
 
     // Save cases to database
-    const saved = await upsertCases(user.id, casesToInsert);
+    const saved = await upsertCases(wifibizzUser.id, casesToInsert);
 
     // Update last crawl timestamp
-    await updateLastCrawl(user.id);
+    await updateLastCrawl(wifibizzUser.id);
 
     return NextResponse.json({
       success: true,
-      activated: activatedCases.length,
+      total: cases.length,
       saved,
       skipped,
       timestamp: new Date().toISOString(),
