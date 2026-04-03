@@ -2,21 +2,15 @@
 
 ## Status
 
-In Progress
+Not Started
 
 ## Goals
-- Logout button did not clear cache, after manually clear cache, it works.
-- Fix sign-in function so it actually works (login + redirect to dashboard)
-- Show error message when invalid username or password is entered
-- Validate with Playwright testing
-- Logout 
+
+<!-- Define goals here -->
 
 ## Notes
 
-- Credentials-only sign-in (no Google OAuth)
-- Uses NextAuth v5 with JWT strategy
-- Sign-in form at /auth/signin posts to /api/auth/callback/credentials
-- Auth logic in src/auth.ts with bcrypt password comparison
+<!-- Additional context -->
 
 ## History
 
@@ -28,3 +22,4 @@ In Progress
 - **Phase 4 — Auth Setup (NextAuth v5)** (2026-04-02): NextAuth v5 with Credentials (email/password + bcrypt) and Google OAuth providers. Split auth config for edge compatibility. Prisma v7 schema with User/Account/Session/VerificationToken models using Neon adapter. Proxy at src/proxy.ts protects /dashboard/* routes, redirecting unauthenticated users to sign-in. JWT session strategy.
 - **Phase 5 — Auth Credentials + Custom Sign-in UI** (2026-04-02): Credentials provider with split pattern (placeholder in auth.config.ts, bcrypt validation in auth.ts). Registration API at /api/auth/register with validation. Custom sign-in and register pages with split-panel gradient design. Vitest setup with 5 unit tests. Proxy redirects to /auth/signin.
 - **Phase 6 — Remove Registration & Google Sign-In** (2026-04-03): Removed /auth/register page, Google OAuth provider, and Google sign-in button. Credentials-only sign-in with server action. Added Sonner toast notifications and user-generator script for admin account creation.
+- **Phase 7 — Fix Sign-In & Logout** (2026-04-03): Replaced manual fetch to NextAuth callback with signIn() from next-auth/react. Added SessionProvider wrapper to root layout. Error message persists on invalid credentials. Validated with Playwright: sign-in, error display, dashboard redirect, logout, and session clearing all working.
