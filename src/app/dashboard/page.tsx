@@ -6,6 +6,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { CaseUsage } from "@/components/dashboard/CaseUsage";
 
 export default function DashboardPage() {
   return (
@@ -73,20 +74,25 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Recent Activity */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Recent Activity</CardTitle>
-              <button className="text-xs text-muted-foreground">Filter</button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-              <p className="text-sm">No activity yet</p>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="space-y-6">
+          {/* Case Usage */}
+          <CaseUsage />
+
+          {/* Recent Activity */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">Recent Activity</CardTitle>
+                <button className="text-xs text-muted-foreground">Filter</button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                <p className="text-sm">No activity yet</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );

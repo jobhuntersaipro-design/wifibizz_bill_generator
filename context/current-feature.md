@@ -2,15 +2,22 @@
 
 ## Status
 
-Not Started
+In Progress
 
 ## Goals
 
-<!-- Define goals here -->
+- Add `getUserCaseUsage()` helper in `src/lib/case-limit.ts`
+- Enforce case limit on `POST /api/crawl` (return 403 when at limit, insert only up to remaining)
+- Add `GET /api/cases/usage` endpoint returning `{ current, limit, remaining }`
+- Add usage indicator UI on dashboard/cases page (progress bar + count)
+- Show "Contact Us" banner when at limit, disable crawl button
+- Show near-limit warning when remaining <= 2
 
 ## Notes
 
-<!-- Additional context -->
+- caseLimit column already exists on User table (INT, default 10) from Phase 10
+- Spec: context/wifibizz-case-limit-spec.md
+- Edge cases: partial insert when crawl exceeds remaining, admin override, no deletion on limit decrease
 
 ## History
 
