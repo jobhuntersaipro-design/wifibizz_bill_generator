@@ -2,15 +2,22 @@
 
 ## Status
 
-Not Started
+In Progress
 
 ## Goals
 
-<!-- Goals will be added when a new feature is loaded -->
+- Admin page with separate login (BIZZFLOW_ADMIN_USERNAME / BIZZFLOW_ADMIN_PWD), inaccessible to normal users
+- Admin can CRUD users in the User table
+- Admin can set wifibizz_email on wifibizz_users but NOT wifibizz_password
+- After user login, wifibizz_email is read-only (set by Admin only); user must input their own wifibizz_password
+- One User can only have one wifibizz_email (1:1 relationship)
 
 ## Notes
 
-<!-- Notes will be added when a new feature is loaded -->
+- Spec: @context/features/admin-spec.md
+- Requires revamping the current data model for admin user management
+- Admin auth is separate from normal user NextAuth flow (env-based credentials)
+- wifibizz_password remains user-controlled; wifibizz_email is admin-controlled
 
 ## History
 

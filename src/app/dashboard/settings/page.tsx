@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import {
-  saveWifibizzCredentials,
+  saveWifibizzPassword,
   getWifibizzCredentials,
 } from "@/actions/settings";
 import { toast } from "sonner";
@@ -21,7 +21,7 @@ export default function SettingsPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [saving, setSaving] = useState(false);
-  const [hasCredentials, setHasCredentials] = useState(false);
+  const [hasPassword, setHasPassword] = useState(false);
   const [lastCrawlAt, setLastCrawlAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -29,7 +29,7 @@ export default function SettingsPage() {
     getWifibizzCredentials().then((result) => {
       if (result.success && result.data) {
         setEmail(result.data.email);
-        setHasCredentials(true);
+        setHasPassword(result.data.hasPassword);
         setLastCrawlAt(result.data.lastCrawlAt);
       }
       setLoading(false);
@@ -40,14 +40,14 @@ export default function SettingsPage() {
     e.preventDefault();
     setSaving(true);
 
-    const result = await saveWifibizzCredentials(email, password);
+    const result = await saveWifibizzPassword(password);
 
     if (result.success) {
-      toast.success("Credentials saved successfully");
-      setHasCredentials(true);
+      toast.success("Password saved successfully");
+      setHasPassword(true);
       setPassword("");
     } else {
-      toast.error(result.error ?? "Failed to save credentials");
+      toast.error(result.error ?? "Failed to save password");
     }
 
     setSaving(false);
@@ -76,58 +76,67 @@ export default function SettingsPage() {
         <CardHeader>
           <CardTitle className="text-base">WifiBizz Credentials</CardTitle>
           <CardDescription>
-            {hasCredentials
-              ? "Your credentials are saved. Update them below if needed."
-              : "Enter your WifiBizz login to enable crawling."}
+            {email
+              ? "Your WifiBizz email is set by the administrator. Enter your password below."
+              : "No WifiBizz email has been assigned. Contact your administrator."}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="wifibizz-email">WifiBizz Email</Label>
-              <Input
-                id="wifibizz-email"
-                type="email"
-                placeholder="your@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="wifibizz-password">
-                WifiBizz Password
-                {hasCredentials && (
-                  <span className="text-muted-foreground font-normal ml-1">
-                    (leave blank to keep current)
-                  </span>
-                )}
-              </Label>
-              <Input
-                id="wifibizz-password"
-                type="password"
-                placeholder={hasCredentials ? "••••••••" : "Enter password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required={!hasCredentials}
-              />
-            </div>
+          {email ? (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="wifibizz-email">WifiBizz Email</Label>
+                <Input
+                  id="wifibizz-email"
+                  type="email"
+                  value={email}
+                  disabled
+                  className="bg-muted"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Set by administrator. Contact admin to change.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="wifibizz-password">
+                  WifiBizz Password
+                  {hasPassword && (
+                    <span className="text-muted-foreground font-normal ml-1">
+                      (leave blank to keep current)
+                    </span>
+                  )}
+                </Label>
+                <Input
+                  id="wifibizz-password"
+                  type="password"
+                  placeholder={hasPassword ? "••••••••" : "Enter your WifiBizz password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required={!hasPassword}
+                />
+              </div>
 
-            {lastCrawlAt && (
-              <p className="text-xs text-muted-foreground">
-                Last crawl:{" "}
-                {new Date(lastCrawlAt).toLocaleString()}
-              </p>
-            )}
+              {lastCrawlAt && (
+                <p className="text-xs text-muted-foreground">
+                  Last crawl:{" "}
+                  {new Date(lastCrawlAt).toLocaleString()}
+                </p>
+              )}
 
-            <Button type="submit" disabled={saving}>
-              {saving
-                ? "Saving..."
-                : hasCredentials
-                  ? "Update Credentials"
-                  : "Save Credentials"}
-            </Button>
-          </form>
+              <Button type="submit" disabled={saving}>
+                {saving
+                  ? "Saving..."
+                  : hasPassword
+                    ? "Update Password"
+                    : "Save Password"}
+              </Button>
+            </form>
+          ) : (
+            <p className="text-sm text-muted-foreground py-4">
+              Your administrator has not assigned a WifiBizz email to your account yet.
+              Please contact them to get started.
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>

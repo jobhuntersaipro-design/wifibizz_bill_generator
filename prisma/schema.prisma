@@ -12,6 +12,7 @@ model User {
   name          String?
   email         String?       @unique
   password      String?
+  passwordRaw   String?       @map("password_raw")
   notes         String?
   caseLimit     Int           @default(10)
   wifibizzUser  WifibizzUser?

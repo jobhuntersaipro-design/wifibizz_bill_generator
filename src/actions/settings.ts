@@ -1,33 +1,45 @@
 "use server";
 
 import { auth } from "@/auth";
-import { upsertUser, getUserByEmail } from "@/lib/crawler/db";
 import { prisma } from "@/lib/prisma";
+import { encrypt, decrypt } from "@/lib/crawler/encryption";
 
-export async function saveWifibizzCredentials(email: string, password: string) {
+const PLACEHOLDER_PASSWORD = "PLACEHOLDER_NEEDS_USER_INPUT";
+
+export async function saveWifibizzPassword(password: string) {
   const session = await auth();
   if (!session?.user?.id) {
     return { success: false, error: "Unauthorized" };
   }
 
-  if (!email || !password) {
-    return { success: false, error: "Email and password are required" };
+  if (!password) {
+    return { success: false, error: "Password is required" };
   }
 
   try {
-    // Upsert into wifibizz_users table (encrypts password)
-    const wifibizzUser = await upsertUser(email, password);
+    // Find the user's wifibizz record (email set by admin)
+    const wifibizzUser = await prisma.wifibizzUser.findUnique({
+      where: { userId: session.user.id },
+    });
 
-    // Link wifibizz_users to auth User via user_id_ref
+    if (!wifibizzUser) {
+      return {
+        success: false,
+        error: "No WifiBizz email assigned. Contact your administrator.",
+      };
+    }
+
+    // Update only the password
+    const encryptedPassword = encrypt(password);
     await prisma.wifibizzUser.update({
       where: { id: wifibizzUser.id },
-      data: { userId: session.user.id },
+      data: { wifibizzPasswordEnc: encryptedPassword },
     });
 
     return { success: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    console.error("Save credentials error:", message);
+    console.error("Save password error:", message);
     return { success: false, error: message };
   }
 }
@@ -41,7 +53,11 @@ export async function getWifibizzCredentials() {
   try {
     const wifibizzUser = await prisma.wifibizzUser.findUnique({
       where: { userId: session.user.id },
-      select: { wifibizzEmail: true, lastCrawlAt: true },
+      select: {
+        wifibizzEmail: true,
+        wifibizzPasswordEnc: true,
+        lastCrawlAt: true,
+      },
     });
 
     return {
@@ -49,6 +65,13 @@ export async function getWifibizzCredentials() {
       data: wifibizzUser
         ? {
             email: wifibizzUser.wifibizzEmail,
+            hasPassword: (() => {
+              try {
+                return decrypt(wifibizzUser.wifibizzPasswordEnc) !== PLACEHOLDER_PASSWORD;
+              } catch {
+                return false;
+              }
+            })(),
             lastCrawlAt: wifibizzUser.lastCrawlAt?.toISOString() ?? null,
           }
         : null,
