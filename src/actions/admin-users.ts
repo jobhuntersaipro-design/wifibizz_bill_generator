@@ -65,48 +65,53 @@ export async function createUser(data: {
     return { success: false, error: "Email and password are required" };
   }
 
-  const existing = await prisma.user.findUnique({ where: { email: data.email } });
-  if (existing) {
-    return { success: false, error: "A user with this email already exists" };
-  }
-
-  const hashedPassword = await bcrypt.hash(data.password, 12);
-
-  const user = await prisma.user.create({
-    data: {
-      name: data.name || null,
-      email: data.email,
-      password: hashedPassword,
-      passwordRaw: data.password,
-      notes: data.notes || null,
-      caseLimit: data.caseLimit ?? 10,
-    },
-  });
-
-  // If wifibizzEmail provided, create the WifibizzUser link
-  if (data.wifibizzEmail) {
-    // Check if wifibizz email already in use
-    const existingWb = await prisma.wifibizzUser.findUnique({
-      where: { wifibizzEmail: data.wifibizzEmail },
-    });
-    if (existingWb) {
-      // Clean up created user
-      await prisma.user.delete({ where: { id: user.id } });
-      return { success: false, error: "This WifiBizz email is already assigned to another user" };
+  try {
+    const existing = await prisma.user.findUnique({ where: { email: data.email } });
+    if (existing) {
+      return { success: false, error: "A user with this email already exists" };
     }
 
-    // Create wifibizz_users row with a placeholder encrypted password
-    const placeholderEnc = encrypt("PLACEHOLDER_NEEDS_USER_INPUT");
-    await prisma.wifibizzUser.create({
+    const hashedPassword = await bcrypt.hash(data.password, 12);
+
+    const user = await prisma.user.create({
       data: {
-        userId: user.id,
-        wifibizzEmail: data.wifibizzEmail,
-        wifibizzPasswordEnc: placeholderEnc,
+        name: data.name || null,
+        email: data.email,
+        password: hashedPassword,
+        passwordRaw: data.password,
+        notes: data.notes || null,
+        caseLimit: data.caseLimit ?? 10,
       },
     });
-  }
 
-  return { success: true };
+    // If wifibizzEmail provided, create the WifibizzUser link
+    if (data.wifibizzEmail) {
+      // Check if wifibizz email already in use
+      const existingWb = await prisma.wifibizzUser.findUnique({
+        where: { wifibizzEmail: data.wifibizzEmail },
+      });
+      if (existingWb) {
+        // Clean up created user
+        await prisma.user.delete({ where: { id: user.id } });
+        return { success: false, error: "This WifiBizz email is already assigned to another user" };
+      }
+
+      // Create wifibizz_users row with a placeholder encrypted password
+      const placeholderEnc = encrypt("PLACEHOLDER_NEEDS_USER_INPUT");
+      await prisma.wifibizzUser.create({
+        data: {
+          userId: user.id,
+          wifibizzEmail: data.wifibizzEmail,
+          wifibizzPasswordEnc: placeholderEnc,
+        },
+      });
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error("createUser error:", err);
+    return { success: false, error: "Failed to create user" };
+  }
 }
 
 export async function updateUser(
@@ -123,70 +128,75 @@ export async function updateUser(
   const denied = await requireAdmin();
   if (denied) return denied;
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    include: { wifibizzUser: true },
-  });
-  if (!user) return { success: false, error: "User not found" };
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { wifibizzUser: true },
+    });
+    if (!user) return { success: false, error: "User not found" };
 
-  // Check email uniqueness if changing
-  if (data.email && data.email !== user.email) {
-    const existing = await prisma.user.findUnique({ where: { email: data.email } });
-    if (existing) return { success: false, error: "A user with this email already exists" };
-  }
+    // Check email uniqueness if changing
+    if (data.email && data.email !== user.email) {
+      const existing = await prisma.user.findUnique({ where: { email: data.email } });
+      if (existing) return { success: false, error: "A user with this email already exists" };
+    }
 
-  // Update user fields
-  const updateData: Record<string, unknown> = {};
-  if (data.name !== undefined) updateData.name = data.name || null;
-  if (data.email !== undefined) updateData.email = data.email;
-  if (data.notes !== undefined) updateData.notes = data.notes || null;
-  if (data.caseLimit !== undefined) updateData.caseLimit = data.caseLimit;
-  if (data.password) {
-    updateData.password = await bcrypt.hash(data.password, 12);
-    updateData.passwordRaw = data.password;
-  }
+    // Update user fields
+    const updateData: Record<string, unknown> = {};
+    if (data.name !== undefined) updateData.name = data.name || null;
+    if (data.email !== undefined) updateData.email = data.email;
+    if (data.notes !== undefined) updateData.notes = data.notes || null;
+    if (data.caseLimit !== undefined) updateData.caseLimit = data.caseLimit;
+    if (data.password) {
+      updateData.password = await bcrypt.hash(data.password, 12);
+      updateData.passwordRaw = data.password;
+    }
 
-  await prisma.user.update({ where: { id: userId }, data: updateData });
+    await prisma.user.update({ where: { id: userId }, data: updateData });
 
-  // Handle wifibizzEmail changes
-  if (data.wifibizzEmail !== undefined) {
-    const newEmail = data.wifibizzEmail.trim() || null;
+    // Handle wifibizzEmail changes
+    if (data.wifibizzEmail !== undefined) {
+      const newEmail = data.wifibizzEmail.trim() || null;
 
-    if (newEmail && user.wifibizzUser) {
-      // Update existing
-      if (newEmail !== user.wifibizzUser.wifibizzEmail) {
+      if (newEmail && user.wifibizzUser) {
+        // Update existing
+        if (newEmail !== user.wifibizzUser.wifibizzEmail) {
+          const conflict = await prisma.wifibizzUser.findUnique({
+            where: { wifibizzEmail: newEmail },
+          });
+          if (conflict) return { success: false, error: "This WifiBizz email is already assigned to another user" };
+
+          await prisma.wifibizzUser.update({
+            where: { id: user.wifibizzUser.id },
+            data: { wifibizzEmail: newEmail },
+          });
+        }
+      } else if (newEmail && !user.wifibizzUser) {
+        // Create new link
         const conflict = await prisma.wifibizzUser.findUnique({
           where: { wifibizzEmail: newEmail },
         });
         if (conflict) return { success: false, error: "This WifiBizz email is already assigned to another user" };
 
-        await prisma.wifibizzUser.update({
-          where: { id: user.wifibizzUser.id },
-          data: { wifibizzEmail: newEmail },
+        const placeholderEnc = encrypt("PLACEHOLDER_NEEDS_USER_INPUT");
+        await prisma.wifibizzUser.create({
+          data: {
+            userId: userId,
+            wifibizzEmail: newEmail,
+            wifibizzPasswordEnc: placeholderEnc,
+          },
         });
+      } else if (!newEmail && user.wifibizzUser) {
+        // Remove link
+        await prisma.wifibizzUser.delete({ where: { id: user.wifibizzUser.id } });
       }
-    } else if (newEmail && !user.wifibizzUser) {
-      // Create new link
-      const conflict = await prisma.wifibizzUser.findUnique({
-        where: { wifibizzEmail: newEmail },
-      });
-      if (conflict) return { success: false, error: "This WifiBizz email is already assigned to another user" };
-
-      const placeholderEnc = encrypt("PLACEHOLDER_NEEDS_USER_INPUT");
-      await prisma.wifibizzUser.create({
-        data: {
-          userId: userId,
-          wifibizzEmail: newEmail,
-          wifibizzPasswordEnc: placeholderEnc,
-        },
-      });
-    } else if (!newEmail && user.wifibizzUser) {
-      // Remove link
-      await prisma.wifibizzUser.delete({ where: { id: user.wifibizzUser.id } });
     }
-  }
 
-  return { success: true };
+    return { success: true };
+  } catch (err) {
+    console.error("updateUser error:", err);
+    return { success: false, error: "Failed to update user" };
+  }
 }
 
 export async function deleteUser(userId: string): Promise<ActionResult> {
