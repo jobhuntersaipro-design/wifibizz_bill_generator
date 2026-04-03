@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { signIn } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,46 +14,33 @@ export function SignInForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>(null);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
-    if (timerRef.current) clearTimeout(timerRef.current);
     setIsLoading(true);
 
     try {
       const formData = new FormData(e.currentTarget);
+      const email = formData.get("email") as string;
+      const password = formData.get("password") as string;
 
-      // Get CSRF token
-      const csrfRes = await fetch("/api/auth/csrf");
-      const { csrfToken } = await csrfRes.json();
-
-      // POST directly to NextAuth credentials callback
-      const res = await fetch("/api/auth/callback/credentials", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          email: formData.get("email") as string,
-          password: formData.get("password") as string,
-          csrfToken,
-        }),
+      const result = await signIn("credentials", {
+        redirect: false,
+        email,
+        password,
       });
 
       setIsLoading(false);
 
-      // On success, the response URL will be the dashboard (redirect followed by fetch)
-      // On failure, the response URL will contain /auth/signin or error
-      if (res.url.includes("/auth/signin") || !res.ok) {
-        setError("Invalid username or password");
-        timerRef.current = setTimeout(() => setError(""), 3000);
+      if (result?.error) {
+        setError("Invalid email or password");
       } else {
         window.location.href = callbackUrl;
       }
     } catch {
       setIsLoading(false);
-      setError("Something went wrong");
-      timerRef.current = setTimeout(() => setError(""), 3000);
+      setError("Something went wrong. Please try again.");
     }
   }
 
