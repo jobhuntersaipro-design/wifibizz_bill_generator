@@ -8,52 +8,51 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(cuid())
+  id            String        @id @default(cuid())
   name          String?
-  email         String?   @unique
-  emailVerified DateTime?
-  image         String?
+  email         String?       @unique
   password      String?
-  accounts      Account[]
-  sessions      Session[]
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  notes         String?
+  caseLimit     Int           @default(10)
+  wifibizzUser  WifibizzUser?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 }
 
-model Account {
-  id                String  @id @default(cuid())
-  userId            String
-  type              String
-  provider          String
-  providerAccountId String
-  refresh_token     String?
-  access_token      String?
-  expires_at        Int?
-  token_type        String?
-  scope             String?
-  id_token          String?
-  session_state     String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+model WifibizzUser {
+  id                 Int             @id @default(autoincrement())
+  userId             String?         @unique @map("user_id_ref")
+  user               User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wifibizzEmail      String          @unique @map("wifibizz_email")
+  wifibizzPasswordEnc String         @map("wifibizz_password_enc")
+  lastCrawlAt        DateTime?       @map("last_crawl_at")
+  createdAt          DateTime?       @default(now()) @map("created_at")
+  updatedAt          DateTime?       @default(now()) @map("updated_at")
+  cases              WifibizzCase[]
 
-  @@unique([provider, providerAccountId])
+  @@map("wifibizz_users")
 }
 
-model Session {
-  id           String   @id @default(cuid())
-  sessionToken String   @unique
-  userId       String
-  expires      DateTime
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-}
+model WifibizzCase {
+  id            Int           @id @default(autoincrement())
+  userId        Int?          @map("user_id")
+  user          WifibizzUser? @relation(fields: [userId], references: [id])
+  caseNo        String        @map("case_no")
+  fullName      String?       @map("full_name")
+  fullAddress   String?       @map("full_address")
+  mobile        String?
+  email         String?
+  idNo          String?       @map("id_no")
+  provider      String?
+  package       String?
+  orderNo       String?       @map("order_no")
+  agent         String?
+  agentRemark   String?       @map("agent_remark")
+  status        String?       @default("Activated")
+  caseCreatedAt DateTime?     @map("case_created_at")
+  scrapedAt     DateTime?     @default(now()) @map("scraped_at")
+  updatedAt     DateTime?     @default(now()) @map("updated_at")
 
-model VerificationToken {
-  identifier String
-  token      String
-  expires    DateTime
-
-  @@unique([identifier, token])
+  @@unique([userId, caseNo])
+  @@map("wifibizz_cases")
 }

@@ -2,15 +2,22 @@
 
 ## Status
 
-Not Started
+In Progress
 
 ## Goals
 
-<!-- Define goals here -->
+- Delete Account, Session, VerificationToken tables from both dev and prod Neon branches (unused since we use JWT strategy and removed Google OAuth)
+- Migrate wifibizz_users and wifibizz_cases tables from production branch to development branch
+- Establish User 1:1 wifibizz_users relationship
+- Update Prisma schema to reflect the cleaned-up database
 
 ## Notes
 
-<!-- Additional context -->
+- Dev branch: br-falling-darkness-a1tw9pvy — has User, Account, Session, VerificationToken, _prisma_migrations
+- Prod branch: br-lucky-silence-a18nbxst — has all of dev + wifibizz_users, wifibizz_cases, and neon_auth.* tables
+- wifibizz_users already has FK from wifibizz_cases (user_id → wifibizz_users.id)
+- Need to add User → wifibizz_users link (1:1)
+- neon_auth schema tables are managed by Neon, leave them alone
 
 ## History
 
