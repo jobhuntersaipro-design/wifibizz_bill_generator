@@ -2,15 +2,21 @@
 
 ## Status
 
-Not Started
+In Progress
 
 ## Goals
-
-<!-- Define goals here -->
+- Logout button did not clear cache, after manually clear cache, it works.
+- Fix sign-in function so it actually works (login + redirect to dashboard)
+- Show error message when invalid username or password is entered
+- Validate with Playwright testing
+- Logout 
 
 ## Notes
 
-<!-- Additional context -->
+- Credentials-only sign-in (no Google OAuth)
+- Uses NextAuth v5 with JWT strategy
+- Sign-in form at /auth/signin posts to /api/auth/callback/credentials
+- Auth logic in src/auth.ts with bcrypt password comparison
 
 ## History
 
