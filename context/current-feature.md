@@ -1,20 +1,16 @@
-# Current Feature: Root Redirect to Dashboard
+# Current Feature
 
 ## Status
 
-In Progress
+Not Started
 
 ## Goals
 
-- When user visits https://bizzflow.top (root `/`), check if they are signed in
-- If not signed in, redirect to `/auth/signin`
-- If signed in, redirect to `/dashboard`
+<!-- Define goals here -->
 
 ## Notes
 
-- This is about the root route (`/`) behavior only
-- Auth check should use the existing NextAuth session
-- Should work on both server-side navigation and direct URL access
+<!-- Additional context -->
 
 ## History
 
@@ -28,3 +24,4 @@ In Progress
 - **Phase 6 — Remove Registration & Google Sign-In** (2026-04-03): Removed /auth/register page, Google OAuth provider, and Google sign-in button. Credentials-only sign-in with server action. Added Sonner toast notifications and user-generator script for admin account creation.
 - **Phase 7 — Fix Sign-In & Logout** (2026-04-03): Replaced manual fetch to NextAuth callback with signIn() from next-auth/react. Added SessionProvider wrapper to root layout. Error message persists on invalid credentials. Validated with Playwright: sign-in, error display, dashboard redirect, logout, and session clearing all working.
 - **Phase 8 — Rate Limiting for Auth** (2026-04-03): Upstash Redis sliding window rate limiting (5 attempts/15 min) keyed by IP + email. Server action (src/actions/auth.ts) replaces client-side signIn() for rate limit integration. Reusable utility at src/lib/rate-limit.ts. Fails open if Upstash unavailable. Inline error message and toast notification on rate limit. Verified with Playwright.
+- **Phase 9 — Root Redirect & Session Duration** (2026-04-03): Root route (/) redirects to /dashboard if signed in, /auth/signin if not, via proxy.ts middleware. JWT session maxAge reduced from 30-day default to 7 days.
