@@ -216,6 +216,7 @@ function UserFormModal({
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [showPassword, setShowPassword] = useState(mode === "create");
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -282,14 +283,28 @@ function UserFormModal({
                   </span>
                 )}
               </Label>
-              <Input
-                id="password"
-                name="password"
-                type="password"
-                required={mode === "create"}
-                placeholder={mode === "edit" ? "••••••••" : ""}
-                className="rounded-lg h-9 border-[#E3E8EF]"
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  required={mode === "create"}
+                  placeholder={mode === "edit" ? "••••••••" : ""}
+                  className="rounded-lg h-9 border-[#E3E8EF] pr-9"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#697386] hover:text-[#0A2540] transition-colors"
+                  title={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? (
+                    <EyeOffIcon className="w-4 h-4" />
+                  ) : (
+                    <EyeIcon className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
             </div>
 
             <div className="space-y-1.5">
