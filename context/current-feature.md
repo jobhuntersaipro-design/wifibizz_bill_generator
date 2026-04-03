@@ -2,22 +2,15 @@
 
 ## Status
 
-In Progress
+Not Started
 
 ## Goals
 
-- Delete Account, Session, VerificationToken tables from both dev and prod Neon branches (unused since we use JWT strategy and removed Google OAuth)
-- Migrate wifibizz_users and wifibizz_cases tables from production branch to development branch
-- Establish User 1:1 wifibizz_users relationship
-- Update Prisma schema to reflect the cleaned-up database
+<!-- Define goals here -->
 
 ## Notes
 
-- Dev branch: br-falling-darkness-a1tw9pvy — has User, Account, Session, VerificationToken, _prisma_migrations
-- Prod branch: br-lucky-silence-a18nbxst — has all of dev + wifibizz_users, wifibizz_cases, and neon_auth.* tables
-- wifibizz_users already has FK from wifibizz_cases (user_id → wifibizz_users.id)
-- Need to add User → wifibizz_users link (1:1)
-- neon_auth schema tables are managed by Neon, leave them alone
+<!-- Additional context -->
 
 ## History
 
@@ -32,3 +25,4 @@ In Progress
 - **Phase 7 — Fix Sign-In & Logout** (2026-04-03): Replaced manual fetch to NextAuth callback with signIn() from next-auth/react. Added SessionProvider wrapper to root layout. Error message persists on invalid credentials. Validated with Playwright: sign-in, error display, dashboard redirect, logout, and session clearing all working.
 - **Phase 8 — Rate Limiting for Auth** (2026-04-03): Upstash Redis sliding window rate limiting (5 attempts/15 min) keyed by IP + email. Server action (src/actions/auth.ts) replaces client-side signIn() for rate limit integration. Reusable utility at src/lib/rate-limit.ts. Fails open if Upstash unavailable. Inline error message and toast notification on rate limit. Verified with Playwright.
 - **Phase 9 — Root Redirect & Session Duration** (2026-04-03): Root route (/) redirects to /dashboard if signed in, /auth/signin if not, via proxy.ts middleware. JWT session maxAge reduced from 30-day default to 7 days.
+- **Phase 10 — Neon DB Cleanup** (2026-04-03): Dropped Account, Session, VerificationToken tables from both dev and prod branches. Removed emailVerified/image columns from User. Added notes (TEXT) and caseLimit (INT, default 10) to User. Created wifibizz_users and wifibizz_cases on dev branch (matching prod). Added User 1:1 WifibizzUser relationship via user_id_ref. Prisma schema updated with WifibizzUser and WifibizzCase models.
