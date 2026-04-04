@@ -6,11 +6,7 @@ Not Started
 
 ## Goals
 
-<!-- Goals will be added when a new feature is loaded -->
-
 ## Notes
-
-<!-- Notes will be added when a new feature is loaded -->
 
 ## History
 
@@ -30,3 +26,4 @@ Not Started
 - **Phase 12 — WifiBizz Crawler Integration** (2026-04-03): Settings page for WifiBizz credentials (AES-256 encrypted in DB). Crawl page triggers scraper using stored credentials with progress UI. Cases dashboard with sortable columns, expandable rows showing all fields, server-side sorting via sql.unsafe() with whitelist, fuzzy search, status/date filters, pagination. Fixed HTML stripping in status values (cheerio), case_url extraction fallback, agent_remark column added. Cleaned legacy HTML status values in Neon dev branch.
 - **Phase 13 — Admin Page** (2026-04-03): Admin panel at /admin with env-based login (BIZZFLOW_ADMIN_USERNAME/PWD), JWT cookie auth via jose (8h expiry) separate from NextAuth. User CRUD: create/edit/delete with name, email, password, notes, case limit. Admin sets wifibizz_email per user; users see it read-only in settings and only enter their WifiBizz password. Password column with masked display and eye toggle. Route group structure to avoid layout conflicts. Added password_raw column to User model for admin visibility.
 - **Phase 14 — Redesign UI to Stripe Dashboard Style** (2026-04-03): Full visual redesign matching Stripe Dashboard aesthetic. Switched from Geist to Inter + JetBrains Mono fonts. Stripe color palette: #0A2540 primary text, #635BFF brand, #F6F9FC surface, #E3E8EF borders. Semi-bold (600) headings, tabular-nums on all numeric data. Updated 12 component files across dashboard, admin, and auth pages. Visual-only changes, all functionality preserved.
+- **Phase 15 — UI Polish & Animations** (2026-04-04): Subtle animations across entire website: fade-in-up page entrances, staggered card/stat reveals, hover-lift cards, hover-glow buttons, press-effect interactions, floating orbs on sign-in, sidebar slide-in with staggered nav items, topbar drop-down, pulsing notification dot. Case list: replaced expandable rows with slide-in detail panel (sections with dividers, staggered field animations). Removed top search bar (kept Case List search). Unified case table font to 13px. Settings: password eye toggle, raw password display from DB, confirmation modal on password update.

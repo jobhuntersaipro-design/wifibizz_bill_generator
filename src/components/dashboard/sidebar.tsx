@@ -16,9 +16,9 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="flex flex-col w-[240px] border-r border-sidebar-border bg-sidebar min-h-screen">
+    <aside className="flex flex-col w-[240px] border-r border-sidebar-border bg-sidebar min-h-screen animate-fade-in-left" style={{ animationDuration: "400ms" }}>
       {/* Logo */}
-      <div className="flex items-center gap-2.5 px-5 py-5">
+      <div className="flex items-center gap-2.5 px-5 py-5 animate-fade-in" style={{ animationDelay: "150ms" }}>
         <div className="w-8 h-8 rounded-lg bg-[#635BFF] flex items-center justify-center">
           <WifiIcon className="w-4 h-4 text-white" />
         </div>
@@ -33,7 +33,7 @@ export function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-4 space-y-0.5">
+      <nav className="flex-1 px-3 py-4 space-y-0.5 stagger-children">
         {navItems.map((item) => {
           const isActive =
             item.href === "/dashboard"
@@ -44,15 +44,15 @@ export function Sidebar() {
               key={item.href}
               href={item.href}
               className={cn(
-                "group flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-150",
+                "group flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-150 animate-fade-in-left press-effect",
                 isActive
-                  ? "bg-[#635BFF] text-white"
+                  ? "bg-[#635BFF] text-white shadow-sm shadow-[#635BFF]/20"
                   : "text-[#425466] hover:bg-[#E3E8EF] hover:text-[#0A2540]"
               )}
             >
               <item.icon
                 className={cn(
-                  "w-[18px] h-[18px]",
+                  "w-[18px] h-[18px] transition-transform duration-200 group-hover:scale-110",
                   isActive ? "text-white" : ""
                 )}
               />
@@ -63,13 +63,13 @@ export function Sidebar() {
       </nav>
 
       {/* Bottom section */}
-      <div className="px-3 pb-4 space-y-1">
+      <div className="px-3 pb-4 space-y-1 animate-fade-in" style={{ animationDelay: "400ms" }}>
         <div className="border-t border-[#E3E8EF] my-3" />
         <button
           onClick={() => signOut({ callbackUrl: "/auth/signin" })}
-          className="group flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] text-[#425466] hover:bg-red-50 hover:text-[#DF1B41] transition-all duration-150 w-full"
+          className="group flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] text-[#425466] hover:bg-red-50 hover:text-[#DF1B41] transition-all duration-150 w-full press-effect"
         >
-          <LogOutIcon className="w-[18px] h-[18px]" />
+          <LogOutIcon className="w-[18px] h-[18px] transition-transform duration-200 group-hover:scale-110" />
           Logout
         </button>
       </div>

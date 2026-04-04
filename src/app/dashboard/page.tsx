@@ -61,7 +61,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       {/* Page header */}
-      <div>
+      <div className="animate-fade-in-up" style={{ animationDelay: "100ms" }}>
         <h1 className="text-2xl font-semibold text-[#0A2540]">
           Dashboard
         </h1>
@@ -71,7 +71,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 stagger-children">
         <StatCard
           label="Total Cases"
           value={loading ? "—" : String(data?.totalCases ?? 0)}
@@ -94,8 +94,8 @@ export default function DashboardPage() {
       {/* Two-column layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Recent Activated Cases */}
-        <div className="lg:col-span-2">
-          <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden">
+        <div className="lg:col-span-2 animate-fade-in-up" style={{ animationDelay: "300ms" }}>
+          <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden hover-lift">
             <div className="flex items-center justify-between px-5 pt-5 pb-3">
               <div>
                 <h2 className="text-sm font-semibold text-[#0A2540]">
@@ -161,9 +161,9 @@ export default function DashboardPage() {
         </div>
 
         {/* Right column */}
-        <div className="space-y-4">
+        <div className="space-y-4 animate-fade-in-up" style={{ animationDelay: "400ms" }}>
           {/* Generate Bills CTA */}
-          <div className="bg-[#635BFF] rounded-lg p-5 text-white">
+          <div className="bg-[#635BFF] rounded-lg p-5 text-white hover-lift">
             <h3 className="text-base font-semibold leading-tight mb-1.5">
               Generate Bills
             </h3>
@@ -173,7 +173,7 @@ export default function DashboardPage() {
             </p>
             <Link
               href="/dashboard/crawl"
-              className="inline-flex items-center gap-2 bg-white text-[#635BFF] font-semibold text-sm px-4 py-2 rounded-lg hover:bg-white/90 transition-colors duration-150"
+              className="inline-flex items-center gap-2 bg-white text-[#635BFF] font-semibold text-sm px-4 py-2 rounded-lg hover:bg-white/90 transition-all duration-200 hover:shadow-lg hover:shadow-black/10 press-effect"
             >
               <BoltIcon className="w-4 h-4" />
               Get Started
@@ -181,7 +181,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Network Health */}
-          <div className="bg-white rounded-lg border border-[#E3E8EF] p-5">
+          <div className="bg-white rounded-lg border border-[#E3E8EF] p-5 hover-lift">
             <div className="flex items-center gap-2 mb-3">
               <ActivityIcon className="w-4 h-4 text-[#697386]" />
               <h3 className="text-sm font-semibold text-[#0A2540]">
@@ -205,7 +205,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Bottom stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 stagger-children">
         <BottomStat label="Average Speed" value="450" unit="Mbps" />
         <BottomStat label="Total Bandwidth" value="12.4" unit="TB" />
         <BottomStat label="Uptime" value="99.98" unit="%" />
@@ -266,7 +266,7 @@ function StatCard({
   valueColor?: string;
 }) {
   return (
-    <div className="bg-white rounded-lg border border-[#E3E8EF] p-5">
+    <div className="bg-white rounded-lg border border-[#E3E8EF] p-5 hover-lift animate-fade-in-up">
       <div className="flex items-center gap-2 mb-3">
         <span className="text-[#697386]">{icon}</span>
         <span className="text-xs font-medium text-[#697386]">
@@ -290,7 +290,7 @@ function BottomStat({
   unit: string;
 }) {
   return (
-    <div className="bg-white rounded-lg border border-[#E3E8EF] px-5 py-4">
+    <div className="bg-white rounded-lg border border-[#E3E8EF] px-5 py-4 hover-lift animate-fade-in-up">
       <p className="text-xs font-medium text-[#697386] mb-1.5">
         {label}
       </p>

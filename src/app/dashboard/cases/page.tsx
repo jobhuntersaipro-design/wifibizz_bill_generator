@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { createPortal } from "react-dom";
 
 interface CaseRow {
   case_no: string;
@@ -80,7 +81,7 @@ export default function CasesPage() {
     column: "case_created_at",
     dir: "desc",
   });
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [selectedCase, setSelectedCase] = useState<CaseRow | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchCases = useCallback(async () => {
@@ -124,15 +125,6 @@ export default function CasesPage() {
     setPage(0);
   }
 
-  function toggleRow(caseNo: string) {
-    setExpandedRows((prev) => {
-      const next = new Set(prev);
-      if (next.has(caseNo)) next.delete(caseNo);
-      else next.add(caseNo);
-      return next;
-    });
-  }
-
   const totalPages = Math.ceil(count / PAGE_SIZE);
   const showingFrom = count === 0 ? 0 : page * PAGE_SIZE + 1;
   const showingTo = Math.min((page + 1) * PAGE_SIZE, count);
@@ -141,7 +133,7 @@ export default function CasesPage() {
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div>
+      <div className="animate-fade-in-up" style={{ animationDelay: "100ms" }}>
         <h1 className="text-2xl font-semibold text-[#0A2540]">Case List</h1>
         <p className="text-sm text-[#697386] mt-1">
           {count} case{count !== 1 ? "s" : ""} in total
@@ -149,7 +141,7 @@ export default function CasesPage() {
       </div>
 
       {/* Filters bar */}
-      <div className="bg-white rounded-lg border border-[#E3E8EF] p-4">
+      <div className="bg-white rounded-lg border border-[#E3E8EF] p-4 animate-fade-in-up" style={{ animationDelay: "200ms" }}>
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex-1 min-w-[220px] max-w-sm relative group">
             <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#697386] transition-colors group-focus-within:text-[#635BFF]" />
@@ -224,7 +216,7 @@ export default function CasesPage() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden">
+      <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden animate-fade-in-up" style={{ animationDelay: "300ms" }}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm border-collapse">
             <thead>
@@ -268,110 +260,67 @@ export default function CasesPage() {
                   </td>
                 </tr>
               ) : (
-                cases.map((c) => {
-                  const isExpanded = expandedRows.has(c.case_no);
-                  const expandDetails = [
-                    { label: "Case No.", value: c.case_no },
-                    { label: "Order ID", value: c.order_no ?? "" },
-                    { label: "Status", value: c.status ?? "" },
-                    { label: "Full Name", value: c.full_name ?? "" },
-                    { label: "Full Address", value: c.full_address ?? "" },
-                    { label: "Mobile", value: c.mobile ?? "" },
-                    { label: "Email", value: c.email ?? "" },
-                    { label: "ID No.", value: c.id_no ?? "" },
-                    { label: "Provider", value: c.provider ?? "" },
-                    { label: "Package", value: c.package ?? "" },
-                    { label: "Agent", value: c.agent ?? "" },
-                    { label: "Agent Remark", value: c.agent_remark ?? "" },
-                    { label: "Created At", value: formatDateTime(c.case_created_at) },
-                    { label: "Updated At", value: formatDateTime(c.updated_at) },
-                  ].filter((d) => d.value);
-
-                  return (
-                    <TableRowGroup key={c.case_no}>
-                      <tr
-                        className={`hover:bg-[#F6F9FC] transition-colors duration-100 cursor-pointer ${isExpanded ? "bg-[#F6F9FC]" : ""}`}
-                        onClick={() => toggleRow(c.case_no)}
-                        title={isExpanded ? "Click to collapse" : "Click to expand"}
-                      >
-                        <td className="px-4 py-3 font-mono text-xs tabular-nums whitespace-nowrap">
-                          <span className="flex items-center gap-2">
-                            <span className={`text-[10px] transition-transform duration-200 text-[#697386] ${isExpanded ? "rotate-90" : ""}`}>
-                              &#9654;
-                            </span>
-                            {c.case_url ? (
-                              <a
-                                href={c.case_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-[#635BFF] font-medium hover:underline transition-colors"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                {c.case_no}
-                              </a>
-                            ) : (
-                              <span className="font-medium text-[#425466]">{c.case_no}</span>
-                            )}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-xs whitespace-nowrap hidden lg:table-cell">
-                          <span className="block truncate max-w-[140px] text-[#425466]">{c.order_no || "—"}</span>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${getStatusStyle(c.status)}`}>
-                            {c.status ?? "Unknown"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="block truncate max-w-[160px] text-sm font-medium text-[#0A2540]">
-                            {c.full_name || "—"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 hidden lg:table-cell">
-                          <span className="block truncate max-w-[180px] text-xs text-[#697386]">
-                            {c.full_address || "—"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-xs text-[#425466] tabular-nums whitespace-nowrap">
-                          {c.mobile || "—"}
-                        </td>
-                        <td className="px-4 py-3 hidden lg:table-cell">
-                          <span className="block truncate max-w-[140px] text-xs text-[#425466]">{c.provider || "—"}</span>
-                        </td>
-                        <td className="px-4 py-3 hidden lg:table-cell">
-                          <span className="block truncate max-w-[160px] text-xs text-[#425466]">{c.package || "—"}</span>
-                        </td>
-                        <td className="px-4 py-3 hidden lg:table-cell">
-                          <span className="block truncate max-w-[160px] text-xs text-[#697386]">
-                            {c.agent_remark || "—"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-xs text-[#697386] tabular-nums whitespace-nowrap">
-                          {formatDateTime(c.case_created_at)}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-[#697386] tabular-nums whitespace-nowrap hidden lg:table-cell">
-                          {formatDateTime(c.updated_at)}
-                        </td>
-                      </tr>
-                      {isExpanded && (
-                        <tr className="bg-[#F6F9FC]">
-                          <td colSpan={COLUMNS.length} className="px-5 py-4">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-2.5 text-xs">
-                              {expandDetails.map((d) => (
-                                <div key={d.label} className="flex gap-2">
-                                  <span className="font-medium text-[#697386] whitespace-nowrap min-w-[100px]">
-                                    {d.label}:
-                                  </span>
-                                  <span className="text-[#0A2540] break-all">{d.value}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </TableRowGroup>
-                  );
-                })
+                cases.map((c) => (
+                    <tr
+                      key={c.case_no}
+                      className={`hover:bg-[#F6F9FC] transition-colors duration-100 cursor-pointer ${selectedCase?.case_no === c.case_no ? "bg-[#F6F9FC]" : ""}`}
+                      onClick={() => setSelectedCase(c)}
+                    >
+                      <td className="px-4 py-3 text-[13px] tabular-nums whitespace-nowrap">
+                        {c.case_url ? (
+                          <a
+                            href={c.case_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[#635BFF] font-medium hover:underline transition-colors"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {c.case_no}
+                          </a>
+                        ) : (
+                          <span className="font-medium text-[#425466]">{c.case_no}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-[13px] whitespace-nowrap hidden lg:table-cell">
+                        <span className="block truncate max-w-[140px] text-[#425466]">{c.order_no || "—"}</span>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${getStatusStyle(c.status)}`}>
+                          {c.status ?? "Unknown"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="block truncate max-w-[160px] text-[13px] font-medium text-[#0A2540]">
+                          {c.full_name || "—"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 hidden lg:table-cell">
+                        <span className="block truncate max-w-[180px] text-[13px] text-[#697386]">
+                          {c.full_address || "—"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-[13px] text-[#425466] tabular-nums whitespace-nowrap">
+                        {c.mobile || "—"}
+                      </td>
+                      <td className="px-4 py-3 hidden lg:table-cell">
+                        <span className="block truncate max-w-[140px] text-[13px] text-[#425466]">{c.provider || "—"}</span>
+                      </td>
+                      <td className="px-4 py-3 hidden lg:table-cell">
+                        <span className="block truncate max-w-[160px] text-[13px] text-[#425466]">{c.package || "—"}</span>
+                      </td>
+                      <td className="px-4 py-3 hidden lg:table-cell">
+                        <span className="block truncate max-w-[160px] text-[13px] text-[#697386]">
+                          {c.agent_remark || "—"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-[13px] text-[#697386] tabular-nums whitespace-nowrap">
+                        {formatDateTime(c.case_created_at)}
+                      </td>
+                      <td className="px-4 py-3 text-[13px] text-[#697386] tabular-nums whitespace-nowrap hidden lg:table-cell">
+                        {formatDateTime(c.updated_at)}
+                      </td>
+                    </tr>
+                  ))
               )}
             </tbody>
           </table>
@@ -431,12 +380,216 @@ export default function CasesPage() {
           </div>
         </div>
       </div>
+
+      {/* Slide-in detail panel */}
+      {selectedCase && createPortal(
+        <CaseDetailPanel caseData={selectedCase} onClose={() => setSelectedCase(null)} />,
+        document.body
+      )}
     </div>
   );
 }
 
-function TableRowGroup({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
+function CaseDetailPanel({ caseData, onClose }: { caseData: CaseRow; onClose: () => void }) {
+  const [isVisible, setIsVisible] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    requestAnimationFrame(() => setIsVisible(true));
+  }, []);
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") handleClose();
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  });
+
+  function handleClose() {
+    setIsVisible(false);
+    setTimeout(onClose, 300);
+  }
+
+  function handleBackdropClick(e: React.MouseEvent) {
+    if (e.target === e.currentTarget) handleClose();
+  }
+
+  const sections = [
+    {
+      title: "Case Information",
+      fields: [
+        { label: "Case No.", value: caseData.case_no },
+        { label: "Order ID", value: caseData.order_no },
+        { label: "Status", value: caseData.status, isStatus: true },
+      ],
+    },
+    {
+      title: "Customer Details",
+      fields: [
+        { label: "Full Name", value: caseData.full_name },
+        { label: "Full Address", value: caseData.full_address },
+        { label: "Mobile", value: caseData.mobile },
+        { label: "Email", value: caseData.email },
+        { label: "ID No.", value: caseData.id_no },
+      ],
+    },
+    {
+      title: "Service",
+      fields: [
+        { label: "Provider", value: caseData.provider },
+        { label: "Package", value: caseData.package },
+      ],
+    },
+    {
+      title: "Agent",
+      fields: [
+        { label: "Agent", value: caseData.agent },
+        { label: "Agent Remark", value: caseData.agent_remark },
+      ],
+    },
+    {
+      title: "Timestamps",
+      fields: [
+        { label: "Created At", value: formatDateTime(caseData.case_created_at) },
+        { label: "Updated At", value: formatDateTime(caseData.updated_at) },
+      ],
+    },
+  ];
+
+  return (
+    <div
+      className={`fixed inset-0 z-50 transition-colors duration-300 ${isVisible ? "bg-black/20" : "bg-transparent"}`}
+      onClick={handleBackdropClick}
+    >
+      <div
+        ref={panelRef}
+        className={`absolute top-0 right-0 h-full w-full max-w-md bg-white shadow-2xl flex flex-col`}
+        style={{
+          transform: isVisible ? "translateX(0)" : "translateX(100%)",
+          transition: "transform 350ms cubic-bezier(0.16, 1, 0.3, 1)",
+        }}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center justify-between px-6 py-4 border-b border-[#E3E8EF]"
+          style={{
+            opacity: isVisible ? 1 : 0,
+            transform: isVisible ? "translateY(0)" : "translateY(-8px)",
+            transition: "opacity 400ms ease-out 150ms, transform 400ms ease-out 150ms",
+          }}
+        >
+          <div>
+            <h2 className="text-lg font-semibold text-[#0A2540]">Case Details</h2>
+            <p className="text-xs text-[#697386] mt-0.5 font-mono tabular-nums">{caseData.case_no}</p>
+          </div>
+          <button
+            onClick={handleClose}
+            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#F6F9FC] text-[#697386] hover:text-[#0A2540] transition-colors duration-200"
+          >
+            <CloseIcon className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          {sections.map((section, sectionIndex) => {
+            const visibleFields = section.fields.filter((f) => f.value);
+            if (visibleFields.length === 0) return null;
+            const delay = 200 + sectionIndex * 80;
+            return (
+              <div key={section.title}>
+                {sectionIndex > 0 && (
+                  <div
+                    className="border-t border-[#E3E8EF] my-5"
+                    style={{
+                      opacity: isVisible ? 1 : 0,
+                      transition: `opacity 500ms ease-out ${delay}ms`,
+                    }}
+                  />
+                )}
+                <div
+                  style={{
+                    opacity: isVisible ? 1 : 0,
+                    transform: isVisible ? "translateY(0)" : "translateY(12px)",
+                    transition: `opacity 400ms ease-out ${delay}ms, transform 400ms ease-out ${delay}ms`,
+                  }}
+                >
+                  <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">
+                    {section.title}
+                  </h3>
+                  <div className="space-y-3">
+                    {visibleFields.map((field, fieldIndex) => (
+                      <div
+                        key={field.label}
+                        style={{
+                          opacity: isVisible ? 1 : 0,
+                          transform: isVisible ? "translateY(0)" : "translateY(8px)",
+                          transition: `opacity 350ms ease-out ${delay + 40 + fieldIndex * 40}ms, transform 350ms ease-out ${delay + 40 + fieldIndex * 40}ms`,
+                        }}
+                      >
+                        <dt className="text-xs text-[#697386] mb-0.5">{field.label}</dt>
+                        <dd className="text-sm text-[#0A2540]">
+                          {field.isStatus ? (
+                            <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${getStatusStyle(field.value ?? null)}`}>
+                              {field.value}
+                            </span>
+                          ) : (
+                            <span className="break-words">{field.value}</span>
+                          )}
+                        </dd>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Footer */}
+        {caseData.case_url && (
+          <div
+            className="px-6 py-4 border-t border-[#E3E8EF]"
+            style={{
+              opacity: isVisible ? 1 : 0,
+              transform: isVisible ? "translateY(0)" : "translateY(8px)",
+              transition: "opacity 400ms ease-out 600ms, transform 400ms ease-out 600ms",
+            }}
+          >
+            <a
+              href={caseData.case_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-sm font-medium text-[#635BFF] hover:text-[#0A2540] transition-colors duration-200"
+            >
+              Open in WifiBizz
+              <ExternalLinkIcon className="w-3.5 h-3.5" />
+            </a>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CloseIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </svg>
+  );
+}
+
+function ExternalLinkIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M15 3h6v6" />
+      <path d="M10 14 21 3" />
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+    </svg>
+  );
 }
 
 function SortIcon({ column, sort }: { column: string; sort: SortState }) {

@@ -58,12 +58,17 @@ export async function getWifibizzCredentials() {
       },
     });
 
+    const hasPassword = wifibizzUser
+      ? wifibizzUser.wifibizzPasswordEnc !== PLACEHOLDER_PASSWORD
+      : false;
+
     return {
       success: true,
       data: wifibizzUser
         ? {
             email: wifibizzUser.wifibizzEmail,
-            hasPassword: wifibizzUser.wifibizzPasswordEnc !== PLACEHOLDER_PASSWORD,
+            hasPassword,
+            savedPassword: hasPassword ? wifibizzUser.wifibizzPasswordEnc : null,
             lastCrawlAt: wifibizzUser.lastCrawlAt?.toISOString() ?? null,
           }
         : null,

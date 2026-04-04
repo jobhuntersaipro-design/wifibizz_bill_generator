@@ -54,7 +54,7 @@ export default function CrawlPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
+      <div className="animate-fade-in-up" style={{ animationDelay: "100ms" }}>
         <h1 className="text-2xl font-semibold text-[#0A2540]">Crawler</h1>
         <p className="text-sm text-[#697386] mt-1">
           Fetch activated cases from WifiBizz using your saved credentials
@@ -63,7 +63,7 @@ export default function CrawlPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* Crawl action card */}
-        <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden">
+        <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden hover-lift animate-fade-in-up" style={{ animationDelay: "200ms" }}>
           <div className="p-6">
             <div className="w-10 h-10 rounded-lg bg-[#F6F9FC] flex items-center justify-center mb-5">
               <CrawlerIcon className="w-5 h-5 text-[#635BFF]" />
@@ -80,7 +80,7 @@ export default function CrawlPage() {
             <Button
               onClick={handleCrawl}
               disabled={crawling}
-              className="h-10 px-5 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] transition-colors duration-150"
+              className="h-10 px-5 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] hover-glow"
             >
               {crawling ? (
                 <span className="flex items-center gap-2">
@@ -106,15 +106,15 @@ export default function CrawlPage() {
         {/* Result / info card */}
         <div>
           {result ? (
-            <div className="bg-white rounded-lg border border-[#E3E8EF] p-6">
-              <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center mb-5">
+            <div className="bg-white rounded-lg border border-[#E3E8EF] p-6 animate-scale-in">
+              <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center mb-5 animate-scale-in" style={{ animationDelay: "100ms" }}>
                 <CheckIcon className="w-5 h-5 text-[#09825D]" />
               </div>
-              <h2 className="text-base font-semibold text-[#0A2540] mb-4">
+              <h2 className="text-base font-semibold text-[#0A2540] mb-4 animate-fade-in" style={{ animationDelay: "150ms" }}>
                 Crawl Complete
               </h2>
 
-              <div className="space-y-3">
+              <div className="space-y-3 stagger-children">
                 <ResultRow label="Total cases found" value={result.total} />
                 <ResultRow label="Saved to database" value={result.saved} accent />
                 {result.skipped > 0 && (
@@ -124,15 +124,15 @@ export default function CrawlPage() {
 
               <Button
                 variant="outline"
-                className="mt-5 rounded-lg border-[#E3E8EF] text-[#425466] hover:text-[#0A2540]"
+                className="mt-5 rounded-lg border-[#E3E8EF] text-[#425466] hover:text-[#0A2540] press-effect animate-fade-in-up" style={{ animationDelay: "300ms" }}
                 onClick={() => router.push("/dashboard/cases")}
               >
                 View Cases
               </Button>
             </div>
           ) : (
-            <div className="bg-[#F6F9FC] rounded-lg border border-[#E3E8EF] border-dashed p-6 flex flex-col items-center justify-center text-center h-full min-h-[280px]">
-              <div className="w-12 h-12 rounded-lg bg-white border border-[#E3E8EF] flex items-center justify-center mb-4">
+            <div className="bg-[#F6F9FC] rounded-lg border border-[#E3E8EF] border-dashed p-6 flex flex-col items-center justify-center text-center h-full min-h-[280px] animate-fade-in-up" style={{ animationDelay: "300ms" }}>
+              <div className="w-12 h-12 rounded-lg bg-white border border-[#E3E8EF] flex items-center justify-center mb-4 animate-float">
                 <InfoIcon className="w-5 h-5 text-[#697386]" />
               </div>
               <h3 className="text-sm font-medium text-[#425466] mb-1">
@@ -162,7 +162,7 @@ function ResultRow({
   warning?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between py-2 border-b border-[#E3E8EF]/60 last:border-0">
+    <div className="flex items-center justify-between py-2 border-b border-[#E3E8EF]/60 last:border-0 animate-slide-up">
       <span className="text-sm text-[#697386]">{label}</span>
       <span
         className={`text-base font-semibold tabular-nums ${
