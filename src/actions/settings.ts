@@ -2,7 +2,6 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { encrypt, decrypt } from "@/lib/crawler/encryption";
 
 const PLACEHOLDER_PASSWORD = "PLACEHOLDER_NEEDS_USER_INPUT";
 
@@ -29,11 +28,10 @@ export async function saveWifibizzPassword(password: string) {
       };
     }
 
-    // Update only the password
-    const encryptedPassword = encrypt(password);
+    // Update only the password (stored as plain text in DB)
     await prisma.wifibizzUser.update({
       where: { id: wifibizzUser.id },
-      data: { wifibizzPasswordEnc: encryptedPassword },
+      data: { wifibizzPasswordEnc: password },
     });
 
     return { success: true };
@@ -65,13 +63,7 @@ export async function getWifibizzCredentials() {
       data: wifibizzUser
         ? {
             email: wifibizzUser.wifibizzEmail,
-            hasPassword: (() => {
-              try {
-                return decrypt(wifibizzUser.wifibizzPasswordEnc) !== PLACEHOLDER_PASSWORD;
-              } catch {
-                return false;
-              }
-            })(),
+            hasPassword: wifibizzUser.wifibizzPasswordEnc !== PLACEHOLDER_PASSWORD,
             lastCrawlAt: wifibizzUser.lastCrawlAt?.toISOString() ?? null,
           }
         : null,

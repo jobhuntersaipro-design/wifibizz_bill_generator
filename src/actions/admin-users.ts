@@ -3,7 +3,6 @@
 import { prisma } from "@/lib/prisma";
 import { verifyAdminSession } from "@/lib/admin-auth";
 import bcrypt from "bcryptjs";
-import { encrypt } from "@/lib/crawler/encryption";
 
 interface ActionResult {
   success: boolean;
@@ -97,12 +96,12 @@ export async function createUser(data: {
       }
 
       // Create wifibizz_users row with a placeholder encrypted password
-      const placeholderEnc = encrypt("PLACEHOLDER_NEEDS_USER_INPUT");
+      const placeholder = "PLACEHOLDER_NEEDS_USER_INPUT";
       await prisma.wifibizzUser.create({
         data: {
           userId: user.id,
           wifibizzEmail: data.wifibizzEmail,
-          wifibizzPasswordEnc: placeholderEnc,
+          wifibizzPasswordEnc: placeholder,
         },
       });
     }
@@ -178,12 +177,12 @@ export async function updateUser(
         });
         if (conflict) return { success: false, error: "This WifiBizz email is already assigned to another user" };
 
-        const placeholderEnc = encrypt("PLACEHOLDER_NEEDS_USER_INPUT");
+        const placeholder = "PLACEHOLDER_NEEDS_USER_INPUT";
         await prisma.wifibizzUser.create({
           data: {
             userId: userId,
             wifibizzEmail: newEmail,
-            wifibizzPasswordEnc: placeholderEnc,
+            wifibizzPasswordEnc: placeholder,
           },
         });
       } else if (!newEmail && user.wifibizzUser) {

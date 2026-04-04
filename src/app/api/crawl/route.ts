@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { crawl } from "@/lib/crawler/scraper";
-import { upsertCases, updateLastCrawl, decryptUserPassword } from "@/lib/crawler/db";
+import { upsertCases, updateLastCrawl, getUserPassword } from "@/lib/crawler/db";
 import { getUserCaseUsage } from "@/lib/case-limit";
 import { prisma } from "@/lib/prisma";
 
@@ -45,8 +45,8 @@ export async function POST() {
       );
     }
 
-    // Decrypt password and crawl
-    const password = decryptUserPassword({
+    // Get password and crawl
+    const password = getUserPassword({
       id: wifibizzUser.id,
       wifibizz_email: wifibizzUser.wifibizzEmail,
       wifibizz_password_enc: wifibizzUser.wifibizzPasswordEnc,

@@ -1,5 +1,4 @@
 import { neon } from "@neondatabase/serverless";
-import { encrypt, decrypt } from "./encryption";
 
 function getDb() {
   const url = process.env.DATABASE_URL;
@@ -66,13 +65,11 @@ export interface WifibizzUser {
 
 export async function upsertUser(email: string, password: string): Promise<WifibizzUser> {
   const sql = getDb();
-  const encryptedPassword = encrypt(password);
-
   const rows = await sql`
     INSERT INTO wifibizz_users (wifibizz_email, wifibizz_password_enc)
-    VALUES (${email}, ${encryptedPassword})
+    VALUES (${email}, ${password})
     ON CONFLICT (wifibizz_email) DO UPDATE SET
-      wifibizz_password_enc = ${encryptedPassword},
+      wifibizz_password_enc = ${password},
       updated_at = NOW()
     RETURNING id, wifibizz_email, wifibizz_password_enc, last_crawl_at
   `;
@@ -90,8 +87,8 @@ export async function getUserByEmail(email: string): Promise<WifibizzUser | null
   return (rows[0] as WifibizzUser) ?? null;
 }
 
-export function decryptUserPassword(user: WifibizzUser): string {
-  return decrypt(user.wifibizz_password_enc);
+export function getUserPassword(user: WifibizzUser): string {
+  return user.wifibizz_password_enc;
 }
 
 export async function updateLastCrawl(userId: number) {
