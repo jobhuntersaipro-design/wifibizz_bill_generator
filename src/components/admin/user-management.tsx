@@ -155,7 +155,7 @@ export function UserManagement() {
                       </button>
                       <button
                         onClick={() => setDeleteTarget(user)}
-                        className="inline-flex items-center px-2.5 py-1 text-xs font-medium text-[#DF1B41] hover:bg-red-50 rounded-md transition-colors"
+                        className="inline-flex items-center px-2.5 py-1 text-xs font-medium text-white bg-[#DF1B41] hover:bg-[#DF1B41]/90 rounded-md transition-colors"
                       >
                         Delete
                       </button>
@@ -216,7 +216,7 @@ function UserFormModal({
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [showPassword, setShowPassword] = useState(mode === "create");
+  const [showPassword, setShowPassword] = useState(false);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -364,8 +364,10 @@ function DeleteConfirmModal({
   onDeleted: () => void;
 }) {
   const [deleting, setDeleting] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
 
   async function handleDelete() {
+    if (confirmText !== "DELETE") return;
     setDeleting(true);
     const result = await deleteUser(user.id);
     if (result.success) {
@@ -390,6 +392,18 @@ function DeleteConfirmModal({
             <strong className="text-[#0A2540]">{user.name || user.email}</strong>? This will also remove
             their WifiBizz data and cases. This action cannot be undone.
           </p>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-[#425466]">
+              Type <span className="font-semibold text-[#0A2540]">DELETE</span> to confirm
+            </Label>
+            <Input
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder="DELETE"
+              className="rounded-lg h-9 border-[#E3E8EF]"
+              autoFocus
+            />
+          </div>
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="outline" onClick={onClose} className="rounded-lg border-[#E3E8EF] text-[#425466]">
               Cancel
@@ -397,8 +411,8 @@ function DeleteConfirmModal({
             <Button
               variant="destructive"
               onClick={handleDelete}
-              disabled={deleting}
-              className="rounded-lg bg-[#DF1B41] hover:bg-[#DF1B41]/90"
+              disabled={deleting || confirmText !== "DELETE"}
+              className="rounded-lg bg-[#DF1B41] hover:bg-[#DF1B41]/90 text-white"
             >
               {deleting ? "Deleting..." : "Delete"}
             </Button>
