@@ -1,12 +1,24 @@
-# Current Feature
+# Current Feature: Dashboard UI Revamped
 
 ## Status
 
-Not Started
+In Progress
 
 ## Goals
 
+- Merge Case List (/cases) into the main Dashboard page and remove the standalone /cases route
+- Remove stat cards: Total Cases, Activated Cases, Last Crawled, Average Speed, Total Bandwidth, Uptime, Incidents
+- Remove Generate Bills card
+- Add interactive analytics charts showing case data (e.g. cases over time, cases by status, cases by provider)
+- Tableau-level dashboard design — comprehensive, visually rich charts that give users quick analytical insights at a glance
+
 ## Notes
+
+- Case List table should be integrated directly into the dashboard below the charts
+- Charts should be built from the existing wifibizz_cases data
+- Keep the existing Stripe design aesthetic (Inter font, #635BFF brand, #0A2540 text, #F6F9FC surface)
+- Consider using a charting library (e.g. Recharts) for interactive charts
+- Sidebar navigation should be updated to remove the separate Cases link
 
 ## History
 

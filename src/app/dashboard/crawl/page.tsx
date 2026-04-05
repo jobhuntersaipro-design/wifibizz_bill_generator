@@ -125,7 +125,7 @@ export default function CrawlPage() {
               <Button
                 variant="outline"
                 className="mt-5 rounded-lg border-[#E3E8EF] text-[#425466] hover:text-[#0A2540] press-effect animate-fade-in-up" style={{ animationDelay: "300ms" }}
-                onClick={() => router.push("/dashboard/cases")}
+                onClick={() => router.push("/dashboard")}
               >
                 View Cases
               </Button>
