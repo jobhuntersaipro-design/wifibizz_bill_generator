@@ -181,17 +181,61 @@ function truncateLabel(label: string, max: number): string {
   return label.length > max ? label.slice(0, max) + "..." : label;
 }
 
-function getHeatColor(value: number, max: number): string {
+// Status-based heat color palettes (light to dark)
+const HEAT_PALETTES: Record<string, string[]> = {
+  Activated: ["#DCFCE7", "#86EFAC", "#4ADE80", "#09825D"],
+  Processed: ["#DBEAFE", "#93C5FD", "#60A5FA", "#3B82F6"],
+  Pending: ["#FEF3C7", "#FDE68A", "#FBBF24", "#D97706"],
+  Rejected: ["#FEE2E2", "#FCA5A5", "#F87171", "#DF1B41"],
+  Cancelled: ["#F3F4F6", "#D1D5DB", "#9CA3AF", "#697386"],
+  "Follow Up": ["#EDE9FE", "#C4B5FD", "#A78BFA", "#8B5CF6"],
+};
+const DEFAULT_HEAT_PALETTE = ["#DEDCFF", "#B8B4FF", "#8B85FF", "#635BFF"];
+
+function getHeatColor(value: number, max: number, status?: string): string {
   if (max === 0 || value === 0) return "#F6F9FC";
+  const palette = (status && HEAT_PALETTES[status]) || DEFAULT_HEAT_PALETTE;
   const intensity = value / max;
-  if (intensity > 0.7) return "#635BFF";
-  if (intensity > 0.4) return "#8B85FF";
-  if (intensity > 0.15) return "#B8B4FF";
-  return "#DEDCFF";
+  if (intensity > 0.7) return palette[3];
+  if (intensity > 0.4) return palette[2];
+  if (intensity > 0.15) return palette[1];
+  return palette[0];
+}
+
+function getHeatLegendColors(status?: string): string[] {
+  const palette = (status && HEAT_PALETTES[status]) || DEFAULT_HEAT_PALETTE;
+  return ["#F6F9FC", palette[0], palette[1], palette[2], palette[3]];
 }
 
 function getStatusColor(status: string, index: number): string {
   return STATUS_COLORS[status] ?? PIE_COLORS[index % PIE_COLORS.length];
+}
+
+// ── Animated Counter Hook ──
+
+function useAnimatedCounter(target: number, duration: number = 600): number {
+  const [count, setCount] = useState(0);
+  const prevTarget = useRef(0);
+
+  useEffect(() => {
+    if (target === prevTarget.current) return;
+    const start = prevTarget.current;
+    prevTarget.current = target;
+    const startTime = performance.now();
+
+    function tick(now: number) {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      // ease-out cubic
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setCount(Math.round(start + (target - start) * eased));
+      if (progress < 1) requestAnimationFrame(tick);
+    }
+
+    requestAnimationFrame(tick);
+  }, [target, duration]);
+
+  return count;
 }
 
 // ── Main Component ──
@@ -431,15 +475,15 @@ export default function DashboardPage() {
 
       {/* KPI Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 stagger-children">
-        <KpiCard label="Total Cases" value={analyticsLoading ? "—" : String(analytics?.totalCases ?? 0)} icon={<FileStackIcon className="w-4 h-4" />} />
-        <KpiCard label="Activated" value={analyticsLoading ? "—" : String(activatedCount)} icon={<CheckCircleIcon className="w-4 h-4" />} accent="text-[#09825D]" />
-        <KpiCard label="Statuses" value={analyticsLoading ? "—" : String(analytics?.byStatus.length ?? 0)} icon={<TagIcon className="w-4 h-4" />} />
-        <KpiCard label="Providers" value={analyticsLoading ? "—" : String(analytics?.byProvider.length ?? 0)} icon={<GlobeIcon className="w-4 h-4" />} />
+        <KpiCard label="Total Cases" value={analyticsLoading ? "—" : String(analytics?.totalCases ?? 0)} icon={<FileStackIcon className="w-4 h-4" />} delay={0} />
+        <KpiCard label="Activated" value={analyticsLoading ? "—" : String(activatedCount)} icon={<CheckCircleIcon className="w-4 h-4" />} accent="text-[#09825D]" delay={80} />
+        <KpiCard label="Statuses" value={analyticsLoading ? "—" : String(analytics?.byStatus.length ?? 0)} icon={<TagIcon className="w-4 h-4" />} delay={160} />
+        <KpiCard label="Providers" value={analyticsLoading ? "—" : String(analytics?.byProvider.length ?? 0)} icon={<GlobeIcon className="w-4 h-4" />} delay={240} />
       </div>
 
       {/* Cases Over Time — multi-series with status legend */}
       <div className="animate-fade-in-up" style={{ animationDelay: "200ms" }}>
-        <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden hover-lift">
+        <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden hover-lift chart-card-hover">
           <div className="px-5 pt-5 pb-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -493,15 +537,15 @@ export default function DashboardPage() {
 
           {/* Interactive status legend */}
           {analytics && analytics.statusKeys.length > 0 && (
-            <div className="px-5 pb-2 flex flex-wrap gap-x-4 gap-y-1.5">
+            <div className="px-5 pb-2 flex flex-wrap gap-x-4 gap-y-1.5 legend-stagger">
               {analytics.statusKeys.map((s, i) => (
                 <button
                   key={s}
-                  className={`flex items-center gap-1.5 transition-opacity duration-200 ${hiddenStatuses.has(s) ? "opacity-30" : "opacity-100"}`}
+                  className={`flex items-center gap-1.5 transition-all duration-200 hover:scale-105 ${hiddenStatuses.has(s) ? "opacity-30 scale-95" : "opacity-100"}`}
                   onClick={() => toggleStatusLegend(s)}
                   title={`Click to ${hiddenStatuses.has(s) ? "show" : "hide"} ${s}`}
                 >
-                  <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: getStatusColor(s, i) }} />
+                  <div className={`w-2.5 h-2.5 rounded-full transition-transform duration-200 ${hiddenStatuses.has(s) ? "scale-75" : ""}`} style={{ backgroundColor: getStatusColor(s, i) }} />
                   <span className="text-[11px] text-[#697386] select-none">{s}</span>
                 </button>
               ))}
@@ -514,12 +558,13 @@ export default function DashboardPage() {
             ) : !chartData || chartData.length === 0 ? (
               <EmptyChart message={hasChartFilters ? "No data for selected filters" : "No data available"} />
             ) : (
+              <div className="chart-enter">
               <ResponsiveContainer width="100%" height={280}>
                 <AreaChart data={chartData}>
                   <defs>
                     {visibleStatuses.map((s, i) => (
                       <linearGradient key={s} id={`areaGrad-${s}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={getStatusColor(s, i)} stopOpacity={0.15} />
+                        <stop offset="5%" stopColor={getStatusColor(s, i)} stopOpacity={0.18} />
                         <stop offset="95%" stopColor={getStatusColor(s, i)} stopOpacity={0} />
                       </linearGradient>
                     ))}
@@ -530,6 +575,7 @@ export default function DashboardPage() {
                   <Tooltip
                     contentStyle={{ borderRadius: 8, border: "1px solid #E3E8EF", fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}
                     labelStyle={{ fontWeight: 600, color: "#0A2540" }}
+                    cursor={{ stroke: "#635BFF", strokeWidth: 1, strokeDasharray: "4 4" }}
                   />
                   {visibleStatuses.map((s, i) => {
                     const color = getStatusColor(s, i);
@@ -540,10 +586,14 @@ export default function DashboardPage() {
                         dataKey={s}
                         name={s}
                         stroke={color}
-                        strokeWidth={2}
+                        strokeWidth={2.5}
                         fill={`url(#areaGrad-${s})`}
                         dot={{ r: 4, fill: color, stroke: "#fff", strokeWidth: 2 }}
-                        activeDot={{ r: 6.5 }}
+                        activeDot={{ r: 7, stroke: color, strokeWidth: 2, fill: "#fff" }}
+                        isAnimationActive={true}
+                        animationDuration={1200}
+                        animationBegin={i * 200}
+                        animationEasing="ease-out"
                         label={(props: LabelProps) => {
                           const px = Number(props.x ?? 0);
                           const py = Number(props.y ?? 0);
@@ -560,6 +610,7 @@ export default function DashboardPage() {
                   })}
                 </AreaChart>
               </ResponsiveContainer>
+              </div>
             )}
           </div>
         </div>
@@ -567,7 +618,7 @@ export default function DashboardPage() {
 
       {/* Cases by State — Full Width with Filters */}
       <div className="animate-fade-in-up" style={{ animationDelay: "300ms" }}>
-        <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden hover-lift">
+        <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden hover-lift chart-card-hover">
           <div className="px-5 pt-5 pb-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -580,8 +631,8 @@ export default function DashboardPage() {
               <div className="flex items-center gap-1.5 text-[10px] text-[#697386]">
                 <span>Low</span>
                 <div className="flex gap-0.5">
-                  {["#F6F9FC", "#DEDCFF", "#B8B4FF", "#8B85FF", "#635BFF"].map((c) => (
-                    <div key={c} className="w-3 h-3 rounded-sm" style={{ backgroundColor: c }} />
+                  {getHeatLegendColors(mapStatus).map((c) => (
+                    <div key={c} className="w-3 h-3 rounded-sm transition-colors duration-300" style={{ backgroundColor: c }} />
                   ))}
                 </div>
                 <span>High</span>
@@ -689,6 +740,7 @@ export default function DashboardPage() {
                       maxValue={maxStateValue}
                       selectedState={selectedState}
                       onStateClick={handleStateClick}
+                      status={mapStatus}
                     />
                   </div>
 
@@ -699,7 +751,8 @@ export default function DashboardPage() {
                       {analytics?.byState.slice(0, 8).map((state, i) => (
                         <div
                           key={state.name}
-                          className={`flex items-center gap-2 cursor-pointer rounded-md px-1 py-0.5 transition-colors ${selectedState === state.name ? "bg-[#F0EEFF]" : "hover:bg-[#F6F9FC]"}`}
+                          className={`flex items-center gap-2 cursor-pointer rounded-md px-1 py-0.5 transition-all duration-200 animate-fade-in-left ${selectedState === state.name ? "bg-[#F0EEFF]" : "hover:bg-[#F6F9FC]"}`}
+                          style={{ animationDelay: `${i * 60}ms` }}
                           onClick={() => handleStateClick(state.name)}
                         >
                           <span className="text-[10px] font-semibold text-[#697386] w-3 tabular-nums">{i + 1}</span>
@@ -710,8 +763,13 @@ export default function DashboardPage() {
                             </div>
                             <div className="h-1 bg-[#F6F9FC] rounded-full mt-1 overflow-hidden">
                               <div
-                                className="h-full rounded-full bg-[#635BFF] transition-all duration-500"
-                                style={{ width: `${maxStateValue > 0 ? (state.value / maxStateValue) * 100 : 0}%` }}
+                                className="h-full rounded-full progress-fill"
+                                style={{
+                                  width: `${maxStateValue > 0 ? (state.value / maxStateValue) * 100 : 0}%`,
+                                  backgroundColor: STATUS_COLORS[mapStatus] ?? "#635BFF",
+                                  animationDelay: `${300 + i * 80}ms`,
+                                  transition: "width 500ms ease-out, background-color 300ms ease",
+                                }}
                               />
                             </div>
                           </div>
@@ -726,7 +784,7 @@ export default function DashboardPage() {
                   <div className="mt-4 border-t border-[#E3E8EF] pt-4 animate-fade-in-up">
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-[#635BFF]" />
+                        <div className="w-2 h-2 rounded-full transition-colors duration-300" style={{ backgroundColor: STATUS_COLORS[mapStatus] ?? "#635BFF" }} />
                         <h4 className="text-sm font-semibold text-[#0A2540]">{selectedState}</h4>
                         {stateDetailLoading ? (
                           <svg className="animate-spin h-3.5 w-3.5 text-[#635BFF]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -826,7 +884,7 @@ export default function DashboardPage() {
             ) : analytics?.byStatus.length === 0 ? (
               <EmptyChart message="No data available" />
             ) : (
-              <div className="flex flex-col items-center">
+              <div className="flex flex-col items-center chart-enter" style={{ animationDelay: "200ms" }}>
                 <ResponsiveContainer width="100%" height={180}>
                   <PieChart>
                     <Pie
@@ -836,6 +894,10 @@ export default function DashboardPage() {
                       paddingAngle={3}
                       dataKey="value"
                       stroke="none"
+                      isAnimationActive={true}
+                      animationDuration={1200}
+                      animationBegin={300}
+                      animationEasing="ease-out"
                       label={(props: PieLabelRenderProps) => {
                         const { cx, cy, midAngle, outerRadius, value } = props;
                         const RADIAN = Math.PI / 180;
@@ -856,7 +918,7 @@ export default function DashboardPage() {
                     <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #E3E8EF", fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }} />
                   </PieChart>
                 </ResponsiveContainer>
-                <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-2">
+                <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-2 legend-stagger">
                   {analytics?.byStatus.map((entry, index) => (
                     <div key={entry.name} className="flex items-center gap-1.5">
                       <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: STATUS_COLORS[entry.name] ?? PIE_COLORS[index % PIE_COLORS.length] }} />
@@ -877,17 +939,19 @@ export default function DashboardPage() {
             ) : analytics?.byProvider.length === 0 ? (
               <EmptyChart message="No data available" />
             ) : (
+              <div className="chart-enter" style={{ animationDelay: "200ms" }}>
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={analytics?.byProvider.map((p) => ({ ...p, label: truncateLabel(p.name, 22) }))} layout="vertical" margin={{ left: 8, right: 16 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#E3E8EF" horizontal={false} />
                   <XAxis type="number" tick={{ fontSize: 11, fill: "#697386" }} axisLine={false} tickLine={false} allowDecimals={false} />
                   <YAxis type="category" dataKey="label" tick={{ fontSize: 11, fill: "#697386" }} axisLine={false} tickLine={false} width={140} />
-                  <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #E3E8EF", fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }} labelStyle={{ fontWeight: 600, color: "#0A2540" }} formatter={(value) => [String(value), "Cases"]} />
-                  <Bar dataKey="value" fill="#635BFF" radius={[0, 4, 4, 0]} barSize={20}>
+                  <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #E3E8EF", fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }} labelStyle={{ fontWeight: 600, color: "#0A2540" }} formatter={(value) => [String(value), "Cases"]} cursor={{ fill: "rgba(99, 91, 255, 0.04)" }} />
+                  <Bar dataKey="value" fill="#635BFF" radius={[0, 4, 4, 0]} barSize={20} isAnimationActive={true} animationDuration={1000} animationBegin={300} animationEasing="ease-out">
                     <LabelList dataKey="value" position="right" style={{ fontSize: 11, fontWeight: 600, fill: "#0A2540" }} />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
+              </div>
             )}
           </ChartCard>
         </div>
@@ -938,7 +1002,7 @@ export default function DashboardPage() {
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#E3E8EF]/60">
+              <tbody className="divide-y divide-[#E3E8EF]/60 row-stagger">
                 {casesLoading ? (
                   <tr><td colSpan={COLUMNS.length} className="px-4 py-20 text-center"><div className="flex flex-col items-center gap-3"><div className="h-5 w-5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" /><span className="text-sm text-[#697386]">Loading cases...</span></div></td></tr>
                 ) : cases.length === 0 ? (
@@ -998,11 +1062,12 @@ export default function DashboardPage() {
 
 // ── Malaysia SVG Map ──
 
-function MalaysiaMap({ stateData, maxValue, selectedState, onStateClick }: {
+function MalaysiaMap({ stateData, maxValue, selectedState, onStateClick, status }: {
   stateData: Map<string, number>;
   maxValue: number;
   selectedState?: string | null;
   onStateClick?: (name: string) => void;
+  status?: string;
 }) {
   const [tooltip, setTooltip] = useState<{ name: string; value: number; x: number; y: number } | null>(null);
   const [hoveredState, setHoveredState] = useState<string | null>(null);
@@ -1035,9 +1100,9 @@ function MalaysiaMap({ stateData, maxValue, selectedState, onStateClick }: {
         <text x="330" y="140" textAnchor="middle" fontSize="9" fill="#CBD5E1" fontStyle="italic" className="select-none">South China Sea</text>
 
         {/* State paths */}
-        {Object.entries(MALAYSIA_SVG_PATHS).map(([name, path]) => {
+        {Object.entries(MALAYSIA_SVG_PATHS).map(([name, path], idx) => {
           const val = stateData.get(name) ?? 0;
-          const color = getHeatColor(val, maxValue);
+          const color = getHeatColor(val, maxValue, status);
           const isHovered = hoveredState === name;
           const isSelected = selectedState === name;
           return (
@@ -1048,8 +1113,12 @@ function MalaysiaMap({ stateData, maxValue, selectedState, onStateClick }: {
               stroke={isSelected ? "#0A2540" : isHovered ? "#635BFF" : "#C8CDD3"}
               strokeWidth={isSelected ? 2.5 : isHovered ? 2 : 0.8}
               strokeLinejoin="round"
-              className="transition-colors duration-200 cursor-pointer"
-              style={{ filter: isHovered && !isSelected ? "brightness(0.92)" : undefined }}
+              className="cursor-pointer map-state-enter"
+              style={{
+                animationDelay: `${idx * 40}ms`,
+                filter: isHovered && !isSelected ? "brightness(0.92)" : undefined,
+                transition: "fill 200ms ease, stroke 200ms ease, stroke-width 200ms ease, filter 200ms ease",
+              }}
               onMouseMove={(e) => handleMouseMove(e, name)}
               onMouseLeave={handleMouseLeave}
               onClick={() => onStateClick?.(name)}
@@ -1083,7 +1152,7 @@ function MalaysiaMap({ stateData, maxValue, selectedState, onStateClick }: {
       {/* Hover tooltip */}
       {tooltip && (
         <div
-          className="absolute pointer-events-none z-10 bg-white rounded-lg shadow-lg border border-[#E3E8EF] px-3 py-2"
+          className="absolute pointer-events-none z-10 bg-white rounded-lg shadow-lg border border-[#E3E8EF] px-3 py-2 tooltip-enter"
           style={{
             left: Math.min(tooltip.x + 14, (containerRef.current?.clientWidth ?? 400) - 150),
             top: Math.max(tooltip.y - 52, 4),
@@ -1102,7 +1171,7 @@ function MalaysiaMap({ stateData, maxValue, selectedState, onStateClick }: {
 
 function ChartCard({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden hover-lift">
+    <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden hover-lift chart-card-hover">
       <div className="px-5 pt-5 pb-3">
         <h3 className="text-sm font-semibold text-[#0A2540]">{title}</h3>
         <p className="text-xs text-[#697386] mt-0.5">{subtitle}</p>
@@ -1131,14 +1200,20 @@ function EmptyChart({ message }: { message: string }) {
 
 // ── KPI Card ──
 
-function KpiCard({ label, value, icon, accent }: { label: string; value: string; icon: React.ReactNode; accent?: string }) {
+function KpiCard({ label, value, icon, accent, delay = 0 }: { label: string; value: string; icon: React.ReactNode; accent?: string; delay?: number }) {
+  const numericValue = parseInt(value, 10);
+  const isNumeric = !isNaN(numericValue) && value !== "—";
+  const animatedValue = useAnimatedCounter(isNumeric ? numericValue : 0, 800);
+
   return (
-    <div className="bg-white rounded-lg border border-[#E3E8EF] px-5 py-4 hover-lift animate-fade-in-up">
+    <div className="bg-white rounded-lg border border-[#E3E8EF] px-5 py-4 hover-lift animate-fade-in-up chart-card-hover">
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-[#697386]">{icon}</span>
+        <span className="text-[#697386] animate-scale-in" style={{ animationDelay: `${delay + 200}ms` }}>{icon}</span>
         <span className="text-xs font-medium text-[#697386]">{label}</span>
       </div>
-      <p className={`text-2xl font-semibold tabular-nums ${accent ?? "text-[#0A2540]"}`}>{value}</p>
+      <p className={`text-2xl font-semibold tabular-nums number-pop ${accent ?? "text-[#0A2540]"}`} style={{ animationDelay: `${delay + 100}ms` }}>
+        {isNumeric ? animatedValue : value}
+      </p>
     </div>
   );
 }
