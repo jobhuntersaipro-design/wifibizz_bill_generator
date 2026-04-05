@@ -50,7 +50,7 @@ export async function GET(request: Request) {
     const billColumn = type === "internet" ? "internet_bill_url" : "utility_bill_url";
 
     const rows = await sql`
-      SELECT internet_bill_url, utility_bill_url
+      SELECT internet_bill_url, utility_bill_url, order_no
       FROM wifibizz_cases
       WHERE case_no = ${caseNo} AND user_id = ${wifibizzUser.id}
     `;
@@ -82,7 +82,9 @@ export async function GET(request: Request) {
       );
     }
 
-    const filename = `${type}_bill_${caseNo}.pdf`;
+    const orderNo = rows[0].order_no as string | null;
+    const orderSuffix = orderNo ? `_${orderNo}` : "";
+    const filename = `internetBill_${caseNo}${orderSuffix}.pdf`;
 
     return new Response(stream, {
       headers: {

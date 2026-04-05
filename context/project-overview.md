@@ -199,7 +199,7 @@ vercel --prod
 
 ---
 
-## Part 2: Bill Generator (`generate-bill.py`)
+## Part 2: Bill Generator (`generate-internet-bill.py`)
 
 ### Overview
 
@@ -250,7 +250,7 @@ Uses `pikepdf` to operate at the PDF content stream level:
 
 ```bash
 pip install pikepdf
-python generate-bill.py
+python generate-internet-bill.py
 # Output: output/internet_bill_generated.pdf
 ```
 
@@ -290,7 +290,7 @@ python generate-bill.py
 
 ```
 bill_generator/
-├── generate-bill.py           # Part 2: Bill PDF generator (Python)
+├── generate-internet-bill.py           # Part 2: Bill PDF generator (Python)
 ├── sample/
 │   └── internet_bill.pdf      # Source PDF template
 ├── output/

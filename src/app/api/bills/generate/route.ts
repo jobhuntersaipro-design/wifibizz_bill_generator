@@ -50,7 +50,7 @@ export async function POST(request: Request) {
     }
 
     const sql = neon(process.env.DATABASE_URL!);
-    const scriptPath = path.resolve(process.cwd(), "bill_generator", "generate-utility-bill.py");
+    const scriptPath = path.resolve(process.cwd(), "bill_generator", "generate-internet-bill.py");
     const outputDir = path.resolve(process.cwd(), "bill_generator", "output");
 
     const results: { caseNo: string; status: string; url?: string; error?: string }[] = [];

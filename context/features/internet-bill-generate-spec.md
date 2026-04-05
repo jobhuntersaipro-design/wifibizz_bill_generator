@@ -5,7 +5,7 @@
 All user to generate bill based on case list
 
 ## Requirements
-- Add a button below search bar named "Generate Internet Bill", then it should run the script @generate-utility-bill.py
+- Add a button below search bar named "Generate Internet Bill", then it should run the script @generate-internet-bill.py
 - Create upload API route for R2
 - Delete files from R2 when items are deleted
 - Create download proxy API route (avoids CORS issues)

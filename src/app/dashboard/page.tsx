@@ -273,7 +273,7 @@ export default function DashboardPage() {
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState("Activated");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [statuses, setStatuses] = useState<string[]>([]);

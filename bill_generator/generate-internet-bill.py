@@ -56,11 +56,13 @@ NAME_ADDR_OVERLAY = {
     'name_y': 646.75,
     'addr1_y': 635.95,
     'addr2_y': 624.91,
+    'addr3_y': 613.87,  # third address line if needed
     'box_x': 44,        # white-out box left edge
-    'box_y': 621,       # white-out box bottom (below addr2 baseline)
+    'box_y': 610,       # white-out box bottom (below addr3 baseline)
     'box_w': 290,       # wide enough for long names but stops before right column (x=343)
-    'box_h': 36,        # tall enough to cover name top (646.75 + ~8pt font = ~655)
+    'box_h': 47,        # tall enough to cover name top (646.75 + ~8pt font = ~655)
     'font_size': 7.92,
+    'max_chars': 55,    # max characters per address line to avoid overflow
 }
 
 # Original TJ byte patterns to blank out (replace chars with spaces)
@@ -167,17 +169,19 @@ def compute_values(customer_mobile):
     }
 
 def split_address(full_address):
-    """Split a full address into two lines matching the template layout.
+    """Split a full address into up to 3 lines, each within max_chars limit.
 
     Template format:
       Line 1: street address (e.g. "NO 12 JALAN MERPATI 3 TAMAN BUKIT INDAH")
-      Line 2: postcode + city + state (e.g. "81200 JOHOR BAHRU JOHOR")
+      Line 2: area/city (e.g. "TAMAN MUHIBBAH KUALA LUMPUR")
+      Line 3: state + postcode (e.g. "WILAYAH PERSEKUTUAN MALAYSIA 58200")
 
-    Handles two common formats:
-      - Postcode in middle: "... TAMAN BUKIT INDAH 81200 JOHOR BAHRU"
-      - Postcode at end: "... LAHAD DATU SABAH MALAYSIA 91100"
+    Splits at the postcode boundary first, then wraps long lines
+    to stay within the max character limit per line.
     """
     import re
+    max_chars = NAME_ADDR_OVERLAY['max_chars']
+
     # Clean up: replace commas with spaces, collapse whitespace
     addr = re.sub(r',\s*', ' ', full_address).strip()
     addr = re.sub(r'\s+', ' ', addr)
@@ -186,31 +190,22 @@ def split_address(full_address):
     matches = list(re.finditer(r'\b(\d{5})\b', addr))
 
     if matches:
-        # Use the last 5-digit number as the postcode
-        # (first digits are often house/lot numbers like "99347292")
         postcode_match = matches[-1]
         postcode_pos = postcode_match.start()
         postcode_end = postcode_match.end()
 
-        # Check if postcode is at the end of the address
         after_postcode = addr[postcode_end:].strip()
         if not after_postcode:
-            # Postcode at end — line 2 needs to be built differently
-            # Find a sensible split point before the postcode
+            # Postcode at end — split before postcode
             before = addr[:postcode_pos].strip()
-            # Try to find state/city keywords to split at
-            # Look for the last occurrence of common separators
-            # Split roughly: keep street on line 1, city/state/postcode on line 2
             words = before.split()
-            # Find where the "city" part starts — heuristic: after TAMAN/KAMPUNG etc.
-            # or just split at roughly half
             mid = len(words) // 2
-            line1 = ' '.join(words[:mid])
-            line2 = ' '.join(words[mid:]) + ' ' + addr[postcode_pos:postcode_end]
+            part1 = ' '.join(words[:mid])
+            part2 = ' '.join(words[mid:]) + ' ' + addr[postcode_pos:postcode_end]
         else:
             # Postcode in middle — standard format
-            line1 = addr[:postcode_pos].strip()
-            line2 = addr[postcode_pos:].strip()
+            part1 = addr[:postcode_pos].strip()
+            part2 = addr[postcode_pos:].strip()
     else:
         # No postcode found — split at roughly half
         mid = len(addr) // 2
@@ -218,13 +213,31 @@ def split_address(full_address):
         if space == -1:
             space = addr.rfind(' ', 0, mid)
         if space == -1:
-            line1 = addr
-            line2 = ''
-        else:
-            line1 = addr[:space].strip()
-            line2 = addr[space:].strip()
+            return [addr]
+        part1 = addr[:space].strip()
+        part2 = addr[space:].strip()
 
-    return line1, line2
+    # Now wrap each part to max_chars, producing up to 3 lines total
+    lines = []
+    for part in [part1, part2]:
+        if not part:
+            continue
+        if len(part) <= max_chars:
+            lines.append(part)
+        else:
+            # Word-wrap: break at last space before max_chars
+            words = part.split()
+            current = words[0]
+            for w in words[1:]:
+                if len(current) + 1 + len(w) <= max_chars:
+                    current += ' ' + w
+                else:
+                    lines.append(current)
+                    current = w
+            lines.append(current)
+
+    # Cap at 3 lines max
+    return lines[:3]
 
 
 def build_replacements(v):
@@ -327,14 +340,16 @@ def process_stream(stream_bytes, stream_replacements, blank_patterns=None):
     return bytes(buf), total
 
 
-def overlay_name_address(pdf, page, name, addr_line1, addr_line2):
+def overlay_name_address(pdf, page, name, addr_lines):
     """Overlay new name and address text on page 1 using a standard font.
 
     Draws a white rectangle over the original name/address area, then
     writes new text using Helvetica-Bold (name) and Helvetica (address).
+    addr_lines is a list of 1-3 address line strings.
     """
     o = NAME_ADDR_OVERLAY
     fs = o['font_size']
+    addr_y_keys = ['addr1_y', 'addr2_y', 'addr3_y']
 
     # Register Helvetica and Helvetica-Bold as page fonts
     resources = page['/Resources']
@@ -372,19 +387,18 @@ def overlay_name_address(pdf, page, name, addr_line1, addr_line2):
         f'{o["x"]} {o["name_y"]} Td\n'
         f'({esc("Mr " + name)}) Tj\n'
         f'ET\n'
-        f'BT\n'
-        f'/FH {fs} Tf\n'
-        f'0 g\n'
-        f'{o["x"]} {o["addr1_y"]} Td\n'
-        f'({esc(addr_line1)}) Tj\n'
-        f'ET\n'
-        f'BT\n'
-        f'/FH {fs} Tf\n'
-        f'0 g\n'
-        f'{o["x"]} {o["addr2_y"]} Td\n'
-        f'({esc(addr_line2)}) Tj\n'
-        f'ET\n'
     )
+
+    for i, line in enumerate(addr_lines):
+        y = o[addr_y_keys[i]]
+        overlay += (
+            f'BT\n'
+            f'/FH {fs} Tf\n'
+            f'0 g\n'
+            f'{o["x"]} {y} Td\n'
+            f'({esc(line)}) Tj\n'
+            f'ET\n'
+        )
 
     # Append overlay as a new content stream
     overlay_stream = pdf.make_stream(overlay.encode('latin-1'))
@@ -394,7 +408,7 @@ def overlay_name_address(pdf, page, name, addr_line1, addr_line2):
     else:
         page[pikepdf.Name('/Contents')] = pikepdf.Array([contents, overlay_stream])
 
-    return 3  # 3 text replacements (name + 2 address lines)
+    return 1 + len(addr_lines)  # name + address lines
 
 
 def replace_in_text(text, text_replacements):
@@ -407,8 +421,8 @@ def replace_in_text(text, text_replacements):
 # ── Main ───────────────────────────────────────────────────────────
 def main():
     if len(sys.argv) < 2:
-        print('Usage: python generate-utility-bill.py <case_no>')
-        print('Example: python generate-utility-bill.py 202624115')
+        print('Usage: python generate-internet-bill.py <case_no>')
+        print('Example: python generate-internet-bill.py 202624115')
         sys.exit(1)
 
     case_no = sys.argv[1]
@@ -424,10 +438,10 @@ def main():
     v = compute_values(case['mobile'])
     stream_replacements, text_replacements = build_replacements(v)
 
-    # Split address into two lines matching the template layout
-    addr_line1, addr_line2 = split_address(case['full_address'])
-    print(f'  Addr L1 : {addr_line1}')
-    print(f'  Addr L2 : {addr_line2}')
+    # Split address into up to 3 lines to avoid overflow
+    addr_lines = split_address(case['full_address'])
+    for i, line in enumerate(addr_lines):
+        print(f'  Addr L{i+1} : {line}')
 
     # Resolve paths relative to this script's directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -463,7 +477,7 @@ def main():
         # Overlay name and address on page 1 using standard fonts
         if page_num == 0:
             overlay_count = overlay_name_address(
-                pdf, page, case['full_name'], addr_line1, addr_line2
+                pdf, page, case['full_name'], addr_lines
             )
             page_count += overlay_count
 
@@ -514,8 +528,8 @@ def main():
 
     print(f'\nTotal: {total} replacements')
     print(f'  Name         : FOO GUAN ZHENG -> {case["full_name"]}')
-    print(f'  Address L1   : 30 JALAN BELIMBING INDAH D\'BOULEVARD -> {addr_line1}')
-    print(f'  Address L2   : 43300 SERI KEMBANGAN SELANGOR MALAYSIA -> {addr_line2}')
+    for i, line in enumerate(addr_lines):
+        print(f'  Address L{i+1}   : {line}')
     print(f'  Account      : {ORIGINAL_ACCOUNT} -> {v["new_account"]}')
     print(f'  Bill No      : INV{ORIGINAL_BILL_DIGITS} -> INV{v["new_bill_digits"]}')
     print(f'  Bill Date    : {ORIG_BILL_DATE} -> {v["new_bill_date"]}')

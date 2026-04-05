@@ -44,7 +44,7 @@ export async function POST(request: Request) {
 
     // Fetch all cases with bill URLs
     const rows = await sql`
-      SELECT case_no, internet_bill_url, utility_bill_url, full_name
+      SELECT case_no, internet_bill_url, utility_bill_url, full_name, order_no
       FROM wifibizz_cases
       WHERE user_id = ${wifibizzUser.id}
         AND case_no = ANY(${caseNos})
@@ -68,34 +68,8 @@ export async function POST(request: Request) {
     const archive = archiver("zip", { zlib: { level: 5 } });
     archive.pipe(passthrough);
 
-    for (const row of casesWithBills) {
-      const billUrl = (row as Record<string, unknown>)[billColumn] as string;
-      const r2Key = billUrl.replace(`${publicUrlBase}/`, "");
-      const stream = await getFromR2(r2Key);
-      if (!stream) continue;
-
-      const reader = stream.getReader();
-      const chunks: Uint8Array[] = [];
-      let done = false;
-      while (!done) {
-        const result = await reader.read();
-        if (result.done) {
-          done = true;
-        } else {
-          chunks.push(result.value);
-        }
-      }
-      const buffer = Buffer.concat(chunks);
-
-      const caseNo = (row as Record<string, unknown>).case_no as string;
-      const name = (row as Record<string, unknown>).full_name as string | null;
-      const safeName = name ? name.replace(/[^a-zA-Z0-9 ]/g, "").trim().replace(/\s+/g, "_") : caseNo;
-      archive.append(buffer, { name: `${type}_bill_${caseNo}_${safeName}.pdf` });
-    }
-
-    await archive.finalize();
-
-    // Convert PassThrough to ReadableStream
+    // Set up the ReadableStream consumer BEFORE writing data to avoid
+    // backpressure deadlock when the PassThrough buffer fills up
     const readable = new ReadableStream({
       start(controller) {
         passthrough.on("data", (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
@@ -104,7 +78,41 @@ export async function POST(request: Request) {
       },
     });
 
-    const filename = `${type}_bills_${new Date().toISOString().split("T")[0]}.zip`;
+    const filename = `internetBills_${new Date().toISOString().split("T")[0]}.zip`;
+
+    // Populate the archive asynchronously — the response streams as data arrives
+    (async () => {
+      try {
+        for (const row of casesWithBills) {
+          const billUrl = (row as Record<string, unknown>)[billColumn] as string;
+          const r2Key = billUrl.replace(`${publicUrlBase}/`, "");
+          const stream = await getFromR2(r2Key);
+          if (!stream) continue;
+
+          const reader = stream.getReader();
+          const chunks: Uint8Array[] = [];
+          let done = false;
+          while (!done) {
+            const result = await reader.read();
+            if (result.done) {
+              done = true;
+            } else {
+              chunks.push(result.value);
+            }
+          }
+          const buffer = Buffer.concat(chunks);
+
+          const caseNo = (row as Record<string, unknown>).case_no as string;
+          const orderNo = (row as Record<string, unknown>).order_no as string | null;
+          const orderSuffix = orderNo ? `_${orderNo}` : "";
+          archive.append(buffer, { name: `internetBill_${caseNo}${orderSuffix}.pdf` });
+        }
+        await archive.finalize();
+      } catch (err) {
+        archive.abort();
+        passthrough.destroy(err instanceof Error ? err : new Error(String(err)));
+      }
+    })();
 
     return new Response(readable, {
       headers: {
