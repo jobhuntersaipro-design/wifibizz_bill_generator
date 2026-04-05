@@ -1,31 +1,16 @@
-# Current Feature: Internet Bill Generation
+# Current Feature
 
 ## Status
 
-In Progress
+Not Started
 
 ## Goals
 
-- Add "Generate Internet Bill" button below the search bar on the dashboard case list
-- Integrate the Python `generate-utility-bill.py` script to generate bills per case
-- Create R2 upload API route for storing generated bill files
-- Create R2 delete endpoint to clean up files when items are deleted
-- Create download proxy API route to avoid CORS issues
-- Display image preview of generated bill in the slide-in detail modal
-- Link generated bill files to R2 storage
-- Allow users to select all cases from the current table
-- Allow users to select individual cases from the table
-- Add 2 icon buttons per row: Internet bill (download) and Utility bill (download)
-- Grey out download buttons if the bill file has not been generated yet
+<!-- Goals will be listed here -->
 
 ## Notes
 
-- Source spec: `context/features/internet-bill-generate-spec.md`
-- The bill generator is a Python script at `generate-utility-bill.py` (uses pikepdf)
-- Bills are stored in Cloudflare R2
-- Two bill types per case: Internet bill and Utility bill
-- Download buttons use icons (no text)
-- Selection supports both "select all" and individual row selection
+<!-- Additional context and notes -->
 
 ## History
 
@@ -48,3 +33,4 @@ In Progress
 - **Phase 15 — UI Polish & Animations** (2026-04-04): Subtle animations across entire website: fade-in-up page entrances, staggered card/stat reveals, hover-lift cards, hover-glow buttons, press-effect interactions, floating orbs on sign-in, sidebar slide-in with staggered nav items, topbar drop-down, pulsing notification dot. Case list: replaced expandable rows with slide-in detail panel (sections with dividers, staggered field animations). Removed top search bar (kept Case List search). Unified case table font to 13px. Settings: password eye toggle, raw password display from DB, confirmation modal on password update.
 - **Phase 16 — Test WifiBizz Connection Button** (2026-04-05): Added "Test Connection" button to Settings/Credentials page. Exported testConnection() from scraper (login-only, no crawling). Server action testWifibizzConnection() fetches stored credentials and attempts WifiBizz authentication. Inline success (green) and error (red) banners with clear messaging to check password on failure. Button only visible when password is saved.
 - **Phase 17 — Dashboard UI Revamped** (2026-04-05): Merged case list into main dashboard, removed standalone /cases route and sidebar link. Added interactive Malaysia SVG map (real geographic paths from MapSVG CC0) with state-level case heat map, hover tooltips, click-to-drill-down detail panel showing breakdowns by status/provider/package. New /api/cases/analytics endpoint with multi-series time data, state extraction from addresses, and filter support (status, date, provider, package). /api/cases/analytics/state endpoint for state drill-down. Multi-series area chart (Cases Over Time) with status legend toggle, clickable hide/show, value labels with white halo. Donut chart (By Status) and horizontal bar chart (By Provider) with value labels. KPI row. Date range presets + custom from/to date inputs on state map filters. Shared state extraction logic in src/lib/malaysia-states.ts. Recharts library added. Week granularity default.
+- **Phase 18 — Internet Bill Generation** (2026-04-05): Bill generation API routes (generate, download, bulk-download) with Cloudflare R2 storage. Per-row internet/utility bill icon buttons greyed out when not generated. Select-all and individual case selection for bulk operations. Download confirmation modal with accurate bill count using full case data. Slide-in detail panel shows bill preview via iframe. Prisma migration adds internet_bill_url and utility_bill_url columns. Playwright e2e tests. Fixed bulk download count bug where select-all only checked loaded page instead of all fetched cases.
