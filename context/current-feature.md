@@ -1,12 +1,22 @@
-# Current Feature
+# Current Feature: Test WifiBizz Connection Button
 
 ## Status
 
-Not Started
+In Progress
 
 ## Goals
 
+- Add a "Test Connection" button on the WifiBizz Credentials (Settings) page
+- Button tests the stored WifiBizz email and password by attempting to authenticate with the WifiBizz portal
+- On success: show a success message confirming credentials are valid
+- On failure: prompt the user to check their WifiBizz password
+- Use the existing crawler authentication logic (CSRF token extraction + login POST)
+
 ## Notes
+
+- The test should use the same login flow as the crawler (GET /login for CSRF, POST /login with credentials)
+- Only needs to verify authentication succeeds — no need to crawl cases
+- Should work with credentials already saved in the database (encrypted password)
 
 ## History
 

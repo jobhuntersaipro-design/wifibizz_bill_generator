@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import {
   saveWifibizzPassword,
   getWifibizzCredentials,
+  testWifibizzConnection,
 } from "@/actions/settings";
 import { toast } from "sonner";
 
@@ -20,6 +21,8 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [showConfirm, setShowConfirm] = useState(false);
   const [originalPassword, setOriginalPassword] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null);
 
   useEffect(() => {
     getWifibizzCredentials().then((result) => {
@@ -60,6 +63,23 @@ export default function SettingsPage() {
     }
 
     setSaving(false);
+  }
+
+  async function handleTestConnection() {
+    setTesting(true);
+    setTestResult(null);
+
+    const result = await testWifibizzConnection();
+
+    if (result.success) {
+      setTestResult({ success: true });
+      toast.success("Connection successful! Credentials are valid.");
+    } else {
+      setTestResult({ success: false, error: result.error });
+      toast.error(result.error ?? "Connection test failed");
+    }
+
+    setTesting(false);
   }
 
   if (loading) {
@@ -168,17 +188,55 @@ export default function SettingsPage() {
                   </div>
                 )}
 
-                <Button
-                  type="submit"
-                  disabled={saving}
-                  className="h-10 px-5 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] hover-glow"
-                >
-                  {saving
-                    ? "Saving..."
-                    : hasPassword
-                      ? "Update Password"
-                      : "Save Password"}
-                </Button>
+                <div className="flex items-center gap-3">
+                  <Button
+                    type="submit"
+                    disabled={saving}
+                    className="h-10 px-5 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] hover-glow"
+                  >
+                    {saving
+                      ? "Saving..."
+                      : hasPassword
+                        ? "Update Password"
+                        : "Save Password"}
+                  </Button>
+
+                  {hasPassword && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={testing}
+                      onClick={handleTestConnection}
+                      className="h-10 px-5 rounded-lg text-sm font-medium border-[#E3E8EF] text-[#425466] hover:border-[#635BFF] hover:text-[#635BFF] press-effect"
+                    >
+                      {testing ? (
+                        <>
+                          <span className="h-3.5 w-3.5 mr-2 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent inline-block" />
+                          Testing...
+                        </>
+                      ) : (
+                        <>
+                          <WifiIcon className="w-3.5 h-3.5 mr-2" />
+                          Test Connection
+                        </>
+                      )}
+                    </Button>
+                  )}
+                </div>
+
+                {testResult && !testResult.success && (
+                  <div className="flex items-start gap-2 text-xs bg-red-50 text-red-700 rounded-lg px-4 py-2.5 animate-fade-in-up" style={{ animationDuration: "200ms" }}>
+                    <AlertIcon className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                    <span>{testResult.error}</span>
+                  </div>
+                )}
+
+                {testResult?.success && (
+                  <div className="flex items-center gap-2 text-xs bg-green-50 text-green-700 rounded-lg px-4 py-2.5 animate-fade-in-up" style={{ animationDuration: "200ms" }}>
+                    <CheckIcon className="w-3.5 h-3.5 shrink-0" />
+                    <span>Connection successful — credentials are valid.</span>
+                  </div>
+                )}
               </form>
             ) : (
               <div className="flex flex-col items-center py-8 text-center">
@@ -260,6 +318,25 @@ function AlertIcon({ className }: { className?: string }) {
       <circle cx="12" cy="12" r="10" />
       <path d="M12 16v-4" />
       <path d="M12 8h.01" />
+    </svg>
+  );
+}
+
+function WifiIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M12 20h.01" />
+      <path d="M2 8.82a15 15 0 0 1 20 0" />
+      <path d="M5 12.859a10 10 0 0 1 14 0" />
+      <path d="M8.5 16.429a5 5 0 0 1 7 0" />
+    </svg>
+  );
+}
+
+function CheckIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M20 6 9 17l-5-5" />
     </svg>
   );
 }

@@ -231,6 +231,19 @@ export function extractCases(records: Record<string, unknown>[], baseUrl: string
 
 // ── Public API ──
 
+/**
+ * Test WifiBizz credentials by attempting login only (no crawling).
+ * Returns true if login succeeds, throws on failure.
+ */
+export async function testConnection(
+  email: string,
+  password: string
+): Promise<{ success: true }> {
+  const baseUrl = getBaseUrl();
+  await login(baseUrl, email, password);
+  return { success: true };
+}
+
 export interface CrawlResult {
   total: number;
   saved: number;

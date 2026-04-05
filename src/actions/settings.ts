@@ -2,6 +2,7 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { testConnection } from "@/lib/crawler/scraper";
 
 const PLACEHOLDER_PASSWORD = "PLACEHOLDER_NEEDS_USER_INPUT";
 
@@ -76,5 +77,49 @@ export async function getWifibizzCredentials() {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return { success: false, error: message, data: null };
+  }
+}
+
+export async function testWifibizzConnection() {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  try {
+    const wifibizzUser = await prisma.wifibizzUser.findUnique({
+      where: { userId: session.user.id },
+      select: {
+        wifibizzEmail: true,
+        wifibizzPasswordEnc: true,
+      },
+    });
+
+    if (!wifibizzUser) {
+      return { success: false, error: "No WifiBizz account configured." };
+    }
+
+    if (
+      !wifibizzUser.wifibizzPasswordEnc ||
+      wifibizzUser.wifibizzPasswordEnc === PLACEHOLDER_PASSWORD
+    ) {
+      return { success: false, error: "Please save your WifiBizz password first." };
+    }
+
+    await testConnection(
+      wifibizzUser.wifibizzEmail,
+      wifibizzUser.wifibizzPasswordEnc
+    );
+
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    if (message.includes("invalid credentials")) {
+      return {
+        success: false,
+        error: "Connection failed. Please check your WifiBizz password and try again.",
+      };
+    }
+    return { success: false, error: `Connection failed: ${message}` };
   }
 }
