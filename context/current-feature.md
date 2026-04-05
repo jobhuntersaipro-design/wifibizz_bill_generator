@@ -1,22 +1,12 @@
-# Current Feature: Test WifiBizz Connection Button
+# Current Feature
 
 ## Status
 
-In Progress
+Not Started
 
 ## Goals
 
-- Add a "Test Connection" button on the WifiBizz Credentials (Settings) page
-- Button tests the stored WifiBizz email and password by attempting to authenticate with the WifiBizz portal
-- On success: show a success message confirming credentials are valid
-- On failure: prompt the user to check their WifiBizz password
-- Use the existing crawler authentication logic (CSRF token extraction + login POST)
-
 ## Notes
-
-- The test should use the same login flow as the crawler (GET /login for CSRF, POST /login with credentials)
-- Only needs to verify authentication succeeds — no need to crawl cases
-- Should work with credentials already saved in the database (encrypted password)
 
 ## History
 
@@ -37,3 +27,4 @@ In Progress
 - **Phase 13 — Admin Page** (2026-04-03): Admin panel at /admin with env-based login (BIZZFLOW_ADMIN_USERNAME/PWD), JWT cookie auth via jose (8h expiry) separate from NextAuth. User CRUD: create/edit/delete with name, email, password, notes, case limit. Admin sets wifibizz_email per user; users see it read-only in settings and only enter their WifiBizz password. Password column with masked display and eye toggle. Route group structure to avoid layout conflicts. Added password_raw column to User model for admin visibility.
 - **Phase 14 — Redesign UI to Stripe Dashboard Style** (2026-04-03): Full visual redesign matching Stripe Dashboard aesthetic. Switched from Geist to Inter + JetBrains Mono fonts. Stripe color palette: #0A2540 primary text, #635BFF brand, #F6F9FC surface, #E3E8EF borders. Semi-bold (600) headings, tabular-nums on all numeric data. Updated 12 component files across dashboard, admin, and auth pages. Visual-only changes, all functionality preserved.
 - **Phase 15 — UI Polish & Animations** (2026-04-04): Subtle animations across entire website: fade-in-up page entrances, staggered card/stat reveals, hover-lift cards, hover-glow buttons, press-effect interactions, floating orbs on sign-in, sidebar slide-in with staggered nav items, topbar drop-down, pulsing notification dot. Case list: replaced expandable rows with slide-in detail panel (sections with dividers, staggered field animations). Removed top search bar (kept Case List search). Unified case table font to 13px. Settings: password eye toggle, raw password display from DB, confirmation modal on password update.
+- **Phase 16 — Test WifiBizz Connection Button** (2026-04-05): Added "Test Connection" button to Settings/Credentials page. Exported testConnection() from scraper (login-only, no crawling). Server action testWifibizzConnection() fetches stored credentials and attempts WifiBizz authentication. Inline success (green) and error (red) banners with clear messaging to check password on failure. Button only visible when password is saved.
