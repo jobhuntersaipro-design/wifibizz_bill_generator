@@ -1,28 +1,16 @@
-# Current Feature: Utility Bill Generation
+# Current Feature
 
 ## Status
 
-In Progress
+Not Started
 
 ## Goals
 
-- Create `generate-utility-bill.py` script for TNB utility bill PDF generation
-- Page 1: Replace account number (NO. AKAUN) with format `2202` + 6 random digits + `XX`
-- Page 1: Replace Ref-1 and barcode with same account number format
-- Page 1: Generate ALAMAT POS address from customer's address (landed vs condo formatting)
-- Page 2: Replace account number (NO. AKAUN) with same format
-- Page 2: Generate ALAMAT PREMIS address from customer's address
-- Handle address formatting: landed (2-line) vs condo (3-line with condo name)
-- "Kedai Tenaga Terdekat" — keep unchanged for Sabah/Sarawak, use Google API for nearest TNB for other states
+<!-- Add goals here -->
 
 ## Notes
 
-- Account number format: `2202` + 6 randomized digits + `XX` (consistent across page 1 NO. AKAUN, Ref-1, barcode, and page 2 NO. AKAUN)
-- Address format for landed: `Unit, Street1, Street2, Postcode City State Malaysia` (2 lines)
-- Address format for condo: `Unit, Condo Name / Street1, Street2, Postcode City State Malaysia` (3 lines)
-- Kedai Tenaga Terdekat logic needs Google Places API for non-Sabah/Sarawak states
-- Source PDF template needed (similar to internet bill approach)
-- Should integrate with existing Neon DB to fetch customer address data
+<!-- Add notes here -->
 
 ## History
 
@@ -46,3 +34,4 @@ In Progress
 - **Phase 16 — Test WifiBizz Connection Button** (2026-04-05): Added "Test Connection" button to Settings/Credentials page. Exported testConnection() from scraper (login-only, no crawling). Server action testWifibizzConnection() fetches stored credentials and attempts WifiBizz authentication. Inline success (green) and error (red) banners with clear messaging to check password on failure. Button only visible when password is saved.
 - **Phase 17 — Dashboard UI Revamped** (2026-04-05): Merged case list into main dashboard, removed standalone /cases route and sidebar link. Added interactive Malaysia SVG map (real geographic paths from MapSVG CC0) with state-level case heat map, hover tooltips, click-to-drill-down detail panel showing breakdowns by status/provider/package. New /api/cases/analytics endpoint with multi-series time data, state extraction from addresses, and filter support (status, date, provider, package). /api/cases/analytics/state endpoint for state drill-down. Multi-series area chart (Cases Over Time) with status legend toggle, clickable hide/show, value labels with white halo. Donut chart (By Status) and horizontal bar chart (By Provider) with value labels. KPI row. Date range presets + custom from/to date inputs on state map filters. Shared state extraction logic in src/lib/malaysia-states.ts. Recharts library added. Week granularity default.
 - **Phase 18 — Internet Bill Generation** (2026-04-05): Bill generation API routes (generate, download, bulk-download) with Cloudflare R2 storage. Per-row internet/utility bill icon buttons greyed out when not generated. Select-all and individual case selection for bulk operations. Download confirmation modal with accurate bill count using full case data. Slide-in detail panel shows bill preview via iframe. Prisma migration adds internet_bill_url and utility_bill_url columns. Playwright e2e tests. Fixed bulk download count bug where select-all only checked loaded page instead of all fetched cases.
+- **Phase 19 — Utility Bill Generation + Responsive UI + Favicon** (2026-04-05): Utility bill PDF generation (generate-utility-bill.py) with TNB template, address normalizer with geocoding pipeline for landed vs condo formatting, TARIKH BIL date collision fix. Responsive mobile layout across all pages: sidebar with hamburger toggle, responsive tables with column hiding, stacked filters, adaptive pagination, full-width detail panel on mobile. Admin shell client component for sidebar state. Custom favicon.png. Crawler and bill API improvements.
