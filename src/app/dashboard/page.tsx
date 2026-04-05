@@ -172,6 +172,22 @@ function formatPeriodLabel(period: string, granularity: Granularity): string {
     return `${parseInt(parts[2], 10)} ${names[parseInt(parts[1], 10) - 1]}`;
   }
   if (granularity === "week") {
+    // period is "IYYY-WIW" e.g. "2026-W10"
+    const match = period.match(/^(\d{4})-W(\d{1,2})$/);
+    if (match) {
+      const year = parseInt(match[1], 10);
+      const week = parseInt(match[2], 10);
+      // ISO week 1 contains Jan 4th; Monday is first day
+      const jan4 = new Date(year, 0, 4);
+      const dayOfWeek = jan4.getDay() || 7; // Mon=1..Sun=7
+      const monday = new Date(jan4);
+      monday.setDate(jan4.getDate() - dayOfWeek + 1 + (week - 1) * 7);
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const fmt = (d: Date) => `${d.getDate()} ${months[d.getMonth()]}`;
+      return `W${week} : ${fmt(monday)} - ${fmt(sunday)}`;
+    }
     return period.replace(/^\d{4}-/, "");
   }
   if (granularity === "quarter") {
@@ -749,7 +765,7 @@ export default function DashboardPage() {
               <EmptyChart message={hasChartFilters ? "No data for selected filters" : "No data available"} />
             ) : (
               <div className="chart-enter">
-              <ResponsiveContainer width="100%" height={280}>
+              <ResponsiveContainer width="100%" height={440}>
                 <AreaChart data={chartData}>
                   <defs>
                     {visibleStatuses.map((s, i) => (
@@ -760,7 +776,7 @@ export default function DashboardPage() {
                     ))}
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#E3E8EF" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#697386" }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#697386" }} axisLine={false} tickLine={false} interval={0} angle={-90} textAnchor="end" height={140} />
                   <YAxis tick={{ fontSize: 11, fill: "#697386" }} axisLine={false} tickLine={false} allowDecimals={false} />
                   <Tooltip
                     contentStyle={{ borderRadius: 8, border: "1px solid #E3E8EF", fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}
@@ -1075,12 +1091,12 @@ export default function DashboardPage() {
               <EmptyChart message="No data available" />
             ) : (
               <div className="flex flex-col items-center chart-enter" style={{ animationDelay: "200ms" }}>
-                <ResponsiveContainer width="100%" height={180}>
+                <ResponsiveContainer width="100%" height={260}>
                   <PieChart>
                     <Pie
                       data={analytics?.byStatus}
                       cx="50%" cy="50%"
-                      innerRadius={50} outerRadius={75}
+                      innerRadius={70} outerRadius={105}
                       paddingAngle={3}
                       dataKey="value"
                       stroke="none"
@@ -1091,7 +1107,7 @@ export default function DashboardPage() {
                       label={(props: PieLabelRenderProps) => {
                         const { cx, cy, midAngle, outerRadius, value } = props;
                         const RADIAN = Math.PI / 180;
-                        const radius = (outerRadius as number) + 16;
+                        const radius = (outerRadius as number) + 20;
                         const x = (cx as number) + radius * Math.cos(-(midAngle as number) * RADIAN);
                         const y = (cy as number) + radius * Math.sin(-(midAngle as number) * RADIAN);
                         return (
@@ -1187,7 +1203,7 @@ export default function DashboardPage() {
             className="bg-[#635BFF] hover:bg-[#5851DB] text-white rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all hover-glow press-effect disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <InternetBillIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
-            <span className="truncate">Gen Internet{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
+            <span className="truncate">Generate Internet Bill{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
           </Button>
           <Button
             onClick={() => handleGenerateBills("utility")}
@@ -1195,7 +1211,7 @@ export default function DashboardPage() {
             className="bg-[#FF6B35] hover:bg-[#E55A2B] text-white rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all hover-glow press-effect disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <UtilityBillIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
-            <span className="truncate">Gen Utility{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
+            <span className="truncate">Generate Utility Bill{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
           </Button>
           <Button
             onClick={() => handleDownloadClick("internet")}
@@ -1203,7 +1219,7 @@ export default function DashboardPage() {
             className="bg-white border border-[#E3E8EF] text-[#425466] hover:text-[#0A2540] hover:border-[#635BFF] rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all press-effect disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <DownloadIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
-            <span className="truncate">DL Internet{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
+            <span className="truncate">Download Internet Bill{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
           </Button>
           <Button
             onClick={() => handleDownloadClick("utility")}
@@ -1211,7 +1227,7 @@ export default function DashboardPage() {
             className="bg-white border border-[#E3E8EF] text-[#425466] hover:text-[#0A2540] hover:border-[#FF6B35] rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all press-effect disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <DownloadIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
-            <span className="truncate">DL Utility{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
+            <span className="truncate">Download Utility Bill{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
           </Button>
           {selectedCases.size > 0 && !allCasesSelected && (
             <button onClick={selectAllCases} className="text-xs text-[#635BFF] hover:text-[#5851DB] font-medium transition-colors">

@@ -3,41 +3,8 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { neon } from "@neondatabase/serverless";
 import { uploadToR2 } from "@/lib/r2";
-import { execFile } from "child_process";
-import { readFile, unlink } from "fs/promises";
-import path from "path";
-
-function runPythonScript(
-  scriptPath: string,
-  caseNo: string,
-  caseData: string,
-  retries = 3
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    let attempt = 0;
-    function tryRun() {
-      attempt++;
-      const child = execFile(
-        "python3",
-        [scriptPath, caseNo],
-        { timeout: 30000, maxBuffer: 10 * 1024 * 1024, env: { ...process.env } },
-        (error, _stdout, stderr) => {
-          if (!error) {
-            resolve();
-          } else if (error.signal === "SIGTERM" && attempt < retries) {
-            tryRun();
-          } else {
-            reject(new Error(stderr?.trim() || _stdout?.trim() || error.message));
-          }
-        }
-      );
-      // Pipe customer data via stdin so Python skips DB query
-      child.stdin?.write(caseData);
-      child.stdin?.end();
-    }
-    tryRun();
-  });
-}
+import { generateInternetBill } from "@/lib/bill-generator/internet-bill";
+import { generateUtilityBill } from "@/lib/bill-generator/utility-bill";
 
 const MAX_BATCH = 20;
 
@@ -93,35 +60,31 @@ export async function POST(request: Request) {
     const caseDataMap = new Map(
       casesData.map((c) => [
         c.case_no,
-        JSON.stringify({
-          case_no: c.case_no,
-          full_name: c.full_name,
-          full_address: c.full_address,
-          mobile: c.mobile,
-        }),
+        {
+          case_no: c.case_no as string,
+          full_name: c.full_name as string,
+          full_address: c.full_address as string,
+          mobile: c.mobile as string,
+        },
       ])
     );
 
-    const scriptName = billType === "utility" ? "generate-utility-bill.py" : "generate-internet-bill.py";
-    const scriptPath = path.resolve(process.cwd(), "bill_generator", scriptName);
-    const outputDir = path.resolve(process.cwd(), "bill_generator", "output");
     const r2Prefix = billType === "utility" ? "utility_bill" : "internet_bill";
     const wifibizzUserId = wifibizzUser.id;
 
     const results: { caseNo: string; status: string; url?: string; error?: string }[] = [];
 
     async function processCase(caseNo: string) {
-      const caseJson = caseDataMap.get(caseNo);
-      if (!caseJson) {
+      const caseData = caseDataMap.get(caseNo);
+      if (!caseData) {
         return { caseNo, status: "error", error: "Case not found or not owned" };
       }
 
-      const outputPath = path.join(outputDir, `${r2Prefix}_${caseNo}.pdf`);
-
       try {
-        await runPythonScript(scriptPath, caseNo, caseJson);
-
-        const pdfBuffer = await readFile(outputPath);
+        // Generate PDF using TypeScript bill generator
+        const pdfBuffer = billType === "utility"
+          ? await generateUtilityBill(caseData)
+          : await generateInternetBill(caseData);
 
         const r2Key = `bills/${wifibizzUserId}/${caseNo}/${r2Prefix}.pdf`;
         const publicUrl = await uploadToR2(r2Key, pdfBuffer, "application/pdf");
@@ -145,12 +108,6 @@ export async function POST(request: Request) {
         const message = err instanceof Error ? err.message : "Generation failed";
         console.error(`Bill generation failed for ${caseNo}:`, message);
         return { caseNo, status: "error", error: message } as const;
-      } finally {
-        try {
-          await unlink(outputPath);
-        } catch {
-          // File may not exist if generation failed
-        }
       }
     }
 
