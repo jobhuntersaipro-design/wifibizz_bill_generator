@@ -1,24 +1,16 @@
-# Current Feature: Dashboard UI Revamped
+# Current Feature
 
 ## Status
 
-In Progress
+Not Started
 
 ## Goals
 
-- Merge Case List (/cases) into the main Dashboard page and remove the standalone /cases route
-- Remove stat cards: Total Cases, Activated Cases, Last Crawled, Average Speed, Total Bandwidth, Uptime, Incidents
-- Remove Generate Bills card
-- Add interactive analytics charts showing case data (e.g. cases over time, cases by status, cases by provider)
-- Tableau-level dashboard design — comprehensive, visually rich charts that give users quick analytical insights at a glance
+<!-- Define goals here -->
 
 ## Notes
 
-- Case List table should be integrated directly into the dashboard below the charts
-- Charts should be built from the existing wifibizz_cases data
-- Keep the existing Stripe design aesthetic (Inter font, #635BFF brand, #0A2540 text, #F6F9FC surface)
-- Consider using a charting library (e.g. Recharts) for interactive charts
-- Sidebar navigation should be updated to remove the separate Cases link
+<!-- Additional context -->
 
 ## History
 
@@ -40,3 +32,4 @@ In Progress
 - **Phase 14 — Redesign UI to Stripe Dashboard Style** (2026-04-03): Full visual redesign matching Stripe Dashboard aesthetic. Switched from Geist to Inter + JetBrains Mono fonts. Stripe color palette: #0A2540 primary text, #635BFF brand, #F6F9FC surface, #E3E8EF borders. Semi-bold (600) headings, tabular-nums on all numeric data. Updated 12 component files across dashboard, admin, and auth pages. Visual-only changes, all functionality preserved.
 - **Phase 15 — UI Polish & Animations** (2026-04-04): Subtle animations across entire website: fade-in-up page entrances, staggered card/stat reveals, hover-lift cards, hover-glow buttons, press-effect interactions, floating orbs on sign-in, sidebar slide-in with staggered nav items, topbar drop-down, pulsing notification dot. Case list: replaced expandable rows with slide-in detail panel (sections with dividers, staggered field animations). Removed top search bar (kept Case List search). Unified case table font to 13px. Settings: password eye toggle, raw password display from DB, confirmation modal on password update.
 - **Phase 16 — Test WifiBizz Connection Button** (2026-04-05): Added "Test Connection" button to Settings/Credentials page. Exported testConnection() from scraper (login-only, no crawling). Server action testWifibizzConnection() fetches stored credentials and attempts WifiBizz authentication. Inline success (green) and error (red) banners with clear messaging to check password on failure. Button only visible when password is saved.
+- **Phase 17 — Dashboard UI Revamped** (2026-04-05): Merged case list into main dashboard, removed standalone /cases route and sidebar link. Added interactive Malaysia SVG map (real geographic paths from MapSVG CC0) with state-level case heat map, hover tooltips, click-to-drill-down detail panel showing breakdowns by status/provider/package. New /api/cases/analytics endpoint with multi-series time data, state extraction from addresses, and filter support (status, date, provider, package). /api/cases/analytics/state endpoint for state drill-down. Multi-series area chart (Cases Over Time) with status legend toggle, clickable hide/show, value labels with white halo. Donut chart (By Status) and horizontal bar chart (By Provider) with value labels. KPI row. Date range presets + custom from/to date inputs on state map filters. Shared state extraction logic in src/lib/malaysia-states.ts. Recharts library added. Week granularity default.
