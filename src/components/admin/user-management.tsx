@@ -106,12 +106,12 @@ export function UserManagement() {
             <thead>
               <tr className="border-b border-[#E3E8EF]">
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Name</th>
-                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Email</th>
-                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Password</th>
-                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">WifiBizz Email</th>
-                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Case Limit</th>
-                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Notes</th>
-                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Created</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden sm:table-cell">Email</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden lg:table-cell">Password</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden lg:table-cell">WifiBizz Email</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden md:table-cell">Case Limit</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden lg:table-cell">Notes</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden md:table-cell">Created</th>
                 <th className="text-right px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
@@ -119,15 +119,15 @@ export function UserManagement() {
               {users.map((user) => (
                 <tr key={user.id} className="hover:bg-[#F6F9FC] transition-colors duration-100">
                   <td className="px-4 py-3 font-medium text-[#0A2540]">{user.name || "—"}</td>
-                  <td className="px-4 py-3 text-[#425466]">{user.email || "—"}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 text-[#425466] hidden sm:table-cell">{user.email || "—"}</td>
+                  <td className="px-4 py-3 hidden lg:table-cell">
                     {user.passwordRaw ? (
                       <PasswordCell password={user.passwordRaw} />
                     ) : (
                       <span className="text-[#697386]">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 hidden lg:table-cell">
                     {user.wifibizzEmail ? (
                       <span className="inline-flex items-center text-[11px] font-medium bg-blue-50 text-blue-700 px-2 py-0.5 rounded-md">
                         {user.wifibizzEmail}
@@ -136,13 +136,13 @@ export function UserManagement() {
                       <span className="text-[#697386] text-xs">Not set</span>
                     )}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 hidden md:table-cell">
                     <span className="inline-flex items-center text-xs font-medium bg-[#F6F9FC] text-[#0A2540] px-2 py-0.5 rounded-md tabular-nums">
                       {user.caseLimit}
                     </span>
                   </td>
-                  <td className="px-4 py-3 max-w-[200px] truncate text-[#697386] text-xs">{user.notes || "—"}</td>
-                  <td className="px-4 py-3 text-xs text-[#697386] tabular-nums">
+                  <td className="px-4 py-3 max-w-[200px] truncate text-[#697386] text-xs hidden lg:table-cell">{user.notes || "—"}</td>
+                  <td className="px-4 py-3 text-xs text-[#697386] tabular-nums hidden md:table-cell">
                     {new Date(user.createdAt).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3 text-right">

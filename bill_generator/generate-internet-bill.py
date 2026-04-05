@@ -2,14 +2,28 @@ import pikepdf
 import random
 import os
 import sys
-import psycopg2
+import json
 from datetime import date, timedelta
-from dotenv import load_dotenv
 
-load_dotenv()
+try:
+    import psycopg2
+except ImportError:
+    psycopg2 = None
 
-# ── Fetch customer data from Neon DB ──────────────────────────────
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+from address_normalizer import normalize_address
+
+# ── Fetch customer data from Neon DB (fallback when no stdin data) ─
 def fetch_case(case_no):
+    if psycopg2 is None:
+        print('Error: psycopg2 is required when not passing data via stdin')
+        sys.exit(1)
+
     database_url = os.environ.get('DATABASE_URL')
     if not database_url:
         print('Error: DATABASE_URL environment variable is required')
@@ -168,76 +182,6 @@ def compute_values(customer_mobile):
         'payment_date': payment_date,
     }
 
-def split_address(full_address):
-    """Split a full address into up to 3 lines, each within max_chars limit.
-
-    Template format:
-      Line 1: street address (e.g. "NO 12 JALAN MERPATI 3 TAMAN BUKIT INDAH")
-      Line 2: area/city (e.g. "TAMAN MUHIBBAH KUALA LUMPUR")
-      Line 3: state + postcode (e.g. "WILAYAH PERSEKUTUAN MALAYSIA 58200")
-
-    Splits at the postcode boundary first, then wraps long lines
-    to stay within the max character limit per line.
-    """
-    import re
-    max_chars = NAME_ADDR_OVERLAY['max_chars']
-
-    # Clean up: replace commas with spaces, collapse whitespace
-    addr = re.sub(r',\s*', ' ', full_address).strip()
-    addr = re.sub(r'\s+', ' ', addr)
-
-    # Find all 5-digit postcode patterns (skip leading numbers like house/lot no)
-    matches = list(re.finditer(r'\b(\d{5})\b', addr))
-
-    if matches:
-        postcode_match = matches[-1]
-        postcode_pos = postcode_match.start()
-        postcode_end = postcode_match.end()
-
-        after_postcode = addr[postcode_end:].strip()
-        if not after_postcode:
-            # Postcode at end — split before postcode
-            before = addr[:postcode_pos].strip()
-            words = before.split()
-            mid = len(words) // 2
-            part1 = ' '.join(words[:mid])
-            part2 = ' '.join(words[mid:]) + ' ' + addr[postcode_pos:postcode_end]
-        else:
-            # Postcode in middle — standard format
-            part1 = addr[:postcode_pos].strip()
-            part2 = addr[postcode_pos:].strip()
-    else:
-        # No postcode found — split at roughly half
-        mid = len(addr) // 2
-        space = addr.find(' ', mid)
-        if space == -1:
-            space = addr.rfind(' ', 0, mid)
-        if space == -1:
-            return [addr]
-        part1 = addr[:space].strip()
-        part2 = addr[space:].strip()
-
-    # Now wrap each part to max_chars, producing up to 3 lines total
-    lines = []
-    for part in [part1, part2]:
-        if not part:
-            continue
-        if len(part) <= max_chars:
-            lines.append(part)
-        else:
-            # Word-wrap: break at last space before max_chars
-            words = part.split()
-            current = words[0]
-            for w in words[1:]:
-                if len(current) + 1 + len(w) <= max_chars:
-                    current += ' ' + w
-                else:
-                    lines.append(current)
-                    current = w
-            lines.append(current)
-
-    # Cap at 3 lines max
-    return lines[:3]
 
 
 def build_replacements(v):
@@ -422,14 +366,23 @@ def replace_in_text(text, text_replacements):
 def main():
     if len(sys.argv) < 2:
         print('Usage: python generate-internet-bill.py <case_no>')
-        print('Example: python generate-internet-bill.py 202624115')
+        print('       echo \'{"case_no":"...","full_name":"...","full_address":"...","mobile":"..."}\' | python generate-internet-bill.py <case_no>')
         sys.exit(1)
 
     case_no = sys.argv[1]
 
-    # Fetch customer data from Neon DB
-    print(f'Fetching case {case_no} from database...')
-    case = fetch_case(case_no)
+    # Try reading customer data from stdin (passed by API), fall back to DB query
+    if not sys.stdin.isatty():
+        stdin_data = sys.stdin.read().strip()
+        if stdin_data:
+            case = json.loads(stdin_data)
+            print(f'Using provided data for case {case_no}')
+        else:
+            print(f'Fetching case {case_no} from database...')
+            case = fetch_case(case_no)
+    else:
+        print(f'Fetching case {case_no} from database...')
+        case = fetch_case(case_no)
     print(f'  Customer: {case["full_name"]}')
     print(f'  Address : {case["full_address"]}')
     print(f'  Mobile  : {case["mobile"]}')
@@ -438,8 +391,12 @@ def main():
     v = compute_values(case['mobile'])
     stream_replacements, text_replacements = build_replacements(v)
 
-    # Split address into up to 3 lines to avoid overflow
-    addr_lines = split_address(case['full_address'])
+    # Normalize address via 3-step pipeline (pre-clean, geocode, format)
+    addr_lines = normalize_address(
+        case['full_address'],
+        bill_type='internet',
+        max_chars=NAME_ADDR_OVERLAY['max_chars'],
+    )
     for i, line in enumerate(addr_lines):
         print(f'  Addr L{i+1} : {line}')
 
@@ -447,7 +404,7 @@ def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     input_path = os.path.join(script_dir, 'template', 'internet_bill.pdf')
     output_dir = os.path.join(script_dir, 'output')
-    output_path = os.path.join(output_dir, f'utility_bill_{case_no}.pdf')
+    output_path = os.path.join(output_dir, f'internet_bill_{case_no}.pdf')
 
     pdf = pikepdf.open(input_path)
     total = 0

@@ -1,6 +1,5 @@
-import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { crawl } from "@/lib/crawler/scraper";
+import { crawl, type CrawlProgress } from "@/lib/crawler/scraper";
 import { upsertCases, updateLastCrawl, getUserPassword } from "@/lib/crawler/db";
 import { getUserCaseUsage } from "@/lib/case-limit";
 import { prisma } from "@/lib/prisma";
@@ -9,43 +8,40 @@ export async function POST() {
   try {
     const session = await auth();
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized" },
-        { status: 401 }
+      return new Response(
+        JSON.stringify({ success: false, error: "Unauthorized" }),
+        { status: 401, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    // Get WifiBizz credentials from DB
     const wifibizzUser = await prisma.wifibizzUser.findUnique({
       where: { userId: session.user.id },
     });
 
     if (!wifibizzUser) {
-      return NextResponse.json(
-        {
+      return new Response(
+        JSON.stringify({
           success: false,
           error: "no_credentials",
           message: "Set your WifiBizz credentials in Settings first.",
-        },
-        { status: 400 }
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    // Check case limit before crawling
     const usage = await getUserCaseUsage(session.user.id);
     if (usage.isAtLimit) {
-      return NextResponse.json(
-        {
+      return new Response(
+        JSON.stringify({
           success: false,
           error: "case_limit_reached",
           current: usage.current,
           limit: usage.limit,
-        },
-        { status: 403 }
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    // Get password and crawl
     const password = getUserPassword({
       id: wifibizzUser.id,
       wifibizz_email: wifibizzUser.wifibizzEmail,
@@ -53,32 +49,68 @@ export async function POST() {
       last_crawl_at: wifibizzUser.lastCrawlAt?.toISOString() ?? null,
     });
 
-    const { cases } = await crawl(wifibizzUser.wifibizzEmail, password);
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        function sendEvent(type: string, data: unknown) {
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ type, ...data as object })}\n\n`)
+          );
+        }
 
-    // Only insert up to remaining slots
-    const casesToInsert = cases.slice(0, usage.remaining);
-    const skipped = cases.length - casesToInsert.length;
+        try {
+          const { cases } = await crawl(
+            wifibizzUser.wifibizzEmail,
+            password,
+            (progress: CrawlProgress) => {
+              sendEvent("progress", progress);
+            }
+          );
 
-    // Save cases to database
-    const saved = await upsertCases(wifibizzUser.id, casesToInsert);
+          const casesToInsert = cases.slice(0, usage.remaining);
+          const skipped = cases.length - casesToInsert.length;
 
-    // Update last crawl timestamp
-    await updateLastCrawl(wifibizzUser.id);
+          sendEvent("progress", {
+            step: "Saving to database...",
+            current: 0,
+            total: 0,
+            percent: 97,
+          });
 
-    return NextResponse.json({
-      success: true,
-      total: cases.length,
-      saved,
-      skipped,
-      timestamp: new Date().toISOString(),
+          const saved = await upsertCases(wifibizzUser.id, casesToInsert);
+          await updateLastCrawl(wifibizzUser.id);
+
+          sendEvent("done", {
+            success: true,
+            total: cases.length,
+            saved,
+            skipped,
+            timestamp: new Date().toISOString(),
+          });
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "Unknown error";
+          sendEvent("error", { error: message });
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("Crawl error:", message);
 
-    return NextResponse.json(
-      { success: false, error: message },
-      { status: 500 }
+    return new Response(
+      JSON.stringify({ success: false, error: message }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
 }

@@ -288,6 +288,7 @@ export default function DashboardPage() {
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0, type: "" });
   const [downloadConfirm, setDownloadConfirm] = useState<{ type: "internet" | "utility"; withBills: number; total: number } | null>(null);
+  const [billCacheBuster, setBillCacheBuster] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch analytics (initial load — state map defaults to Activated)
@@ -481,7 +482,7 @@ export default function DashboardPage() {
         const res = await fetch("/api/bills/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ caseNos: batch }),
+          body: JSON.stringify({ caseNos: batch, type }),
         });
         const data = await res.json();
         totalGenerated += data.generated ?? 0;
@@ -494,6 +495,7 @@ export default function DashboardPage() {
 
       // Refresh cases to get updated bill URLs
       await fetchCases();
+      setBillCacheBuster(Date.now());
       setSelectedCases(new Set());
       setAllCasesSelected(false);
 
@@ -877,7 +879,7 @@ export default function DashboardPage() {
               <div className="flex items-center gap-1.5">
                 <input
                   type="date"
-                  className="h-7 rounded-md border border-[#E3E8EF] bg-white px-2 text-[11px] text-[#425466] focus:border-[#635BFF] outline-none transition-all"
+                  className="h-7 rounded-md border border-[#E3E8EF] bg-white px-1.5 sm:px-2 text-[11px] text-[#425466] focus:border-[#635BFF] outline-none transition-all max-w-[130px]"
                   value={mapDateFrom}
                   onChange={(e) => handleMapDateFrom(e.target.value)}
                   placeholder="From"
@@ -885,7 +887,7 @@ export default function DashboardPage() {
                 <span className="text-[10px] text-[#697386]">to</span>
                 <input
                   type="date"
-                  className="h-7 rounded-md border border-[#E3E8EF] bg-white px-2 text-[11px] text-[#425466] focus:border-[#635BFF] outline-none transition-all"
+                  className="h-7 rounded-md border border-[#E3E8EF] bg-white px-1.5 sm:px-2 text-[11px] text-[#425466] focus:border-[#635BFF] outline-none transition-all max-w-[130px]"
                   value={mapDateTo}
                   onChange={(e) => handleMapDateTo(e.target.value)}
                 />
@@ -920,9 +922,9 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 )}
-                <div className="flex gap-6">
+                <div className="flex flex-col md:flex-row gap-4 md:gap-6">
                   {/* SVG Map */}
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <MalaysiaMap
                       stateData={stateMap}
                       maxValue={maxStateValue}
@@ -933,7 +935,7 @@ export default function DashboardPage() {
                   </div>
 
                   {/* State ranking list */}
-                  <div className="w-[200px] shrink-0">
+                  <div className="w-full md:w-[200px] md:shrink-0">
                     <p className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-2">Top States</p>
                     <div className="space-y-2">
                       {analytics?.byState.slice(0, 8).map((state, i) => (
@@ -1155,7 +1157,7 @@ export default function DashboardPage() {
         {/* Filters bar */}
         <div className="bg-white rounded-lg border border-[#E3E8EF] p-4 animate-fade-in-up" style={{ animationDelay: "550ms" }}>
           <div className="flex flex-wrap items-center gap-3">
-            <div className="flex-1 min-w-[220px] max-w-sm relative group">
+            <div className="flex-1 min-w-0 sm:min-w-[220px] max-w-sm relative group">
               <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#697386] transition-colors group-focus-within:text-[#635BFF]" />
               <Input placeholder="Search name, case no, mobile, provider..." defaultValue="" onChange={(e) => handleSearchChange(e.target.value)} className="pl-9 h-9 bg-[#F6F9FC] border-[#E3E8EF] rounded-lg text-sm text-[#0A2540] placeholder:text-[#697386] focus:bg-white focus:border-[#635BFF] transition-all" />
             </div>
@@ -1163,11 +1165,11 @@ export default function DashboardPage() {
               <option value="">All Statuses</option>
               {statuses.map((s) => (<option key={s} value={s}>{s}</option>))}
             </select>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <label className="text-xs text-[#697386] whitespace-nowrap font-medium">From</label>
-              <input type="date" className="h-9 rounded-lg border border-[#E3E8EF] bg-white px-3 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none" value={dateFrom} onChange={(e) => { setPage(0); setDateFrom(e.target.value); }} />
+              <input type="date" className="h-9 rounded-lg border border-[#E3E8EF] bg-white px-2 sm:px-3 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none max-w-[150px]" value={dateFrom} onChange={(e) => { setPage(0); setDateFrom(e.target.value); }} />
               <label className="text-xs text-[#697386] whitespace-nowrap font-medium">To</label>
-              <input type="date" className="h-9 rounded-lg border border-[#E3E8EF] bg-white px-3 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none" value={dateTo} onChange={(e) => { setPage(0); setDateTo(e.target.value); }} />
+              <input type="date" className="h-9 rounded-lg border border-[#E3E8EF] bg-white px-2 sm:px-3 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none max-w-[150px]" value={dateTo} onChange={(e) => { setPage(0); setDateTo(e.target.value); }} />
             </div>
             {hasFilters && (
               <Button variant="ghost" size="sm" className="text-xs rounded-lg text-[#DF1B41] hover:bg-red-50 hover:text-[#DF1B41] transition-colors" onClick={() => { setSearch(""); setStatus(""); setDateFrom(""); setDateTo(""); setPage(0); }}>
@@ -1178,38 +1180,38 @@ export default function DashboardPage() {
         </div>
 
         {/* Generate Bill Buttons + Selection Info */}
-        <div className="animate-fade-in-up flex flex-wrap items-center gap-3">
+        <div className="animate-fade-in-up grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 sm:gap-3">
           <Button
             onClick={() => handleGenerateBills("internet")}
             disabled={generating || selectedCases.size === 0}
-            className="bg-[#635BFF] hover:bg-[#5851DB] text-white rounded-lg h-9 px-4 text-sm font-medium transition-all hover-glow press-effect disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-[#635BFF] hover:bg-[#5851DB] text-white rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all hover-glow press-effect disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <InternetBillIcon className="w-4 h-4 mr-2" />
-            Generate Internet Bill{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}
+            <InternetBillIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
+            <span className="truncate">Gen Internet{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
           </Button>
           <Button
             onClick={() => handleGenerateBills("utility")}
-            disabled
-            className="bg-white border border-[#E3E8EF] text-[#697386] rounded-lg h-9 px-4 text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={generating || selectedCases.size === 0}
+            className="bg-[#FF6B35] hover:bg-[#E55A2B] text-white rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all hover-glow press-effect disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <UtilityBillIcon className="w-4 h-4 mr-2" />
-            Generate Utility Bill
+            <UtilityBillIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
+            <span className="truncate">Gen Utility{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
           </Button>
           <Button
             onClick={() => handleDownloadClick("internet")}
             disabled={downloading || generating || selectedCases.size === 0}
-            className="bg-white border border-[#E3E8EF] text-[#425466] hover:text-[#0A2540] hover:border-[#635BFF] rounded-lg h-9 px-4 text-sm font-medium transition-all press-effect disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-white border border-[#E3E8EF] text-[#425466] hover:text-[#0A2540] hover:border-[#635BFF] rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all press-effect disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <DownloadIcon className="w-4 h-4 mr-2" />
-            Download Internet Bill{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}
+            <DownloadIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
+            <span className="truncate">DL Internet{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
           </Button>
           <Button
             onClick={() => handleDownloadClick("utility")}
-            disabled
-            className="bg-white border border-[#E3E8EF] text-[#697386] rounded-lg h-9 px-4 text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={downloading || generating || selectedCases.size === 0}
+            className="bg-white border border-[#E3E8EF] text-[#425466] hover:text-[#0A2540] hover:border-[#FF6B35] rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all press-effect disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <DownloadIcon className="w-4 h-4 mr-2" />
-            Download Utility Bill
+            <DownloadIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
+            <span className="truncate">DL Utility{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
           </Button>
           {selectedCases.size > 0 && !allCasesSelected && (
             <button onClick={selectAllCases} className="text-xs text-[#635BFF] hover:text-[#5851DB] font-medium transition-colors">
@@ -1380,15 +1382,16 @@ export default function DashboardPage() {
                           <button
                             title={c.internet_bill_url ? "Download Internet Bill" : "Internet bill not generated"}
                             disabled={!c.internet_bill_url}
-                            onClick={() => c.internet_bill_url && window.open(`/api/bills/download?case_no=${c.case_no}&type=internet`, "_blank")}
+                            onClick={() => c.internet_bill_url && window.open(`/api/bills/download?case_no=${c.case_no}&type=internet&t=${billCacheBuster}`, "_blank")}
                             className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors ${c.internet_bill_url ? "text-[#635BFF] hover:bg-[#F0EEFF]" : "text-[#D1D5DB] cursor-not-allowed"}`}
                           >
                             <InternetBillIcon className="w-4 h-4" />
                           </button>
                           <button
-                            title="Utility bill not available"
-                            disabled
-                            className="w-7 h-7 flex items-center justify-center rounded-md text-[#D1D5DB] cursor-not-allowed"
+                            title={c.utility_bill_url ? "Download Utility Bill" : "Utility bill not generated"}
+                            disabled={!c.utility_bill_url}
+                            onClick={() => c.utility_bill_url && window.open(`/api/bills/download?case_no=${c.case_no}&type=utility&t=${billCacheBuster}`, "_blank")}
+                            className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors ${c.utility_bill_url ? "text-[#FF6B35] hover:bg-[#FFF0EB]" : "text-[#D1D5DB] cursor-not-allowed"}`}
                           >
                             <UtilityBillIcon className="w-4 h-4" />
                           </button>
@@ -1402,10 +1405,11 @@ export default function DashboardPage() {
           </div>
 
           {/* Pagination */}
-          <div className="flex items-center justify-between px-4 py-3 border-t border-[#E3E8EF] bg-[#F6F9FC]">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-2 px-4 py-3 border-t border-[#E3E8EF] bg-[#F6F9FC]">
             <span className="text-xs text-[#697386]">Showing{" "}<span className="font-medium text-[#0A2540] tabular-nums">{showingFrom}–{showingTo}</span>{" "}of <span className="font-medium text-[#0A2540] tabular-nums">{count}</span> cases</span>
             <div className="flex items-center gap-1">
-              <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)} className="h-8 px-3 text-xs rounded-md border-[#E3E8EF] text-[#425466]">Previous</Button>
+              <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)} className="h-8 px-2 sm:px-3 text-xs rounded-md border-[#E3E8EF] text-[#425466]">Prev</Button>
+              <span className="hidden sm:contents">
               {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
                 let pageNum: number;
                 if (totalPages <= 5) pageNum = i;
@@ -1416,7 +1420,9 @@ export default function DashboardPage() {
                   <Button key={pageNum} variant={pageNum === page ? "default" : "outline"} size="sm" className={`h-8 w-8 p-0 text-xs rounded-md tabular-nums ${pageNum === page ? "bg-[#635BFF] text-white border-[#635BFF]" : "border-[#E3E8EF] text-[#425466]"}`} onClick={() => setPage(pageNum)}>{pageNum + 1}</Button>
                 );
               })}
-              <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage((p) => p + 1)} className="h-8 px-3 text-xs rounded-md border-[#E3E8EF] text-[#425466]">Next</Button>
+              </span>
+              <span className="sm:hidden text-xs text-[#697386] tabular-nums px-2">{page + 1}/{totalPages || 1}</span>
+              <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage((p) => p + 1)} className="h-8 px-2 sm:px-3 text-xs rounded-md border-[#E3E8EF] text-[#425466]">Next</Button>
             </div>
           </div>
         </div>
@@ -1424,7 +1430,7 @@ export default function DashboardPage() {
 
       {/* Slide-in detail panel */}
       {selectedCase && createPortal(
-        <CaseDetailPanel caseData={selectedCase} onClose={() => setSelectedCase(null)} />,
+        <CaseDetailPanel caseData={selectedCase} onClose={() => setSelectedCase(null)} cacheBuster={billCacheBuster} />,
         document.body
       )}
     </div>
@@ -1591,7 +1597,7 @@ function KpiCard({ label, value, icon, accent, delay = 0 }: { label: string; val
 
 // ── Case Detail Panel ──
 
-function CaseDetailPanel({ caseData, onClose }: { caseData: CaseRow; onClose: () => void }) {
+function CaseDetailPanel({ caseData, onClose, cacheBuster }: { caseData: CaseRow; onClose: () => void; cacheBuster: number }) {
   const [isVisible, setIsVisible] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -1635,7 +1641,7 @@ function CaseDetailPanel({ caseData, onClose }: { caseData: CaseRow; onClose: ()
 
   return (
     <div className={`fixed inset-0 z-50 transition-colors duration-300 ${isVisible ? "bg-black/20" : "bg-transparent"}`} onClick={handleBackdropClick}>
-      <div ref={panelRef} className="absolute top-0 right-0 h-full w-full max-w-md bg-white shadow-2xl flex flex-col" style={{ transform: isVisible ? "translateX(0)" : "translateX(100%)", transition: "transform 350ms cubic-bezier(0.16, 1, 0.3, 1)" }}>
+      <div ref={panelRef} className="absolute top-0 right-0 h-full w-full sm:max-w-md bg-white shadow-2xl flex flex-col" style={{ transform: isVisible ? "translateX(0)" : "translateX(100%)", transition: "transform 350ms cubic-bezier(0.16, 1, 0.3, 1)" }}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#E3E8EF]" style={{ opacity: isVisible ? 1 : 0, transform: isVisible ? "translateY(0)" : "translateY(-8px)", transition: "opacity 400ms ease-out 150ms, transform 400ms ease-out 150ms" }}>
           <div>
             <h2 className="text-lg font-semibold text-[#0A2540]">Case Details</h2>
@@ -1678,13 +1684,13 @@ function CaseDetailPanel({ caseData, onClose }: { caseData: CaseRow; onClose: ()
               <div className="space-y-3">
                 <div className="rounded-lg border border-[#E3E8EF] overflow-hidden bg-[#F6F9FC]">
                   <iframe
-                    src={`/api/bills/download?case_no=${caseData.case_no}&type=internet`}
+                    src={`/api/bills/download?case_no=${caseData.case_no}&type=internet&t=${cacheBuster}`}
                     className="w-full h-[400px]"
                     title="Internet Bill Preview"
                   />
                 </div>
                 <a
-                  href={`/api/bills/download?case_no=${caseData.case_no}&type=internet`}
+                  href={`/api/bills/download?case_no=${caseData.case_no}&type=internet&t=${cacheBuster}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 text-sm font-medium text-[#635BFF] hover:text-[#0A2540] transition-colors duration-200"
@@ -1695,6 +1701,34 @@ function CaseDetailPanel({ caseData, onClose }: { caseData: CaseRow; onClose: ()
               </div>
             ) : (
               <p className="text-sm text-[#697386]">No bill generated yet. Select this case and click &ldquo;Generate Internet Bill&rdquo;.</p>
+            )}
+          </div>
+
+          {/* Utility Bill Preview */}
+          <div className="border-t border-[#E3E8EF] my-5" style={{ opacity: isVisible ? 1 : 0, transition: "opacity 500ms ease-out 700ms" }} />
+          <div style={{ opacity: isVisible ? 1 : 0, transform: isVisible ? "translateY(0)" : "translateY(12px)", transition: "opacity 400ms ease-out 750ms, transform 400ms ease-out 750ms" }}>
+            <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">Utility Bill</h3>
+            {caseData.utility_bill_url ? (
+              <div className="space-y-3">
+                <div className="rounded-lg border border-[#E3E8EF] overflow-hidden bg-[#F6F9FC]">
+                  <iframe
+                    src={`/api/bills/download?case_no=${caseData.case_no}&type=utility&t=${cacheBuster}`}
+                    className="w-full h-[400px]"
+                    title="Utility Bill Preview"
+                  />
+                </div>
+                <a
+                  href={`/api/bills/download?case_no=${caseData.case_no}&type=utility&t=${cacheBuster}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-sm font-medium text-[#FF6B35] hover:text-[#0A2540] transition-colors duration-200"
+                >
+                  <DownloadIcon className="w-3.5 h-3.5" />
+                  Download Utility Bill
+                </a>
+              </div>
+            ) : (
+              <p className="text-sm text-[#697386]">No bill generated yet. Select this case and click &ldquo;Generate Utility Bill&rdquo;.</p>
             )}
           </div>
         </div>

@@ -5,8 +5,16 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
+interface CrawlProgress {
+  step: string;
+  current: number;
+  total: number;
+  percent: number;
+}
+
 export default function CrawlPage() {
   const [crawling, setCrawling] = useState(false);
+  const [progress, setProgress] = useState<CrawlProgress | null>(null);
   const [result, setResult] = useState<{
     total: number;
     saved: number;
@@ -17,12 +25,15 @@ export default function CrawlPage() {
   async function handleCrawl() {
     setCrawling(true);
     setResult(null);
+    setProgress({ step: "Starting...", current: 0, total: 0, percent: 0 });
 
     try {
       const res = await fetch("/api/crawl", { method: "POST" });
-      const json = await res.json();
 
-      if (!res.ok) {
+      // Handle non-SSE error responses (JSON)
+      const contentType = res.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const json = await res.json();
         if (json.error === "no_credentials") {
           toast.error("Set your WifiBizz credentials in Settings first.");
           router.push("/dashboard/settings");
@@ -38,16 +49,58 @@ export default function CrawlPage() {
         return;
       }
 
-      setResult({
-        total: json.total,
-        saved: json.saved,
-        skipped: json.skipped,
-      });
-      toast.success(`Crawl complete — ${json.saved} cases saved`);
+      // Read SSE stream
+      const reader = res.body?.getReader();
+      if (!reader) {
+        toast.error("Failed to start crawl stream");
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+
+            if (data.type === "progress") {
+              setProgress({
+                step: data.step,
+                current: data.current,
+                total: data.total,
+                percent: data.percent,
+              });
+            } else if (data.type === "done") {
+              setResult({
+                total: data.total,
+                saved: data.saved,
+                skipped: data.skipped,
+              });
+              setProgress(null);
+              toast.success(`Crawl complete — ${data.saved} cases saved`);
+            } else if (data.type === "error") {
+              toast.error(data.error ?? "Crawl failed");
+              setProgress(null);
+            }
+          } catch {
+            // skip malformed SSE data
+          }
+        }
+      }
     } catch {
       toast.error("Network error. Please try again.");
     } finally {
       setCrawling(false);
+      setProgress(null);
     }
   }
 
@@ -95,10 +148,27 @@ export default function CrawlPage() {
               )}
             </Button>
 
-            {crawling && (
-              <p className="text-xs text-[#697386] mt-4 animate-pulse">
-                This may take a moment. Do not close this page.
-              </p>
+            {/* Progress bar */}
+            {crawling && progress && (
+              <div className="mt-5 animate-fade-in">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-[#697386]">{progress.step}</span>
+                  <span className="text-xs font-semibold text-[#0A2540] tabular-nums">
+                    {progress.percent}%
+                  </span>
+                </div>
+                <div className="w-full h-2 bg-[#F6F9FC] rounded-full overflow-hidden border border-[#E3E8EF]">
+                  <div
+                    className="h-full bg-[#635BFF] rounded-full transition-all duration-500 ease-out"
+                    style={{ width: `${progress.percent}%` }}
+                  />
+                </div>
+                {progress.total > 0 && (
+                  <p className="text-[11px] text-[#697386] mt-1.5 tabular-nums">
+                    {progress.current} of {progress.total} cases processed
+                  </p>
+                )}
+              </div>
             )}
           </div>
         </div>

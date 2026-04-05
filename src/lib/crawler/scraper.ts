@@ -250,14 +250,24 @@ export interface CrawlResult {
   timestamp: string;
 }
 
+export interface CrawlProgress {
+  step: string;
+  current: number;
+  total: number;
+  percent: number;
+}
+
 export async function crawl(
   email: string,
-  password: string
+  password: string,
+  onProgress?: (progress: CrawlProgress) => void
 ): Promise<{ cases: CaseData[] }> {
   const baseUrl = getBaseUrl();
 
+  onProgress?.({ step: "Logging in to WifiBizz...", current: 0, total: 0, percent: 5 });
   const session = await login(baseUrl, email, password);
 
+  onProgress?.({ step: "Fetching cases...", current: 0, total: 0, percent: 15 });
   const modules = ["home_fibre", "biz_fibre"];
   const allRecords: Record<string, unknown>[] = [];
   for (const mod of modules) {
@@ -265,10 +275,21 @@ export async function crawl(
     allRecords.push(...records);
   }
 
+  onProgress?.({ step: "Processing cases...", current: 0, total: allRecords.length, percent: 25 });
   const cases = extractCases(allRecords, baseUrl);
 
   // Fetch address from each case's detail page
-  for (const c of cases) {
+  const totalCases = cases.length;
+  for (let i = 0; i < cases.length; i++) {
+    const c = cases[i];
+    const percent = 25 + Math.round(((i + 1) / totalCases) * 70); // 25% to 95%
+    onProgress?.({
+      step: `Fetching address ${i + 1}/${totalCases}...`,
+      current: i + 1,
+      total: totalCases,
+      percent,
+    });
+
     const record = allRecords.find((r) => {
       const raw = (r.prefix_with_no as string) || "";
       return raw.replace(/<[^>]*>/g, "").trim() === c.case_no;
@@ -280,5 +301,6 @@ export async function crawl(
     }
   }
 
+  onProgress?.({ step: "Complete", current: totalCases, total: totalCases, percent: 100 });
   return { cases };
 }

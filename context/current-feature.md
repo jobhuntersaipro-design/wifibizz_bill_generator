@@ -1,16 +1,28 @@
-# Current Feature
+# Current Feature: Utility Bill Generation
 
 ## Status
 
-Not Started
+In Progress
 
 ## Goals
 
-<!-- Goals will be listed here -->
+- Create `generate-utility-bill.py` script for TNB utility bill PDF generation
+- Page 1: Replace account number (NO. AKAUN) with format `2202` + 6 random digits + `XX`
+- Page 1: Replace Ref-1 and barcode with same account number format
+- Page 1: Generate ALAMAT POS address from customer's address (landed vs condo formatting)
+- Page 2: Replace account number (NO. AKAUN) with same format
+- Page 2: Generate ALAMAT PREMIS address from customer's address
+- Handle address formatting: landed (2-line) vs condo (3-line with condo name)
+- "Kedai Tenaga Terdekat" — keep unchanged for Sabah/Sarawak, use Google API for nearest TNB for other states
 
 ## Notes
 
-<!-- Additional context and notes -->
+- Account number format: `2202` + 6 randomized digits + `XX` (consistent across page 1 NO. AKAUN, Ref-1, barcode, and page 2 NO. AKAUN)
+- Address format for landed: `Unit, Street1, Street2, Postcode City State Malaysia` (2 lines)
+- Address format for condo: `Unit, Condo Name / Street1, Street2, Postcode City State Malaysia` (3 lines)
+- Kedai Tenaga Terdekat logic needs Google Places API for non-Sabah/Sarawak states
+- Source PDF template needed (similar to internet bill approach)
+- Should integrate with existing Neon DB to fetch customer address data
 
 ## History
 

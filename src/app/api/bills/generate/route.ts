@@ -7,6 +7,38 @@ import { execFile } from "child_process";
 import { readFile, unlink } from "fs/promises";
 import path from "path";
 
+function runPythonScript(
+  scriptPath: string,
+  caseNo: string,
+  caseData: string,
+  retries = 3
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let attempt = 0;
+    function tryRun() {
+      attempt++;
+      const child = execFile(
+        "python3",
+        [scriptPath, caseNo],
+        { timeout: 30000, maxBuffer: 10 * 1024 * 1024, env: { ...process.env } },
+        (error, _stdout, stderr) => {
+          if (!error) {
+            resolve();
+          } else if (error.signal === "SIGTERM" && attempt < retries) {
+            tryRun();
+          } else {
+            reject(new Error(stderr?.trim() || _stdout?.trim() || error.message));
+          }
+        }
+      );
+      // Pipe customer data via stdin so Python skips DB query
+      child.stdin?.write(caseData);
+      child.stdin?.end();
+    }
+    tryRun();
+  });
+}
+
 const MAX_BATCH = 20;
 
 export async function POST(request: Request) {
@@ -21,6 +53,7 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const caseNos: string[] = body.caseNos;
+    const billType: "internet" | "utility" = body.type === "utility" ? "utility" : "internet";
 
     if (!Array.isArray(caseNos) || caseNos.length === 0) {
       return NextResponse.json(
@@ -36,7 +69,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Get user's wifibizz_user id
     const wifibizzUser = await prisma.wifibizzUser.findUnique({
       where: { userId: session.user.id },
       select: { id: true },
@@ -50,69 +82,84 @@ export async function POST(request: Request) {
     }
 
     const sql = neon(process.env.DATABASE_URL!);
-    const scriptPath = path.resolve(process.cwd(), "bill_generator", "generate-internet-bill.py");
+
+    // Fetch all case data upfront in a single query
+    const casesData = await sql`
+      SELECT case_no, full_name, full_address, mobile
+      FROM wifibizz_cases
+      WHERE case_no = ANY(${caseNos}) AND user_id = ${wifibizzUser.id}
+    `;
+
+    const caseDataMap = new Map(
+      casesData.map((c) => [
+        c.case_no,
+        JSON.stringify({
+          case_no: c.case_no,
+          full_name: c.full_name,
+          full_address: c.full_address,
+          mobile: c.mobile,
+        }),
+      ])
+    );
+
+    const scriptName = billType === "utility" ? "generate-utility-bill.py" : "generate-internet-bill.py";
+    const scriptPath = path.resolve(process.cwd(), "bill_generator", scriptName);
     const outputDir = path.resolve(process.cwd(), "bill_generator", "output");
+    const r2Prefix = billType === "utility" ? "utility_bill" : "internet_bill";
+    const wifibizzUserId = wifibizzUser.id;
 
     const results: { caseNo: string; status: string; url?: string; error?: string }[] = [];
 
-    for (const caseNo of caseNos) {
-      // Verify case belongs to user
-      const caseCheck = await sql`
-        SELECT case_no FROM wifibizz_cases
-        WHERE case_no = ${caseNo} AND user_id = ${wifibizzUser.id}
-      `;
-
-      if (caseCheck.length === 0) {
-        results.push({ caseNo, status: "error", error: "Case not found or not owned" });
-        continue;
+    async function processCase(caseNo: string) {
+      const caseJson = caseDataMap.get(caseNo);
+      if (!caseJson) {
+        return { caseNo, status: "error", error: "Case not found or not owned" };
       }
 
-      const outputPath = path.join(outputDir, `utility_bill_${caseNo}.pdf`);
+      const outputPath = path.join(outputDir, `${r2Prefix}_${caseNo}.pdf`);
 
       try {
-        // Run Python script
-        await new Promise<void>((resolve, reject) => {
-          execFile(
-            "python3",
-            [scriptPath, caseNo],
-            { timeout: 30000, env: { ...process.env } },
-            (error, _stdout, stderr) => {
-              if (error) {
-                reject(new Error(stderr || error.message));
-              } else {
-                resolve();
-              }
-            }
-          );
-        });
+        await runPythonScript(scriptPath, caseNo, caseJson);
 
-        // Read generated PDF
         const pdfBuffer = await readFile(outputPath);
 
-        // Upload to R2
-        const r2Key = `bills/${wifibizzUser.id}/${caseNo}/internet_bill.pdf`;
+        const r2Key = `bills/${wifibizzUserId}/${caseNo}/${r2Prefix}.pdf`;
         const publicUrl = await uploadToR2(r2Key, pdfBuffer, "application/pdf");
 
-        // Update DB with bill URL
-        await sql`
-          UPDATE wifibizz_cases
-          SET internet_bill_url = ${publicUrl}
-          WHERE case_no = ${caseNo} AND user_id = ${wifibizzUser.id}
-        `;
+        if (billType === "utility") {
+          await sql`
+            UPDATE wifibizz_cases
+            SET utility_bill_url = ${publicUrl}
+            WHERE case_no = ${caseNo} AND user_id = ${wifibizzUserId}
+          `;
+        } else {
+          await sql`
+            UPDATE wifibizz_cases
+            SET internet_bill_url = ${publicUrl}
+            WHERE case_no = ${caseNo} AND user_id = ${wifibizzUserId}
+          `;
+        }
 
-        results.push({ caseNo, status: "success", url: publicUrl });
+        return { caseNo, status: "success", url: publicUrl } as const;
       } catch (err) {
         const message = err instanceof Error ? err.message : "Generation failed";
         console.error(`Bill generation failed for ${caseNo}:`, message);
-        results.push({ caseNo, status: "error", error: message });
+        return { caseNo, status: "error", error: message } as const;
       } finally {
-        // Clean up local file
         try {
           await unlink(outputPath);
         } catch {
           // File may not exist if generation failed
         }
       }
+    }
+
+    // Process cases concurrently in chunks of 5
+    const CONCURRENCY = 5;
+    for (let i = 0; i < caseNos.length; i += CONCURRENCY) {
+      const chunk = caseNos.slice(i, i + CONCURRENCY);
+      const chunkResults = await Promise.all(chunk.map(processCase));
+      results.push(...chunkResults);
     }
 
     const successCount = results.filter((r) => r.status === "success").length;

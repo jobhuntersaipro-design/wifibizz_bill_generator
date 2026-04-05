@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -9,11 +10,24 @@ const navItems = [
   { label: "Users", href: "/admin", icon: UsersIcon },
 ];
 
-export function AdminSidebar() {
+export function AdminSidebar({ open, onClose }: { open?: boolean; onClose?: () => void }) {
   const pathname = usePathname();
 
+  useEffect(() => {
+    onClose?.();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
   return (
-    <aside className="flex flex-col w-[240px] border-r border-[#E3E8EF] bg-[#F6F9FC] min-h-screen">
+    <>
+      {open && (
+        <div className="fixed inset-0 z-40 bg-black/30 md:hidden" onClick={onClose} />
+      )}
+      <aside className={cn(
+        "flex flex-col w-[240px] border-r border-[#E3E8EF] bg-[#F6F9FC] min-h-screen",
+        "fixed inset-y-0 left-0 z-50 transition-transform duration-300 md:relative md:translate-x-0",
+        open ? "translate-x-0" : "-translate-x-full"
+      )}>
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-5 py-5">
         <div className="w-8 h-8 rounded-lg bg-[#0A2540] flex items-center justify-center">
@@ -73,6 +87,7 @@ export function AdminSidebar() {
         </form>
       </div>
     </aside>
+    </>
   );
 }
 

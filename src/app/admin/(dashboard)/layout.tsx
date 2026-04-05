@@ -1,7 +1,6 @@
 import { verifyAdminSession } from "@/lib/admin-auth";
 import { redirect } from "next/navigation";
-import { AdminSidebar } from "@/components/admin/sidebar";
-import { AdminTopbar } from "@/components/admin/topbar";
+import { AdminShell } from "@/components/admin/admin-shell";
 
 export default async function AdminLayout({
   children,
@@ -11,15 +10,5 @@ export default async function AdminLayout({
   const isAdmin = await verifyAdminSession();
   if (!isAdmin) redirect("/admin/login");
 
-  return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      <AdminSidebar />
-      <div className="flex flex-col flex-1 overflow-hidden">
-        <AdminTopbar />
-        <main className="flex-1 overflow-y-auto p-8">
-          {children}
-        </main>
-      </div>
-    </div>
-  );
+  return <AdminShell>{children}</AdminShell>;
 }

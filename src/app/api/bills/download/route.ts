@@ -84,13 +84,14 @@ export async function GET(request: Request) {
 
     const orderNo = rows[0].order_no as string | null;
     const orderSuffix = orderNo ? `_${orderNo}` : "";
-    const filename = `internetBill_${caseNo}${orderSuffix}.pdf`;
+    const prefix = type === "utility" ? "utilityBill" : "internetBill";
+    const filename = `${prefix}_${caseNo}${orderSuffix}.pdf`;
 
     return new Response(stream, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `inline; filename="${filename}"`,
-        "Cache-Control": "private, max-age=3600",
+        "Cache-Control": "no-cache",
       },
     });
   } catch (error) {

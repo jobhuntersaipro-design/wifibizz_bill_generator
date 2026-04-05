@@ -17,8 +17,11 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Bill Generator",
+  title: "BizzFlow",
   description: "WifiBizz Crawler & Bill Generator",
+  icons: {
+    icon: "/favicon.png",
+  },
 };
 
 export default function RootLayout({
