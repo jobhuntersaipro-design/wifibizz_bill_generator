@@ -1,16 +1,31 @@
-# Current Feature
+# Current Feature: Internet Bill Generation
 
 ## Status
 
-Not Started
+In Progress
 
 ## Goals
 
-<!-- Define goals here -->
+- Add "Generate Internet Bill" button below the search bar on the dashboard case list
+- Integrate the Python `generate-utility-bill.py` script to generate bills per case
+- Create R2 upload API route for storing generated bill files
+- Create R2 delete endpoint to clean up files when items are deleted
+- Create download proxy API route to avoid CORS issues
+- Display image preview of generated bill in the slide-in detail modal
+- Link generated bill files to R2 storage
+- Allow users to select all cases from the current table
+- Allow users to select individual cases from the table
+- Add 2 icon buttons per row: Internet bill (download) and Utility bill (download)
+- Grey out download buttons if the bill file has not been generated yet
 
 ## Notes
 
-<!-- Additional context -->
+- Source spec: `context/features/internet-bill-generate-spec.md`
+- The bill generator is a Python script at `generate-utility-bill.py` (uses pikepdf)
+- Bills are stored in Cloudflare R2
+- Two bill types per case: Internet bill and Utility bill
+- Download buttons use icons (no text)
+- Selection supports both "select all" and individual row selection
 
 ## History
 

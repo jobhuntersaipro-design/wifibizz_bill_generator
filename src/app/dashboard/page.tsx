@@ -21,6 +21,7 @@ import {
 } from "recharts";
 import type { LabelProps, PieLabelRenderProps } from "recharts";
 import { MALAYSIA_SVG_PATHS, MALAYSIA_STATE_LABELS } from "@/lib/malaysia-map-data";
+import { toast } from "sonner";
 
 // ── Types ──
 
@@ -57,6 +58,8 @@ interface CaseRow {
   agent: string | null;
   agent_remark: string | null;
   status: string | null;
+  internet_bill_url: string | null;
+  utility_bill_url: string | null;
   case_created_at: string | null;
   updated_at: string | null;
 }
@@ -277,6 +280,14 @@ export default function DashboardPage() {
   const [casesLoading, setCasesLoading] = useState(true);
   const [sort, setSort] = useState<SortState>({ column: "case_created_at", dir: "desc" });
   const [selectedCase, setSelectedCase] = useState<CaseRow | null>(null);
+  const [selectedCases, setSelectedCases] = useState<Set<string>>(new Set());
+  const [allCasesSelected, setAllCasesSelected] = useState(false);
+  const [allCasesData, setAllCasesData] = useState<CaseRow[]>([]);
+  const [generating, setGenerating] = useState(false);
+  const [generateProgress, setGenerateProgress] = useState({ current: 0, total: 0, type: "" });
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0, type: "" });
+  const [downloadConfirm, setDownloadConfirm] = useState<{ type: "internet" | "utility"; withBills: number; total: number } | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch analytics (initial load — state map defaults to Activated)
@@ -390,6 +401,7 @@ export default function DashboardPage() {
     debounceRef.current = setTimeout(() => {
       setPage(0);
       setSearch(value);
+      setSelectedCases(new Set());
     }, 300);
   }
 
@@ -399,6 +411,182 @@ export default function DashboardPage() {
       dir: prev.column === column && prev.dir === "desc" ? "asc" : "desc",
     }));
     setPage(0);
+  }
+
+  function toggleCaseSelection(caseNo: string) {
+    setSelectedCases((prev) => {
+      const next = new Set(prev);
+      if (next.has(caseNo)) next.delete(caseNo);
+      else next.add(caseNo);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    const allOnPage = cases.map((c) => c.case_no);
+    const allSelected = allOnPage.every((cn) => selectedCases.has(cn));
+    if (allSelected) {
+      setSelectedCases((prev) => {
+        const next = new Set(prev);
+        allOnPage.forEach((cn) => next.delete(cn));
+        return next;
+      });
+      setAllCasesSelected(false);
+    } else {
+      setSelectedCases((prev) => {
+        const next = new Set(prev);
+        allOnPage.forEach((cn) => next.add(cn));
+        return next;
+      });
+    }
+  }
+
+  async function selectAllCases() {
+    // Fetch all case_nos for the user (no pagination)
+    const params = new URLSearchParams({ limit: "1000", offset: "0" });
+    if (search) params.set("search", search);
+    if (status) params.set("status", status);
+    if (dateFrom) params.set("date_from", dateFrom);
+    if (dateTo) params.set("date_to", dateTo);
+    const res = await fetch(`/api/cases?${params}`);
+    const json = await res.json();
+    const allData = (json.data ?? []) as CaseRow[];
+    const allNos = allData.map((c) => c.case_no);
+    setSelectedCases(new Set(allNos));
+    setAllCasesData(allData);
+    setAllCasesSelected(true);
+  }
+
+  function clearSelection() {
+    setSelectedCases(new Set());
+    setAllCasesData([]);
+    setAllCasesSelected(false);
+  }
+
+  async function handleGenerateBills(type: "internet" | "utility") {
+    if (selectedCases.size === 0 || generating) return;
+    const caseNos = Array.from(selectedCases);
+    const total = caseNos.length;
+    setGenerating(true);
+    setGenerateProgress({ current: 0, total, type });
+
+    // Process in batches of 5 to show progress
+    const BATCH_SIZE = 5;
+    let totalGenerated = 0;
+    let totalFailed = 0;
+
+    try {
+      for (let i = 0; i < caseNos.length; i += BATCH_SIZE) {
+        const batch = caseNos.slice(i, i + BATCH_SIZE);
+        const res = await fetch("/api/bills/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ caseNos: batch }),
+        });
+        const data = await res.json();
+        totalGenerated += data.generated ?? 0;
+        totalFailed += (data.results ?? []).filter((r: { status: string }) => r.status === "error").length;
+        setGenerateProgress({ current: Math.min(i + batch.length, total), total, type });
+      }
+      // Show completed state briefly before clearing
+      setGenerateProgress({ current: total, total, type });
+      await new Promise((resolve) => setTimeout(resolve, 800));
+
+      // Refresh cases to get updated bill URLs
+      await fetchCases();
+      setSelectedCases(new Set());
+      setAllCasesSelected(false);
+
+      if (totalFailed === 0) {
+        toast.success(`Successfully generated ${totalGenerated} ${type} bill${totalGenerated !== 1 ? "s" : ""}`);
+      } else {
+        toast.warning(`Generated ${totalGenerated} bill${totalGenerated !== 1 ? "s" : ""}, ${totalFailed} failed`);
+      }
+    } catch (err) {
+      console.error("Bill generation failed:", err);
+      toast.error("Bill generation failed. Please try again.");
+    } finally {
+      setGenerating(false);
+      setGenerateProgress({ current: 0, total: 0, type: "" });
+    }
+  }
+
+  function handleDownloadClick(type: "internet" | "utility") {
+    if (selectedCases.size === 0 || downloading) return;
+    const billKey = type === "internet" ? "internet_bill_url" : "utility_bill_url";
+    const source = allCasesSelected ? allCasesData : cases;
+    const withBills = source.filter((c) => selectedCases.has(c.case_no) && c[billKey]).length;
+    setDownloadConfirm({ type, withBills, total: selectedCases.size });
+  }
+
+  async function handleBulkDownload(type: "internet" | "utility") {
+    setDownloadConfirm(null);
+    if (selectedCases.size === 0 || downloading) return;
+    setDownloading(true);
+    setDownloadProgress({ current: 0, total: 100, type });
+
+    try {
+      // Simulate initial progress (connection)
+      setDownloadProgress({ current: 10, total: 100, type });
+
+      const res = await fetch("/api/bills/bulk-download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ caseNos: Array.from(selectedCases), type }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        toast.error(err.error || "Download failed");
+        return;
+      }
+
+      // Read the response as a stream to track progress
+      const contentLength = Number(res.headers.get("content-length") || 0);
+      const reader = res.body?.getReader();
+
+      if (!reader) {
+        toast.error("Download failed");
+        return;
+      }
+
+      const chunks: BlobPart[] = [];
+      let received = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(new Uint8Array(value) as BlobPart);
+        received += value.length;
+        // If we know the content length, use real progress; otherwise estimate
+        const pct = contentLength > 0
+          ? Math.round(10 + (received / contentLength) * 85)
+          : Math.min(90, 10 + Math.round((received / (received + 50000)) * 85));
+        setDownloadProgress({ current: pct, total: 100, type });
+      }
+
+      // Complete
+      setDownloadProgress({ current: 100, total: 100, type });
+
+      const blob = new Blob(chunks, { type: "application/zip" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${type}_bills_${new Date().toISOString().split("T")[0]}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      toast.success(`Downloaded ${type} bills as ZIP`);
+    } catch (err) {
+      console.error("Bulk download failed:", err);
+      toast.error("Download failed. Please try again.");
+    } finally {
+      setDownloading(false);
+      setDownloadProgress({ current: 0, total: 0, type: "" });
+    }
   }
 
   function toggleStatusLegend(statusName: string) {
@@ -989,27 +1177,191 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* Generate Bill Buttons + Selection Info */}
+        <div className="animate-fade-in-up flex flex-wrap items-center gap-3">
+          <Button
+            onClick={() => handleGenerateBills("internet")}
+            disabled={generating || selectedCases.size === 0}
+            className="bg-[#635BFF] hover:bg-[#5851DB] text-white rounded-lg h-9 px-4 text-sm font-medium transition-all hover-glow press-effect disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <InternetBillIcon className="w-4 h-4 mr-2" />
+            Generate Internet Bill{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}
+          </Button>
+          <Button
+            onClick={() => handleGenerateBills("utility")}
+            disabled
+            className="bg-white border border-[#E3E8EF] text-[#697386] rounded-lg h-9 px-4 text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <UtilityBillIcon className="w-4 h-4 mr-2" />
+            Generate Utility Bill
+          </Button>
+          <Button
+            onClick={() => handleDownloadClick("internet")}
+            disabled={downloading || generating || selectedCases.size === 0}
+            className="bg-white border border-[#E3E8EF] text-[#425466] hover:text-[#0A2540] hover:border-[#635BFF] rounded-lg h-9 px-4 text-sm font-medium transition-all press-effect disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <DownloadIcon className="w-4 h-4 mr-2" />
+            Download Internet Bill{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}
+          </Button>
+          <Button
+            onClick={() => handleDownloadClick("utility")}
+            disabled
+            className="bg-white border border-[#E3E8EF] text-[#697386] rounded-lg h-9 px-4 text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <DownloadIcon className="w-4 h-4 mr-2" />
+            Download Utility Bill
+          </Button>
+          {selectedCases.size > 0 && !allCasesSelected && (
+            <button onClick={selectAllCases} className="text-xs text-[#635BFF] hover:text-[#5851DB] font-medium transition-colors">
+              Select all {count} cases
+            </button>
+          )}
+          {selectedCases.size > 0 && (
+            <button onClick={clearSelection} className="text-xs text-[#DF1B41] hover:text-red-700 font-medium transition-colors">
+              Clear selection
+            </button>
+          )}
+          {allCasesSelected && (
+            <span className="text-xs text-[#697386]">All {selectedCases.size} cases selected</span>
+          )}
+        </div>
+
+        {/* Progress Bar */}
+        {generating && generateProgress.total > 0 && (() => {
+          const pct = Math.round((generateProgress.current / generateProgress.total) * 100);
+          const isComplete = generateProgress.current === generateProgress.total;
+          return (
+            <div className="animate-fade-in-up bg-white rounded-lg border border-[#E3E8EF] p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {isComplete ? (
+                    <CheckCircleIcon className="w-4 h-4 text-[#09825D]" />
+                  ) : (
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />
+                  )}
+                  <span className="text-sm font-medium text-[#0A2540]">
+                    {isComplete ? "Generation complete!" : `Generating ${generateProgress.type} bills...`}
+                  </span>
+                </div>
+                <span className="text-xs tabular-nums font-semibold text-[#0A2540]">{pct}%</span>
+              </div>
+              <div className="w-full h-2.5 bg-[#E3E8EF] rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-700 ease-out ${isComplete ? "bg-[#09825D]" : "bg-[#635BFF] progress-bar-glow"}`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <p className="text-xs text-[#697386] tabular-nums">
+                {generateProgress.current} of {generateProgress.total} bill{generateProgress.total !== 1 ? "s" : ""} processed
+              </p>
+            </div>
+          );
+        })()}
+
+        {/* Download Progress Bar */}
+        {downloading && downloadProgress.total > 0 && (() => {
+          const pct = downloadProgress.current;
+          const isComplete = pct >= 100;
+          return (
+            <div className="animate-fade-in-up bg-white rounded-lg border border-[#E3E8EF] p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {isComplete ? (
+                    <CheckCircleIcon className="w-4 h-4 text-[#09825D]" />
+                  ) : (
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />
+                  )}
+                  <span className="text-sm font-medium text-[#0A2540]">
+                    {isComplete ? "Download complete!" : `Downloading ${downloadProgress.type} bills...`}
+                  </span>
+                </div>
+                <span className="text-xs tabular-nums font-semibold text-[#0A2540]">{pct}%</span>
+              </div>
+              <div className="w-full h-2.5 bg-[#E3E8EF] rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-700 ease-out ${isComplete ? "bg-[#09825D]" : "bg-[#635BFF] progress-bar-glow"}`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <p className="text-xs text-[#697386]">
+                {isComplete ? "Preparing ZIP file..." : "Fetching bills from storage..."}
+              </p>
+            </div>
+          );
+        })()}
+
+        {/* Download Confirmation Modal */}
+        {downloadConfirm && createPortal(
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 animate-fade-in" onClick={() => setDownloadConfirm(null)}>
+            <div className="bg-white rounded-xl shadow-2xl border border-[#E3E8EF] w-full max-w-sm mx-4 animate-fade-in-up" onClick={(e) => e.stopPropagation()}>
+              <div className="px-6 pt-6 pb-4">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-lg bg-[#F0EEFF] flex items-center justify-center">
+                    <DownloadIcon className="w-5 h-5 text-[#635BFF]" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-[#0A2540]">Download {downloadConfirm.type === "internet" ? "Internet" : "Utility"} Bills</h3>
+                    <p className="text-xs text-[#697386]">{downloadConfirm.total} case{downloadConfirm.total !== 1 ? "s" : ""} selected</p>
+                  </div>
+                </div>
+                <div className="bg-[#F6F9FC] rounded-lg p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-[#425466]">Bills generated</span>
+                    <span className="text-sm font-semibold tabular-nums text-[#0A2540]">{downloadConfirm.withBills} / {downloadConfirm.total}</span>
+                  </div>
+                  <div className="w-full h-1.5 bg-[#E3E8EF] rounded-full overflow-hidden">
+                    <div className="h-full bg-[#09825D] rounded-full transition-all duration-500" style={{ width: `${downloadConfirm.total > 0 ? (downloadConfirm.withBills / downloadConfirm.total) * 100 : 0}%` }} />
+                  </div>
+                  {downloadConfirm.withBills === 0 ? (
+                    <p className="text-xs text-[#DF1B41]">No bills have been generated yet. Generate bills first before downloading.</p>
+                  ) : downloadConfirm.withBills < downloadConfirm.total ? (
+                    <p className="text-xs text-[#D97706]">Only {downloadConfirm.withBills} of {downloadConfirm.total} selected cases have bills generated. Only generated bills will be downloaded.</p>
+                  ) : (
+                    <p className="text-xs text-[#09825D]">All selected cases have bills generated.</p>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-3 px-6 py-4 border-t border-[#E3E8EF]">
+                <Button variant="outline" size="sm" className="flex-1 rounded-lg border-[#E3E8EF] text-[#425466]" onClick={() => setDownloadConfirm(null)}>
+                  Cancel
+                </Button>
+                <Button size="sm" disabled={downloadConfirm.withBills === 0} className="flex-1 rounded-lg bg-[#635BFF] hover:bg-[#5851DB] text-white disabled:opacity-50" onClick={() => handleBulkDownload(downloadConfirm.type)}>
+                  Download ({downloadConfirm.withBills})
+                </Button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
         {/* Table */}
         <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden animate-fade-in-up" style={{ animationDelay: "600ms" }}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="border-b border-[#E3E8EF]">
+                  <th className="px-3 py-3 w-10">
+                    <input type="checkbox" className="rounded border-[#E3E8EF] text-[#635BFF] focus:ring-[#635BFF]/20 cursor-pointer" checked={cases.length > 0 && cases.every((c) => selectedCases.has(c.case_no))} onChange={toggleSelectAll} />
+                  </th>
                   {COLUMNS.map((col) => (
                     <th key={col.key} className={`px-4 py-3 text-left text-[11px] font-semibold text-[#697386] uppercase tracking-wider whitespace-nowrap cursor-pointer select-none hover:text-[#0A2540] transition-colors ${col.hideOnMobile ? "hidden lg:table-cell" : ""}`} onClick={() => handleSort(col.key)}>
                       <span className="inline-flex items-center gap-1">{col.label}<SortIcon column={col.key} sort={sort} /></span>
                     </th>
                   ))}
+                  <th className="px-3 py-3 text-center text-[11px] font-semibold text-[#697386] uppercase tracking-wider whitespace-nowrap">Bills</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#E3E8EF]/60 row-stagger">
                 {casesLoading ? (
-                  <tr><td colSpan={COLUMNS.length} className="px-4 py-20 text-center"><div className="flex flex-col items-center gap-3"><div className="h-5 w-5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" /><span className="text-sm text-[#697386]">Loading cases...</span></div></td></tr>
+                  <tr><td colSpan={COLUMNS.length + 2} className="px-4 py-20 text-center"><div className="flex flex-col items-center gap-3"><div className="h-5 w-5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" /><span className="text-sm text-[#697386]">Loading cases...</span></div></td></tr>
                 ) : cases.length === 0 ? (
-                  <tr><td colSpan={COLUMNS.length} className="px-4 py-20 text-center"><div className="flex flex-col items-center gap-2"><div className="w-10 h-10 rounded-lg bg-[#F6F9FC] flex items-center justify-center mb-2"><EmptyIcon className="w-5 h-5 text-[#697386]" /></div><p className="text-sm font-medium text-[#0A2540]">No cases found</p><p className="text-xs text-[#697386]">{hasFilters ? "Try adjusting your filters" : "Run a crawl to get started"}</p></div></td></tr>
+                  <tr><td colSpan={COLUMNS.length + 2} className="px-4 py-20 text-center"><div className="flex flex-col items-center gap-2"><div className="w-10 h-10 rounded-lg bg-[#F6F9FC] flex items-center justify-center mb-2"><EmptyIcon className="w-5 h-5 text-[#697386]" /></div><p className="text-sm font-medium text-[#0A2540]">No cases found</p><p className="text-xs text-[#697386]">{hasFilters ? "Try adjusting your filters" : "Run a crawl to get started"}</p></div></td></tr>
                 ) : (
                   cases.map((c) => (
-                    <tr key={c.case_no} className={`hover:bg-[#F6F9FC] transition-colors duration-100 cursor-pointer ${selectedCase?.case_no === c.case_no ? "bg-[#F6F9FC]" : ""}`} onClick={() => setSelectedCase(c)}>
+                    <tr key={c.case_no} className={`hover:bg-[#F6F9FC] transition-colors duration-100 cursor-pointer ${selectedCase?.case_no === c.case_no ? "bg-[#F6F9FC]" : ""} ${selectedCases.has(c.case_no) ? "bg-[#F0EEFF]" : ""}`} onClick={() => setSelectedCase(c)}>
+                      <td className="px-3 py-3 w-10" onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" className="rounded border-[#E3E8EF] text-[#635BFF] focus:ring-[#635BFF]/20 cursor-pointer" checked={selectedCases.has(c.case_no)} onChange={() => toggleCaseSelection(c.case_no)} />
+                      </td>
                       <td className="px-4 py-3 text-[13px] tabular-nums whitespace-nowrap">
                         {c.case_url ? (<a href={c.case_url} target="_blank" rel="noopener noreferrer" className="text-[#635BFF] font-medium hover:underline transition-colors" onClick={(e) => e.stopPropagation()}>{c.case_no}</a>) : (<span className="font-medium text-[#425466]">{c.case_no}</span>)}
                       </td>
@@ -1023,6 +1375,25 @@ export default function DashboardPage() {
                       <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-[160px] text-[13px] text-[#697386]">{c.agent_remark || "—"}</span></td>
                       <td className="px-4 py-3 text-[13px] text-[#697386] tabular-nums whitespace-nowrap">{formatDateTime(c.case_created_at)}</td>
                       <td className="px-4 py-3 text-[13px] text-[#697386] tabular-nums whitespace-nowrap hidden lg:table-cell">{formatDateTime(c.updated_at)}</td>
+                      <td className="px-3 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-1">
+                          <button
+                            title={c.internet_bill_url ? "Download Internet Bill" : "Internet bill not generated"}
+                            disabled={!c.internet_bill_url}
+                            onClick={() => c.internet_bill_url && window.open(`/api/bills/download?case_no=${c.case_no}&type=internet`, "_blank")}
+                            className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors ${c.internet_bill_url ? "text-[#635BFF] hover:bg-[#F0EEFF]" : "text-[#D1D5DB] cursor-not-allowed"}`}
+                          >
+                            <InternetBillIcon className="w-4 h-4" />
+                          </button>
+                          <button
+                            title="Utility bill not available"
+                            disabled
+                            className="w-7 h-7 flex items-center justify-center rounded-md text-[#D1D5DB] cursor-not-allowed"
+                          >
+                            <UtilityBillIcon className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))
                 )}
@@ -1298,9 +1669,37 @@ function CaseDetailPanel({ caseData, onClose }: { caseData: CaseRow; onClose: ()
               </div>
             );
           })}
+
+          {/* Internet Bill Preview */}
+          <div className="border-t border-[#E3E8EF] my-5" style={{ opacity: isVisible ? 1 : 0, transition: "opacity 500ms ease-out 600ms" }} />
+          <div style={{ opacity: isVisible ? 1 : 0, transform: isVisible ? "translateY(0)" : "translateY(12px)", transition: "opacity 400ms ease-out 650ms, transform 400ms ease-out 650ms" }}>
+            <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">Internet Bill</h3>
+            {caseData.internet_bill_url ? (
+              <div className="space-y-3">
+                <div className="rounded-lg border border-[#E3E8EF] overflow-hidden bg-[#F6F9FC]">
+                  <iframe
+                    src={`/api/bills/download?case_no=${caseData.case_no}&type=internet`}
+                    className="w-full h-[400px]"
+                    title="Internet Bill Preview"
+                  />
+                </div>
+                <a
+                  href={`/api/bills/download?case_no=${caseData.case_no}&type=internet`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-sm font-medium text-[#635BFF] hover:text-[#0A2540] transition-colors duration-200"
+                >
+                  <DownloadIcon className="w-3.5 h-3.5" />
+                  Download Internet Bill
+                </a>
+              </div>
+            ) : (
+              <p className="text-sm text-[#697386]">No bill generated yet. Select this case and click &ldquo;Generate Internet Bill&rdquo;.</p>
+            )}
+          </div>
         </div>
         {caseData.case_url && (
-          <div className="px-6 py-4 border-t border-[#E3E8EF]" style={{ opacity: isVisible ? 1 : 0, transform: isVisible ? "translateY(0)" : "translateY(8px)", transition: "opacity 400ms ease-out 600ms, transform 400ms ease-out 600ms" }}>
+          <div className="px-6 py-4 border-t border-[#E3E8EF]" style={{ opacity: isVisible ? 1 : 0, transform: isVisible ? "translateY(0)" : "translateY(8px)", transition: "opacity 400ms ease-out 700ms, transform 400ms ease-out 700ms" }}>
             <a href={caseData.case_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-[#635BFF] hover:text-[#0A2540] transition-colors duration-200">
               Open in WifiBizz
               <ExternalLinkIcon className="w-3.5 h-3.5" />
@@ -1341,4 +1740,13 @@ function ExternalLinkIcon({ className }: { className?: string }) {
 function SortIcon({ column, sort }: { column: string; sort: SortState }) {
   if (sort.column !== column) return <span className="text-[#E3E8EF] text-[10px]">&#8597;</span>;
   return <span className="text-[#635BFF] text-[10px]">{sort.dir === "asc" ? "\u25B2" : "\u25BC"}</span>;
+}
+function InternetBillIcon({ className }: { className?: string }) {
+  return (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><path d="M12 18v-6" /><path d="m9 15 3-3 3 3" /></svg>);
+}
+function UtilityBillIcon({ className }: { className?: string }) {
+  return (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><path d="M8 13h2" /><path d="M8 17h2" /><path d="M14 13h2" /><path d="M14 17h2" /></svg>);
+}
+function DownloadIcon({ className }: { className?: string }) {
+  return (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" x2="12" y1="15" y2="3" /></svg>);
 }

@@ -65,7 +65,7 @@ export async function GET(request: Request) {
     const rows = await sql`
       SELECT case_no, case_url, full_name, full_address, mobile, email, id_no,
              provider, package, order_no, agent, agent_remark,
-             status, case_created_at, updated_at
+             status, internet_bill_url, utility_bill_url, case_created_at, updated_at
       FROM wifibizz_cases
       WHERE user_id = ${wifibizzUser.id}
         AND (${!search} OR (

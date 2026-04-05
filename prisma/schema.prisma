@@ -50,10 +50,12 @@ model WifibizzCase {
   orderNo       String?       @map("order_no")
   agent         String?
   agentRemark   String?       @map("agent_remark")
-  status        String?       @default("Activated")
-  caseCreatedAt DateTime?     @map("case_created_at")
-  scrapedAt     DateTime?     @default(now()) @map("scraped_at")
-  updatedAt     DateTime?     @default(now()) @map("updated_at")
+  status          String?       @default("Activated")
+  internetBillUrl String?       @map("internet_bill_url")
+  utilityBillUrl  String?       @map("utility_bill_url")
+  caseCreatedAt   DateTime?     @map("case_created_at")
+  scrapedAt       DateTime?     @default(now()) @map("scraped_at")
+  updatedAt       DateTime?     @default(now()) @map("updated_at")
 
   @@unique([userId, caseNo])
   @@map("wifibizz_cases")
