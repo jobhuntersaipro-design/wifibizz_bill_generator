@@ -2,24 +2,11 @@
 
 ## Status
 
-In Progress
+Not Started
 
 ## Goals
 
-- Randomize Caj Semasa (RM) between RM150.00–RM250.00 (latest month charges)
-- Randomize Baki Terdahulu (RM) between RM150.00–RM250.00
-- Jumlah Bil Anda (RM) = Caj Semasa + Baki Terdahulu
-- Sila bayar sebelum date = TARIKH BIL + 1 month
-- Populate Caj Bulanan (RM) with last 6 months usage, each randomized RM150.00–RM250.00
-- Background grey barchart values should match the Caj Bulanan amounts
-- Penggunaan (kWh) — no changes
-
 ## Notes
-
-- Source spec: context/features/utility-bill-enhancement-spec.md
-- Affects generate-utility-bill.py (TNB template PDF generation)
-- All monetary values randomized per generation
-- Barchart rendering must scale to match randomized monthly values
 
 ## History
 
@@ -46,3 +33,4 @@ In Progress
 - **Phase 19 — Utility Bill Generation + Responsive UI + Favicon** (2026-04-05): Utility bill PDF generation (generate-utility-bill.py) with TNB template, address normalizer with geocoding pipeline for landed vs condo formatting, TARIKH BIL date collision fix. Responsive mobile layout across all pages: sidebar with hamburger toggle, responsive tables with column hiding, stacked filters, adaptive pagination, full-width detail panel on mobile. Admin shell client component for sidebar state. Custom favicon.png. Crawler and bill API improvements.
 - **Phase 20 — UI Review Fixes** (2026-04-06): Fixed 18 UI issues across 8 files. Layout: section dividers between Analytics/Case Management, chart axis compacted (-45°/80px), bill action buttons separated from selection links, Bills column border separator. Animations: admin login entrance animations, removed hover-lift from settings form, replaced continuous float with one-time scale-in on crawl page. Responsiveness: date filter labels hidden on mobile, KPI label truncation, detail panel scroll fix. Accessibility: password toggle aria-labels (removed tabIndex={-1}), checkbox aria-labels, aria-sort on table headers, bill icon opacity+aria for non-color state distinction. Unified admin sidebar active nav color to #635BFF. CaseUsage component themed to Stripe palette.
 - **Phase 21 — Crawler Date Filter** (2026-04-06): Date filter UI on crawl page with from/to date inputs and preset buttons (1d, 3d, 7d, 1w, 1m, 3m). Max 3-month limit with inline error. Reset button to clear filters. Date range passed to crawler API and scraper for server-side filtering. Sidebar updated to show user's WifiBizz email and agent instead of "Network Admin". Removed notification bell and avatar from topbar.
+- **Phase 22 — Utility Bill Enhancement** (2026-04-06): Randomized Caj Semasa, Baki Terdahulu (RM150-250), computed Jumlah Bil as sum. Sila bayar sebelum = TARIKH BIL + 1 month. Caj Bulanan bar chart with 6 months (last month = Caj Semasa). Fixed bar color operators (scn/SCN to rg/RG for DeviceRGB). Blanked Kedai Tenaga Terdekat address text on page 2. Deleted legacy Python bill generators, refactored dashboard into AnalyticsSection/CaseManagementSection components with shared types/icons.
