@@ -1,0 +1,1 @@
+- [project_architecture.md](project_architecture.md) — Stack, key file paths, security-relevant patterns, data model notes

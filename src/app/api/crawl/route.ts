@@ -83,13 +83,15 @@ export async function POST(request: Request) {
             percent: 97,
           });
 
-          const saved = await upsertCases(wifibizzUser.id, casesToInsert);
+          const { inserted, updated } = await upsertCases(wifibizzUser.id, casesToInsert);
           await updateLastCrawl(wifibizzUser.id);
 
           sendEvent("done", {
             success: true,
             total: cases.length,
-            saved,
+            saved: inserted + updated,
+            inserted,
+            updated,
             skipped,
             timestamp: new Date().toISOString(),
           });

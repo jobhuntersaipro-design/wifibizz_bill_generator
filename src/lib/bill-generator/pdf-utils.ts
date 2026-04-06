@@ -28,7 +28,11 @@ function decompressStream(pdfDoc: PDFDocument, streamObj: PDFRawStream | PDFDict
     const dict = streamObj.dict;
     const filter = dict.get(PDFName.of('Filter'));
 
-    if (filter && filter.toString() === '/FlateDecode') {
+    // Handle Filter as both single name (/FlateDecode) and array ([ /FlateDecode ])
+    const filterStr = filter ? filter.toString() : '';
+    const isFlateDecode = filterStr === '/FlateDecode' || filterStr.includes('/FlateDecode');
+
+    if (isFlateDecode) {
       try {
         return Buffer.from(inflateSync(Buffer.from(contents)));
       } catch {

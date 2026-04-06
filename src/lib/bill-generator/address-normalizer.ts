@@ -361,10 +361,10 @@ function formatUtilityAlamatPos(components: AddressComponents, unitPrefix: strin
   const lines = [maskedName];
 
   if (unitPrefix) {
-    lines.push(`XXX XXX,${route}`);
+    lines.push(...smartSplit(`XXX XXX,${route}`, maxChars));
     if (sublocality) lines.push(...smartSplit(sublocality, maxChars));
   } else {
-    lines.push(`XXX XXX, ${route}`);
+    lines.push(...smartSplit(`XXX XXX, ${route}`, maxChars));
     if (sublocality) lines.push(...smartSplit(sublocality, maxChars));
   }
 
@@ -383,10 +383,10 @@ function formatUtilityAlamatPremis(components: AddressComponents, unitPrefix: st
   const lines: string[] = [];
 
   if (unitPrefix) {
-    lines.push(`XXX XXX,${route}`);
+    lines.push(...smartSplit(`XXX XXX,${route}`, maxChars));
     if (sublocality) lines.push(...smartSplit(sublocality, maxChars));
   } else {
-    lines.push(`XXX XXX, ${route}`);
+    lines.push(...smartSplit(`XXX XXX, ${route}`, maxChars));
     if (sublocality) lines.push(...smartSplit(sublocality, maxChars));
   }
 

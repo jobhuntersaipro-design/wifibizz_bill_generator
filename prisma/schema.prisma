@@ -58,5 +58,7 @@ model WifibizzCase {
   updatedAt       DateTime?     @default(now()) @map("updated_at")
 
   @@unique([userId, caseNo])
+  @@index([userId, status])
+  @@index([userId, caseCreatedAt(sort: Desc)])
   @@map("wifibizz_cases")
 }

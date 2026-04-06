@@ -18,10 +18,10 @@ async function main() {
 
   console.log(`Found ${cases.length} cases.`);
 
-  const saved = await upsertCases(user.id, cases);
+  const { inserted, updated } = await upsertCases(user.id, cases);
   await updateLastCrawl(user.id);
 
-  console.log(`Saved ${saved} cases to database.`);
+  console.log(`Saved ${inserted + updated} cases (${inserted} new, ${updated} updated).`);
 }
 
 main().catch((err) => {

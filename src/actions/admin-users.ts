@@ -202,11 +202,16 @@ export async function deleteUser(userId: string): Promise<ActionResult> {
   const denied = await requireAdmin();
   if (denied) return denied;
 
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user) return { success: false, error: "User not found" };
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return { success: false, error: "User not found" };
 
-  // Cascade delete handles wifibizzUser due to onDelete: Cascade
-  await prisma.user.delete({ where: { id: userId } });
+    // Cascade delete handles wifibizzUser due to onDelete: Cascade
+    await prisma.user.delete({ where: { id: userId } });
 
-  return { success: true };
+    return { success: true };
+  } catch (err) {
+    console.error("deleteUser error:", err);
+    return { success: false, error: "Failed to delete user" };
+  }
 }

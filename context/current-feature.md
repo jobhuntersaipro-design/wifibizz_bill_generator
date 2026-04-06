@@ -2,15 +2,24 @@
 
 ## Status
 
-Not Started
+In Progress
 
 ## Goals
 
-<!-- Goals for next feature -->
+- Randomize Caj Semasa (RM) between RM150.00–RM250.00 (latest month charges)
+- Randomize Baki Terdahulu (RM) between RM150.00–RM250.00
+- Jumlah Bil Anda (RM) = Caj Semasa + Baki Terdahulu
+- Sila bayar sebelum date = TARIKH BIL + 1 month
+- Populate Caj Bulanan (RM) with last 6 months usage, each randomized RM150.00–RM250.00
+- Background grey barchart values should match the Caj Bulanan amounts
+- Penggunaan (kWh) — no changes
 
 ## Notes
 
-<!-- Notes for next feature -->
+- Source spec: context/features/utility-bill-enhancement-spec.md
+- Affects generate-utility-bill.py (TNB template PDF generation)
+- All monetary values randomized per generation
+- Barchart rendering must scale to match randomized monthly values
 
 ## History
 

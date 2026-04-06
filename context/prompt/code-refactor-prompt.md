@@ -1,0 +1,1 @@
+I want to create a subagent called "refactor-scanner" that takes in an argument of the folder to scan for duplicate code that can be put into seperate utility functions, components, etc. It should take in folders like actions, components, lib, api, hooks and all. Tailor the instructions to the type of folder/code

@@ -32,6 +32,15 @@ const ORIG_DEPOSIT = '204.84';
 const ORIG_BAYARAN = '221.80';
 const ORIG_BARCODE_TAIL = '000000000032995';
 
+// Original summary amounts from template
+const ORIG_CAJ_SEMASA = '161.55';
+const ORIG_BAKI_TERDAHULU = '168.40';
+const ORIG_JUMLAH_BIL = '329.95';
+const ORIG_SILA_BAYAR = '02 Apr 2026';
+
+// Malay month abbreviations for date formatting
+const MALAY_MONTHS = ['Jan', 'Feb', 'Mac', 'Apr', 'Mei', 'Jun', 'Jul', 'Ogo', 'Sep', 'Okt', 'Nov', 'Dis'];
+
 // Address patterns to blank out on page 1 (ALAMAT POS)
 const PAGE1_NAME_PATTERN = Buffer.from('(XXXXXXXXXXXXXXXXXX)', 'ascii');
 const PAGE1_ADDR_PATTERNS = [
@@ -45,6 +54,15 @@ const PAGE1_ADDR_PATTERNS = [
 const PAGE2_ADDR_PATTERNS = [
   Buffer.from('(XXX XXX, JALAN CEMPEDAK)', 'ascii'),
   Buffer.from('(KAMPUNG KANCHONG DARAT)', 'ascii'),
+  Buffer.from('(42700 BANTING)', 'ascii'),
+  Buffer.from('(SELANGOR)', 'ascii'),
+];
+
+// Kedai Tenaga Terdekat patterns to blank out on page 2
+const KEDAI_TENAGA_PATTERNS = [
+  Buffer.from('(Kedai Tenaga Terdekat :)', 'ascii'),
+  Buffer.from('(TNB BANTING)', 'ascii'),
+  Buffer.from('(LOT 4, JLN BUNGA PEKAN)', 'ascii'),
   Buffer.from('(42700 BANTING)', 'ascii'),
   Buffer.from('(SELANGOR)', 'ascii'),
 ];
@@ -135,6 +153,25 @@ function computeValues() {
   const payDay = randInt(tempohStart.getDate(), tempohEnd.getDate());
   const lastPaymentDate = new Date(tempohY, tempohM - 1, payDay);
 
+  // Caj Semasa: random RM150-250
+  const cajSemasa = (Math.random() * 100 + 150).toFixed(2);
+  // Baki Terdahulu: random RM150-250
+  const bakiTerdahulu = (Math.random() * 100 + 150).toFixed(2);
+  // Jumlah Bil Anda = Caj Semasa + Baki Terdahulu
+  const jumlahBil = (parseFloat(cajSemasa) + parseFloat(bakiTerdahulu)).toFixed(2);
+
+  // Sila bayar sebelum: TARIKH BIL + 1 month
+  let silaBayarM = prevM + 1;
+  let silaBayarY = prevY;
+  if (silaBayarM > 12) { silaBayarM = 1; silaBayarY++; }
+  const silaBayar = `${String(billDay).padStart(2, '0')} ${MALAY_MONTHS[silaBayarM - 1]} ${silaBayarY}`;
+
+  // Caj Bulanan: 5 random monthly values RM150-250, last month = Caj Semasa
+  const cajBulanan = Array.from({ length: 5 }, () =>
+    (Math.random() * 100 + 150).toFixed(2)
+  );
+  cajBulanan.push(cajSemasa);
+
   const fmt = (d: Date) => {
     const dd = String(d.getDate()).padStart(2, '0');
     const mm = String(d.getMonth() + 1).padStart(2, '0');
@@ -151,7 +188,71 @@ function computeValues() {
     newDeposit: depositAmount,
     newBarcodeTail,
     lastPaymentDate: fmt(lastPaymentDate),
+    cajSemasa,
+    bakiTerdahulu,
+    jumlahBil,
+    silaBayar,
+    cajBulanan,
   };
+}
+
+// ── Caj Bulanan overlay builder ────────────────────────────────
+
+/**
+ * Build a PDF path for a rounded rectangle (matching template Bezier curves).
+ */
+function roundedRectPath(x: number, y: number, w: number, h: number, r: number): string {
+  const k = r * 0.5523; // Bezier control point factor for quarter circle
+  const right = x + w;
+  const top = y + h;
+  return [
+    `${x.toFixed(3)} ${(top - r).toFixed(3)} m`,
+    `${x.toFixed(3)} ${(top - r + k).toFixed(3)} ${(x + r - k).toFixed(3)} ${top.toFixed(3)} ${(x + r).toFixed(3)} ${top.toFixed(3)} c`,
+    `${(right - r).toFixed(3)} ${top.toFixed(3)} l`,
+    `${(right - r + k).toFixed(3)} ${top.toFixed(3)} ${right.toFixed(3)} ${(top - r + k).toFixed(3)} ${right.toFixed(3)} ${(top - r).toFixed(3)} c`,
+    `${right.toFixed(3)} ${(y + r).toFixed(3)} l`,
+    `${right.toFixed(3)} ${(y + r - k).toFixed(3)} ${(right - r + k).toFixed(3)} ${y.toFixed(3)} ${(right - r).toFixed(3)} ${y.toFixed(3)} c`,
+    `${(x + r).toFixed(3)} ${y.toFixed(3)} l`,
+    `${(x + r - k).toFixed(3)} ${y.toFixed(3)} ${x.toFixed(3)} ${(y + r - k).toFixed(3)} ${x.toFixed(3)} ${(y + r).toFixed(3)} c`,
+    'h B*',
+  ].join(' ');
+}
+
+function buildCajBulananOverlay(cajBulananValues: string[]): string {
+  const barX = 63;
+  const maxWidth = 215;
+  const maxValue = 250;
+  const barHeight = 7.9;
+  const cornerRadius = 3;
+
+  // barY = bottom of bar, textY = above bar (barY + ~11.6 matching template)
+  const monthRows = [
+    { barY: 317.5, textY: 329.1 },   // OKT
+    { barY: 293.8, textY: 305.5 },   // NOV
+    { barY: 270.2, textY: 281.8 },   // DIS
+    { barY: 246.5, textY: 258.1 },   // JAN
+    { barY: 222.8, textY: 234.5 },   // FEB
+    { barY: 199.2, textY: 210.8 },   // MAC (latest - blue)
+  ];
+
+  // White-out existing bars and text (extend left to prevent white line artifacts)
+  let s = 'q\n1 1 1 rg\n58 186 228 152 re f\nQ\n';
+
+  for (let i = 0; i < 6; i++) {
+    const value = parseFloat(cajBulananValues[i]);
+    const width = Math.max((value / maxValue) * maxWidth, cornerRadius * 2 + 1);
+    const { barY, textY } = monthRows[i];
+
+    // Last bar (latest month) is blue, rest are grey
+    const color = i === 5 ? '0.337 0.518 0.761' : '0.804 0.804 0.804';
+    s += `${color} rg\n${color} RG\n`;
+    s += roundedRectPath(barX, barY, width, barHeight, cornerRadius) + '\n';
+
+    // RM text label (above the bar)
+    s += `0.000 0.000 0.000 scn\nBT\n/F0601 8 Tf\n0 g\n65.813 ${textY.toFixed(3)} Td\n(\\(BS\\) RM${cajBulananValues[i]}) Tj\nET\n`;
+  }
+
+  return s;
 }
 
 // ── Account replacement in streams ──────────────────────────────
@@ -292,6 +393,18 @@ export async function generateUtilityBill(caseData: CaseData): Promise<Buffer> {
         // Replace barcode invoice + tail digits
         total += replaceBarcodeInStream(buf, vals.newInvois, vals.newBarcodeTail);
 
+        // Replace Caj Semasa
+        total += replaceStringInStream(buf, ORIG_CAJ_SEMASA, vals.cajSemasa);
+
+        // Replace Baki Terdahulu
+        total += replaceStringInStream(buf, ORIG_BAKI_TERDAHULU, vals.bakiTerdahulu);
+
+        // Replace Jumlah Bil Anda
+        total += replaceStringInStream(buf, ORIG_JUMLAH_BIL, vals.jumlahBil);
+
+        // Replace Sila bayar sebelum date
+        total += replaceStringInStream(buf, ORIG_SILA_BAYAR, vals.silaBayar);
+
         return { data: buf, count: total };
       });
     }
@@ -316,6 +429,10 @@ export async function generateUtilityBill(caseData: CaseData): Promise<Buffer> {
       lines: p1Lines,
     });
     appendOverlayToPage(pdfDoc, page1, overlayP1);
+
+    // Overlay Caj Bulanan bars and text
+    const cajBulananOverlay = buildCajBulananOverlay(vals.cajBulanan);
+    appendOverlayToPage(pdfDoc, page1, cajBulananOverlay);
   }
 
   // ── Page 2 processing ──
@@ -332,6 +449,11 @@ export async function generateUtilityBill(caseData: CaseData): Promise<Buffer> {
           total += blankPatternInStream(buf, pattern);
         }
 
+        // Blank out Kedai Tenaga Terdekat text
+        for (const pattern of KEDAI_TENAGA_PATTERNS) {
+          total += blankPatternInStream(buf, pattern);
+        }
+
         // Replace account number
         total += replaceAccountInStream(buf, ORIGINAL_ACCOUNT, newAccount);
 
@@ -343,6 +465,9 @@ export async function generateUtilityBill(caseData: CaseData): Promise<Buffer> {
         // Replace BAYARAN on page 2
         const newBayaranPadded = vals.newBayaran.padStart(ORIG_BAYARAN.length);
         total += replaceStringInStream(buf, ORIG_BAYARAN, newBayaranPadded);
+
+        // Replace Caj Semasa on page 2
+        total += replaceStringInStream(buf, ORIG_CAJ_SEMASA, vals.cajSemasa);
 
         return { data: buf, count: total };
       });

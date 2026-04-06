@@ -52,6 +52,11 @@ export async function createTables() {
   await sql`
     ALTER TABLE wifibizz_cases ADD COLUMN IF NOT EXISTS case_url TEXT
   `;
+
+  // Indexes for common query patterns
+  await sql`CREATE INDEX IF NOT EXISTS idx_wc_user_status ON wifibizz_cases(user_id, status)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_wc_user_created ON wifibizz_cases(user_id, case_created_at DESC)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_wc_user_fullname ON wifibizz_cases(user_id, full_name)`;
 }
 
 // ── User operations ──
@@ -118,42 +123,50 @@ export interface CaseData {
   case_created_at: string;
 }
 
-export async function upsertCases(userId: number, cases: CaseData[]): Promise<number> {
+export async function upsertCases(userId: number, cases: CaseData[]): Promise<{ inserted: number; updated: number }> {
   const sql = getDb();
-  let saved = 0;
 
-  for (const c of cases) {
-    await sql`
-      INSERT INTO wifibizz_cases (
-        user_id, case_no, case_url, full_name, full_address, mobile, email, id_no,
-        provider, package, order_no, agent, agent_remark,
-        status, case_created_at, scraped_at, updated_at
-      ) VALUES (
-        ${userId}, ${c.case_no}, ${c.case_url}, ${c.full_name}, ${c.full_address}, ${c.mobile}, ${c.email}, ${c.id_no},
-        ${c.provider}, ${c.package}, ${c.order_no}, ${c.agent}, ${c.agent_remark},
-        ${c.status || 'Unknown'}, ${c.case_created_at}, NOW(), NOW()
-      )
-      ON CONFLICT (user_id, case_no) DO UPDATE SET
-        case_url = ${c.case_url},
-        full_name = ${c.full_name},
-        full_address = ${c.full_address},
-        mobile = ${c.mobile},
-        email = ${c.email},
-        id_no = ${c.id_no},
-        provider = ${c.provider},
-        package = ${c.package},
-        order_no = ${c.order_no},
-        agent = ${c.agent},
-        agent_remark = ${c.agent_remark},
-        status = ${c.status || 'Unknown'},
-        case_created_at = ${c.case_created_at},
-        scraped_at = NOW(),
-        updated_at = NOW()
-    `;
-    saved++;
+  const results = await Promise.all(
+    cases.map((c) =>
+      sql`
+        INSERT INTO wifibizz_cases (
+          user_id, case_no, case_url, full_name, full_address, mobile, email, id_no,
+          provider, package, order_no, agent, agent_remark,
+          status, case_created_at, scraped_at, updated_at
+        ) VALUES (
+          ${userId}, ${c.case_no}, ${c.case_url}, ${c.full_name}, ${c.full_address}, ${c.mobile}, ${c.email}, ${c.id_no},
+          ${c.provider}, ${c.package}, ${c.order_no}, ${c.agent}, ${c.agent_remark},
+          ${c.status || 'Unknown'}, ${c.case_created_at}, NOW(), NOW()
+        )
+        ON CONFLICT (user_id, case_no) DO UPDATE SET
+          case_url = ${c.case_url},
+          full_name = ${c.full_name},
+          full_address = ${c.full_address},
+          mobile = ${c.mobile},
+          email = ${c.email},
+          id_no = ${c.id_no},
+          provider = ${c.provider},
+          package = ${c.package},
+          order_no = ${c.order_no},
+          agent = ${c.agent},
+          agent_remark = ${c.agent_remark},
+          status = ${c.status || 'Unknown'},
+          case_created_at = ${c.case_created_at},
+          scraped_at = NOW(),
+          updated_at = NOW()
+        RETURNING (xmax = 0) AS is_insert
+      `
+    )
+  );
+
+  let inserted = 0;
+  let updated = 0;
+  for (const rows of results) {
+    if (rows[0]?.is_insert) inserted++;
+    else updated++;
   }
 
-  return saved;
+  return { inserted, updated };
 }
 
 export async function getCases(

@@ -3,6 +3,7 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { testConnection } from "@/lib/crawler/scraper";
+import { neon } from "@neondatabase/serverless";
 
 const PLACEHOLDER_PASSWORD = "PLACEHOLDER_NEEDS_USER_INPUT";
 
@@ -97,7 +98,6 @@ export async function getSidebarInfo() {
     }
 
     // Get the most common agent from the user's cases
-    const { neon } = await import("@neondatabase/serverless");
     const sql = neon(process.env.DATABASE_URL!);
     const rows = await sql`
       SELECT agent FROM wifibizz_cases
