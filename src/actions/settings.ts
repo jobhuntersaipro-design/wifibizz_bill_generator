@@ -80,6 +80,40 @@ export async function getWifibizzCredentials() {
   }
 }
 
+export async function getSidebarInfo() {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { email: null, agent: null };
+  }
+
+  try {
+    const wifibizzUser = await prisma.wifibizzUser.findUnique({
+      where: { userId: session.user.id },
+      select: { wifibizzEmail: true, id: true },
+    });
+
+    if (!wifibizzUser) {
+      return { email: null, agent: null };
+    }
+
+    // Get the most common agent from the user's cases
+    const { neon } = await import("@neondatabase/serverless");
+    const sql = neon(process.env.DATABASE_URL!);
+    const rows = await sql`
+      SELECT agent FROM wifibizz_cases
+      WHERE user_id = ${wifibizzUser.id} AND agent IS NOT NULL AND agent != ''
+      GROUP BY agent ORDER BY COUNT(*) DESC LIMIT 1
+    `;
+
+    return {
+      email: wifibizzUser.wifibizzEmail,
+      agent: rows.length > 0 ? rows[0].agent : null,
+    };
+  } catch {
+    return { email: null, agent: null };
+  }
+}
+
 export async function testWifibizzConnection() {
   const session = await auth();
   if (!session?.user?.id) {

@@ -34,11 +34,11 @@ export async function GET(request: Request) {
     // Get the user's wifibizz_user id
     const wifibizzUser = await prisma.wifibizzUser.findUnique({
       where: { userId: session.user.id },
-      select: { id: true },
+      select: { id: true, lastCrawlAt: true },
     });
 
     if (!wifibizzUser) {
-      return NextResponse.json({ data: [], count: 0, limit, offset });
+      return NextResponse.json({ data: [], count: 0, limit, offset, last_crawl_at: null });
     }
 
     const sql = neon(process.env.DATABASE_URL!);
@@ -109,6 +109,7 @@ export async function GET(request: Request) {
       limit,
       offset,
       statuses: cleanStatuses,
+      last_crawl_at: wifibizzUser.lastCrawlAt?.toISOString() ?? null,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

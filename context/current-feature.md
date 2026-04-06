@@ -1,16 +1,22 @@
-# Current Feature
+# Current Feature: Crawler Date Filter
 
 ## Status
 
-Not Started
+In Progress
 
 ## Goals
 
-<!-- Add goals here -->
+- Add date filter UI to crawler page with from/to date inputs
+- Preset buttons: Last 1 day, 3 days, 7 days, 1 week, 1 month, 3 months
+- Maximum past 3 months limit — show error if older date selected
+- Preset: Last 1 day, 3 days, 7 days, 1 week, 1 month, 3 months
+- Reset button to clear filters
+- Pass selected date range to handleCrawl()
 
 ## Notes
 
-<!-- Add notes here -->
+- Spec: @context/features/crawler-date-filter-spec.md
+- Also includes sidebar fix: replace "Network Admin" with user's WifiBizz email and agent (already implemented)
 
 ## History
 

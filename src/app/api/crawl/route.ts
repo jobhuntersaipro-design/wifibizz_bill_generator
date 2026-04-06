@@ -4,7 +4,7 @@ import { upsertCases, updateLastCrawl, getUserPassword } from "@/lib/crawler/db"
 import { getUserCaseUsage } from "@/lib/case-limit";
 import { prisma } from "@/lib/prisma";
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const session = await auth();
     if (!session?.user?.id) {
@@ -42,6 +42,11 @@ export async function POST() {
       );
     }
 
+    // Parse date filter from query params
+    const url = new URL(request.url);
+    const dateFrom = url.searchParams.get("date_from") || undefined;
+    const dateTo = url.searchParams.get("date_to") || undefined;
+
     const password = getUserPassword({
       id: wifibizzUser.id,
       wifibizz_email: wifibizzUser.wifibizzEmail,
@@ -64,7 +69,8 @@ export async function POST() {
             password,
             (progress: CrawlProgress) => {
               sendEvent("progress", progress);
-            }
+            },
+            { dateFrom, dateTo }
           );
 
           const casesToInsert = cases.slice(0, usage.remaining);

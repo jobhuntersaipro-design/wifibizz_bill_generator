@@ -294,6 +294,7 @@ export default function DashboardPage() {
   const [dateTo, setDateTo] = useState("");
   const [statuses, setStatuses] = useState<string[]>([]);
   const [casesLoading, setCasesLoading] = useState(true);
+  const [lastCrawlAt, setLastCrawlAt] = useState<string | null>(null);
   const [sort, setSort] = useState<SortState>({ column: "case_created_at", dir: "desc" });
   const [selectedCase, setSelectedCase] = useState<CaseRow | null>(null);
   const [selectedCases, setSelectedCases] = useState<Set<string>>(new Set());
@@ -406,6 +407,7 @@ export default function DashboardPage() {
     setCases(json.data ?? []);
     setCount(json.count ?? 0);
     if (json.statuses) setStatuses(json.statuses);
+    if (json.last_crawl_at !== undefined) setLastCrawlAt(json.last_crawl_at);
     setCasesLoading(false);
   }, [page, search, status, dateFrom, dateTo, sort]);
 
@@ -1177,7 +1179,14 @@ export default function DashboardPage() {
       <div className="space-y-4">
         <div className="animate-fade-in-up" style={{ animationDelay: "500ms" }}>
           <h2 className="text-lg font-semibold text-[#0A2540]">Case List</h2>
-          <p className="text-sm text-[#697386] mt-0.5">{count} case{count !== 1 ? "s" : ""} in total</p>
+          <p className="text-sm text-[#697386] mt-0.5">
+            {count} case{count !== 1 ? "s" : ""} in total
+            {lastCrawlAt && (
+              <span className="ml-3 italic text-[#697386]">
+                Last crawl: {new Date(lastCrawlAt).toLocaleString(undefined, { year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit" }).replace(",", "")}
+              </span>
+            )}
+          </p>
         </div>
 
         {/* Filters bar */}

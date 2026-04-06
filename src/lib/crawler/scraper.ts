@@ -257,10 +257,16 @@ export interface CrawlProgress {
   percent: number;
 }
 
+export interface CrawlOptions {
+  dateFrom?: string; // YYYY-MM-DD
+  dateTo?: string;   // YYYY-MM-DD
+}
+
 export async function crawl(
   email: string,
   password: string,
-  onProgress?: (progress: CrawlProgress) => void
+  onProgress?: (progress: CrawlProgress) => void,
+  options?: CrawlOptions
 ): Promise<{ cases: CaseData[] }> {
   const baseUrl = getBaseUrl();
 
@@ -276,13 +282,34 @@ export async function crawl(
   }
 
   onProgress?.({ step: "Processing cases...", current: 0, total: allRecords.length, percent: 25 });
-  const cases = extractCases(allRecords, baseUrl);
+  let cases = extractCases(allRecords, baseUrl);
+
+  // Apply date filter if provided
+  if (options?.dateFrom || options?.dateTo) {
+    const from = options.dateFrom ? new Date(options.dateFrom + "T00:00:00") : null;
+    const to = options.dateTo ? new Date(options.dateTo + "T23:59:59") : null;
+
+    cases = cases.filter((c) => {
+      if (!c.case_created_at) return false;
+      const caseDate = new Date(c.case_created_at);
+      if (from && caseDate < from) return false;
+      if (to && caseDate > to) return false;
+      return true;
+    });
+
+    onProgress?.({
+      step: `Filtered to ${cases.length} cases in date range...`,
+      current: 0,
+      total: cases.length,
+      percent: 28,
+    });
+  }
 
   // Fetch address from each case's detail page
   const totalCases = cases.length;
   for (let i = 0; i < cases.length; i++) {
     const c = cases[i];
-    const percent = 25 + Math.round(((i + 1) / totalCases) * 70); // 25% to 95%
+    const percent = 28 + Math.round(((i + 1) / totalCases) * 67); // 28% to 95%
     onProgress?.({
       step: `Fetching address ${i + 1}/${totalCases}...`,
       current: i + 1,

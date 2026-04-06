@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
+import { getSidebarInfo } from "@/actions/settings";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboardIcon },
@@ -14,12 +15,18 @@ const navItems = [
 
 export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => void }) {
   const pathname = usePathname();
+  const [sidebarInfo, setSidebarInfo] = useState<{ email: string | null; agent: string | null }>({ email: null, agent: null });
 
   // Close sidebar on route change (mobile)
   useEffect(() => {
     onClose?.();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
+
+  // Fetch sidebar info on mount
+  useEffect(() => {
+    getSidebarInfo().then(setSidebarInfo);
+  }, []);
 
   return (
     <>
@@ -38,13 +45,18 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
         <div className="w-8 h-8 rounded-lg bg-[#635BFF] flex items-center justify-center">
           <WifiIcon className="w-4 h-4 text-white" />
         </div>
-        <div>
+        <div className="min-w-0 flex-1">
           <p className="font-semibold text-sm text-[#0A2540] leading-none tracking-tight">
             BizzFlow
           </p>
-          <p className="text-[11px] text-[#697386] mt-0.5">
-            Network Admin
+          <p className="text-[11px] text-[#697386] mt-0.5 truncate" title={sidebarInfo.email ?? undefined}>
+            {sidebarInfo.email ?? "Not configured"}
           </p>
+          {sidebarInfo.agent && (
+            <p className="text-[10px] text-[#697386] truncate" title={sidebarInfo.agent}>
+              {sidebarInfo.agent}
+            </p>
+          )}
         </div>
       </div>
 

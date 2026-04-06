@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -10,6 +10,27 @@ interface CrawlProgress {
   current: number;
   total: number;
   percent: number;
+}
+
+type PresetKey = "1d" | "3d" | "7d" | "1w" | "1m" | "3m";
+
+const PRESETS: { key: PresetKey; label: string; days: number }[] = [
+  { key: "1d", label: "Last 1 day", days: 1 },
+  { key: "3d", label: "Last 3 days", days: 3 },
+  { key: "7d", label: "Last 7 days", days: 7 },
+  { key: "1w", label: "Last 1 week", days: 7 },
+  { key: "1m", label: "Last 1 month", days: 30 },
+  { key: "3m", label: "Last 3 months", days: 90 },
+];
+
+function formatDate(d: Date): string {
+  return d.toISOString().split("T")[0];
+}
+
+function getMaxPastDate(): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 3);
+  return formatDate(d);
 }
 
 export default function CrawlPage() {
@@ -22,13 +43,85 @@ export default function CrawlPage() {
   } | null>(null);
   const router = useRouter();
 
+  // Date filter state
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [activePreset, setActivePreset] = useState<PresetKey | null>(null);
+  const [dateError, setDateError] = useState("");
+
+  const today = formatDate(new Date());
+  const maxPast = getMaxPastDate();
+
+  // Validate dates
+  const dateValidation = useMemo(() => {
+    if (!dateFrom && !dateTo) return { valid: true, error: "" };
+
+    if (dateFrom && dateFrom < maxPast) {
+      return { valid: false, error: "From date cannot be older than 3 months" };
+    }
+    if (dateTo && dateTo < maxPast) {
+      return { valid: false, error: "To date cannot be older than 3 months" };
+    }
+    if (dateFrom && dateTo && dateFrom > dateTo) {
+      return { valid: false, error: "From date must be before To date" };
+    }
+    if (dateFrom && dateFrom > today) {
+      return { valid: false, error: "From date cannot be in the future" };
+    }
+    if (dateTo && dateTo > today) {
+      return { valid: false, error: "To date cannot be in the future" };
+    }
+    return { valid: true, error: "" };
+  }, [dateFrom, dateTo, maxPast, today]);
+
+  function applyPreset(preset: typeof PRESETS[number]) {
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - preset.days);
+    setDateFrom(formatDate(from));
+    setDateTo(formatDate(to));
+    setActivePreset(preset.key);
+    setDateError("");
+  }
+
+  function resetDates() {
+    setDateFrom("");
+    setDateTo("");
+    setActivePreset(null);
+    setDateError("");
+  }
+
+  function handleDateFromChange(val: string) {
+    setDateFrom(val);
+    setActivePreset(null);
+    setDateError("");
+  }
+
+  function handleDateToChange(val: string) {
+    setDateTo(val);
+    setActivePreset(null);
+    setDateError("");
+  }
+
   async function handleCrawl() {
+    // Validate dates before crawling
+    if (!dateValidation.valid) {
+      setDateError(dateValidation.error);
+      return;
+    }
+
     setCrawling(true);
     setResult(null);
+    setDateError("");
     setProgress({ step: "Starting...", current: 0, total: 0, percent: 0 });
 
     try {
-      const res = await fetch("/api/crawl", { method: "POST" });
+      const params = new URLSearchParams();
+      if (dateFrom) params.set("date_from", dateFrom);
+      if (dateTo) params.set("date_to", dateTo);
+
+      const url = `/api/crawl${params.toString() ? `?${params.toString()}` : ""}`;
+      const res = await fetch(url, { method: "POST" });
 
       // Handle non-SSE error responses (JSON)
       const contentType = res.headers.get("content-type") || "";
@@ -114,6 +207,81 @@ export default function CrawlPage() {
         </p>
       </div>
 
+      {/* Date Filter */}
+      <div className="bg-white rounded-lg border border-[#E3E8EF] p-5 animate-fade-in-up" style={{ animationDelay: "150ms" }}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-[#0A2540]">Date Filter</h3>
+          {(dateFrom || dateTo) && (
+            <button
+              onClick={resetDates}
+              className="text-xs text-[#635BFF] hover:text-[#0A2540] font-medium transition-colors press-effect"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+
+        {/* Preset buttons */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          {PRESETS.map((p) => (
+            <button
+              key={p.key}
+              onClick={() => applyPreset(p)}
+              disabled={crawling}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-150 press-effect ${
+                activePreset === p.key
+                  ? "bg-[#635BFF] text-white shadow-sm shadow-[#635BFF]/20"
+                  : "bg-[#F6F9FC] text-[#425466] border border-[#E3E8EF] hover:bg-[#E3E8EF] hover:text-[#0A2540]"
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Date inputs */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex-1">
+            <label className="block text-xs text-[#697386] mb-1">From</label>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => handleDateFromChange(e.target.value)}
+              min={maxPast}
+              max={today}
+              disabled={crawling}
+              className="w-full h-9 px-3 rounded-md border border-[#E3E8EF] text-sm text-[#0A2540] bg-white focus:outline-none focus:ring-2 focus:ring-[#635BFF]/20 focus:border-[#635BFF] disabled:opacity-50 tabular-nums"
+            />
+          </div>
+          <div className="flex-1">
+            <label className="block text-xs text-[#697386] mb-1">To</label>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => handleDateToChange(e.target.value)}
+              min={maxPast}
+              max={today}
+              disabled={crawling}
+              className="w-full h-9 px-3 rounded-md border border-[#E3E8EF] text-sm text-[#0A2540] bg-white focus:outline-none focus:ring-2 focus:ring-[#635BFF]/20 focus:border-[#635BFF] disabled:opacity-50 tabular-nums"
+            />
+          </div>
+        </div>
+
+        {/* Date error */}
+        {(dateError || !dateValidation.valid) && (
+          <p className="text-xs text-[#DF1B41] mt-2 animate-fade-in">
+            {dateError || dateValidation.error}
+          </p>
+        )}
+
+        {/* Active filter indicator */}
+        {dateFrom && dateTo && dateValidation.valid && (
+          <p className="text-xs text-[#09825D] mt-2 animate-fade-in">
+            Filtering: {dateFrom} to {dateTo}
+          </p>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* Crawl action card */}
         <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden hover-lift animate-fade-in-up" style={{ animationDelay: "200ms" }}>
@@ -132,7 +300,7 @@ export default function CrawlPage() {
 
             <Button
               onClick={handleCrawl}
-              disabled={crawling}
+              disabled={crawling || !dateValidation.valid}
               className="h-10 px-5 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] hover-glow"
             >
               {crawling ? (
