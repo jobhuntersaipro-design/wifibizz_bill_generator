@@ -57,7 +57,7 @@ export function AdminSidebar({ open, onClose }: { open?: boolean; onClose?: () =
               className={cn(
                 "group flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-150",
                 isActive
-                  ? "bg-[#0A2540] text-white"
+                  ? "bg-[#635BFF] text-white shadow-sm shadow-[#635BFF]/20"
                   : "text-[#425466] hover:bg-[#E3E8EF] hover:text-[#0A2540]"
               )}
             >

@@ -34,18 +34,18 @@ export function AdminLoginForm() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#F6F9FC]">
       <div className="w-full max-w-sm mx-auto p-6">
-        <div className="bg-white rounded-lg border border-[#E3E8EF] p-8">
+        <div className="bg-white rounded-lg border border-[#E3E8EF] p-8 animate-scale-in">
           <div className="mb-8 text-center">
-            <div className="w-12 h-12 rounded-lg bg-[#0A2540] flex items-center justify-center mx-auto mb-4">
+            <div className="w-12 h-12 rounded-lg bg-[#0A2540] flex items-center justify-center mx-auto mb-4 animate-scale-in" style={{ animationDelay: "100ms" }}>
               <ShieldIcon className="w-6 h-6 text-white" />
             </div>
-            <h1 className="text-xl font-semibold text-[#0A2540]">Admin Access</h1>
-            <p className="text-[#697386] mt-1 text-sm">
+            <h1 className="text-xl font-semibold text-[#0A2540] animate-fade-in-up" style={{ animationDelay: "200ms" }}>Admin Access</h1>
+            <p className="text-[#697386] mt-1 text-sm animate-fade-in-up" style={{ animationDelay: "300ms" }}>
               BizzFlow administration panel
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4 animate-fade-in-up" style={{ animationDelay: "400ms" }}>
             <div className="space-y-1.5">
               <Label htmlFor="username" className="text-xs font-medium text-[#425466]">
                 Username
@@ -84,7 +84,7 @@ export function AdminLoginForm() {
 
             <Button
               type="submit"
-              className="w-full h-10 rounded-lg text-sm font-semibold bg-[#0A2540] hover:bg-[#0A2540]/90 transition-colors duration-150"
+              className="w-full h-10 rounded-lg text-sm font-semibold bg-[#0A2540] hover:bg-[#0A2540]/90 transition-colors duration-150 hover-glow press-effect"
               disabled={isLoading}
             >
               {isLoading ? (

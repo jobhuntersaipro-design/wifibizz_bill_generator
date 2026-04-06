@@ -2,15 +2,13 @@
 
 ## Status
 
-Not Started
+In Progress
 
 ## Goals
 
-<!-- Add goals here -->
+Fix 18 UI issues: layout section dividers, animation polish, responsiveness, accessibility (tabIndex, aria-labels, aria-sort, color-independent bill icons).
 
 ## Notes
-
-<!-- Add notes here -->
 
 ## History
 

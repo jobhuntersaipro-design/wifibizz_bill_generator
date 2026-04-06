@@ -26,42 +26,42 @@ export function CaseUsage() {
   const isNearLimit = usage.remaining > 0 && usage.remaining <= 2;
 
   return (
-    <Card>
+    <Card className="border-[#E3E8EF] bg-white">
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">Case Usage</CardTitle>
+        <CardTitle className="text-sm font-semibold text-[#0A2540]">Case Usage</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex items-baseline justify-between">
-          <span className="text-2xl font-bold">{usage.current}</span>
-          <span className="text-sm text-muted-foreground">
+          <span className="text-2xl font-semibold text-[#0A2540] tabular-nums">{usage.current}</span>
+          <span className="text-sm text-[#697386]">
             / {usage.limit} cases
           </span>
         </div>
 
         {/* Progress bar */}
-        <div className="h-2 rounded-full bg-muted overflow-hidden">
+        <div className="h-2 rounded-full bg-[#F6F9FC] overflow-hidden">
           <div
             className={`h-full rounded-full transition-all ${
               isAtLimit
-                ? "bg-destructive"
+                ? "bg-[#DF1B41]"
                 : isNearLimit
                   ? "bg-amber-500"
-                  : "bg-primary"
+                  : "bg-[#635BFF]"
             }`}
             style={{ width: `${percentage}%` }}
           />
         </div>
 
         {isAtLimit && (
-          <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm">
-            <p className="font-medium text-destructive">
+          <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm">
+            <p className="font-medium text-[#DF1B41]">
               Case limit reached ({usage.current}/{usage.limit})
             </p>
-            <p className="text-muted-foreground mt-1">
+            <p className="text-[#697386] mt-1">
               Need more?{" "}
               <a
                 href="mailto:support@wifibizz.com"
-                className="text-primary underline underline-offset-2"
+                className="text-[#635BFF] underline underline-offset-2"
               >
                 Contact us
               </a>

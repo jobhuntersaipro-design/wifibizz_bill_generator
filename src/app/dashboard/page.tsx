@@ -186,7 +186,7 @@ function formatPeriodLabel(period: string, granularity: Granularity): string {
       sunday.setDate(monday.getDate() + 6);
       const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       const fmt = (d: Date) => `${d.getDate()} ${months[d.getMonth()]}`;
-      return `W${week} : ${fmt(monday)} - ${fmt(sunday)}`;
+      return `${fmt(monday)} – ${fmt(sunday)}`;
     }
     return period.replace(/^\d{4}-/, "");
   }
@@ -268,7 +268,7 @@ export default function DashboardPage() {
   const [granularity, setGranularity] = useState<Granularity>("week");
   const [chartProvider, setChartProvider] = useState("");
   const [timeSeriesLoading, setTimeSeriesLoading] = useState(false);
-  const [hiddenStatuses, setHiddenStatuses] = useState<Set<string>>(new Set());
+  const [selectedStatuses, setSelectedStatuses] = useState<Set<string>>(new Set());
 
   // Map filter state
   const [mapStatus, setMapStatus] = useState("Activated");
@@ -608,7 +608,7 @@ export default function DashboardPage() {
   }
 
   function toggleStatusLegend(statusName: string) {
-    setHiddenStatuses((prev) => {
+    setSelectedStatuses((prev) => {
       const next = new Set(prev);
       if (next.has(statusName)) next.delete(statusName);
       else next.add(statusName);
@@ -621,12 +621,16 @@ export default function DashboardPage() {
   const showingTo = Math.min((page + 1) * PAGE_SIZE, count);
   const hasFilters = search || status || dateFrom || dateTo;
   const activatedCount = analytics?.byStatus.find((s) => s.name === "Activated")?.value ?? 0;
-  // Build state map for the SVG — merge KL/Putrajaya into Selangor since SVG lacks separate paths
+  // Build state map — merge KL/Putrajaya into Selangor since SVG lacks separate paths
   const stateMap = new Map(analytics?.byState.map((s) => [s.name, s.value]) ?? []);
   if (stateMap.has("Kuala Lumpur") || stateMap.has("Putrajaya")) {
     const sgrVal = (stateMap.get("Selangor") ?? 0) + (stateMap.get("Kuala Lumpur") ?? 0) + (stateMap.get("Putrajaya") ?? 0);
     stateMap.set("Selangor", sgrVal);
+    stateMap.delete("Kuala Lumpur");
+    stateMap.delete("Putrajaya");
   }
+  const mergedStates = Array.from(stateMap, ([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value);
   const maxStateValue = stateMap.size ? Math.max(...stateMap.values()) : 0;
   const hasChartFilters = !!chartProvider;
   const mapHasFilters = mapStatus !== "Activated" || mapDateFrom || mapDateTo || mapDateRange || mapProvider || mapPackage;
@@ -669,7 +673,9 @@ export default function DashboardPage() {
   }));
 
   // Visible status keys (not hidden by legend)
-  const visibleStatuses = (analytics?.statusKeys ?? []).filter((s) => !hiddenStatuses.has(s));
+  const visibleStatuses = selectedStatuses.size > 0
+    ? (analytics?.statusKeys ?? []).filter((s) => selectedStatuses.has(s))
+    : (analytics?.statusKeys ?? []);
 
   return (
     <div className="space-y-6">
@@ -678,6 +684,8 @@ export default function DashboardPage() {
         <h1 className="text-2xl font-semibold text-[#0A2540]">Dashboard</h1>
         <p className="text-sm text-[#697386] mt-1">Analytics overview and case management</p>
       </div>
+
+      {/* ── Analytics Section ── */}
 
       {/* KPI Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 stagger-children">
@@ -747,11 +755,11 @@ export default function DashboardPage() {
               {analytics.statusKeys.map((s, i) => (
                 <button
                   key={s}
-                  className={`flex items-center gap-1.5 transition-all duration-200 hover:scale-105 ${hiddenStatuses.has(s) ? "opacity-30 scale-95" : "opacity-100"}`}
+                  className={`flex items-center gap-1.5 transition-all duration-200 hover:scale-105 ${selectedStatuses.size > 0 && !selectedStatuses.has(s) ? "opacity-30 scale-95" : "opacity-100"}`}
                   onClick={() => toggleStatusLegend(s)}
-                  title={`Click to ${hiddenStatuses.has(s) ? "show" : "hide"} ${s}`}
+                  title={`Click to ${selectedStatuses.has(s) ? "deselect" : "select"} ${s}`}
                 >
-                  <div className={`w-2.5 h-2.5 rounded-full transition-transform duration-200 ${hiddenStatuses.has(s) ? "scale-75" : ""}`} style={{ backgroundColor: getStatusColor(s, i) }} />
+                  <div className={`w-2.5 h-2.5 rounded-full transition-transform duration-200 ${selectedStatuses.size > 0 && !selectedStatuses.has(s) ? "scale-75" : ""}`} style={{ backgroundColor: getStatusColor(s, i) }} />
                   <span className="text-[11px] text-[#697386] select-none">{s}</span>
                 </button>
               ))}
@@ -776,7 +784,7 @@ export default function DashboardPage() {
                     ))}
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#E3E8EF" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#697386" }} axisLine={false} tickLine={false} interval={0} angle={-90} textAnchor="end" height={140} />
+                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#697386" }} axisLine={false} tickLine={false} interval={0} angle={-45} textAnchor="end" height={80} />
                   <YAxis tick={{ fontSize: 11, fill: "#697386" }} axisLine={false} tickLine={false} allowDecimals={false} />
                   <Tooltip
                     contentStyle={{ borderRadius: 8, border: "1px solid #E3E8EF", fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}
@@ -954,7 +962,7 @@ export default function DashboardPage() {
                   <div className="w-full md:w-[200px] md:shrink-0">
                     <p className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-2">Top States</p>
                     <div className="space-y-2">
-                      {analytics?.byState.slice(0, 8).map((state, i) => (
+                      {mergedStates.slice(0, 8).map((state, i) => (
                         <div
                           key={state.name}
                           className={`flex items-center gap-2 cursor-pointer rounded-md px-1 py-0.5 transition-all duration-200 animate-fade-in-left ${selectedState === state.name ? "bg-[#F0EEFF]" : "hover:bg-[#F6F9FC]"}`}
@@ -1163,7 +1171,9 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Case List Section */}
+      {/* ── Case Management Section ── */}
+      <div className="border-t border-[#E3E8EF] pt-6" />
+
       <div className="space-y-4">
         <div className="animate-fade-in-up" style={{ animationDelay: "500ms" }}>
           <h2 className="text-lg font-semibold text-[#0A2540]">Case List</h2>
@@ -1182,10 +1192,10 @@ export default function DashboardPage() {
               {statuses.map((s) => (<option key={s} value={s}>{s}</option>))}
             </select>
             <div className="flex flex-wrap items-center gap-2">
-              <label className="text-xs text-[#697386] whitespace-nowrap font-medium">From</label>
-              <input type="date" className="h-9 rounded-lg border border-[#E3E8EF] bg-white px-2 sm:px-3 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none max-w-[150px]" value={dateFrom} onChange={(e) => { setPage(0); setDateFrom(e.target.value); }} />
-              <label className="text-xs text-[#697386] whitespace-nowrap font-medium">To</label>
-              <input type="date" className="h-9 rounded-lg border border-[#E3E8EF] bg-white px-2 sm:px-3 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none max-w-[150px]" value={dateTo} onChange={(e) => { setPage(0); setDateTo(e.target.value); }} />
+              <label className="text-xs text-[#697386] whitespace-nowrap font-medium hidden sm:inline">From</label>
+              <input type="date" aria-label="From date" className="h-9 rounded-lg border border-[#E3E8EF] bg-white px-2 sm:px-3 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none max-w-[150px]" value={dateFrom} onChange={(e) => { setPage(0); setDateFrom(e.target.value); }} />
+              <label className="text-xs text-[#697386] whitespace-nowrap font-medium hidden sm:inline">To</label>
+              <input type="date" aria-label="To date" className="h-9 rounded-lg border border-[#E3E8EF] bg-white px-2 sm:px-3 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none max-w-[150px]" value={dateTo} onChange={(e) => { setPage(0); setDateTo(e.target.value); }} />
             </div>
             {hasFilters && (
               <Button variant="ghost" size="sm" className="text-xs rounded-lg text-[#DF1B41] hover:bg-red-50 hover:text-[#DF1B41] transition-colors" onClick={() => { setSearch(""); setStatus(""); setDateFrom(""); setDateTo(""); setPage(0); }}>
@@ -1196,51 +1206,55 @@ export default function DashboardPage() {
         </div>
 
         {/* Generate Bill Buttons + Selection Info */}
-        <div className="animate-fade-in-up grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 sm:gap-3">
-          <Button
-            onClick={() => handleGenerateBills("internet")}
-            disabled={generating || selectedCases.size === 0}
-            className="bg-[#635BFF] hover:bg-[#5851DB] text-white rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all hover-glow press-effect disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <InternetBillIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
-            <span className="truncate">Generate Internet Bill{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
-          </Button>
-          <Button
-            onClick={() => handleGenerateBills("utility")}
-            disabled={generating || selectedCases.size === 0}
-            className="bg-[#FF6B35] hover:bg-[#E55A2B] text-white rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all hover-glow press-effect disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <UtilityBillIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
-            <span className="truncate">Generate Utility Bill{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
-          </Button>
-          <Button
-            onClick={() => handleDownloadClick("internet")}
-            disabled={downloading || generating || selectedCases.size === 0}
-            className="bg-white border border-[#E3E8EF] text-[#425466] hover:text-[#0A2540] hover:border-[#635BFF] rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all press-effect disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <DownloadIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
-            <span className="truncate">Download Internet Bill{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
-          </Button>
-          <Button
-            onClick={() => handleDownloadClick("utility")}
-            disabled={downloading || generating || selectedCases.size === 0}
-            className="bg-white border border-[#E3E8EF] text-[#425466] hover:text-[#0A2540] hover:border-[#FF6B35] rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all press-effect disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <DownloadIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
-            <span className="truncate">Download Utility Bill{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
-          </Button>
-          {selectedCases.size > 0 && !allCasesSelected && (
-            <button onClick={selectAllCases} className="text-xs text-[#635BFF] hover:text-[#5851DB] font-medium transition-colors">
-              Select all {count} cases
-            </button>
-          )}
+        <div className="animate-fade-in-up space-y-2">
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 sm:gap-3">
+            <Button
+              onClick={() => handleGenerateBills("internet")}
+              disabled={generating || selectedCases.size === 0}
+              className="bg-[#635BFF] hover:bg-[#5851DB] text-white rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all hover-glow press-effect disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <InternetBillIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
+              <span className="truncate">Generate Internet Bill{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
+            </Button>
+            <Button
+              onClick={() => handleGenerateBills("utility")}
+              disabled={generating || selectedCases.size === 0}
+              className="bg-[#FF6B35] hover:bg-[#E55A2B] text-white rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all hover-glow press-effect disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <UtilityBillIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
+              <span className="truncate">Generate Utility Bill{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
+            </Button>
+            <Button
+              onClick={() => handleDownloadClick("internet")}
+              disabled={downloading || generating || selectedCases.size === 0}
+              className="bg-white border border-[#E3E8EF] text-[#425466] hover:text-[#0A2540] hover:border-[#635BFF] rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all press-effect disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <DownloadIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
+              <span className="truncate">Download Internet Bill{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
+            </Button>
+            <Button
+              onClick={() => handleDownloadClick("utility")}
+              disabled={downloading || generating || selectedCases.size === 0}
+              className="bg-white border border-[#E3E8EF] text-[#425466] hover:text-[#0A2540] hover:border-[#FF6B35] rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all press-effect disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <DownloadIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
+              <span className="truncate">Download Utility Bill{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
+            </Button>
+          </div>
           {selectedCases.size > 0 && (
-            <button onClick={clearSelection} className="text-xs text-[#DF1B41] hover:text-red-700 font-medium transition-colors">
-              Clear selection
-            </button>
-          )}
-          {allCasesSelected && (
-            <span className="text-xs text-[#697386]">All {selectedCases.size} cases selected</span>
+            <div className="flex flex-wrap items-center gap-3">
+              {!allCasesSelected && (
+                <button onClick={selectAllCases} className="text-xs text-[#635BFF] hover:text-[#5851DB] font-medium transition-colors">
+                  Select all {count} cases
+                </button>
+              )}
+              <button onClick={clearSelection} className="text-xs text-[#DF1B41] hover:text-red-700 font-medium transition-colors">
+                Clear selection
+              </button>
+              {allCasesSelected && (
+                <span className="text-xs text-[#697386]">All {selectedCases.size} cases selected</span>
+              )}
+            </div>
           )}
         </div>
 
@@ -1359,14 +1373,14 @@ export default function DashboardPage() {
               <thead>
                 <tr className="border-b border-[#E3E8EF]">
                   <th className="px-3 py-3 w-10">
-                    <input type="checkbox" className="rounded border-[#E3E8EF] text-[#635BFF] focus:ring-[#635BFF]/20 cursor-pointer" checked={cases.length > 0 && cases.every((c) => selectedCases.has(c.case_no))} onChange={toggleSelectAll} />
+                    <input type="checkbox" aria-label="Select all cases" className="rounded border-[#E3E8EF] text-[#635BFF] focus:ring-[#635BFF]/20 cursor-pointer" checked={cases.length > 0 && cases.every((c) => selectedCases.has(c.case_no))} onChange={toggleSelectAll} />
                   </th>
                   {COLUMNS.map((col) => (
-                    <th key={col.key} className={`px-4 py-3 text-left text-[11px] font-semibold text-[#697386] uppercase tracking-wider whitespace-nowrap cursor-pointer select-none hover:text-[#0A2540] transition-colors ${col.hideOnMobile ? "hidden lg:table-cell" : ""}`} onClick={() => handleSort(col.key)}>
+                    <th key={col.key} aria-sort={sort.column === col.key ? (sort.dir === "asc" ? "ascending" : "descending") : "none"} className={`px-4 py-3 text-left text-[11px] font-semibold text-[#697386] uppercase tracking-wider whitespace-nowrap cursor-pointer select-none hover:text-[#0A2540] transition-colors ${col.hideOnMobile ? "hidden lg:table-cell" : ""}`} onClick={() => handleSort(col.key)}>
                       <span className="inline-flex items-center gap-1">{col.label}<SortIcon column={col.key} sort={sort} /></span>
                     </th>
                   ))}
-                  <th className="px-3 py-3 text-center text-[11px] font-semibold text-[#697386] uppercase tracking-wider whitespace-nowrap">Bills</th>
+                  <th className="px-3 py-3 text-center text-[11px] font-semibold text-[#697386] uppercase tracking-wider whitespace-nowrap border-l border-[#E3E8EF]">Bills</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#E3E8EF]/60 row-stagger">
@@ -1378,7 +1392,7 @@ export default function DashboardPage() {
                   cases.map((c) => (
                     <tr key={c.case_no} className={`hover:bg-[#F6F9FC] transition-colors duration-100 cursor-pointer ${selectedCase?.case_no === c.case_no ? "bg-[#F6F9FC]" : ""} ${selectedCases.has(c.case_no) ? "bg-[#F0EEFF]" : ""}`} onClick={() => setSelectedCase(c)}>
                       <td className="px-3 py-3 w-10" onClick={(e) => e.stopPropagation()}>
-                        <input type="checkbox" className="rounded border-[#E3E8EF] text-[#635BFF] focus:ring-[#635BFF]/20 cursor-pointer" checked={selectedCases.has(c.case_no)} onChange={() => toggleCaseSelection(c.case_no)} />
+                        <input type="checkbox" aria-label={`Select case ${c.case_no}`} className="rounded border-[#E3E8EF] text-[#635BFF] focus:ring-[#635BFF]/20 cursor-pointer" checked={selectedCases.has(c.case_no)} onChange={() => toggleCaseSelection(c.case_no)} />
                       </td>
                       <td className="px-4 py-3 text-[13px] tabular-nums whitespace-nowrap">
                         {c.case_url ? (<a href={c.case_url} target="_blank" rel="noopener noreferrer" className="text-[#635BFF] font-medium hover:underline transition-colors" onClick={(e) => e.stopPropagation()}>{c.case_no}</a>) : (<span className="font-medium text-[#425466]">{c.case_no}</span>)}
@@ -1394,20 +1408,22 @@ export default function DashboardPage() {
                       <td className="px-4 py-3 text-[13px] text-[#697386] tabular-nums whitespace-nowrap">{formatDateTime(c.case_created_at)}</td>
                       <td className="px-4 py-3 text-[13px] text-[#697386] tabular-nums whitespace-nowrap hidden lg:table-cell">{formatDateTime(c.updated_at)}</td>
                       <td className="px-3 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 border-l border-[#E3E8EF] pl-2">
                           <button
                             title={c.internet_bill_url ? "Download Internet Bill" : "Internet bill not generated"}
+                            aria-label={c.internet_bill_url ? `Download internet bill for ${c.case_no}` : `Internet bill not generated for ${c.case_no}`}
                             disabled={!c.internet_bill_url}
                             onClick={() => c.internet_bill_url && window.open(`/api/bills/download?case_no=${c.case_no}&type=internet&t=${billCacheBuster}`, "_blank")}
-                            className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors ${c.internet_bill_url ? "text-[#635BFF] hover:bg-[#F0EEFF]" : "text-[#D1D5DB] cursor-not-allowed"}`}
+                            className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors ${c.internet_bill_url ? "text-[#635BFF] hover:bg-[#F0EEFF]" : "text-[#D1D5DB] opacity-40 cursor-not-allowed"}`}
                           >
                             <InternetBillIcon className="w-4 h-4" />
                           </button>
                           <button
                             title={c.utility_bill_url ? "Download Utility Bill" : "Utility bill not generated"}
+                            aria-label={c.utility_bill_url ? `Download utility bill for ${c.case_no}` : `Utility bill not generated for ${c.case_no}`}
                             disabled={!c.utility_bill_url}
                             onClick={() => c.utility_bill_url && window.open(`/api/bills/download?case_no=${c.case_no}&type=utility&t=${billCacheBuster}`, "_blank")}
-                            className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors ${c.utility_bill_url ? "text-[#FF6B35] hover:bg-[#FFF0EB]" : "text-[#D1D5DB] cursor-not-allowed"}`}
+                            className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors ${c.utility_bill_url ? "text-[#FF6B35] hover:bg-[#FFF0EB]" : "text-[#D1D5DB] opacity-40 cursor-not-allowed"}`}
                           >
                             <UtilityBillIcon className="w-4 h-4" />
                           </button>
@@ -1602,7 +1618,7 @@ function KpiCard({ label, value, icon, accent, delay = 0 }: { label: string; val
     <div className="bg-white rounded-lg border border-[#E3E8EF] px-5 py-4 hover-lift animate-fade-in-up chart-card-hover">
       <div className="flex items-center gap-2 mb-2">
         <span className="text-[#697386] animate-scale-in" style={{ animationDelay: `${delay + 200}ms` }}>{icon}</span>
-        <span className="text-xs font-medium text-[#697386]">{label}</span>
+        <span className="text-xs font-medium text-[#697386] truncate">{label}</span>
       </div>
       <p className={`text-2xl font-semibold tabular-nums number-pop ${accent ?? "text-[#0A2540]"}`} style={{ animationDelay: `${delay + 100}ms` }}>
         {isNumeric ? animatedValue : value}
@@ -1657,7 +1673,7 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster }: { caseData: CaseRow
 
   return (
     <div className={`fixed inset-0 z-50 transition-colors duration-300 ${isVisible ? "bg-black/20" : "bg-transparent"}`} onClick={handleBackdropClick}>
-      <div ref={panelRef} className="absolute top-0 right-0 h-full w-full sm:max-w-md bg-white shadow-2xl flex flex-col" style={{ transform: isVisible ? "translateX(0)" : "translateX(100%)", transition: "transform 350ms cubic-bezier(0.16, 1, 0.3, 1)" }}>
+      <div ref={panelRef} className="absolute top-0 right-0 h-full w-full sm:max-w-md bg-white shadow-2xl flex flex-col max-h-screen" style={{ transform: isVisible ? "translateX(0)" : "translateX(100%)", transition: "transform 350ms cubic-bezier(0.16, 1, 0.3, 1)" }}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#E3E8EF]" style={{ opacity: isVisible ? 1 : 0, transform: isVisible ? "translateY(0)" : "translateY(-8px)", transition: "opacity 400ms ease-out 150ms, transform 400ms ease-out 150ms" }}>
           <div>
             <h2 className="text-lg font-semibold text-[#0A2540]">Case Details</h2>

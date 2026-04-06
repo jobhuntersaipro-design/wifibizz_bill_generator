@@ -202,7 +202,7 @@ export default function CrawlPage() {
             </div>
           ) : (
             <div className="bg-[#F6F9FC] rounded-lg border border-[#E3E8EF] border-dashed p-6 flex flex-col items-center justify-center text-center h-full min-h-[280px] animate-fade-in-up" style={{ animationDelay: "300ms" }}>
-              <div className="w-12 h-12 rounded-lg bg-white border border-[#E3E8EF] flex items-center justify-center mb-4 animate-float">
+              <div className="w-12 h-12 rounded-lg bg-white border border-[#E3E8EF] flex items-center justify-center mb-4 animate-scale-in">
                 <InfoIcon className="w-5 h-5 text-[#697386]" />
               </div>
               <h3 className="text-sm font-medium text-[#425466] mb-1">
