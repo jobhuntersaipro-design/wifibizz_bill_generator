@@ -13,7 +13,7 @@ import {
   dateRangeToDates, formatPeriodLabel, truncateLabel,
   getHeatColor, getHeatLegendColors, getStatusColor, useAnimatedCounter,
 } from "./shared";
-import { FileStackIcon, CheckCircleIcon, TagIcon, GlobeIcon } from "./icons";
+import { FileStackIcon, CheckCircleIcon, FileTextIcon } from "./icons";
 
 // ── KPI Card ──
 
@@ -31,6 +31,47 @@ function KpiCard({ label, value, icon, accent, delay = 0 }: { label: string; val
       <p className={`text-2xl font-semibold tabular-nums number-pop ${accent ?? "text-[#0A2540]"}`} style={{ animationDelay: `${delay + 100}ms` }}>
         {isNumeric ? animatedValue : value}
       </p>
+    </div>
+  );
+}
+
+// ── Bill Usage Card ──
+
+function BillUsageCard({ usage, delay = 0 }: { usage: { billsGenerated: number; billsTotal: number; internetBills: number; utilityBills: number } | null; delay?: number }) {
+  const animatedCurrent = useAnimatedCounter(usage?.billsGenerated ?? 0, 800);
+  const total = usage?.billsTotal ?? 0;
+  const percentage = total > 0 ? Math.min(100, Math.round(((usage?.billsGenerated ?? 0) / total) * 100)) : 0;
+  const allGenerated = usage ? usage.billsGenerated === total && total > 0 : false;
+
+  return (
+    <div className="bg-white rounded-lg border border-[#E3E8EF] px-5 py-4 hover-lift animate-fade-in-up chart-card-hover">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-[#697386] animate-scale-in" style={{ animationDelay: `${delay + 200}ms` }}>
+          <FileTextIcon className="w-4 h-4" />
+        </span>
+        <span className="text-xs font-medium text-[#697386] truncate">Bills Generated</span>
+      </div>
+      <div className="flex items-baseline gap-1.5">
+        <p className={`text-2xl font-semibold tabular-nums number-pop ${allGenerated ? "text-[#09825D]" : "text-[#0A2540]"}`} style={{ animationDelay: `${delay + 100}ms` }}>
+          {usage ? animatedCurrent : "—"}
+        </p>
+        <span className="text-sm text-[#697386] tabular-nums">/ {total || "—"}</span>
+        <span className={`ml-auto text-xs font-medium tabular-nums ${allGenerated ? "text-[#09825D]" : "text-[#697386]"}`}>
+          {usage ? `${percentage}%` : ""}
+        </span>
+      </div>
+      <div className="mt-2 h-1.5 rounded-full bg-[#F6F9FC] overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-700 ease-out ${allGenerated ? "bg-[#09825D]" : "bg-[#635BFF]"}`}
+          style={{ width: `${usage ? percentage : 0}%` }}
+        />
+      </div>
+      {usage && (
+        <div className="flex gap-3 mt-2 text-[11px] text-[#697386] tabular-nums">
+          <span>Internet: {usage.internetBills}</span>
+          <span>Utility: {usage.utilityBills}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -163,6 +204,7 @@ function MalaysiaMap({ stateData, maxValue, selectedState, onStateClick, status 
 export default function AnalyticsSection() {
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [billUsage, setBillUsage] = useState<{ billsGenerated: number; billsTotal: number; internetBills: number; utilityBills: number } | null>(null);
   const [granularity, setGranularity] = useState<Granularity>("week");
   const [chartProvider, setChartProvider] = useState("");
   const [timeSeriesLoading, setTimeSeriesLoading] = useState(false);
@@ -194,6 +236,10 @@ export default function AnalyticsSection() {
       .then((data) => setAnalytics(data.byStatus ? data : emptyAnalytics))
       .catch(() => setAnalytics(emptyAnalytics))
       .finally(() => setAnalyticsLoading(false));
+    fetch("/api/cases/usage")
+      .then((res) => res.json())
+      .then((data) => setBillUsage(data))
+      .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -324,11 +370,10 @@ export default function AnalyticsSection() {
   return (
     <>
       {/* KPI Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 stagger-children">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 stagger-children">
         <KpiCard label="Total Cases" value={analyticsLoading ? "—" : String(analytics?.totalCases ?? 0)} icon={<FileStackIcon className="w-4 h-4" />} delay={0} />
         <KpiCard label="Activated" value={analyticsLoading ? "—" : String(activatedCount)} icon={<CheckCircleIcon className="w-4 h-4" />} accent="text-[#09825D]" delay={80} />
-        <KpiCard label="Statuses" value={analyticsLoading ? "—" : String(analytics?.byStatus.length ?? 0)} icon={<TagIcon className="w-4 h-4" />} delay={160} />
-        <KpiCard label="Providers" value={analyticsLoading ? "—" : String(analytics?.byProvider.length ?? 0)} icon={<GlobeIcon className="w-4 h-4" />} delay={240} />
+        <BillUsageCard usage={billUsage} delay={160} />
       </div>
 
       {/* Cases Over Time */}

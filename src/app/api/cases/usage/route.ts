@@ -18,6 +18,10 @@ export async function GET() {
       current: usage.current,
       limit: usage.limit,
       remaining: usage.remaining,
+      billsGenerated: usage.billsGenerated,
+      billsTotal: usage.billsTotal,
+      internetBills: usage.internetBills,
+      utilityBills: usage.utilityBills,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

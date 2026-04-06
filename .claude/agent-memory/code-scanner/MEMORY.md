@@ -1,1 +1,2 @@
 - [project_architecture.md](project_architecture.md) — Stack, key file paths, security-relevant patterns, data model notes
+- [project_dead_code.md](project_dead_code.md) — src/app/auth/signin/actions.ts is dead code; all 4 imports unused
