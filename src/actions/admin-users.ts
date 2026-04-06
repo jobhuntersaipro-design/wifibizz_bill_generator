@@ -37,7 +37,7 @@ export async function getUsers() {
         email: u.email,
         passwordRaw: u.passwordRaw,
         notes: u.notes,
-        caseLimit: u.caseLimit,
+        billLimit: u.billLimit,
         wifibizzEmail: u.wifibizzUser?.wifibizzEmail ?? null,
         lastCrawlAt: u.wifibizzUser?.lastCrawlAt?.toISOString() ?? null,
         createdAt: u.createdAt.toISOString(),
@@ -54,7 +54,7 @@ export async function createUser(data: {
   email: string;
   password: string;
   notes?: string;
-  caseLimit?: number;
+  billLimit?: number;
   wifibizzEmail?: string;
 }): Promise<ActionResult> {
   const denied = await requireAdmin();
@@ -79,7 +79,7 @@ export async function createUser(data: {
         password: hashedPassword,
         passwordRaw: data.password,
         notes: data.notes || null,
-        caseLimit: data.caseLimit ?? 10,
+        billLimit: data.billLimit ?? 10,
       },
     });
 
@@ -120,7 +120,7 @@ export async function updateUser(
     email?: string;
     password?: string;
     notes?: string;
-    caseLimit?: number;
+    billLimit?: number;
     wifibizzEmail?: string;
   }
 ): Promise<ActionResult> {
@@ -145,7 +145,7 @@ export async function updateUser(
     if (data.name !== undefined) updateData.name = data.name || null;
     if (data.email !== undefined) updateData.email = data.email;
     if (data.notes !== undefined) updateData.notes = data.notes || null;
-    if (data.caseLimit !== undefined) updateData.caseLimit = data.caseLimit;
+    if (data.billLimit !== undefined) updateData.billLimit = data.billLimit;
     if (data.password) {
       updateData.password = await bcrypt.hash(data.password, 12);
       updateData.passwordRaw = data.password;

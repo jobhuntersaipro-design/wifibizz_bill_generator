@@ -5,6 +5,7 @@ import { neon } from "@neondatabase/serverless";
 import { uploadToR2 } from "@/lib/r2";
 import { generateInternetBill } from "@/lib/bill-generator/internet-bill";
 import { generateUtilityBill } from "@/lib/bill-generator/utility-bill";
+import { getUserBillUsage } from "@/lib/bill-limit";
 
 const MAX_BATCH = 20;
 
@@ -36,6 +37,24 @@ export async function POST(request: Request) {
       );
     }
 
+    // Check bill limit
+    const usage = await getUserBillUsage(session.user.id);
+    if (usage.isAtLimit) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "bill_limit_reached",
+          generated: usage.billsGenerated,
+          limit: usage.limit,
+        },
+        { status: 403 }
+      );
+    }
+
+    // Cap the number of bills to generate based on remaining limit
+    const maxBillsToGenerate = Math.min(caseNos.length, usage.remaining);
+    const cappedCaseNos = caseNos.slice(0, maxBillsToGenerate);
+
     const wifibizzUser = await prisma.wifibizzUser.findUnique({
       where: { userId: session.user.id },
       select: { id: true },
@@ -54,7 +73,7 @@ export async function POST(request: Request) {
     const casesData = await sql`
       SELECT case_no, full_name, full_address, mobile
       FROM wifibizz_cases
-      WHERE case_no = ANY(${caseNos}) AND user_id = ${wifibizzUser.id}
+      WHERE case_no = ANY(${cappedCaseNos}) AND user_id = ${wifibizzUser.id}
     `;
 
     const caseDataMap = new Map(
@@ -113,18 +132,21 @@ export async function POST(request: Request) {
 
     // Process cases concurrently in chunks of 5
     const CONCURRENCY = 5;
-    for (let i = 0; i < caseNos.length; i += CONCURRENCY) {
-      const chunk = caseNos.slice(i, i + CONCURRENCY);
+    for (let i = 0; i < cappedCaseNos.length; i += CONCURRENCY) {
+      const chunk = cappedCaseNos.slice(i, i + CONCURRENCY);
       const chunkResults = await Promise.all(chunk.map(processCase));
       results.push(...chunkResults);
     }
 
     const successCount = results.filter((r) => r.status === "success").length;
 
+    const skipped = caseNos.length - cappedCaseNos.length;
+
     return NextResponse.json({
       success: true,
       generated: successCount,
       total: caseNos.length,
+      skipped,
       results,
     });
   } catch (error) {

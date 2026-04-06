@@ -14,7 +14,7 @@ model User {
   password      String?
   passwordRaw   String?       @map("password_raw")
   notes         String?
-  caseLimit     Int           @default(10)
+  billLimit     Int           @default(10) @map("bill_limit")
   wifibizzUser  WifibizzUser?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt

@@ -2,9 +2,16 @@
 
 ## Status
 
-Not Started
+In Progress
 
 ## Goals
+
+- Change limit system from crawled cases to bill generation
+- billLimit (renamed from caseLimit) caps total bills (internet + utility) a user can generate
+- Crawling is now unlimited — no limit enforcement on crawl
+- Bill generation API enforces the limit
+- BillUsage component shows internet/utility bill counts with progress bar
+- Admin panel uses "Bill Limit" label instead of "Case Limit"
 
 ## Notes
 

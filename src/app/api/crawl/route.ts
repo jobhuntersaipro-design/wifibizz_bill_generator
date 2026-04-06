@@ -1,7 +1,6 @@
 import { auth } from "@/auth";
 import { crawl, type CrawlProgress } from "@/lib/crawler/scraper";
 import { upsertCases, updateLastCrawl, getUserPassword } from "@/lib/crawler/db";
-import { getUserCaseUsage } from "@/lib/case-limit";
 import { prisma } from "@/lib/prisma";
 
 export async function POST(request: Request) {
@@ -26,19 +25,6 @@ export async function POST(request: Request) {
           message: "Set your WifiBizz credentials in Settings first.",
         }),
         { status: 400, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    const usage = await getUserCaseUsage(session.user.id);
-    if (usage.isAtLimit) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "case_limit_reached",
-          current: usage.current,
-          limit: usage.limit,
-        }),
-        { status: 403, headers: { "Content-Type": "application/json" } }
       );
     }
 
@@ -73,9 +59,6 @@ export async function POST(request: Request) {
             { dateFrom, dateTo }
           );
 
-          const casesToInsert = cases.slice(0, usage.remaining);
-          const skipped = cases.length - casesToInsert.length;
-
           sendEvent("progress", {
             step: "Saving to database...",
             current: 0,
@@ -83,7 +66,7 @@ export async function POST(request: Request) {
             percent: 97,
           });
 
-          const { inserted, updated } = await upsertCases(wifibizzUser.id, casesToInsert);
+          const { inserted, updated } = await upsertCases(wifibizzUser.id, cases);
           await updateLastCrawl(wifibizzUser.id);
 
           sendEvent("done", {
@@ -92,7 +75,6 @@ export async function POST(request: Request) {
             saved: inserted + updated,
             inserted,
             updated,
-            skipped,
             timestamp: new Date().toISOString(),
           });
         } catch (error) {

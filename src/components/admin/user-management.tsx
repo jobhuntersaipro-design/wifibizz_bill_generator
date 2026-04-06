@@ -13,7 +13,7 @@ interface UserRow {
   email: string | null;
   passwordRaw: string | null;
   notes: string | null;
-  caseLimit: number;
+  billLimit: number;
   wifibizzEmail: string | null;
   lastCrawlAt: string | null;
   createdAt: string;
@@ -109,7 +109,7 @@ export function UserManagement() {
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden sm:table-cell">Email</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden lg:table-cell">Password</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden lg:table-cell">WifiBizz Email</th>
-                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden md:table-cell">Case Limit</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden md:table-cell">Bill Limit</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden lg:table-cell">Notes</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden md:table-cell">Created</th>
                 <th className="text-right px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Actions</th>
@@ -138,7 +138,7 @@ export function UserManagement() {
                   </td>
                   <td className="px-4 py-3 hidden md:table-cell">
                     <span className="inline-flex items-center text-xs font-medium bg-[#F6F9FC] text-[#0A2540] px-2 py-0.5 rounded-md tabular-nums">
-                      {user.caseLimit}
+                      {user.billLimit}
                     </span>
                   </td>
                   <td className="px-4 py-3 max-w-[200px] truncate text-[#697386] text-xs hidden lg:table-cell">{user.notes || "—"}</td>
@@ -229,7 +229,7 @@ function UserFormModal({
       email: fd.get("email") as string,
       password: fd.get("password") as string,
       notes: fd.get("notes") as string,
-      caseLimit: parseInt(fd.get("caseLimit") as string) || 10,
+      billLimit: parseInt(fd.get("billLimit") as string) || 10,
       wifibizzEmail: fd.get("wifibizzEmail") as string,
     };
 
@@ -324,8 +324,8 @@ function UserFormModal({
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="caseLimit" className="text-xs font-medium text-[#425466]">Case Limit</Label>
-                <Input id="caseLimit" name="caseLimit" type="number" min={0} defaultValue={user?.caseLimit ?? 10} className="rounded-lg h-9 border-[#E3E8EF]" />
+                <Label htmlFor="billLimit" className="text-xs font-medium text-[#425466]">Bill Limit</Label>
+                <Input id="billLimit" name="billLimit" type="number" min={0} defaultValue={user?.billLimit ?? 10} className="rounded-lg h-9 border-[#E3E8EF]" />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="notes" className="text-xs font-medium text-[#425466]">Notes</Label>

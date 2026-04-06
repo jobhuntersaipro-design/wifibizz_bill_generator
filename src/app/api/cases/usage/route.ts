@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { getUserCaseUsage } from "@/lib/case-limit";
+import { getUserBillUsage } from "@/lib/bill-limit";
 
 export async function GET() {
   try {
@@ -12,16 +12,15 @@ export async function GET() {
       );
     }
 
-    const usage = await getUserCaseUsage(session.user.id);
+    const usage = await getUserBillUsage(session.user.id);
 
     return NextResponse.json({
-      current: usage.current,
+      billsGenerated: usage.billsGenerated,
       limit: usage.limit,
       remaining: usage.remaining,
-      billsGenerated: usage.billsGenerated,
-      billsTotal: usage.billsTotal,
       internetBills: usage.internetBills,
       utilityBills: usage.utilityBills,
+      totalCases: usage.totalCases,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

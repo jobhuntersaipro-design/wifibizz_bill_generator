@@ -39,7 +39,6 @@ export default function CrawlPage() {
   const [result, setResult] = useState<{
     total: number;
     saved: number;
-    skipped: number;
   } | null>(null);
   const router = useRouter();
 
@@ -132,12 +131,6 @@ export default function CrawlPage() {
           router.push("/dashboard/settings");
           return;
         }
-        if (json.error === "case_limit_reached") {
-          toast.error(
-            `Case limit reached (${json.current}/${json.limit}). Contact us to increase.`
-          );
-          return;
-        }
         toast.error(json.error ?? "Crawl failed");
         return;
       }
@@ -176,7 +169,6 @@ export default function CrawlPage() {
               setResult({
                 total: data.total,
                 saved: data.saved,
-                skipped: data.skipped,
               });
               setProgress(null);
               toast.success(`Crawl complete — ${data.saved} cases saved`);
@@ -355,9 +347,6 @@ export default function CrawlPage() {
               <div className="space-y-3 stagger-children">
                 <ResultRow label="Total cases found" value={result.total} />
                 <ResultRow label="Saved to database" value={result.saved} accent />
-                {result.skipped > 0 && (
-                  <ResultRow label="Skipped (limit)" value={result.skipped} warning />
-                )}
               </div>
 
               <Button
