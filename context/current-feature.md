@@ -2,13 +2,15 @@
 
 ## Status
 
-In Progress
+Not Started
 
 ## Goals
 
-Fix 18 UI issues: layout section dividers, animation polish, responsiveness, accessibility (tabIndex, aria-labels, aria-sort, color-independent bill icons).
+<!-- Add goals here -->
 
 ## Notes
+
+<!-- Add notes here -->
 
 ## History
 
@@ -33,3 +35,4 @@ Fix 18 UI issues: layout section dividers, animation polish, responsiveness, acc
 - **Phase 17 — Dashboard UI Revamped** (2026-04-05): Merged case list into main dashboard, removed standalone /cases route and sidebar link. Added interactive Malaysia SVG map (real geographic paths from MapSVG CC0) with state-level case heat map, hover tooltips, click-to-drill-down detail panel showing breakdowns by status/provider/package. New /api/cases/analytics endpoint with multi-series time data, state extraction from addresses, and filter support (status, date, provider, package). /api/cases/analytics/state endpoint for state drill-down. Multi-series area chart (Cases Over Time) with status legend toggle, clickable hide/show, value labels with white halo. Donut chart (By Status) and horizontal bar chart (By Provider) with value labels. KPI row. Date range presets + custom from/to date inputs on state map filters. Shared state extraction logic in src/lib/malaysia-states.ts. Recharts library added. Week granularity default.
 - **Phase 18 — Internet Bill Generation** (2026-04-05): Bill generation API routes (generate, download, bulk-download) with Cloudflare R2 storage. Per-row internet/utility bill icon buttons greyed out when not generated. Select-all and individual case selection for bulk operations. Download confirmation modal with accurate bill count using full case data. Slide-in detail panel shows bill preview via iframe. Prisma migration adds internet_bill_url and utility_bill_url columns. Playwright e2e tests. Fixed bulk download count bug where select-all only checked loaded page instead of all fetched cases.
 - **Phase 19 — Utility Bill Generation + Responsive UI + Favicon** (2026-04-05): Utility bill PDF generation (generate-utility-bill.py) with TNB template, address normalizer with geocoding pipeline for landed vs condo formatting, TARIKH BIL date collision fix. Responsive mobile layout across all pages: sidebar with hamburger toggle, responsive tables with column hiding, stacked filters, adaptive pagination, full-width detail panel on mobile. Admin shell client component for sidebar state. Custom favicon.png. Crawler and bill API improvements.
+- **Phase 20 — UI Review Fixes** (2026-04-06): Fixed 18 UI issues across 8 files. Layout: section dividers between Analytics/Case Management, chart axis compacted (-45°/80px), bill action buttons separated from selection links, Bills column border separator. Animations: admin login entrance animations, removed hover-lift from settings form, replaced continuous float with one-time scale-in on crawl page. Responsiveness: date filter labels hidden on mobile, KPI label truncation, detail panel scroll fix. Accessibility: password toggle aria-labels (removed tabIndex={-1}), checkbox aria-labels, aria-sort on table headers, bill icon opacity+aria for non-color state distinction. Unified admin sidebar active nav color to #635BFF. CaseUsage component themed to Stripe palette.
