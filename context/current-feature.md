@@ -1,22 +1,16 @@
-# Current Feature: Crawler Date Filter
+# Current Feature
 
 ## Status
 
-In Progress
+Not Started
 
 ## Goals
 
-- Add date filter UI to crawler page with from/to date inputs
-- Preset buttons: Last 1 day, 3 days, 7 days, 1 week, 1 month, 3 months
-- Maximum past 3 months limit — show error if older date selected
-- Preset: Last 1 day, 3 days, 7 days, 1 week, 1 month, 3 months
-- Reset button to clear filters
-- Pass selected date range to handleCrawl()
+<!-- Goals for next feature -->
 
 ## Notes
 
-- Spec: @context/features/crawler-date-filter-spec.md
-- Also includes sidebar fix: replace "Network Admin" with user's WifiBizz email and agent (already implemented)
+<!-- Notes for next feature -->
 
 ## History
 
@@ -42,3 +36,4 @@ In Progress
 - **Phase 18 — Internet Bill Generation** (2026-04-05): Bill generation API routes (generate, download, bulk-download) with Cloudflare R2 storage. Per-row internet/utility bill icon buttons greyed out when not generated. Select-all and individual case selection for bulk operations. Download confirmation modal with accurate bill count using full case data. Slide-in detail panel shows bill preview via iframe. Prisma migration adds internet_bill_url and utility_bill_url columns. Playwright e2e tests. Fixed bulk download count bug where select-all only checked loaded page instead of all fetched cases.
 - **Phase 19 — Utility Bill Generation + Responsive UI + Favicon** (2026-04-05): Utility bill PDF generation (generate-utility-bill.py) with TNB template, address normalizer with geocoding pipeline for landed vs condo formatting, TARIKH BIL date collision fix. Responsive mobile layout across all pages: sidebar with hamburger toggle, responsive tables with column hiding, stacked filters, adaptive pagination, full-width detail panel on mobile. Admin shell client component for sidebar state. Custom favicon.png. Crawler and bill API improvements.
 - **Phase 20 — UI Review Fixes** (2026-04-06): Fixed 18 UI issues across 8 files. Layout: section dividers between Analytics/Case Management, chart axis compacted (-45°/80px), bill action buttons separated from selection links, Bills column border separator. Animations: admin login entrance animations, removed hover-lift from settings form, replaced continuous float with one-time scale-in on crawl page. Responsiveness: date filter labels hidden on mobile, KPI label truncation, detail panel scroll fix. Accessibility: password toggle aria-labels (removed tabIndex={-1}), checkbox aria-labels, aria-sort on table headers, bill icon opacity+aria for non-color state distinction. Unified admin sidebar active nav color to #635BFF. CaseUsage component themed to Stripe palette.
+- **Phase 21 — Crawler Date Filter** (2026-04-06): Date filter UI on crawl page with from/to date inputs and preset buttons (1d, 3d, 7d, 1w, 1m, 3m). Max 3-month limit with inline error. Reset button to clear filters. Date range passed to crawler API and scraper for server-side filtering. Sidebar updated to show user's WifiBizz email and agent instead of "Network Admin". Removed notification bell and avatar from topbar.
