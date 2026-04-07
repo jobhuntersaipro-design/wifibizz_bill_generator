@@ -2,7 +2,6 @@
 
 import AnalyticsSection from "@/components/dashboard/AnalyticsSection";
 import CaseManagementSection from "@/components/dashboard/CaseManagementSection";
-import { BillUsage } from "@/components/dashboard/BillUsage";
 
 export default function DashboardPage() {
   return (
@@ -12,9 +11,6 @@ export default function DashboardPage() {
         <h1 className="text-2xl font-semibold text-[#0A2540]">Dashboard</h1>
         <p className="text-sm text-[#697386] mt-1">Analytics overview and case management</p>
       </div>
-
-      {/* Bill usage */}
-      <BillUsage />
 
       {/* Analytics: KPI row, charts, map */}
       <AnalyticsSection />

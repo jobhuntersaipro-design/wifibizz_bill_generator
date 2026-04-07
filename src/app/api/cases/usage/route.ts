@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { getUserBillUsage } from "@/lib/bill-limit";
+import { getUserCaseUsage } from "@/lib/case-limit";
 
 export async function GET() {
   try {
@@ -12,10 +12,10 @@ export async function GET() {
       );
     }
 
-    const usage = await getUserBillUsage(session.user.id);
+    const usage = await getUserCaseUsage(session.user.id);
 
     return NextResponse.json({
-      billsGenerated: usage.billsGenerated,
+      casesUsed: usage.casesUsed,
       limit: usage.limit,
       remaining: usage.remaining,
       internetBills: usage.internetBills,

@@ -35,13 +35,13 @@ function KpiCard({ label, value, icon, accent, delay = 0 }: { label: string; val
   );
 }
 
-// ── Bill Usage Card ──
+// ── Case Usage Card ──
 
-function BillUsageCard({ usage, delay = 0 }: { usage: { billsGenerated: number; billsTotal: number; internetBills: number; utilityBills: number } | null; delay?: number }) {
-  const animatedCurrent = useAnimatedCounter(usage?.billsGenerated ?? 0, 800);
-  const total = usage?.billsTotal ?? 0;
-  const percentage = total > 0 ? Math.min(100, Math.round(((usage?.billsGenerated ?? 0) / total) * 100)) : 0;
-  const allGenerated = usage ? usage.billsGenerated === total && total > 0 : false;
+function CaseUsageCard({ usage, delay = 0 }: { usage: { casesUsed: number; limit: number; internetBills: number; utilityBills: number } | null; delay?: number }) {
+  const animatedCurrent = useAnimatedCounter(usage?.casesUsed ?? 0, 800);
+  const limit = usage?.limit ?? 0;
+  const percentage = limit > 0 ? Math.min(100, Math.round(((usage?.casesUsed ?? 0) / limit) * 100)) : 0;
+  const allUsed = usage ? usage.casesUsed >= limit && limit > 0 : false;
 
   return (
     <div className="bg-white rounded-lg border border-[#E3E8EF] px-5 py-4 hover-lift animate-fade-in-up chart-card-hover">
@@ -49,20 +49,20 @@ function BillUsageCard({ usage, delay = 0 }: { usage: { billsGenerated: number; 
         <span className="text-[#697386] animate-scale-in" style={{ animationDelay: `${delay + 200}ms` }}>
           <FileTextIcon className="w-4 h-4" />
         </span>
-        <span className="text-xs font-medium text-[#697386] truncate">Bills Generated</span>
+        <span className="text-xs font-medium text-[#697386] truncate">Cases Used</span>
       </div>
       <div className="flex items-baseline gap-1.5">
-        <p className={`text-2xl font-semibold tabular-nums number-pop ${allGenerated ? "text-[#09825D]" : "text-[#0A2540]"}`} style={{ animationDelay: `${delay + 100}ms` }}>
+        <p className={`text-2xl font-semibold tabular-nums number-pop ${allUsed ? "text-[#DF1B41]" : "text-[#0A2540]"}`} style={{ animationDelay: `${delay + 100}ms` }}>
           {usage ? animatedCurrent : "—"}
         </p>
-        <span className="text-sm text-[#697386] tabular-nums">/ {total || "—"}</span>
-        <span className={`ml-auto text-xs font-medium tabular-nums ${allGenerated ? "text-[#09825D]" : "text-[#697386]"}`}>
+        <span className="text-sm text-[#697386] tabular-nums">/ {limit || "—"}</span>
+        <span className={`ml-auto text-xs font-medium tabular-nums ${allUsed ? "text-[#DF1B41]" : "text-[#697386]"}`}>
           {usage ? `${percentage}%` : ""}
         </span>
       </div>
       <div className="mt-2 h-1.5 rounded-full bg-[#F6F9FC] overflow-hidden">
         <div
-          className={`h-full rounded-full transition-all duration-700 ease-out ${allGenerated ? "bg-[#09825D]" : "bg-[#635BFF]"}`}
+          className={`h-full rounded-full transition-all duration-700 ease-out ${allUsed ? "bg-[#DF1B41]" : "bg-[#635BFF]"}`}
           style={{ width: `${usage ? percentage : 0}%` }}
         />
       </div>
@@ -204,7 +204,7 @@ function MalaysiaMap({ stateData, maxValue, selectedState, onStateClick, status 
 export default function AnalyticsSection() {
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
-  const [billUsage, setBillUsage] = useState<{ billsGenerated: number; billsTotal: number; internetBills: number; utilityBills: number } | null>(null);
+  const [caseUsage, setCaseUsage] = useState<{ casesUsed: number; limit: number; internetBills: number; utilityBills: number } | null>(null);
   const [granularity, setGranularity] = useState<Granularity>("week");
   const [chartProvider, setChartProvider] = useState("");
   const [timeSeriesLoading, setTimeSeriesLoading] = useState(false);
@@ -238,7 +238,7 @@ export default function AnalyticsSection() {
       .finally(() => setAnalyticsLoading(false));
     fetch("/api/cases/usage")
       .then((res) => res.json())
-      .then((data) => setBillUsage(data))
+      .then((data) => setCaseUsage(data))
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -373,7 +373,7 @@ export default function AnalyticsSection() {
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4 stagger-children">
         <KpiCard label="Total Cases" value={analyticsLoading ? "—" : String(analytics?.totalCases ?? 0)} icon={<FileStackIcon className="w-4 h-4" />} delay={0} />
         <KpiCard label="Activated" value={analyticsLoading ? "—" : String(activatedCount)} icon={<CheckCircleIcon className="w-4 h-4" />} accent="text-[#09825D]" delay={80} />
-        <BillUsageCard usage={billUsage} delay={160} />
+        <CaseUsageCard usage={caseUsage} delay={160} />
       </div>
 
       {/* Cases Over Time */}

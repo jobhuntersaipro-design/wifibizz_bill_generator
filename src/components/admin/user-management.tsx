@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { getUsers, createUser, updateUser, deleteUser } from "@/actions/admin-users";
+import { getUsers, createUser, updateUser, deleteUser, topupUserCaseLimit } from "@/actions/admin-users";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,7 +13,7 @@ interface UserRow {
   email: string | null;
   passwordRaw: string | null;
   notes: string | null;
-  billLimit: number;
+  caseLimit: number;
   wifibizzEmail: string | null;
   lastCrawlAt: string | null;
   createdAt: string;
@@ -28,6 +28,8 @@ export function UserManagement() {
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [editingUser, setEditingUser] = useState<UserRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null);
+  const [viewTarget, setViewTarget] = useState<UserRow | null>(null);
+  const [topupTarget, setTopupTarget] = useState<UserRow | null>(null);
 
   const loadUsers = useCallback(async () => {
     try {
@@ -109,7 +111,7 @@ export function UserManagement() {
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden sm:table-cell">Email</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden lg:table-cell">Password</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden lg:table-cell">WifiBizz Email</th>
-                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden md:table-cell">Bill Limit</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden md:table-cell">Case Limit</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden lg:table-cell">Notes</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden md:table-cell">Created</th>
                 <th className="text-right px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Actions</th>
@@ -138,7 +140,7 @@ export function UserManagement() {
                   </td>
                   <td className="px-4 py-3 hidden md:table-cell">
                     <span className="inline-flex items-center text-xs font-medium bg-[#F6F9FC] text-[#0A2540] px-2 py-0.5 rounded-md tabular-nums">
-                      {user.billLimit}
+                      {user.caseLimit}
                     </span>
                   </td>
                   <td className="px-4 py-3 max-w-[200px] truncate text-[#697386] text-xs hidden lg:table-cell">{user.notes || "—"}</td>
@@ -147,6 +149,18 @@ export function UserManagement() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-1">
+                      <button
+                        onClick={() => setViewTarget(user)}
+                        className="inline-flex items-center px-2.5 py-1 text-xs font-medium text-[#425466] hover:bg-[#F6F9FC] rounded-md transition-colors"
+                      >
+                        View
+                      </button>
+                      <button
+                        onClick={() => setTopupTarget(user)}
+                        className="inline-flex items-center px-2.5 py-1 text-xs font-medium text-[#09825D] hover:bg-green-50 rounded-md transition-colors"
+                      >
+                        Topup
+                      </button>
                       <button
                         onClick={() => openEdit(user)}
                         className="inline-flex items-center px-2.5 py-1 text-xs font-medium text-[#635BFF] hover:bg-[#F6F9FC] rounded-md transition-colors"
@@ -199,6 +213,23 @@ export function UserManagement() {
           onDeleted={loadUsers}
         />
       )}
+
+      {/* Topup Modal */}
+      {topupTarget && (
+        <TopupModal
+          user={topupTarget}
+          onClose={() => setTopupTarget(null)}
+          onSaved={loadUsers}
+        />
+      )}
+
+      {/* User History Panel */}
+      {viewTarget && (
+        <UserHistoryPanel
+          user={viewTarget}
+          onClose={() => setViewTarget(null)}
+        />
+      )}
     </>
   );
 }
@@ -224,22 +255,25 @@ function UserFormModal({
     setError("");
 
     const fd = new FormData(e.currentTarget);
-    const data = {
+    const formData = {
       name: fd.get("name") as string,
       email: fd.get("email") as string,
       password: fd.get("password") as string,
       notes: fd.get("notes") as string,
-      billLimit: parseInt(fd.get("billLimit") as string) || 10,
+      caseLimit: parseInt(fd.get("caseLimit") as string) || 10,
       wifibizzEmail: fd.get("wifibizzEmail") as string,
     };
 
     let result;
     if (mode === "create") {
-      result = await createUser(data);
+      result = await createUser(formData);
     } else {
       result = await updateUser(user!.id, {
-        ...data,
-        password: data.password || undefined,
+        name: formData.name,
+        email: formData.email,
+        password: formData.password || undefined,
+        notes: formData.notes,
+        wifibizzEmail: formData.wifibizzEmail,
       });
     }
 
@@ -324,8 +358,15 @@ function UserFormModal({
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="billLimit" className="text-xs font-medium text-[#425466]">Bill Limit</Label>
-                <Input id="billLimit" name="billLimit" type="number" min={0} defaultValue={user?.billLimit ?? 10} className="rounded-lg h-9 border-[#E3E8EF]" />
+                <Label htmlFor="caseLimit" className="text-xs font-medium text-[#425466]">Case Limit</Label>
+                {mode === "edit" ? (
+                  <>
+                    <Input id="caseLimit" name="caseLimit" type="number" value={user?.caseLimit ?? 10} readOnly className="rounded-lg h-9 border-[#E3E8EF] bg-[#F6F9FC] text-[#697386] cursor-not-allowed" />
+                    <p className="text-[11px] text-[#697386]">Use the Topup button to increase</p>
+                  </>
+                ) : (
+                  <Input id="caseLimit" name="caseLimit" type="number" min={0} defaultValue={10} className="rounded-lg h-9 border-[#E3E8EF]" />
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="notes" className="text-xs font-medium text-[#425466]">Notes</Label>
@@ -483,5 +524,309 @@ function UsersEmptyIcon({ className }: { className?: string }) {
       <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </svg>
+  );
+}
+
+// ── Topup Modal ──
+
+function TopupModal({
+  user,
+  onClose,
+  onSaved,
+}: {
+  user: UserRow;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [amount, setAmount] = useState("");
+  const [reason, setReason] = useState("");
+
+  const QUICK_AMOUNTS = [100, 500, 1000, 5000];
+  const parsedAmount = parseInt(amount) || 0;
+  const newLimit = user.caseLimit + parsedAmount;
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (parsedAmount <= 0) {
+      setError("Amount must be a positive number");
+      return;
+    }
+    if (!reason.trim()) {
+      setError("Reason is required");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+
+    const result = await topupUserCaseLimit(user.id, {
+      amount: parsedAmount,
+      reason: reason.trim(),
+    });
+
+    if (result.success) {
+      toast.success(`Topped up ${parsedAmount.toLocaleString()} cases for ${user.name || user.email}`);
+      onSaved();
+      onClose();
+    } else {
+      setError(result.error ?? "Failed to topup");
+    }
+
+    setSaving(false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+      <div className="w-full max-w-sm mx-4 bg-white rounded-lg border border-[#E3E8EF] shadow-xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-[#E3E8EF]">
+          <h2 className="text-sm font-semibold text-[#0A2540]">Topup Cases</h2>
+          <p className="text-xs text-[#697386] mt-0.5">
+            {user.name || user.email} &middot; Current limit: <span className="font-medium text-[#0A2540] tabular-nums">{user.caseLimit.toLocaleString()}</span>
+          </p>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="topupAmount" className="text-xs font-medium text-[#425466]">Amount to add</Label>
+            <Input
+              id="topupAmount"
+              type="number"
+              min={1}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="Enter number of cases"
+              className="rounded-lg h-9 border-[#E3E8EF]"
+              autoFocus
+            />
+            <div className="flex gap-1.5 pt-1">
+              {QUICK_AMOUNTS.map((qty) => (
+                <button
+                  key={qty}
+                  type="button"
+                  onClick={() => setAmount(String(qty))}
+                  className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors ${
+                    amount === String(qty)
+                      ? "bg-[#635BFF] text-white"
+                      : "bg-[#F6F9FC] text-[#697386] hover:bg-[#E3E8EF]"
+                  }`}
+                >
+                  +{qty.toLocaleString()}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {parsedAmount > 0 && (
+            <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-2.5">
+              <p className="text-xs text-[#09825D]">
+                New limit: <span className="font-semibold tabular-nums">{user.caseLimit.toLocaleString()}</span>
+                {" + "}
+                <span className="font-semibold tabular-nums">{parsedAmount.toLocaleString()}</span>
+                {" = "}
+                <span className="font-semibold tabular-nums">{newLimit.toLocaleString()}</span> cases
+              </p>
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            <Label htmlFor="topupReason" className="text-xs font-medium text-[#425466]">
+              Reason <span className="text-[#DF1B41]">*</span>
+            </Label>
+            <Input
+              id="topupReason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. Monthly subscription renewal"
+              className="rounded-lg h-9 border-[#E3E8EF]"
+            />
+          </div>
+
+          {error && (
+            <div className="text-sm text-[#DF1B41] bg-red-50 border border-red-200 rounded-lg px-4 py-2.5">
+              {error}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={onClose} className="rounded-lg border-[#E3E8EF] text-[#425466]">
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={saving || parsedAmount <= 0}
+              className="rounded-lg bg-[#09825D] hover:bg-[#09825D]/90 text-white transition-colors duration-150"
+            >
+              {saving ? "Processing..." : `Topup +${parsedAmount > 0 ? parsedAmount.toLocaleString() : "0"} Cases`}
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── User History Panel ──
+
+interface UsageLogEntry {
+  caseNo: string;
+  caseName: string | null;
+  billType: string;
+  chargedAt: string;
+}
+
+interface LimitChangeEntry {
+  previousLimit: number;
+  newLimit: number;
+  changedBy: string;
+  reason: string | null;
+  changedAt: string;
+}
+
+interface UsageHistoryData {
+  summary: { casesUsed: number; limit: number; remaining: number; internetBills: number; utilityBills: number };
+  usageLog: UsageLogEntry[];
+  limitChangeLog: LimitChangeEntry[];
+}
+
+function UserHistoryPanel({ user, onClose }: { user: UserRow; onClose: () => void }) {
+  const [data, setData] = useState<UsageHistoryData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<"usage" | "limits">("usage");
+
+  useEffect(() => {
+    fetch(`/api/admin/users/${user.id}/usage-history`)
+      .then((res) => res.json())
+      .then((d: UsageHistoryData) => setData(d))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [user.id]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+      <div className="w-full max-w-2xl mx-4 bg-white rounded-lg border border-[#E3E8EF] shadow-xl overflow-hidden max-h-[80vh] flex flex-col">
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-[#E3E8EF] flex items-center justify-between shrink-0">
+          <div>
+            <h2 className="text-sm font-semibold text-[#0A2540]">{user.name || user.email}</h2>
+            <p className="text-xs text-[#697386] mt-0.5">Usage history & limit changes</p>
+          </div>
+          <button onClick={onClose} className="text-[#697386] hover:text-[#0A2540] transition-colors p-1">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="flex justify-center py-12">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />
+          </div>
+        ) : data ? (
+          <>
+            {/* Summary */}
+            <div className="px-6 py-4 border-b border-[#E3E8EF] shrink-0">
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <p className="text-[11px] font-medium text-[#697386] uppercase tracking-wider">Cases Used</p>
+                  <p className="text-xl font-semibold text-[#0A2540] tabular-nums">{data.summary.casesUsed} <span className="text-sm font-normal text-[#697386]">/ {data.summary.limit}</span></p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-medium text-[#697386] uppercase tracking-wider">Remaining</p>
+                  <p className="text-xl font-semibold text-[#0A2540] tabular-nums">{data.summary.remaining}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-medium text-[#697386] uppercase tracking-wider">Bills</p>
+                  <p className="text-sm text-[#425466] tabular-nums">{data.summary.internetBills} internet, {data.summary.utilityBills} utility</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Tabs */}
+            <div className="px-6 border-b border-[#E3E8EF] flex gap-4 shrink-0">
+              <button
+                onClick={() => setTab("usage")}
+                className={`py-2.5 text-xs font-medium border-b-2 transition-colors ${tab === "usage" ? "border-[#635BFF] text-[#0A2540]" : "border-transparent text-[#697386] hover:text-[#425466]"}`}
+              >
+                Usage Log ({data.usageLog.length})
+              </button>
+              <button
+                onClick={() => setTab("limits")}
+                className={`py-2.5 text-xs font-medium border-b-2 transition-colors ${tab === "limits" ? "border-[#635BFF] text-[#0A2540]" : "border-transparent text-[#697386] hover:text-[#425466]"}`}
+              >
+                Limit History ({data.limitChangeLog.length})
+              </button>
+            </div>
+
+            {/* Tab Content */}
+            <div className="overflow-y-auto flex-1">
+              {tab === "usage" ? (
+                data.usageLog.length === 0 ? (
+                  <div className="text-center py-8 text-sm text-[#697386]">No usage yet</div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-[#E3E8EF]">
+                        <th className="text-left px-6 py-2.5 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Case No.</th>
+                        <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden sm:table-cell">Customer</th>
+                        <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Bill Type</th>
+                        <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#E3E8EF]/60">
+                      {data.usageLog.map((entry, i) => (
+                        <tr key={i} className="hover:bg-[#F6F9FC] transition-colors">
+                          <td className="px-6 py-2.5 font-medium text-[#0A2540] tabular-nums">{entry.caseNo}</td>
+                          <td className="px-3 py-2.5 text-[#425466] max-w-[180px] truncate hidden sm:table-cell">{entry.caseName || "—"}</td>
+                          <td className="px-3 py-2.5">
+                            <span className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-md ${
+                              entry.billType === "internet" ? "bg-blue-50 text-blue-700" : "bg-amber-50 text-amber-700"
+                            }`}>
+                              {entry.billType === "internet" ? "Internet" : "Utility"}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-xs text-[#697386] tabular-nums">
+                            {new Date(entry.chargedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
+              ) : (
+                data.limitChangeLog.length === 0 ? (
+                  <div className="text-center py-8 text-sm text-[#697386]">No limit changes yet</div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-[#E3E8EF]">
+                        <th className="text-left px-6 py-2.5 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Date</th>
+                        <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Previous</th>
+                        <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">New</th>
+                        <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden sm:table-cell">Changed By</th>
+                        <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden sm:table-cell">Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#E3E8EF]/60">
+                      {data.limitChangeLog.map((entry, i) => (
+                        <tr key={i} className="hover:bg-[#F6F9FC] transition-colors">
+                          <td className="px-6 py-2.5 text-xs text-[#697386] tabular-nums">
+                            {new Date(entry.changedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+                          </td>
+                          <td className="px-3 py-2.5 tabular-nums text-[#0A2540]">{entry.previousLimit}</td>
+                          <td className="px-3 py-2.5 tabular-nums font-medium text-[#0A2540]">{entry.newLimit}</td>
+                          <td className="px-3 py-2.5 text-[#425466] hidden sm:table-cell">{entry.changedBy}</td>
+                          <td className="px-3 py-2.5 text-xs text-[#697386] max-w-[180px] truncate hidden sm:table-cell">{entry.reason || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="text-center py-8 text-sm text-[#DF1B41]">Failed to load history</div>
+        )}
+      </div>
+    </div>
   );
 }

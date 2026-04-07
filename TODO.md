@@ -1,7 +1,6 @@
 ### TODO
 - Case limit based on how many document generated - Pending on price plan
-- In utility bill, populate the months , and randomize the fee paid
-- Kedai Tenaga Terdekat: Hide it first
+- Whatsapp Conversation Chat
 - 
 
 
@@ -15,5 +14,7 @@
 6. Selangor and state stats not match
 7. Remove top right icons such as the notification icon and the avatar
 8. Crawl based on time, maximum 2 months late
+9. Kedai Tenaga Terdekat: Hide it first
+10. In utility bill, populate the months , and randomize the fee paid
 
 

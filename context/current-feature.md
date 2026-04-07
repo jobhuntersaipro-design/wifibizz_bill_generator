@@ -1,4 +1,4 @@
-# Current Feature
+# Current Feature: Case Usage Limit System
 
 ## Status
 
@@ -6,14 +6,23 @@ In Progress
 
 ## Goals
 
-- Change limit system from crawled cases to bill generation
-- billLimit (renamed from caseLimit) caps total bills (internet + utility) a user can generate
-- Crawling is now unlimited — no limit enforcement on crawl
-- Bill generation API enforces the limit
-- BillUsage component shows internet/utility bill counts with progress bar
-- Admin panel uses "Bill Limit" label instead of "Case Limit"
+- Change counting logic from bill-count to case-count (each case = 1 count regardless of bill types generated)
+- Rename `bill_limit` back to `case_limit` across DB, Prisma, API, and UI
+- A case with internet bill only, utility bill only, or both = 1 count
+- Generating a second bill type for an already-billed case is always free (no new count)
+- New `case_usage_log` table tracks when each case is first charged
+- New `case_limit_change_log` table tracks admin limit changes with reason
+- User-facing usage history: table showing charged cases with date, bill type, pagination
+- Admin panel: "Case Limit" label, reason field on limit change, user detail panel with Usage Log + Limit History tabs
+- Bill generation API enforces case-based limit, inserts usage log on first bill per case
+- Backfill existing billed cases into usage log during migration
 
 ## Notes
+
+- Spec at context/features/case-usage-limit-spec.md
+- This is favorable to existing users (cases with both bills go from 2 count → 1 count)
+- Crawling remains unlimited — only bill generation is limited
+- Key behavior: second bill type for already-billed case is always allowed
 
 ## History
 

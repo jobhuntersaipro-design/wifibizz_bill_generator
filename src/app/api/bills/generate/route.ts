@@ -5,7 +5,7 @@ import { neon } from "@neondatabase/serverless";
 import { uploadToR2 } from "@/lib/r2";
 import { generateInternetBill } from "@/lib/bill-generator/internet-bill";
 import { generateUtilityBill } from "@/lib/bill-generator/utility-bill";
-import { getUserBillUsage } from "@/lib/bill-limit";
+import { getUserCaseUsage } from "@/lib/case-limit";
 
 const MAX_BATCH = 20;
 
@@ -37,24 +37,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check bill limit
-    const usage = await getUserBillUsage(session.user.id);
-    if (usage.isAtLimit) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "bill_limit_reached",
-          generated: usage.billsGenerated,
-          limit: usage.limit,
-        },
-        { status: 403 }
-      );
-    }
-
-    // Cap the number of bills to generate based on remaining limit
-    const maxBillsToGenerate = Math.min(caseNos.length, usage.remaining);
-    const cappedCaseNos = caseNos.slice(0, maxBillsToGenerate);
-
     const wifibizzUser = await prisma.wifibizzUser.findUnique({
       where: { userId: session.user.id },
       select: { id: true },
@@ -68,12 +50,62 @@ export async function POST(request: Request) {
     }
 
     const sql = neon(process.env.DATABASE_URL!);
+    const wifibizzUserId = wifibizzUser.id;
+
+    // Check case limit — only cases with NO existing bills count as new charges
+    const usage = await getUserCaseUsage(session.user.id);
+
+    // Find which requested cases already have at least one bill (already charged)
+    const caseBillStatus = await sql`
+      SELECT case_no, internet_bill_url, utility_bill_url, full_name
+      FROM wifibizz_cases
+      WHERE case_no = ANY(${caseNos}) AND user_id = ${wifibizzUserId}
+    `;
+
+    const caseStatusMap = new Map(
+      caseBillStatus.map((c) => [c.case_no as string, {
+        hasAnyBill: c.internet_bill_url != null || c.utility_bill_url != null,
+        fullName: c.full_name as string | null,
+      }])
+    );
+
+    // Separate into "free" (already charged) and "new" (will cost 1 each)
+    const freeCases: string[] = [];
+    const newCases: string[] = [];
+    for (const cn of caseNos) {
+      const status = caseStatusMap.get(cn);
+      if (!status) continue; // case not found, will error in processCase
+      if (status.hasAnyBill) {
+        freeCases.push(cn);
+      } else {
+        newCases.push(cn);
+      }
+    }
+
+    // Check if new cases exceed remaining limit
+    const newCasesToCharge = Math.min(newCases.length, usage.remaining);
+    if (newCases.length > 0 && usage.remaining === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "case_limit_reached",
+          casesUsed: usage.casesUsed,
+          limit: usage.limit,
+        },
+        { status: 403 }
+      );
+    }
+
+    // Cap new cases to remaining limit, keep all free cases
+    const allowedNewCases = newCases.slice(0, newCasesToCharge);
+    const cappedCaseNos = [...freeCases, ...allowedNewCases];
+    const skipped = caseNos.length - cappedCaseNos.length;
 
     // Fetch all case data upfront in a single query
     const casesData = await sql`
       SELECT case_no, full_name, full_address, mobile
       FROM wifibizz_cases
-      WHERE case_no = ANY(${cappedCaseNos}) AND user_id = ${wifibizzUser.id}
+      WHERE case_no = ANY(${cappedCaseNos}) AND user_id = ${wifibizzUserId}
     `;
 
     const caseDataMap = new Map(
@@ -89,7 +121,7 @@ export async function POST(request: Request) {
     );
 
     const r2Prefix = billType === "utility" ? "utility_bill" : "internet_bill";
-    const wifibizzUserId = wifibizzUser.id;
+    const newCaseSet = new Set(allowedNewCases);
 
     const results: { caseNo: string; status: string; url?: string; error?: string }[] = [];
 
@@ -122,6 +154,19 @@ export async function POST(request: Request) {
           `;
         }
 
+        // Log usage if this is a newly charged case (first bill for this case)
+        if (newCaseSet.has(caseNo)) {
+          const caseName = caseStatusMap.get(caseNo)?.fullName ?? caseData.full_name;
+          await prisma.caseUsageLog.create({
+            data: {
+              userId: session!.user!.id!,
+              caseNo,
+              caseName,
+              billType,
+            },
+          });
+        }
+
         return { caseNo, status: "success", url: publicUrl } as const;
       } catch (err) {
         const message = err instanceof Error ? err.message : "Generation failed";
@@ -139,8 +184,6 @@ export async function POST(request: Request) {
     }
 
     const successCount = results.filter((r) => r.status === "success").length;
-
-    const skipped = caseNos.length - cappedCaseNos.length;
 
     return NextResponse.json({
       success: true,

@@ -8,16 +8,48 @@ datasource db {
 }
 
 model User {
-  id            String        @id @default(cuid())
-  name          String?
-  email         String?       @unique
-  password      String?
-  passwordRaw   String?       @map("password_raw")
-  notes         String?
-  billLimit     Int           @default(10) @map("bill_limit")
-  wifibizzUser  WifibizzUser?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id              String              @id @default(cuid())
+  name            String?
+  email           String?             @unique
+  password        String?
+  passwordRaw     String?             @map("password_raw")
+  notes           String?
+  caseLimit       Int                 @default(10) @map("case_limit")
+  wifibizzUser    WifibizzUser?
+  caseUsageLogs   CaseUsageLog[]
+  limitChangeLogs CaseLimitChangeLog[]
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+}
+
+model CaseUsageLog {
+  id        Int      @id @default(autoincrement())
+  userId    String   @map("user_id")
+  caseNo    String   @map("case_no") @db.VarChar(20)
+  caseName  String?  @map("case_name") @db.VarChar(255)
+  billType  String   @map("bill_type") @db.VarChar(20)
+  chargedAt DateTime @default(now()) @map("charged_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([chargedAt])
+  @@map("case_usage_log")
+}
+
+model CaseLimitChangeLog {
+  id            Int      @id @default(autoincrement())
+  userId        String   @map("user_id")
+  previousLimit Int      @map("previous_limit")
+  newLimit      Int      @map("new_limit")
+  changedBy     String   @map("changed_by") @db.VarChar(100)
+  reason        String?
+  changedAt     DateTime @default(now()) @map("changed_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("case_limit_change_log")
 }
 
 model WifibizzUser {
