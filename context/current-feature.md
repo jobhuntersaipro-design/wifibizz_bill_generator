@@ -2,132 +2,15 @@
 
 ## Status
 
-In Progress
+Not Started
 
 ## Goals
 
-Generate a WhatsApp-style conversation chat image containing the closing script with real customer data from each case. Two variants: Home (Non-Business) and Business. Users can generate and download the image per case.
-
-## Spec
-
-### Overview
-
-Add a "Generate Chat" button per case in the dashboard Case Management section. When clicked, it generates a WhatsApp dark-mode-style chat image with the appropriate closing script (Home or Business) filled with the customer's real data from the database.
-
-### Closing Script — Home (Non-Business)
-
-Cases where `provider` does NOT contain "Business" (e.g., "Unifi Premium Value", "Unifi Home"):
-
-```
-1. Customer Name (as per NRIC/Passport) : {fullName}
-2. Contact Number : {mobile}
-3. Customer IC : {idNo}
-4. Email Address : {email}
-5. Installation Address : {fullAddress}
-6. Billing Address : {fullAddress}
-7. Package to be subscribed : {package}
-8. Preferred Installation Date : ASAP
-
-Terms & Conditions:
-✅ I hereby consent to subscribed the service with subscription contract of 24 months
-✅ I have been informed on the Terms & Condition as at https://unifi.com.my/personal/home/fibre-broadband/tnc and TM Privacy Notice
-✅ I agree to pay advance payment of RM 100 for Malaysian and RM 500 for foreigner within 10 days after installation complete.
-✅ I hereby agree all the information provided to TM is correct and genuine.
-✅ I hereby consent TM representative to proceed and process my order. Kindly notify me if there is any issues pertaining to my request.
-```
-
-### Closing Script — Business
-
-Cases where `provider` contains "Business" (e.g., "Unifi Business"):
-
-```
-1. Customer Name (as per NRIC/Passport) : {fullName}
-2. Contact Number : {mobile}
-3. Customer ID ( i.e BRN) : {idNo}
-4. Business Owner Name : {fullName}
-5. Email Address : {email}
-6. Installation Address : {fullAddress}
-7. Billing Address : {fullAddress}
-8. Package to be subscribed : {package}
-9. Preferred Installation Date : ASAP
-10. Representative Name ( if any) : -
-
-Terms & Conditions:
-✅ I hereby consent to subscribed the service with subscription contract of 24 months.
-✅ I have been informed on the Terms & Condition as at https://biz.unifi.com.my/business/biz-tnc and Privacy Notice of TM
-✅ I agree to pay advance payment of RM 100 within 10 days after installation complete
-✅ I hereby agree all the information provided to TM is correct and genuine.
-✅ I hereby consent TM representative to proceed and process my order. Kindly notify me if there is any issues pertaining to my request.
-```
-
-### Data Mapping
-
-| Script Field | DB Column (`WifibizzCase`) | Notes |
-|---|---|---|
-| Customer Name | `fullName` | As stored from crawler |
-| Contact Number | `mobile` | e.g., +60137089093 |
-| Customer IC / Customer ID (BRN) | `idNo` | IC for Home, BRN for Business |
-| Business Owner Name | `fullName` | Same as customer name (Business only) |
-| Email Address | `email` | |
-| Installation Address | `fullAddress` | |
-| Billing Address | `fullAddress` | Same as installation |
-| Package to be subscribed | `package` | e.g., "Unifi Home 500Mbps..." |
-| Preferred Installation Date | — | Hardcoded: "ASAP" |
-| Representative Name | — | Hardcoded: "-" (Business only) |
-
-### Business vs Home Detection
-
-- Check `provider` field (case-insensitive):
-  - Contains "business" → Use Business closing script
-  - Otherwise → Use Home closing script
-
-### UI — "Generate Chat" Button
-
-- **Location**: Per-row action in Case Management table (alongside existing bill icon buttons) AND in the slide-in detail panel
-- **Icon**: Chat/message bubble icon (e.g., `MessageSquare` from Lucide)
-- **Behavior**:
-  1. Click "Generate Chat" button on a case row
-  2. Client-side renders the WhatsApp-style chat image using HTML Canvas (no server round-trip needed)
-  3. Shows a preview modal with the generated image
-  4. Modal has a "Download" button to save as PNG
-
-### Image Generation — WhatsApp Style (Client-Side Canvas)
-
-Render on an HTML `<canvas>` element to match the reference screenshot (`conversation_chat.png`):
-
-- **Dark background**: WhatsApp dark mode (#0B141A or similar)
-- **Top bar**: Phone number header with back arrow, call/video icons (static decoration)
-- **Chat bubble**: Dark green/teal outgoing message bubble (#005C4B) with:
-  - Closing script text in white/light text
-  - Green ✅ checkmarks for T&C items
-  - Timestamp in bottom-right of bubble (e.g., "10:30 AM")
-  - Blue double-check (read receipt) icon
-- **Font**: System-like font, ~13-14px for body text
-- **Bubble padding**: ~10px horizontal, ~6px vertical
-- **Max width**: ~380px (phone-width style)
-
-### Image Output
-
-- Format: PNG
-- Resolution: ~414 x auto height (iPhone-width)
-- Filename on download: `closing_script_{caseNo}.png`
-
-### Technical Approach
-
-1. **No server-side generation needed** — use HTML Canvas API or `html2canvas` library to render the chat UI to an image
-2. **Component**: `ChatImageGenerator` — takes case data as props, renders canvas, provides download
-3. **Preview modal**: Shows the rendered image with Download button
-4. **Library option**: `html2canvas` to convert a styled hidden div to canvas (simpler than raw Canvas API), or raw Canvas for pixel-perfect control
-
-### Files to Create/Modify
-
-| File | Action |
-|---|---|
-| `src/components/dashboard/ChatImageGenerator.tsx` | New — chat image generation component with preview modal |
-| `src/components/dashboard/CaseManagementSection.tsx` | Modify — add "Generate Chat" button per row |
-| `package.json` | Modify — add `html2canvas` if using that approach |
+<!-- Add goals here -->
 
 ## Notes
+
+<!-- Add notes here -->
 
 ## History
 
@@ -156,3 +39,4 @@ Render on an HTML `<canvas>` element to match the reference screenshot (`convers
 - **Phase 21 — Crawler Date Filter** (2026-04-06): Date filter UI on crawl page with from/to date inputs and preset buttons (1d, 3d, 7d, 1w, 1m, 3m). Max 3-month limit with inline error. Reset button to clear filters. Date range passed to crawler API and scraper for server-side filtering. Sidebar updated to show user's WifiBizz email and agent instead of "Network Admin". Removed notification bell and avatar from topbar.
 - **Phase 22 — Utility Bill Enhancement** (2026-04-06): Randomized Caj Semasa, Baki Terdahulu (RM150-250), computed Jumlah Bil as sum. Sila bayar sebelum = TARIKH BIL + 1 month. Caj Bulanan bar chart with 6 months (last month = Caj Semasa). Fixed bar color operators (scn/SCN to rg/RG for DeviceRGB). Blanked Kedai Tenaga Terdekat address text on page 2. Deleted legacy Python bill generators, refactored dashboard into AnalyticsSection/CaseManagementSection components with shared types/icons.
 - **Phase 23 — Case Usage Limit System** (2026-04-07): Switched from bill-count to case-count logic (1 case = 1 count regardless of bill types). New case_usage_log and case_limit_change_log tables with Prisma migration and backfill. User-facing /dashboard/usage page with progress bar, dual-axis chart (cumulative usage vs limit bars + percentage line), from/to date filters, purchase history (topup format), and paginated usage history table. Admin dedicated topup modal with quick amounts (+100/500/1000/5000), required reason, live preview of new balance; case limit read-only in edit modal. Bill generation API enforces case-based limits with usage log on first bill per case. Sidebar usage link added.
+- **Phase 24 — WhatsApp Closing Script Chat Image** (2026-04-07): Generate Chat button per case row (green chat icon) and in detail panel. ChatImageGenerator component renders WhatsApp iPhone dark mode style incoming message with closing script filled from case data. Two variants: Home (Non-Business) and Business, detected by provider field. Billing address shows "same as above". Package name trimmed after + sign. Preferred installation date randomized 3-7 days from case_created_at (DD/MM/YYYY). Randomized wallpaper from 12 WhatsApp iPhone dark mode colors. iPhone-style bottom bar with aligned +/message/emoji/camera/mic and home indicator. html-to-image library for PNG capture at 2x resolution. Preview modal with Regenerate (picks new wallpaper) and Download PNG buttons.
