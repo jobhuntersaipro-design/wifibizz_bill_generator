@@ -88,11 +88,17 @@ export async function createUser(data: {
       // Check if wifibizz email already in use
       const existingWb = await prisma.wifibizzUser.findUnique({
         where: { wifibizzEmail: data.wifibizzEmail },
+        include: { user: true },
       });
       if (existingWb) {
-        // Clean up created user
-        await prisma.user.delete({ where: { id: user.id } });
-        return { success: false, error: "This WifiBizz email is already assigned to another user" };
+        if (existingWb.user) {
+          // Genuinely in use by another user
+          await prisma.user.delete({ where: { id: user.id } });
+          return { success: false, error: "This WifiBizz email is already assigned to another user" };
+        }
+        // Orphaned record (user was deleted without cascade) — clean up
+        await prisma.wifibizzCase.deleteMany({ where: { userId: existingWb.id } });
+        await prisma.wifibizzUser.delete({ where: { id: existingWb.id } });
       }
 
       // Create wifibizz_users row with a placeholder encrypted password
@@ -261,10 +267,29 @@ export async function deleteUser(userId: string): Promise<ActionResult> {
   if (denied) return denied;
 
   try {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { wifibizzUser: true },
+    });
     if (!user) return { success: false, error: "User not found" };
 
-    // Cascade delete handles wifibizzUser due to onDelete: Cascade
+    // Explicitly delete related records (DB may lack CASCADE constraints)
+    if (user.wifibizzUser) {
+      // Delete cases linked to the wifibizz user first
+      await prisma.wifibizzCase.deleteMany({
+        where: { userId: user.wifibizzUser.id },
+      });
+      // Delete the wifibizz user record
+      await prisma.wifibizzUser.delete({
+        where: { id: user.wifibizzUser.id },
+      });
+    }
+
+    // Delete usage and limit change logs
+    await prisma.caseUsageLog.deleteMany({ where: { userId } });
+    await prisma.caseLimitChangeLog.deleteMany({ where: { userId } });
+
+    // Delete the user
     await prisma.user.delete({ where: { id: userId } });
 
     return { success: true };
