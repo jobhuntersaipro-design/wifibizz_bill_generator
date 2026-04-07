@@ -1,5 +1,4 @@
 ### TODO
-- Case limit based on how many document generated - Pending on price plan
 - Whatsapp Conversation Chat
 - 
 
@@ -16,5 +15,7 @@
 8. Crawl based on time, maximum 2 months late
 9. Kedai Tenaga Terdekat: Hide it first
 10. In utility bill, populate the months , and randomize the fee paid
+11. Case limit based on how many document generated - Pending on price plan
+
 
 

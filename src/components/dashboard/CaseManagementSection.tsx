@@ -12,11 +12,13 @@ import {
 import {
   SearchIcon, EmptyIcon, CloseIcon, ExternalLinkIcon, SortIcon,
   InternetBillIcon, UtilityBillIcon, DownloadIcon, CheckCircleIcon,
+  MessageSquareIcon,
 } from "./icons";
+import ChatImageGenerator from "./ChatImageGenerator";
 
 // ── Case Detail Panel ──
 
-function CaseDetailPanel({ caseData, onClose, cacheBuster }: { caseData: CaseRow; onClose: () => void; cacheBuster: number }) {
+function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat }: { caseData: CaseRow; onClose: () => void; cacheBuster: number; onGenerateChat: (c: CaseRow) => void }) {
   const [isVisible, setIsVisible] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -130,6 +132,18 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster }: { caseData: CaseRow
               <p className="text-sm text-[#697386]">No bill generated yet. Select this case and click &ldquo;Generate Utility Bill&rdquo;.</p>
             )}
           </div>
+
+          {/* Generate Chat */}
+          <div className="border-t border-[#E3E8EF] my-5" style={{ opacity: isVisible ? 1 : 0, transition: "opacity 500ms ease-out 800ms" }} />
+          <div style={{ opacity: isVisible ? 1 : 0, transform: isVisible ? "translateY(0)" : "translateY(12px)", transition: "opacity 400ms ease-out 850ms, transform 400ms ease-out 850ms" }}>
+            <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">Closing Script</h3>
+            <button
+              onClick={() => onGenerateChat(caseData)}
+              className="inline-flex items-center gap-2 text-sm font-medium text-[#25D366] hover:text-[#1DA851] transition-colors duration-200"
+            >
+              <MessageSquareIcon className="w-3.5 h-3.5" />Generate Chat Image
+            </button>
+          </div>
         </div>
         {caseData.case_url && (
           <div className="px-6 py-4 border-t border-[#E3E8EF]" style={{ opacity: isVisible ? 1 : 0, transform: isVisible ? "translateY(0)" : "translateY(8px)", transition: "opacity 400ms ease-out 700ms, transform 400ms ease-out 700ms" }}>
@@ -167,6 +181,7 @@ export default function CaseManagementSection() {
   const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0, type: "" });
   const [downloadConfirm, setDownloadConfirm] = useState<{ type: "internet" | "utility"; withBills: number; total: number } | null>(null);
   const [billCacheBuster, setBillCacheBuster] = useState(0);
+  const [chatCase, setChatCase] = useState<CaseRow | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchCases = useCallback(async () => {
@@ -607,6 +622,14 @@ export default function CaseManagementSection() {
                       <td className="px-3 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-1 border-l border-[#E3E8EF] pl-2">
                           <button
+                            title="Generate Chat"
+                            aria-label={`Generate closing script chat for ${c.case_no}`}
+                            onClick={() => setChatCase(c)}
+                            className="w-7 h-7 flex items-center justify-center rounded-md transition-colors text-[#25D366] hover:bg-[#E8FFF3]"
+                          >
+                            <MessageSquareIcon className="w-4 h-4" />
+                          </button>
+                          <button
                             title={c.internet_bill_url ? "Download Internet Bill" : "Internet bill not generated"}
                             aria-label={c.internet_bill_url ? `Download internet bill for ${c.case_no}` : `Internet bill not generated for ${c.case_no}`}
                             disabled={!c.internet_bill_url}
@@ -659,8 +682,13 @@ export default function CaseManagementSection() {
 
       {/* Slide-in detail panel */}
       {selectedCase && createPortal(
-        <CaseDetailPanel caseData={selectedCase} onClose={() => setSelectedCase(null)} cacheBuster={billCacheBuster} />,
+        <CaseDetailPanel caseData={selectedCase} onClose={() => setSelectedCase(null)} cacheBuster={billCacheBuster} onGenerateChat={(c) => setChatCase(c)} />,
         document.body
+      )}
+
+      {/* Chat image generator modal */}
+      {chatCase && (
+        <ChatImageGenerator caseData={chatCase} onClose={() => setChatCase(null)} />
       )}
     </>
   );

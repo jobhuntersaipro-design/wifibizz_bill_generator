@@ -286,7 +286,7 @@ export default function CrawlPage() {
             </h2>
             <p className="text-sm text-[#697386] leading-relaxed mb-5">
               Connects to WifiBizz and fetches all Home Fibre and Business Fibre
-              cases with &quot;Activated&quot; status. New cases will be added and existing
+              cases with all status. New cases will be added and existing
               ones updated.
             </p>
 
