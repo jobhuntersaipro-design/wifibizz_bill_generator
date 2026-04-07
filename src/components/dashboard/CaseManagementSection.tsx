@@ -428,7 +428,7 @@ export default function CaseManagementSection() {
             </div>
             <select className="h-9 rounded-lg border border-[#E3E8EF] bg-white px-3 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none" value={status} onChange={(e) => { setPage(0); setStatus(e.target.value); }}>
               <option value="">All Statuses</option>
-              {statuses.map((s) => (<option key={s} value={s}>{s}</option>))}
+              {(statuses.includes("Activated") ? statuses : ["Activated", ...statuses]).map((s) => (<option key={s} value={s}>{s}</option>))}
             </select>
             <div className="flex flex-wrap items-center gap-2">
               <label className="text-xs text-[#697386] whitespace-nowrap font-medium hidden sm:inline">From</label>
