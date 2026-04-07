@@ -1,28 +1,16 @@
-# Current Feature: Case Usage Limit System
+# Current Feature
 
 ## Status
 
-In Progress
+Not Started
 
 ## Goals
 
-- Change counting logic from bill-count to case-count (each case = 1 count regardless of bill types generated)
-- Rename `bill_limit` back to `case_limit` across DB, Prisma, API, and UI
-- A case with internet bill only, utility bill only, or both = 1 count
-- Generating a second bill type for an already-billed case is always free (no new count)
-- New `case_usage_log` table tracks when each case is first charged
-- New `case_limit_change_log` table tracks admin limit changes with reason
-- User-facing usage history: table showing charged cases with date, bill type, pagination
-- Admin panel: "Case Limit" label, reason field on limit change, user detail panel with Usage Log + Limit History tabs
-- Bill generation API enforces case-based limit, inserts usage log on first bill per case
-- Backfill existing billed cases into usage log during migration
+<!-- Add goals here -->
 
 ## Notes
 
-- Spec at context/features/case-usage-limit-spec.md
-- This is favorable to existing users (cases with both bills go from 2 count → 1 count)
-- Crawling remains unlimited — only bill generation is limited
-- Key behavior: second bill type for already-billed case is always allowed
+<!-- Add notes here -->
 
 ## History
 
@@ -50,3 +38,4 @@ In Progress
 - **Phase 20 — UI Review Fixes** (2026-04-06): Fixed 18 UI issues across 8 files. Layout: section dividers between Analytics/Case Management, chart axis compacted (-45°/80px), bill action buttons separated from selection links, Bills column border separator. Animations: admin login entrance animations, removed hover-lift from settings form, replaced continuous float with one-time scale-in on crawl page. Responsiveness: date filter labels hidden on mobile, KPI label truncation, detail panel scroll fix. Accessibility: password toggle aria-labels (removed tabIndex={-1}), checkbox aria-labels, aria-sort on table headers, bill icon opacity+aria for non-color state distinction. Unified admin sidebar active nav color to #635BFF. CaseUsage component themed to Stripe palette.
 - **Phase 21 — Crawler Date Filter** (2026-04-06): Date filter UI on crawl page with from/to date inputs and preset buttons (1d, 3d, 7d, 1w, 1m, 3m). Max 3-month limit with inline error. Reset button to clear filters. Date range passed to crawler API and scraper for server-side filtering. Sidebar updated to show user's WifiBizz email and agent instead of "Network Admin". Removed notification bell and avatar from topbar.
 - **Phase 22 — Utility Bill Enhancement** (2026-04-06): Randomized Caj Semasa, Baki Terdahulu (RM150-250), computed Jumlah Bil as sum. Sila bayar sebelum = TARIKH BIL + 1 month. Caj Bulanan bar chart with 6 months (last month = Caj Semasa). Fixed bar color operators (scn/SCN to rg/RG for DeviceRGB). Blanked Kedai Tenaga Terdekat address text on page 2. Deleted legacy Python bill generators, refactored dashboard into AnalyticsSection/CaseManagementSection components with shared types/icons.
+- **Phase 23 — Case Usage Limit System** (2026-04-07): Switched from bill-count to case-count logic (1 case = 1 count regardless of bill types). New case_usage_log and case_limit_change_log tables with Prisma migration and backfill. User-facing /dashboard/usage page with progress bar, dual-axis chart (cumulative usage vs limit bars + percentage line), from/to date filters, purchase history (topup format), and paginated usage history table. Admin dedicated topup modal with quick amounts (+100/500/1000/5000), required reason, live preview of new balance; case limit read-only in edit modal. Bill generation API enforces case-based limits with usage log on first bill per case. Sidebar usage link added.
