@@ -258,6 +258,19 @@ export default function CaseManagementSection() {
 
   async function handleGenerateBills(type: "internet" | "utility") {
     if (selectedCases.size === 0 || generating) return;
+
+    // Pre-check usage limit before generating
+    try {
+      const usageRes = await fetch("/api/cases/usage");
+      const usage = await usageRes.json();
+      if (usage.remaining === 0) {
+        toast.error("Case limit reached. Please top up your usage to generate more bills.", { duration: 5000 });
+        return;
+      }
+    } catch {
+      // Fail open — let the API enforce the limit
+    }
+
     const caseNos = Array.from(selectedCases);
     const total = caseNos.length;
     setGenerating(true);
@@ -266,6 +279,7 @@ export default function CaseManagementSection() {
     const BATCH_SIZE = 5;
     let totalGenerated = 0;
     let totalFailed = 0;
+    let limitReached = false;
 
     try {
       for (let i = 0; i < caseNos.length; i += BATCH_SIZE) {
@@ -277,7 +291,13 @@ export default function CaseManagementSection() {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ caseNos: [caseNo], type }),
             });
-            if (!res.ok) throw new Error(`Failed for ${caseNo}`);
+            if (!res.ok) {
+              const body = await res.json().catch(() => ({}));
+              if (body.error === "case_limit_reached") {
+                limitReached = true;
+              }
+              throw new Error(body.error || `Failed for ${caseNo}`);
+            }
             return res.json();
           })
         );
@@ -286,9 +306,14 @@ export default function CaseManagementSection() {
         totalGenerated += succeeded;
         totalFailed += failed;
         setGenerateProgress({ current: Math.min(i + BATCH_SIZE, total), total, type });
+
+        // Stop processing further batches if limit reached
+        if (limitReached) break;
       }
 
-      if (totalFailed > 0) {
+      if (limitReached) {
+        toast.error("Case limit reached. Please top up your usage to generate more bills.", { duration: 5000 });
+      } else if (totalFailed > 0) {
         toast.error(`${totalFailed} bill(s) failed to generate`);
       } else {
         toast.success(`Generated ${totalGenerated} ${type} bill(s)`);
@@ -296,6 +321,8 @@ export default function CaseManagementSection() {
 
       setBillCacheBuster((prev) => prev + 1);
       await fetchCases();
+      // Notify AnalyticsSection to refresh usage
+      window.dispatchEvent(new Event("usage-updated"));
     } catch (err) {
       console.error("Bill generation failed:", err);
       toast.error("Bill generation failed. Please try again.");
@@ -372,7 +399,7 @@ export default function CaseManagementSection() {
   const totalPages = Math.ceil(count / PAGE_SIZE);
   const showingFrom = count === 0 ? 0 : page * PAGE_SIZE + 1;
   const showingTo = Math.min((page + 1) * PAGE_SIZE, count);
-  const hasFilters = search || status || dateFrom || dateTo;
+  const hasFilters = search || (status && status !== "Activated") || dateFrom || dateTo;
 
   return (
     <>
@@ -410,7 +437,7 @@ export default function CaseManagementSection() {
               <input type="date" aria-label="To date" className="h-9 rounded-lg border border-[#E3E8EF] bg-white px-2 sm:px-3 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none max-w-[150px]" value={dateTo} onChange={(e) => { setPage(0); setDateTo(e.target.value); }} />
             </div>
             {hasFilters && (
-              <Button variant="ghost" size="sm" className="text-xs rounded-lg text-[#DF1B41] hover:bg-red-50 hover:text-[#DF1B41] transition-colors" onClick={() => { setSearch(""); setStatus(""); setDateFrom(""); setDateTo(""); setPage(0); }}>
+              <Button variant="ghost" size="sm" className="text-xs rounded-lg text-[#DF1B41] hover:bg-red-50 hover:text-[#DF1B41] transition-colors" onClick={() => { setSearch(""); setStatus("Activated"); setDateFrom(""); setDateTo(""); setPage(0); }}>
                 Clear all
               </Button>
             )}

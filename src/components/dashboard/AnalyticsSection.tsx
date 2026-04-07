@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, LabelList,
@@ -229,6 +229,14 @@ export default function AnalyticsSection() {
     statusKeys: [], byState: [], allStatuses: [], allProviders: [], allPackages: [],
   };
 
+  // Refresh usage data
+  const refreshUsage = useCallback(() => {
+    fetch("/api/cases/usage")
+      .then((res) => res.json())
+      .then((data) => setCaseUsage(data))
+      .catch(() => {});
+  }, []);
+
   // Fetch analytics (initial load)
   useEffect(() => {
     fetch(`/api/cases/analytics?granularity=${granularity}&state_status=Activated`)
@@ -236,12 +244,16 @@ export default function AnalyticsSection() {
       .then((data) => setAnalytics(data.byStatus ? data : emptyAnalytics))
       .catch(() => setAnalytics(emptyAnalytics))
       .finally(() => setAnalyticsLoading(false));
-    fetch("/api/cases/usage")
-      .then((res) => res.json())
-      .then((data) => setCaseUsage(data))
-      .catch(() => {});
+    refreshUsage();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Listen for usage updates from CaseManagementSection (bill generation)
+  useEffect(() => {
+    const handler = () => refreshUsage();
+    window.addEventListener("usage-updated", handler);
+    return () => window.removeEventListener("usage-updated", handler);
+  }, [refreshUsage]);
 
   // Refetch time series when chart filters change
   useEffect(() => {
