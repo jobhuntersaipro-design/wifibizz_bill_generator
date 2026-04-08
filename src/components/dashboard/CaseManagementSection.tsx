@@ -184,6 +184,8 @@ export default function CaseManagementSection() {
   const [billCacheBuster, setBillCacheBuster] = useState(0);
   const [chatCase, setChatCase] = useState<CaseRow | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<"success" | "error" | null>(null);
+  const [syncCount, setSyncCount] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchCases = useCallback(async () => {
@@ -415,17 +417,23 @@ export default function CaseManagementSection() {
 
   async function handleSyncToSheet() {
     setSyncing(true);
+    setSyncResult(null);
+    setSyncCount(0);
     const result = await syncCasesToSheet();
+    setSyncing(false);
     if (result.success) {
+      setSyncResult("success");
+      setSyncCount(result.synced ?? 0);
       if (result.synced === 0) {
         toast.info("All cases already synced to Google Sheet.");
       } else {
         toast.success(`Synced ${result.synced} case(s) to Google Sheet.`);
       }
     } else {
+      setSyncResult("error");
       toast.error(result.error ?? "Sync failed");
     }
-    setSyncing(false);
+    setTimeout(() => setSyncResult(null), 2500);
   }
 
   const totalPages = Math.ceil(count / PAGE_SIZE);
@@ -495,17 +503,44 @@ export default function CaseManagementSection() {
               <DownloadIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
               <span className="truncate">Download Utility Bill{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
             </Button>
-            <Button onClick={handleSyncToSheet} disabled={syncing || generating || downloading} className="bg-white border border-[#E3E8EF] text-[#425466] hover:text-[#34A853] hover:border-[#34A853] rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all press-effect disabled:opacity-50 disabled:cursor-not-allowed">
+            <Button
+              onClick={handleSyncToSheet}
+              disabled={syncing || generating || downloading || syncResult !== null}
+              className={`rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all duration-300 press-effect disabled:cursor-not-allowed overflow-hidden ${
+                syncResult === "success"
+                  ? "bg-[#34A853] border-[#34A853] text-white shadow-[0_0_12px_rgba(52,168,83,0.4)]"
+                  : syncResult === "error"
+                  ? "bg-[#EA4335] border-[#EA4335] text-white shadow-[0_0_12px_rgba(234,67,53,0.4)]"
+                  : "bg-white border border-[#E3E8EF] text-[#425466] hover:text-[#34A853] hover:border-[#34A853] disabled:opacity-50"
+              }`}
+            >
               {syncing ? (
-                <>
-                  <span className="h-3.5 w-3.5 mr-1 sm:mr-2 animate-spin rounded-full border-2 border-[#34A853] border-t-transparent inline-block shrink-0" />
-                  <span className="truncate">Syncing...</span>
-                </>
+                <span className="flex items-center">
+                  <span className="relative h-4 w-4 mr-1 sm:mr-2 shrink-0">
+                    <span className="absolute inset-0 rounded-full border-2 border-[#34A853]/30" />
+                    <span className="absolute inset-0 rounded-full border-2 border-[#34A853] border-t-transparent animate-spin" />
+                  </span>
+                  <span className="truncate animate-pulse">Syncing...</span>
+                </span>
+              ) : syncResult === "success" ? (
+                <span className="flex items-center animate-[scaleIn_0.3s_ease-out]">
+                  <svg className="w-4 h-4 mr-1 sm:mr-2 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 13l4 4L19 7" className="animate-[drawCheck_0.4s_ease-out_0.1s_both]" style={{ strokeDasharray: 24, strokeDashoffset: 24, animation: "drawCheck 0.4s ease-out 0.1s forwards" }} />
+                  </svg>
+                  <span className="truncate">{syncCount > 0 ? `Synced ${syncCount}!` : "All synced!"}</span>
+                </span>
+              ) : syncResult === "error" ? (
+                <span className="flex items-center animate-[shakeX_0.4s_ease-out]">
+                  <svg className="w-4 h-4 mr-1 sm:mr-2 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 6L6 18M6 6l12 12" />
+                  </svg>
+                  <span className="truncate">Sync failed</span>
+                </span>
               ) : (
-                <>
-                  <SyncSheetIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
+                <span className="flex items-center">
+                  <SyncSheetIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0 transition-transform duration-300 group-hover:rotate-12" />
                   <span className="truncate">Sync to Sheet</span>
-                </>
+                </span>
               )}
             </Button>
           </div>
