@@ -13,14 +13,18 @@ function isBusiness(provider: string | null): boolean {
 function formatMobileDisplay(mobile: string | null): string {
   if (!mobile) return "";
   const cleaned = mobile.replace(/[^0-9+]/g, "");
-  if (cleaned.startsWith("+60") && cleaned.length >= 12) {
+  if (cleaned.startsWith("+60")) {
     const rest = cleaned.slice(3);
-    // +60 1x-xxx xxxx format (10 digits after 60)
-    if (rest.length === 10) {
+    // +6011x-xxxx xxxx format (10 digits after +60, e.g. 01119131715)
+    if (rest.length === 10 && rest.startsWith("11")) {
+      return `+60 ${rest.slice(0, 2)}-${rest.slice(2, 6)} ${rest.slice(6)}`;
+    }
+    // +60 1x-xxx xxxx format (9 digits after +60, e.g. 0109131715)
+    if (rest.length === 9) {
       return `+60 ${rest.slice(0, 2)}-${rest.slice(2, 5)} ${rest.slice(5)}`;
     }
-    // +60 1x-xxx xxxx format (9 digits after 60)
-    if (rest.length === 9) {
+    // 10-digit non-011 numbers: +60 1x-xxx xxxx
+    if (rest.length === 10) {
       return `+60 ${rest.slice(0, 2)}-${rest.slice(2, 5)} ${rest.slice(5)}`;
     }
   }
