@@ -12,9 +12,10 @@ import {
 import {
   SearchIcon, EmptyIcon, CloseIcon, ExternalLinkIcon, SortIcon,
   InternetBillIcon, UtilityBillIcon, DownloadIcon, CheckCircleIcon,
-  MessageSquareIcon,
+  MessageSquareIcon, SyncSheetIcon,
 } from "./icons";
 import ChatImageGenerator from "./ChatImageGenerator";
+import { syncCasesToSheet } from "@/actions/settings";
 
 // ── Case Detail Panel ──
 
@@ -182,6 +183,7 @@ export default function CaseManagementSection() {
   const [downloadConfirm, setDownloadConfirm] = useState<{ type: "internet" | "utility"; withBills: number; total: number } | null>(null);
   const [billCacheBuster, setBillCacheBuster] = useState(0);
   const [chatCase, setChatCase] = useState<CaseRow | null>(null);
+  const [syncing, setSyncing] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchCases = useCallback(async () => {
@@ -411,6 +413,21 @@ export default function CaseManagementSection() {
     }
   }
 
+  async function handleSyncToSheet() {
+    setSyncing(true);
+    const result = await syncCasesToSheet();
+    if (result.success) {
+      if (result.synced === 0) {
+        toast.info("All cases already synced to Google Sheet.");
+      } else {
+        toast.success(`Synced ${result.synced} case(s) to Google Sheet.`);
+      }
+    } else {
+      toast.error(result.error ?? "Sync failed");
+    }
+    setSyncing(false);
+  }
+
   const totalPages = Math.ceil(count / PAGE_SIZE);
   const showingFrom = count === 0 ? 0 : page * PAGE_SIZE + 1;
   const showingTo = Math.min((page + 1) * PAGE_SIZE, count);
@@ -477,6 +494,19 @@ export default function CaseManagementSection() {
             <Button onClick={() => handleDownloadClick("utility")} disabled={downloading || generating || selectedCases.size === 0} className="bg-white border border-[#E3E8EF] text-[#425466] hover:text-[#0A2540] hover:border-[#FF6B35] rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all press-effect disabled:opacity-50 disabled:cursor-not-allowed">
               <DownloadIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
               <span className="truncate">Download Utility Bill{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
+            </Button>
+            <Button onClick={handleSyncToSheet} disabled={syncing || generating || downloading} className="bg-white border border-[#E3E8EF] text-[#425466] hover:text-[#34A853] hover:border-[#34A853] rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all press-effect disabled:opacity-50 disabled:cursor-not-allowed">
+              {syncing ? (
+                <>
+                  <span className="h-3.5 w-3.5 mr-1 sm:mr-2 animate-spin rounded-full border-2 border-[#34A853] border-t-transparent inline-block shrink-0" />
+                  <span className="truncate">Syncing...</span>
+                </>
+              ) : (
+                <>
+                  <SyncSheetIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
+                  <span className="truncate">Sync to Sheet</span>
+                </>
+              )}
             </Button>
           </div>
           {selectedCases.size > 0 && (

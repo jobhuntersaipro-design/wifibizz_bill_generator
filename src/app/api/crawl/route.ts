@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import { crawl, type CrawlProgress } from "@/lib/crawler/scraper";
 import { upsertCases, updateLastCrawl, getUserPassword } from "@/lib/crawler/db";
 import { prisma } from "@/lib/prisma";
+import { appendCasesToSheet, getSheetCaseNumbers } from "@/lib/google-sheets";
 
 export async function POST(request: Request) {
   try {
@@ -69,12 +70,53 @@ export async function POST(request: Request) {
           const { inserted, updated } = await upsertCases(wifibizzUser.id, cases);
           await updateLastCrawl(wifibizzUser.id);
 
+          // Auto-sync to Google Sheet if configured
+          let sheetSynced = 0;
+          if (wifibizzUser.googleSheetId) {
+            try {
+              // Check for rows manually deleted from sheet
+              const sheetCaseNos = await getSheetCaseNumbers(wifibizzUser.googleSheetId);
+              const syncedCases = await prisma.wifibizzCase.findMany({
+                where: { userId: wifibizzUser.id, syncedToSheetAt: { not: null } },
+                select: { id: true, caseNo: true },
+              });
+              const missingIds = syncedCases
+                .filter((c) => !sheetCaseNos.has(c.caseNo))
+                .map((c) => c.id);
+              if (missingIds.length > 0) {
+                await prisma.wifibizzCase.updateMany({
+                  where: { id: { in: missingIds } },
+                  data: { syncedToSheetAt: null },
+                });
+              }
+
+              const unsyncedCases = await prisma.wifibizzCase.findMany({
+                where: { userId: wifibizzUser.id, syncedToSheetAt: null },
+                orderBy: { caseCreatedAt: "asc" },
+              });
+              if (unsyncedCases.length > 0) {
+                const { appendedRows } = await appendCasesToSheet(
+                  wifibizzUser.googleSheetId,
+                  unsyncedCases
+                );
+                sheetSynced = appendedRows;
+                await prisma.wifibizzCase.updateMany({
+                  where: { id: { in: unsyncedCases.map((c) => c.id) } },
+                  data: { syncedToSheetAt: new Date() },
+                });
+              }
+            } catch (sheetErr) {
+              console.error("Auto-sync to sheet failed:", sheetErr);
+            }
+          }
+
           sendEvent("done", {
             success: true,
             total: cases.length,
             saved: inserted + updated,
             inserted,
             updated,
+            sheetSynced,
             timestamp: new Date().toISOString(),
           });
         } catch (error) {

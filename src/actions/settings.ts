@@ -114,6 +114,182 @@ export async function getSidebarInfo() {
   }
 }
 
+export async function getGoogleSheetSettings() {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "Unauthorized", data: null };
+  }
+
+  try {
+    const wifibizzUser = await prisma.wifibizzUser.findUnique({
+      where: { userId: session.user.id },
+      select: { googleSheetId: true },
+    });
+
+    return {
+      success: true,
+      data: {
+        googleSheetId: wifibizzUser?.googleSheetId ?? null,
+        serviceAccountEmail: await import("@/lib/google-sheets").then(
+          (m) => m.getServiceAccountEmail()
+        ).catch(() => null),
+      },
+    };
+  } catch (error) {
+    console.error("Get Google Sheet settings error:", error);
+    return {
+      success: false,
+      error: "Failed to load Google Sheet settings.",
+      data: null,
+    };
+  }
+}
+
+export async function saveGoogleSheetId(sheetId: string) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  try {
+    const wifibizzUser = await prisma.wifibizzUser.findUnique({
+      where: { userId: session.user.id },
+    });
+
+    if (!wifibizzUser) {
+      return {
+        success: false,
+        error: "No WifiBizz account configured. Contact your administrator.",
+      };
+    }
+
+    await prisma.wifibizzUser.update({
+      where: { id: wifibizzUser.id },
+      data: { googleSheetId: sheetId || null },
+    });
+
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("Save Google Sheet ID error:", message);
+    return {
+      success: false,
+      error: "Failed to save Google Sheet ID. Please try again.",
+    };
+  }
+}
+
+export async function syncCasesToSheet() {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  try {
+    const wifibizzUser = await prisma.wifibizzUser.findUnique({
+      where: { userId: session.user.id },
+      select: { id: true, googleSheetId: true },
+    });
+
+    if (!wifibizzUser) {
+      return { success: false, error: "No WifiBizz account configured." };
+    }
+
+    if (!wifibizzUser.googleSheetId) {
+      return {
+        success: false,
+        error: "No Google Sheet ID configured. Set it in Settings.",
+      };
+    }
+
+    // Check sheet for rows that were manually deleted by the user
+    const { appendCasesToSheet, getSheetCaseNumbers } = await import("@/lib/google-sheets");
+    const sheetCaseNos = await getSheetCaseNumbers(wifibizzUser.googleSheetId);
+
+    // Find cases marked as synced in DB but missing from sheet (user deleted them)
+    const syncedCases = await prisma.wifibizzCase.findMany({
+      where: {
+        userId: wifibizzUser.id,
+        syncedToSheetAt: { not: null },
+      },
+      select: { id: true, caseNo: true },
+    });
+
+    const missingIds = syncedCases
+      .filter((c) => !sheetCaseNos.has(c.caseNo))
+      .map((c) => c.id);
+
+    if (missingIds.length > 0) {
+      // Reset syncedToSheetAt so they get re-synced
+      await prisma.wifibizzCase.updateMany({
+        where: { id: { in: missingIds } },
+        data: { syncedToSheetAt: null },
+      });
+    }
+
+    // Get unsynced cases (including freshly reset ones)
+    const unsyncedCases = await prisma.wifibizzCase.findMany({
+      where: {
+        userId: wifibizzUser.id,
+        syncedToSheetAt: null,
+      },
+      orderBy: { caseCreatedAt: "asc" },
+    });
+
+    if (unsyncedCases.length === 0) {
+      return { success: true, synced: 0, message: "All cases already synced." };
+    }
+
+    // Append to Google Sheet
+    const { appendedRows } = await appendCasesToSheet(
+      wifibizzUser.googleSheetId,
+      unsyncedCases
+    );
+
+    // Mark cases as synced
+    const now = new Date();
+    await prisma.wifibizzCase.updateMany({
+      where: {
+        id: { in: unsyncedCases.map((c) => c.id) },
+      },
+      data: { syncedToSheetAt: now },
+    });
+
+    return { success: true, synced: appendedRows };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("Sync to sheet error:", message);
+    if (message.includes("GOOGLE_SERVICE_ACCOUNT_JSON")) {
+      return {
+        success: false,
+        error: "Google Sheets integration is not configured yet. Please contact your administrator to set up the service account.",
+      };
+    }
+    if (message.includes("not found") || message.includes("404")) {
+      return {
+        success: false,
+        error: "Google Sheet not found. Double-check the Sheet ID and make sure you shared the sheet with the service account email.",
+      };
+    }
+    if (message.includes("permission") || message.includes("403")) {
+      return {
+        success: false,
+        error: "Permission denied. Make sure you shared the Google Sheet with the service account email and gave it Editor access.",
+      };
+    }
+    if (message.includes("INVALID") || message.includes("parse")) {
+      return {
+        success: false,
+        error: "Invalid service account credentials. Please contact your administrator.",
+      };
+    }
+    return {
+      success: false,
+      error: "Sync failed. Please check your Google Sheet ID and sharing permissions, then try again.",
+    };
+  }
+}
+
 export async function testWifibizzConnection() {
   const session = await auth();
   if (!session?.user?.id) {

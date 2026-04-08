@@ -8,6 +8,9 @@ import {
   saveWifibizzPassword,
   getWifibizzCredentials,
   testWifibizzConnection,
+  getGoogleSheetSettings,
+  saveGoogleSheetId,
+  syncCasesToSheet,
 } from "@/actions/settings";
 import { toast } from "sonner";
 
@@ -23,6 +26,12 @@ export default function SettingsPage() {
   const [originalPassword, setOriginalPassword] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null);
+  const [googleSheetId, setGoogleSheetId] = useState("");
+  const [savedSheetId, setSavedSheetId] = useState("");
+  const [savingSheet, setSavingSheet] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [serviceAccountEmail, setServiceAccountEmail] = useState<string | null>(null);
+  const [showGuide, setShowGuide] = useState(false);
 
   useEffect(() => {
     getWifibizzCredentials().then((result) => {
@@ -36,6 +45,13 @@ export default function SettingsPage() {
         setLastCrawlAt(result.data.lastCrawlAt);
       }
       setLoading(false);
+    });
+    getGoogleSheetSettings().then((result) => {
+      if (result.success && result.data) {
+        setGoogleSheetId(result.data.googleSheetId ?? "");
+        setSavedSheetId(result.data.googleSheetId ?? "");
+        setServiceAccountEmail(result.data.serviceAccountEmail);
+      }
     });
   }, []);
 
@@ -63,6 +79,33 @@ export default function SettingsPage() {
     }
 
     setSaving(false);
+  }
+
+  async function handleSaveSheetId() {
+    setSavingSheet(true);
+    const result = await saveGoogleSheetId(googleSheetId);
+    if (result.success) {
+      toast.success(googleSheetId ? "Google Sheet ID saved" : "Google Sheet ID removed");
+      setSavedSheetId(googleSheetId);
+    } else {
+      toast.error(result.error ?? "Failed to save");
+    }
+    setSavingSheet(false);
+  }
+
+  async function handleSyncToSheet() {
+    setSyncing(true);
+    const result = await syncCasesToSheet();
+    if (result.success) {
+      if (result.synced === 0) {
+        toast.info("All cases already synced to sheet.");
+      } else {
+        toast.success(`Synced ${result.synced} case(s) to Google Sheet.`);
+      }
+    } else {
+      toast.error(result.error ?? "Sync failed");
+    }
+    setSyncing(false);
   }
 
   async function handleTestConnection() {
@@ -256,6 +299,161 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* Google Sheets Sync */}
+      <div className="max-w-xl animate-fade-in-up" style={{ animationDelay: "300ms" }}>
+        <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden">
+          <div className="px-6 py-4 border-b border-[#E3E8EF]">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-[#F6F9FC] flex items-center justify-center">
+                <SheetIcon className="w-4 h-4 text-[#34A853]" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-[#0A2540]">
+                  Google Sheets Sync
+                </h2>
+                <p className="text-xs text-[#697386] mt-0.5">
+                  Automatically append new cases to your Google Sheet
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-6 space-y-4">
+            {/* Setup Guide Toggle */}
+            <button
+              type="button"
+              onClick={() => setShowGuide(!showGuide)}
+              className="flex items-center gap-2 text-xs font-medium text-[#635BFF] hover:text-[#5851DB] transition-colors w-full"
+            >
+              <ChevronIcon className={`w-3.5 h-3.5 transition-transform duration-200 ${showGuide ? "rotate-90" : ""}`} />
+              How to set up Google Sheets sync
+            </button>
+
+            {/* Setup Guide */}
+            {showGuide && (
+              <div className="space-y-3 animate-fade-in-up" style={{ animationDuration: "200ms" }}>
+                {/* Step 1 */}
+                <div className="flex gap-3">
+                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-[#635BFF] text-white flex items-center justify-center text-[11px] font-bold mt-0.5">1</div>
+                  <div>
+                    <p className="text-xs font-semibold text-[#0A2540]">Create a new Google Sheet</p>
+                    <p className="text-[11px] text-[#697386] mt-0.5 leading-relaxed">
+                      Go to <span className="font-medium text-[#425466]">sheets.google.com </span> and create a blank spreadsheet. Give it a name like &quot;My Cases&quot;.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Step 2 */}
+                <div className="flex gap-3">
+                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-[#635BFF] text-white flex items-center justify-center text-[11px] font-bold mt-0.5">2</div>
+                  <div>
+                    <p className="text-xs font-semibold text-[#0A2540]">Share with the service account</p>
+                    <p className="text-[11px] text-[#697386] mt-0.5 leading-relaxed">
+                      Click <span className="font-medium text-[#425466]">Share</span> in the top right, then paste the service account email below and give it <span className="font-medium text-[#425466]">Editor</span> access.
+                    </p>
+                    {serviceAccountEmail && (
+                      <div className="flex items-center gap-2 mt-2">
+                        <code className="text-[11px] text-[#635BFF] bg-[#F6F9FC] px-2 py-1 rounded border border-[#E3E8EF] flex-1 truncate">
+                          {serviceAccountEmail}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(serviceAccountEmail);
+                            toast.success("Email copied to clipboard");
+                          }}
+                          className="text-[#697386] hover:text-[#0A2540] transition-colors shrink-0"
+                          aria-label="Copy service account email"
+                        >
+                          <CopyIcon className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Step 3 */}
+                <div className="flex gap-3">
+                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-[#635BFF] text-white flex items-center justify-center text-[11px] font-bold mt-0.5">3</div>
+                  <div>
+                    <p className="text-xs font-semibold text-[#0A2540]">Copy the Sheet ID from the URL</p>
+                    <p className="text-[11px] text-[#697386] mt-0.5 leading-relaxed">
+                      Open your Google Sheet and look at the URL in your browser. The Sheet ID is the long string between <span className="font-medium text-[#425466]">/d/</span> and <span className="font-medium text-[#425466]">/edit</span>.
+                    </p>
+                    <div className="mt-2 bg-[#F6F9FC] rounded-lg px-3 py-2 border border-[#E3E8EF]">
+                      <p className="text-[10px] text-[#697386] mb-1">Example URL:</p>
+                      <p className="text-[11px] text-[#425466] break-all leading-relaxed font-mono">
+                        docs.google.com/spreadsheets/d/<span className="text-[#635BFF] font-semibold bg-[#EBE9FE] px-0.5 rounded">1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms</span>/edit
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Step 4 */}
+                <div className="flex gap-3">
+                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-[#635BFF] text-white flex items-center justify-center text-[11px] font-bold mt-0.5">4</div>
+                  <div>
+                    <p className="text-xs font-semibold text-[#0A2540]">Paste the Sheet ID below and save</p>
+                    <p className="text-[11px] text-[#697386] mt-0.5 leading-relaxed">
+                      Paste the highlighted part into the field below, then click <span className="font-medium text-[#425466]">Save Sheet ID</span>. New cases will automatically sync after each crawl.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="border-t border-[#E3E8EF] my-1" />
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <Label htmlFor="google-sheet-id" className="text-xs font-medium text-[#425466]">
+                Google Sheet ID
+              </Label>
+              <Input
+                id="google-sheet-id"
+                type="text"
+                placeholder="e.g. 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
+                value={googleSheetId}
+                onChange={(e) => setGoogleSheetId(e.target.value)}
+                className="rounded-lg h-10 border-[#E3E8EF] focus:border-[#635BFF] font-mono text-xs"
+              />
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                disabled={savingSheet || googleSheetId === savedSheetId}
+                onClick={handleSaveSheetId}
+                className="h-10 px-5 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] hover-glow"
+              >
+                {savingSheet ? "Saving..." : savedSheetId ? "Update Sheet ID" : "Save Sheet ID"}
+              </Button>
+
+              {savedSheetId && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={syncing}
+                  onClick={handleSyncToSheet}
+                  className="h-10 px-5 rounded-lg text-sm font-medium border-[#E3E8EF] text-[#425466] hover:border-[#34A853] hover:text-[#34A853] press-effect"
+                >
+                  {syncing ? (
+                    <>
+                      <span className="h-3.5 w-3.5 mr-2 animate-spin rounded-full border-2 border-[#34A853] border-t-transparent inline-block" />
+                      Syncing...
+                    </>
+                  ) : (
+                    <>
+                      <SyncIcon className="w-3.5 h-3.5 mr-2" />
+                      Sync Now
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Confirmation modal */}
       {showConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 animate-fade-in" style={{ animationDuration: "200ms" }}>
@@ -337,6 +535,45 @@ function CheckIcon({ className }: { className?: string }) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
       <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
+}
+
+function SheetIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M3 9h18" />
+      <path d="M3 15h18" />
+      <path d="M9 3v18" />
+    </svg>
+  );
+}
+
+function CopyIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+
+function SyncIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+      <path d="M16 16h5v5" />
+    </svg>
+  );
+}
+
+function ChevronIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="m9 18 6-6-6-6" />
     </svg>
   );
 }

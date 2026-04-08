@@ -28,7 +28,9 @@ async function globalSetup() {
   try {
     await signIn(page);
   } catch (err) {
-    await page.screenshot({ path: path.join(authDir, "setup-failure.png") });
+    await page.screenshot({ path: path.join(authDir, "setup-failure.png"), fullPage: true });
+    console.error("Auth setup failed. URL:", page.url());
+    console.error("Screenshot saved to:", path.join(authDir, "setup-failure.png"));
     throw err;
   }
 

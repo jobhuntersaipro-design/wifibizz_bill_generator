@@ -58,6 +58,7 @@ model WifibizzUser {
   user               User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
   wifibizzEmail      String          @unique @map("wifibizz_email")
   wifibizzPasswordEnc String         @map("wifibizz_password_enc")
+  googleSheetId      String?         @map("google_sheet_id")
   lastCrawlAt        DateTime?       @map("last_crawl_at")
   createdAt          DateTime?       @default(now()) @map("created_at")
   updatedAt          DateTime?       @default(now()) @map("updated_at")
@@ -86,6 +87,7 @@ model WifibizzCase {
   internetBillUrl String?       @map("internet_bill_url")
   utilityBillUrl  String?       @map("utility_bill_url")
   caseCreatedAt   DateTime?     @map("case_created_at")
+  syncedToSheetAt DateTime?     @map("synced_to_sheet_at")
   scrapedAt       DateTime?     @default(now()) @map("scraped_at")
   updatedAt       DateTime?     @default(now()) @map("updated_at")
 

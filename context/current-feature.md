@@ -2,15 +2,34 @@
 
 ## Status
 
-Not Started
+In Progress
 
 ## Goals
 
-<!-- Add goals here -->
+- Sync case list to Google Sheets (append-only) per user
+- User-managed Google Sheet ID in Settings page (admin has no visibility into sheet contents)
+- Google Sheets API with service account for appending rows
+- Deduplication via `synced_to_sheet_at` timestamp on cases
+- Auto-sync after crawl + manual "Sync to Sheet" button on dashboard
 
 ## Notes
 
-<!-- Add notes here -->
+### Architecture
+- **Google Service Account** — single credential stored as `GOOGLE_SERVICE_ACCOUNT_JSON` env var
+- **User enters their own Sheet ID** in Settings → no admin involvement or visibility
+- User creates Google Sheet → shares with service account email (displayed in UI) → pastes Sheet ID in Settings
+- Append-only: new cases appended via `spreadsheets.values.append()`, never updates/deletes
+- `synced_to_sheet_at` column on `wifibizz_cases` tracks what's been synced, prevents duplicates
+
+### Implementation Steps
+1. Add `google_sheet_id` column to `wifibizz_users` table (Prisma migration)
+2. Add `synced_to_sheet_at` column to `wifibizz_cases` table
+3. Create `src/lib/google-sheets.ts` — append function using `googleapis` package
+4. Add Google Sheet ID field to Settings page (user-managed)
+5. Create `POST /api/sheets/sync` endpoint — syncs unsynced cases for the authenticated user
+6. Auto-trigger sync after crawl completes
+7. Add "Sync to Sheet" button on dashboard
+8. Display service account email in Settings UI so users know who to share their sheet with
 
 ## History
 

@@ -24,7 +24,7 @@ export async function signIn(page: Page) {
 
   await page.goto("/auth/signin");
   await page.getByLabel("Email Address").fill(email);
-  await page.getByLabel("Password").fill(password);
+  await page.locator('input[name="password"]').fill(password);
   await page.getByRole("button", { name: /^Sign in$/i }).click();
 
   // Wait for redirect to dashboard
