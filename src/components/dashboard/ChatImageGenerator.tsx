@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
+import Image from "next/image";
 import { toPng } from "html-to-image";
 import type { CaseRow } from "./shared";
 import { CloseIcon, DownloadIcon } from "./icons";
@@ -71,9 +72,8 @@ function TextWithLinks({ text, style }: { text: string; style?: React.CSSPropert
   );
 }
 
-function formatInstallDate(caseCreatedAt: string | null): string {
+function formatInstallDate(caseCreatedAt: string | null, offsetDays: number): string {
   const base = caseCreatedAt ? new Date(caseCreatedAt) : new Date();
-  const offsetDays = 3 + Math.floor(Math.random() * 5); // 3-7 days
   const d = new Date(base);
   d.setDate(d.getDate() + offsetDays);
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -81,14 +81,14 @@ function formatInstallDate(caseCreatedAt: string | null): string {
 }
 
 // Builds the closing script lines as structured data for rendering
-function buildScriptLines(c: CaseRow): { label: string; value: string }[] {
+function buildScriptLines(c: CaseRow, installOffsetDays: number): { label: string; value: string }[] {
   const name = c.full_name || "—";
   const mobile = formatMobileRaw(c.mobile);
   const idNo = c.id_no || "—";
   const email = c.email || "—";
   const address = c.full_address || "—";
   const pkg = formatPackage(c.package);
-  const installDate = formatInstallDate(c.case_created_at);
+  const installDate = formatInstallDate(c.case_created_at, installOffsetDays);
 
   if (isBusiness(c.provider)) {
     return [
@@ -121,7 +121,7 @@ function buildScriptLines(c: CaseRow): { label: string; value: string }[] {
 function getTerms(provider: string | null): string[] {
   if (isBusiness(provider)) {
     return [
-      "I hereby consent to subscribed the service with subscription contract of 24 months.",
+      "I hereby consent to subscribed the service with subscription contract of 36 months.",
       "I have been informed on the Terms & Condition as at https://biz.unifi.com.my/business/biz-tnc and Privacy Notice of TM",
       "I agree to pay advance payment of RM 100 within 10 days after installation complete",
       "I hereby agree all the information provided to TM is correct and genuine.",
@@ -129,7 +129,7 @@ function getTerms(provider: string | null): string[] {
     ];
   }
   return [
-    "I hereby consent to subscribed the service with subscription contract of 24 months",
+    "I hereby consent to subscribed the service with subscription contract of 36 months",
     "I have been informed on the Terms & Condition as at https://unifi.com.my/personal/home/fibre-broadband/tnc and TM Privacy Notice",
     "I agree to pay advance payment of RM 100 for Malaysian and RM 500 for foreigner within 10 days after installation complete.",
     "I hereby agree all the information provided to TM is correct and genuine.",
@@ -157,17 +157,45 @@ function pickWallpaper(): string {
   return WA_WALLPAPERS[Math.floor(Math.random() * WA_WALLPAPERS.length)];
 }
 
+interface ChatRandomization {
+  wallpaper: string;
+  time: string;
+  unreadCount: number;
+  installOffsetDays: number;
+}
+
+// Generates all randomized display values together. Called outside render
+// (lazy state init / event handlers) so the component tree stays pure.
+function makeRandomization(): ChatRandomization {
+  return {
+    wallpaper: pickWallpaper(),
+    time: getTimeString(),
+    unreadCount: 10 + Math.floor(Math.random() * 30),
+    installOffsetDays: 3 + Math.floor(Math.random() * 5), // 3-7 days
+  };
+}
+
 const S = {
   text: { color: "#E9EDEF", fontSize: 14.2, lineHeight: 1.4 } as React.CSSProperties,
   muted: { color: "#8696A0" } as React.CSSProperties,
 };
 
-function WhatsAppChat({ caseData, wallpaper }: { caseData: CaseRow; wallpaper: string }) {
-  const lines = buildScriptLines(caseData);
+function WhatsAppChat({
+  caseData,
+  wallpaper,
+  time,
+  unreadCount,
+  installOffsetDays,
+}: {
+  caseData: CaseRow;
+  wallpaper: string;
+  time: string;
+  unreadCount: number;
+  installOffsetDays: number;
+}) {
+  const lines = buildScriptLines(caseData, installOffsetDays);
   const terms = getTerms(caseData.provider);
   const mobileDisplay = formatMobileDisplay(caseData.mobile);
-  const time = getTimeString();
-  const unreadCount = Math.floor(Math.random() * 30) + 10;
 
   return (
     <div
@@ -410,9 +438,10 @@ interface ChatImageGeneratorProps {
 export default function ChatImageGenerator({ caseData, onClose }: ChatImageGeneratorProps) {
   const chatRef = useRef<HTMLDivElement>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageDims, setImageDims] = useState({ width: 414, height: 0 });
   const [generating, setGenerating] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
-  const [wallpaper, setWallpaper] = useState(() => pickWallpaper());
+  const [rand, setRand] = useState(makeRandomization);
 
   useEffect(() => {
     requestAnimationFrame(() => setIsVisible(true));
@@ -422,23 +451,25 @@ export default function ChatImageGenerator({ caseData, onClose }: ChatImageGener
     if (!chatRef.current) return;
     setGenerating(true);
     try {
-      const dataUrl = await toPng(chatRef.current, {
+      const node = chatRef.current;
+      const dataUrl = await toPng(node, {
         pixelRatio: 2,
-        backgroundColor: wallpaper,
+        backgroundColor: rand.wallpaper,
       });
+      setImageDims({ width: node.offsetWidth, height: node.offsetHeight });
       setImageUrl(dataUrl);
     } catch (err) {
       console.error("Failed to generate chat image:", err);
     } finally {
       setGenerating(false);
     }
-  }, [wallpaper]);
+  }, [rand.wallpaper]);
 
-  // Auto-generate on mount and when wallpaper changes
+  // Auto-generate on mount and when the randomization (wallpaper) changes
   useEffect(() => {
     const timer = setTimeout(generateImage, 150);
     return () => clearTimeout(timer);
-  }, [generateImage, wallpaper]);
+  }, [generateImage]);
 
   function handleDownload() {
     if (!imageUrl) return;
@@ -488,7 +519,13 @@ export default function ChatImageGenerator({ caseData, onClose }: ChatImageGener
           {/* Hidden render target */}
           <div style={{ position: "absolute", left: -9999, top: -9999 }}>
             <div ref={chatRef}>
-              <WhatsAppChat caseData={caseData} wallpaper={wallpaper} />
+              <WhatsAppChat
+                caseData={caseData}
+                wallpaper={rand.wallpaper}
+                time={rand.time}
+                unreadCount={rand.unreadCount}
+                installOffsetDays={rand.installOffsetDays}
+              />
             </div>
           </div>
 
@@ -501,9 +538,12 @@ export default function ChatImageGenerator({ caseData, onClose }: ChatImageGener
           )}
           {imageUrl && !generating && (
             <div className="rounded-lg overflow-hidden border border-[#E3E8EF] bg-[#0B141A]">
-              <img
+              <Image
                 src={imageUrl}
                 alt={`Closing script for case ${caseData.case_no}`}
+                width={imageDims.width}
+                height={imageDims.height}
+                unoptimized
                 className="w-full h-auto"
               />
             </div>
@@ -513,7 +553,7 @@ export default function ChatImageGenerator({ caseData, onClose }: ChatImageGener
         {/* Footer */}
         <div className="flex items-center gap-3 px-6 py-4 border-t border-[#E3E8EF]">
           <button
-            onClick={() => setWallpaper(pickWallpaper())}
+            onClick={() => setRand(makeRandomization())}
             disabled={generating}
             className="flex items-center gap-2 px-4 h-9 rounded-lg border border-[#E3E8EF] text-sm font-medium text-[#425466] hover:text-[#0A2540] hover:border-[#635BFF] transition-all disabled:opacity-50"
           >

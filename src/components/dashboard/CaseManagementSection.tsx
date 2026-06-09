@@ -25,13 +25,14 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat }: { c
 
   useEffect(() => { requestAnimationFrame(() => setIsVisible(true)); }, []);
 
+  const handleClose = useCallback(() => { setIsVisible(false); setTimeout(onClose, 300); }, [onClose]);
+
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) { if (e.key === "Escape") handleClose(); }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  });
+  }, [handleClose]);
 
-  function handleClose() { setIsVisible(false); setTimeout(onClose, 300); }
   function handleBackdropClick(e: React.MouseEvent) { if (e.target === e.currentTarget) handleClose(); }
 
   const sections = [
@@ -88,7 +89,7 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat }: { c
                       <div key={field.label} style={{ opacity: isVisible ? 1 : 0, transform: isVisible ? "translateY(0)" : "translateY(8px)", transition: `opacity 350ms ease-out ${delay + 40 + fieldIndex * 40}ms, transform 350ms ease-out ${delay + 40 + fieldIndex * 40}ms` }}>
                         <dt className="text-xs text-[#697386] mb-0.5">{field.label}</dt>
                         <dd className="text-sm text-[#0A2540]">
-                          {field.isStatus ? (<span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${getStatusStyle(field.value ?? null)}`}>{field.value}</span>) : (<span className="break-words">{field.value}</span>)}
+                          {field.isStatus ? (<span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${getStatusStyle(field.value ?? null)}`}>{field.value}</span>) : (<span className="wrap-break-word">{field.value}</span>)}
                         </dd>
                       </div>
                     ))}
@@ -105,7 +106,7 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat }: { c
             {caseData.internet_bill_url ? (
               <div className="space-y-3">
                 <div className="rounded-lg border border-[#E3E8EF] overflow-hidden bg-[#F6F9FC]">
-                  <iframe src={`/api/bills/download?case_no=${caseData.case_no}&type=internet&t=${cacheBuster}`} className="w-full h-[400px]" title="Internet Bill Preview" />
+                  <iframe src={`/api/bills/download?case_no=${caseData.case_no}&type=internet&t=${cacheBuster}`} className="w-full h-100" title="Internet Bill Preview" />
                 </div>
                 <a href={`/api/bills/download?case_no=${caseData.case_no}&type=internet&t=${cacheBuster}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-[#635BFF] hover:text-[#0A2540] transition-colors duration-200">
                   <DownloadIcon className="w-3.5 h-3.5" />Download Internet Bill
@@ -123,7 +124,7 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat }: { c
             {caseData.utility_bill_url ? (
               <div className="space-y-3">
                 <div className="rounded-lg border border-[#E3E8EF] overflow-hidden bg-[#F6F9FC]">
-                  <iframe src={`/api/bills/download?case_no=${caseData.case_no}&type=utility&t=${cacheBuster}`} className="w-full h-[400px]" title="Utility Bill Preview" />
+                  <iframe src={`/api/bills/download?case_no=${caseData.case_no}&type=utility&t=${cacheBuster}`} className="w-full h-100" title="Utility Bill Preview" />
                 </div>
                 <a href={`/api/bills/download?case_no=${caseData.case_no}&type=utility&t=${cacheBuster}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-[#FF6B35] hover:text-[#0A2540] transition-colors duration-200">
                   <DownloadIcon className="w-3.5 h-3.5" />Download Utility Bill
@@ -462,7 +463,7 @@ export default function CaseManagementSection() {
         {/* Filters bar */}
         <div className="bg-white rounded-lg border border-[#E3E8EF] p-4 animate-fade-in-up" style={{ animationDelay: "550ms" }}>
           <div className="flex flex-wrap items-center gap-3">
-            <div className="flex-1 min-w-0 sm:min-w-[220px] max-w-sm relative group">
+            <div className="flex-1 min-w-0 sm:min-w-55 max-w-sm relative group">
               <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#697386] transition-colors group-focus-within:text-[#635BFF]" />
               <Input placeholder="Search name, case no, mobile, provider..." defaultValue="" onChange={(e) => handleSearchChange(e.target.value)} className="pl-9 h-9 bg-[#F6F9FC] border-[#E3E8EF] rounded-lg text-sm text-[#0A2540] placeholder:text-[#697386] focus:bg-white focus:border-[#635BFF] transition-all" />
             </div>
@@ -472,9 +473,9 @@ export default function CaseManagementSection() {
             </select>
             <div className="flex flex-wrap items-center gap-2">
               <label className="text-xs text-[#697386] whitespace-nowrap font-medium hidden sm:inline">From</label>
-              <input type="date" aria-label="From date" className="h-9 rounded-lg border border-[#E3E8EF] bg-white px-2 sm:px-3 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none max-w-[150px]" value={dateFrom} onChange={(e) => { setPage(0); setDateFrom(e.target.value); }} />
+              <input type="date" aria-label="From date" className="h-9 rounded-lg border border-[#E3E8EF] bg-white px-2 sm:px-3 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none max-w-37.5" value={dateFrom} onChange={(e) => { setPage(0); setDateFrom(e.target.value); }} />
               <label className="text-xs text-[#697386] whitespace-nowrap font-medium hidden sm:inline">To</label>
-              <input type="date" aria-label="To date" className="h-9 rounded-lg border border-[#E3E8EF] bg-white px-2 sm:px-3 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none max-w-[150px]" value={dateTo} onChange={(e) => { setPage(0); setDateTo(e.target.value); }} />
+              <input type="date" aria-label="To date" className="h-9 rounded-lg border border-[#E3E8EF] bg-white px-2 sm:px-3 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none max-w-37.5" value={dateTo} onChange={(e) => { setPage(0); setDateTo(e.target.value); }} />
             </div>
             {hasFilters && (
               <Button variant="ghost" size="sm" className="text-xs rounded-lg text-[#DF1B41] hover:bg-red-50 hover:text-[#DF1B41] transition-colors" onClick={() => { setSearch(""); setStatus("Activated"); setDateFrom(""); setDateTo(""); setPage(0); }}>
@@ -674,14 +675,14 @@ export default function CaseManagementSection() {
                       <td className="px-4 py-3 text-[13px] tabular-nums whitespace-nowrap">
                         {c.case_url ? (<a href={c.case_url} target="_blank" rel="noopener noreferrer" className="text-[#635BFF] font-medium hover:underline transition-colors" onClick={(e) => e.stopPropagation()}>{c.case_no}</a>) : (<span className="font-medium text-[#425466]">{c.case_no}</span>)}
                       </td>
-                      <td className="px-4 py-3 text-[13px] whitespace-nowrap hidden lg:table-cell"><span className="block truncate max-w-[140px] text-[#425466]">{c.order_no || "—"}</span></td>
+                      <td className="px-4 py-3 text-[13px] whitespace-nowrap hidden lg:table-cell"><span className="block truncate max-w-35 text-[#425466]">{c.order_no || "—"}</span></td>
                       <td className="px-4 py-3 whitespace-nowrap"><span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${getStatusStyle(c.status)}`}>{c.status ?? "Unknown"}</span></td>
-                      <td className="px-4 py-3"><span className="block truncate max-w-[160px] text-[13px] font-medium text-[#0A2540]">{c.full_name || "—"}</span></td>
-                      <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-[180px] text-[13px] text-[#697386]">{c.full_address || "—"}</span></td>
+                      <td className="px-4 py-3"><span className="block truncate max-w-40 text-[13px] font-medium text-[#0A2540]">{c.full_name || "—"}</span></td>
+                      <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-45 text-[13px] text-[#697386]">{c.full_address || "—"}</span></td>
                       <td className="px-4 py-3 text-[13px] text-[#425466] tabular-nums whitespace-nowrap">{c.mobile || "—"}</td>
-                      <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-[140px] text-[13px] text-[#425466]">{c.provider || "—"}</span></td>
-                      <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-[160px] text-[13px] text-[#425466]">{c.package || "—"}</span></td>
-                      <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-[160px] text-[13px] text-[#697386]">{c.agent_remark || "—"}</span></td>
+                      <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-35 text-[13px] text-[#425466]">{c.provider || "—"}</span></td>
+                      <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-40 text-[13px] text-[#425466]">{c.package || "—"}</span></td>
+                      <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-40 text-[13px] text-[#697386]">{c.agent_remark || "—"}</span></td>
                       <td className="px-4 py-3 text-[13px] text-[#697386] tabular-nums whitespace-nowrap">{formatDateTime(c.case_created_at)}</td>
                       <td className="px-4 py-3 text-[13px] text-[#697386] tabular-nums whitespace-nowrap hidden lg:table-cell">{formatDateTime(c.updated_at)}</td>
                       <td className="px-3 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
