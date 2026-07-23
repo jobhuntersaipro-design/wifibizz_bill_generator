@@ -6,12 +6,15 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import {
   getDealerConnection,
+  checkDealerConnection,
   requestDealerOtp,
   submitDealerOtp,
   cancelDealerOtp,
   type DealerConnection,
 } from "@/actions/dealer";
 import { toast } from "sonner";
+import { OrderForm } from "@/components/order-entry/OrderForm";
+import { OrdersList } from "@/components/order-entry/OrdersList";
 
 type Step = "form" | "otp";
 
@@ -35,6 +38,24 @@ export default function OrderEntryPage() {
   const [sending, setSending] = useState(false);
   const [verifying, setVerifying] = useState(false);
 
+  // Live session-health check state
+  const [checking, setChecking] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [nowTs, setNowTs] = useState(() => Date.now());
+  const [orderTab, setOrderTab] = useState<"new" | "drafts">("new");
+
+  const runStatusCheck = useCallback(async () => {
+    setChecking(true);
+    const result = await checkDealerConnection();
+    if (result.success) {
+      setConnection(result.data);
+      if (result.data?.staffCode) setStaffCode(result.data.staffCode);
+      // A stored account that no longer validates = timed out.
+      setSessionExpired(!!result.data && !result.data.connected);
+    }
+    setChecking(false);
+  }, []);
+
   const loadConnection = useCallback(async () => {
     const result = await getDealerConnection();
     if (result.success) {
@@ -42,7 +63,11 @@ export default function OrderEntryPage() {
       if (result.data?.staffCode) setStaffCode(result.data.staffCode);
     }
     setLoading(false);
-  }, []);
+    // If the DB thinks we have a session, confirm it's really still alive.
+    if (result.success && result.data) {
+      runStatusCheck();
+    }
+  }, [runStatusCheck]);
 
   useEffect(() => {
     loadConnection();
@@ -65,6 +90,26 @@ export default function OrderEntryPage() {
     }, 1000);
     return () => clearInterval(t);
   }, [step, secondsLeft]);
+
+  // Tick every second while connected so the session countdown updates.
+  useEffect(() => {
+    if (!connection?.connected || !connection?.sessionExpiresAt) return;
+    const t = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [connection?.connected, connection?.sessionExpiresAt]);
+
+  const sessionSecondsLeft = connection?.sessionExpiresAt
+    ? Math.max(0, Math.floor((new Date(connection.sessionExpiresAt).getTime() - nowTs) / 1000))
+    : 0;
+
+  function fmtCountdown(secs: number) {
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    return h > 0
+      ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+      : `${m}:${String(s).padStart(2, "0")}`;
+  }
 
   async function handleSendOtp(e: React.FormEvent) {
     e.preventDefault();
@@ -95,6 +140,7 @@ export default function OrderEntryPage() {
       setPendingId(null);
       setStep("form");
       setReconnecting(false);
+      setSessionExpired(false);
       await loadConnection();
     } else {
       toast.error(result.error ?? "OTP verification failed");
@@ -158,15 +204,22 @@ export default function OrderEntryPage() {
             {isConnected ? (
               /* ---------- Connected state ---------- */
               <div className="space-y-4">
-                <div className="flex items-center gap-2 text-sm bg-green-50 text-green-700 rounded-lg px-4 py-3">
-                  <CheckIcon className="w-4 h-4 shrink-0" />
-                  <span>
-                    Connected as{" "}
-                    <span className="font-semibold tabular-nums">
-                      {connection?.staffCode || "—"}
+                {checking ? (
+                  <div className="flex items-center gap-2 text-sm bg-[#F6F9FC] text-[#425466] rounded-lg px-4 py-3">
+                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent inline-block" />
+                    <span>Verifying connection…</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-sm bg-green-50 text-green-700 rounded-lg px-4 py-3">
+                    <CheckIcon className="w-4 h-4 shrink-0" />
+                    <span>
+                      Connected as{" "}
+                      <span className="font-semibold tabular-nums">
+                        {connection?.staffCode || "—"}
+                      </span>
                     </span>
-                  </span>
-                </div>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-3 text-xs">
                   <div className="bg-[#F6F9FC] rounded-lg px-4 py-3">
                     <p className="text-[#697386]">Last connected</p>
@@ -177,30 +230,48 @@ export default function OrderEntryPage() {
                     </p>
                   </div>
                   <div className="bg-[#F6F9FC] rounded-lg px-4 py-3">
-                    <p className="text-[#697386]">Session expires</p>
-                    <p className="text-[#0A2540] font-medium mt-0.5">
-                      {connection?.sessionExpiresAt
-                        ? new Date(connection.sessionExpiresAt).toLocaleString()
-                        : "—"}
+                    <p className="text-[#697386]">Session expires in</p>
+                    <p className={`font-semibold mt-0.5 tabular-nums ${sessionSecondsLeft <= 60 ? "text-[#DF1B41]" : "text-[#0A2540]"}`}>
+                      {sessionSecondsLeft > 0 ? fmtCountdown(sessionSecondsLeft) : "expired"}
                     </p>
                   </div>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setReconnecting(true);
-                    setStep("form");
-                    setPassword("");
-                  }}
-                  className="h-10 px-5 rounded-lg text-sm font-medium border-[#E3E8EF] text-[#425466] hover:border-[#635BFF] hover:text-[#635BFF] press-effect"
-                >
-                  Reconnect
-                </Button>
+                <div className="flex items-center gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={checking}
+                    onClick={runStatusCheck}
+                    className="h-10 px-5 rounded-lg text-sm font-medium border-[#E3E8EF] text-[#425466] hover:border-[#635BFF] hover:text-[#635BFF] press-effect"
+                  >
+                    {checking ? "Checking…" : "Check connection"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setReconnecting(true);
+                      setStep("form");
+                      setPassword("");
+                    }}
+                    className="h-10 px-5 rounded-lg text-sm font-medium border-[#E3E8EF] text-[#425466] hover:border-[#635BFF] hover:text-[#635BFF] press-effect"
+                  >
+                    Reconnect
+                  </Button>
+                </div>
               </div>
             ) : step === "form" ? (
               /* ---------- Step 1: staff code + password + channel ---------- */
               <form onSubmit={handleSendOtp} className="space-y-4">
+                {sessionExpired && (
+                  <div className="flex items-start gap-2 text-xs bg-amber-50 text-amber-700 rounded-lg px-4 py-2.5">
+                    <ClockIcon className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                    <span>
+                      Your dealer session timed out. Reconnect to continue keying
+                      orders.
+                    </span>
+                  </div>
+                )}
                 <div className="space-y-1.5">
                   <Label htmlFor="staff-code" className="text-xs font-medium text-[#425466]">
                     Staff Code
@@ -350,17 +421,33 @@ export default function OrderEntryPage() {
           </div>
         </div>
 
-        {/* Order form placeholder — appears once connected. */}
-        {isConnected && (
-          <div className="mt-6 bg-white rounded-lg border border-dashed border-[#E3E8EF] p-8 text-center">
-            <p className="text-sm font-medium text-[#425466]">Order form coming next</p>
-            <p className="text-xs text-[#697386] mt-1 max-w-sm mx-auto">
-              Your dealer session is active. The order entry form will be wired up
-              here so you can key in and submit broadband orders.
-            </p>
-          </div>
-        )}
       </div>
+
+      {isConnected && (
+        <div className="max-w-4xl animate-fade-in-up" style={{ animationDelay: "300ms" }}>
+          <div className="flex gap-1 border-b border-[#E3E8EF] mb-5">
+            <button
+              type="button"
+              onClick={() => setOrderTab("new")}
+              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                orderTab === "new" ? "border-[#635BFF] text-[#635BFF]" : "border-transparent text-[#697386] hover:text-[#0A2540]"
+              }`}
+            >
+              New Order
+            </button>
+            <button
+              type="button"
+              onClick={() => setOrderTab("drafts")}
+              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                orderTab === "drafts" ? "border-[#635BFF] text-[#635BFF]" : "border-transparent text-[#697386] hover:text-[#0A2540]"
+              }`}
+            >
+              Drafts
+            </button>
+          </div>
+          {orderTab === "new" ? <OrderForm /> : <OrdersList />}
+        </div>
+      )}
     </div>
   );
 }

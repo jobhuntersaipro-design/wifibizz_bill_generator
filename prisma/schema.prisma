@@ -17,10 +17,65 @@ model User {
   caseLimit       Int                 @default(10) @map("case_limit")
   wifibizzUser    WifibizzUser?
   dealerAccount   DealerAccount?
+  orders          Order[]
   caseUsageLogs   CaseUsageLog[]
   limitChangeLogs CaseLimitChangeLog[]
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
+}
+
+// A broadband order an agent keys in BizzFlow to be submitted to the Unifi eSales
+// dealer portal. Phase 1 captures customer + address + package + documents;
+// install/contact/billing come later. `orderId` is written back from the portal.
+model Order {
+  id             String    @id @default(cuid())
+  userId         String    @map("user_id")
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Customer
+  idType         String    @map("id_type")
+  idNumber       String    @map("id_number")
+  idExpiry       String?   @map("id_expiry") // dd-mm-yyyy (passport/foreigner)
+  fullName       String    @map("full_name")
+  gender         String?
+  birthday       String?   // dd-mm-yyyy (auto-derived for MyKad-like IDs)
+  race           String?
+  nationality    String?   @default("Malaysia")
+
+  // Contact
+  mobilePrefix   String?   @default("60") @map("mobile_prefix") // country code
+  mobile         String?   // number after the country code
+  email          String?
+
+  // Service address — picked from the portal's QryNIGAddress search
+  street         String?
+  postcode       String?
+  city           String?
+  state          String?
+  country        String?   @default("Malaysia") // always Malaysia for the portal
+  addressId      String?   @map("address_id")       // resourceInstId (select "By Address Id")
+  addressFull    String?   @map("address_full")      // concatAddress
+  serviceCategory String?  @map("service_category")  // addrServiceCategory (e.g. FTTH)
+
+  // Package (Main Offer)
+  offerCategory  String?   @map("offer_category")
+  offerName      String?   @map("offer_name")
+
+  remarks        String?   // additional remarks / customer remarks
+
+  // Documents — array of { type, url, filename } (up to 10 files)
+  documents      Json?
+
+  // Submission result
+  status         String    @default("draft") // draft | submitting | submitted | failed
+  orderId        String?   @map("order_id")   // dealer portal order number
+  errorMessage   String?   @map("error_message")
+
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([userId, status])
+  @@map("orders")
 }
 
 // Per-user connection state for the Unifi eSales dealer portal. Tracks only the

@@ -1,4 +1,4 @@
-# Current Feature
+# Current Feature: Unifi eSales Order Entry Automation
 
 ## Status
 
@@ -6,30 +6,80 @@ In Progress
 
 ## Goals
 
-- Sync case list to Google Sheets (append-only) per user
-- User-managed Google Sheet ID in Settings page (admin has no visibility into sheet contents)
-- Google Sheets API with service account for appending rows
-- Deduplication via `synced_to_sheet_at` timestamp on cases
-- Auto-sync after crawl + manual "Sync to Sheet" button on dashboard
+- Single public entrypoint `enter_order(payload: dict, dry_run: bool = True) -> dict` that programmatically keys a Unifi broadband order on the eSales Order Entry CRM (`dealer.unifi.com.my/esales/crm-TYMH100163`)
+- **`dry_run=True` is the default and a hard safety gate** — these are real, billable orders. Dry-run walks every step, fills every field, captures a screenshot + fee preview, and stops *before* Pay/Submit, returning `would_submit`. Only `dry_run=False` clicks Pay/Submit
+- Return-not-raise for expected flow failures (MSR, address-taken, validation) as `{"status":"error", "error":<code>, ...}`; only raise on infrastructure failures (browser launch, lost session) so the caller can retry
+- Reuse existing `scraper/` modules as-is: `login_manager.login_and_get_context()`, `credential_manager.CredentialManager()`, `inspect_order_entry` dump helpers — do NOT rewrite auth
+- Build the 3 reusable iframe primitives first (`set_combobox`, `select_grid_row`, `check_error`) — ~80% of the flow rests on them
+- Implement stages 0–13 as discrete, individually-testable stage functions; stages 1–5 are fully mapped, 6–13 need DOM capture during the first dry-run
+- Map known error situations to stable error codes (`address_already_has_service`, `address_not_found`, `msr_customer_id_limit`, `login_id_invalid/taken`, `vobb_unavailable`, etc.); log unmapped messages verbatim as `unknown_error`
+- Surface results in BizzFlow: order id on success, clear error + screenshot path on failure
 
 ## Notes
 
-### Architecture
-- **Google Service Account** — single credential stored as `GOOGLE_SERVICE_ACCOUNT_JSON` env var
-- **User enters their own Sheet ID** in Settings → no admin involvement or visibility
-- User creates Google Sheet → shares with service account email (displayed in UI) → pastes Sheet ID in Settings
-- Append-only: new cases appended via `spreadsheets.values.append()`, never updates/deletes
-- `synced_to_sheet_at` column on `wifibizz_cases` tracks what's been synced, prevents duplicates
+### Source spec & references
+- Build spec: [context/features/order-entry-build-spec.md](context/features/order-entry-build-spec.md)
+- Verified DOM selectors: [context/features/selector_map.md](context/features/selector_map.md)
+- Existing Playwright modules: [scraper/](scraper/) — `login_manager.py`, `credential_manager.py`, `inspect_order_entry.py`, `scrape_orders.py`, `api_server.py`, `gmail_otp_reader.py`
 
-### Implementation Steps
-1. Add `google_sheet_id` column to `wifibizz_users` table (Prisma migration)
-2. Add `synced_to_sheet_at` column to `wifibizz_cases` table
-3. Create `src/lib/google-sheets.ts` — append function using `googleapis` package
-4. Add Google Sheet ID field to Settings page (user-managed)
-5. Create `POST /api/sheets/sync` endpoint — syncs unsynced cases for the authenticated user
-6. Auto-trigger sync after crawl completes
-7. Add "Sync to Sheet" button on dashboard
-8. Display service account email in Settings UI so users know who to share their sheet with
+### The one structural fact that governs everything
+- The entire order app runs **inside `iframe#myIframe`** (`src=.../CCEntryView`). Every order-flow locator must go through `frame = page.frame_locator("#myIframe")`.
+- Anchor on the id `#myIframe` — the class suffix `myIframe___xxxx` is random. Never anchor on it.
+- Outer page is React/Ant (shell + left nav, e.g. `li.ant-menu-item[privcode="crm-TYMH100163"]`); inner app is jQuery UI + Bootstrap 3.
+- Dialogs render as `.ui-dialog` siblings inside the iframe body; newest open one = `.ui-dialog >> nth=-1`. Errors = `.ui-dialog.modal-danger` with `.modal-message`.
+
+### Reuse (DO NOT reinvent)
+- `login_manager.login_and_get_context(username, password)` → `(browser, context, pw, page)` — handles stealth, `fishx*.js` anti-devtool patching, session cache, OTP login via Gmail. Auth is solved.
+- `credential_manager.CredentialManager().get_credentials()` → `{"username","password"}` (Fernet-encrypted at `config/`).
+- `inspect_order_entry.py` — `dump_html()` / `list_form_fields()` + structural-dump JS for capturing back-half screens. Run everything from project root so `config/` and `sessions/` resolve.
+
+### The 3 reusable helpers (build + isolation-test first)
+1. `set_combobox(frame, field_name, option_text)` — paired widget: visible `input[role="combobox"]` + hidden `input[name="<field>"]`. Click display input → wait `ul.combobox-dropdown` → click `li[title="<option>"]` → assert hidden input has value. Cannot `.fill()` the hidden input.
+2. `select_grid_row(frame, grid_selector, match_text=None, row_id=None)` — jqGrid rows at `#btable_<id> tr.jqgrow`, `<td title="...">`. By text: `tr.jqgrow:has(td[title="<text>"])`; by id: `tr.jqgrow#<row_id>` (row id == entity id). Check `.ui-jqgrid-tip` "No record to view" → not-found.
+3. `check_error(frame)` — call after EVERY Query/Next/OK/Pay. If `.ui-dialog.modal-danger` visible: read `.modal-message`, `map_error(msg)`, dismiss via `.modal-danger .modal-footer .btn-danger`, return error dict.
+   - Plus `wait_dialog(frame, title)`, `close_dialog(frame)`, `newest_dialog(frame)`.
+
+### Flow stages (orchestrator stops at first non-OK result)
+- 0. `ensure_on_order_entry(page)` — outer nav `privcode=crm-TYMH100163`
+- 1. `create_personal_customer(frame, payload.customer)` — MAPPED ✓ (SELECTOR_MAP §3; scope contact lookups to `form.js-qry-form` — `certTypeId`/`certNbr` collide with Read Card)
+- 2. `open_feasibility(frame)` — `.js-anonymous-add-survey` MAPPED ✓
+- 3. `select_address(frame, payload.address)` — Select Address modal MAPPED ✓ → check_error → `address_already_has_service` / `address_not_found`
+- 4. `select_main_offer(frame, payload.plan)` — Main Offer Selector MAPPED ✓
+- 5. `click_order(frame)` — `.js-orderNow`
+- 6. `fill_install_info` / 7. `create_billing_account` (NEW account each order) / 8. `set_broadband_login` (2–11 chars) / 9. `pick_vobb_number` / 10. `set_appointment` / 11. `set_contactless_and_confirm` (Contactless=YES, tick "Has confirmed order") — **TODO: capture DOM via dump helper during first dry-run**
+- 12. dry_run? STOP + screenshot + fee preview, else `pay_and_submit`
+- 13. `capture_order_id(frame)` — "Order Number: ..."
+
+### Edge cases → error codes
+`address_already_has_service`, `address_not_found`, `msr_customer_id_limit`, `msr_offline_approval`, `login_id_invalid`/`login_id_taken`, `vobb_unavailable`. Advance Payment / Deposit required = NOT an error → record AP/deposit amount in result. Duplicate billing account → create NEW account each order. "Has confirmed order with customer" checkbox gates Next. `map_error(msg)` matches substrings; unmapped → `unknown_error` + verbatim text.
+
+### Operational
+- Headed for first dry-runs (monkeypatch like `inspect_order_entry.py`); `login_manager` is headless by default, fine for production.
+- AJAX-heavy/slow: after Query/Order/Next, wait for the expected next element OR `.ui-dialog.modal-danger`, whichever first. Avoid blind `wait_for_timeout` as primary sync.
+- Screenshots on every error and at dry-run stop → `logs/`; surface path in result.
+- Idempotency: new billing account per order; never resubmit if an `order_id` was already returned.
+- Console noise `trackSensors is not defined` / `埋点报错` = neutered anti-bot telemetry. Ignore.
+
+### Suggested file layout (in `scraper/`)
+`order_entry.py` (orchestrator + stage fns), `oe_helpers.py` (3 primitives + dialog helpers), `oe_errors.py` (`map_error()` + code constants), `oe_dump.py` (`dump_iframe_dialog()` dev helper), `tests/test_helpers.py` + `tests/fixtures/payload_residential.json`.
+Build order: `oe_helpers` → stages 1–5 (dry-run, headed) → capture 6–13 → finish stages → error mapping → flip dry_run default to False only after a full successful dry-run review.
+
+### Integration decision (DECIDED — Option A)
+- **`enter_order()` runs inside the existing Flask service** ([scraper/api_server.py](scraper/api_server.py)), exposed as a new job-style route. BizzFlow (Next.js) calls it over HTTP and polls, same shape as the existing `/jobs` + `/jobs/<id>` scrape jobs.
+- Rationale: Flask service is already a long-running process with Playwright (`/health/browser`), a job queue, threading for slow AJAX flows, and `credential_manager` wired in. Per-request `python` spawn from Next.js (Option B) cold-starts a browser each time and can't run on Vercel.
+- **Auth caveat:** the Flask app header says "NO AUTHORIZATION" — the order route must NOT inherit that. It submits real billable orders, so gate it with a shared secret / internal-only access. Lock this down before `dry_run` is ever flipped to False.
+
+### Direction change (2026-07): source is respond.io, not WifiBizz
+- Orders now originate from **respond.io** — agents key them into **BizzFlow**, backend submits to the dealer portal and writes the order id back into BizzFlow. WifiBizz is out of the order-entry loop (its crawler/bills stay).
+- So order data comes from a **BizzFlow form** (agent input), not a WifiBizz case. The `scraper/case_to_payload.py` WifiBizz→payload transform is retained but no longer the primary path; its IC/address/package helpers were repurposed for the form.
+
+### Progress — dealer login + order form (BizzFlow side, in progress)
+- **Per-user dealer login** ✓ — agents connect their own Unifi dealer account via a two-step OTP flow (staff code + password + Email/SMS → OTP → session captured server-side). Backend: `scraper/dealer_web_login.py` (two-phase, language-proof for the Chinese "邮箱" label, reload-resilient) + `scraper/dealer_login_service.py` (persistent event loop holding the browser between the two requests; OTP TTL 9 min) + Flask `/dealer/login/{request-otp,submit-otp,status,cancel}`. `login_manager.py` kept pristine (drop-in copy of the other project's file for its bot-detection). Password never persisted.
+- **Session health** ✓ — `checkDealerConnection` validates the saved session against the portal (redirect to /login = expired → reconnect banner). DB `sessionExpiresAt` tracked ~1h with a live countdown. A BizzFlow refresh does not interrupt the server-side portal session.
+- **Order form** ✓ — new `/dashboard/order-entry` page (gated on connect). Built to the TAAS Contactless guideline: ID Type (6 types), IC→auto gender/DOB (MyKad-like), name→race, handphone (country code + number), email (validated), installation address (postcode→auto state/city→street), searchable Package dropdown (`src/lib/dealer-offers.ts`, Shield excluded, Business flagged), remarks, documents (up to 10 files → R2, named `{idNumber}_{idType}_n`), `country` defaulted to Malaysia. `Order` Prisma model + `saveOrder`.
+- **Drafts** ✓ — tabbed page (New Order / Drafts); `listOrders` table with per-row Submit + Delete.
+- **Address picker (portal QryNIGAddress)** — NOT built. Found the API `POST …/callservice.json?serviceName=QryNIGAddress{PN}Um` returning structured `addressList[]` with `resourceInstId`; plan: BizzFlow picker → store resourceInstId → backend selects "By Address Id". CSRF token to be caught from the order-entry page load.
+- **Submit → portal** — NOT built. `submitOrder` is an intentional no-op returning "coming next" so no real/billable order can fire yet. Order-entry stages 6–13 still need DOM capture; `dry_run` default stays True until a full dry-run review.
 
 ## History
 
@@ -58,4 +108,5 @@ In Progress
 - **Phase 21 — Crawler Date Filter** (2026-04-06): Date filter UI on crawl page with from/to date inputs and preset buttons (1d, 3d, 7d, 1w, 1m, 3m). Max 3-month limit with inline error. Reset button to clear filters. Date range passed to crawler API and scraper for server-side filtering. Sidebar updated to show user's WifiBizz email and agent instead of "Network Admin". Removed notification bell and avatar from topbar.
 - **Phase 22 — Utility Bill Enhancement** (2026-04-06): Randomized Caj Semasa, Baki Terdahulu (RM150-250), computed Jumlah Bil as sum. Sila bayar sebelum = TARIKH BIL + 1 month. Caj Bulanan bar chart with 6 months (last month = Caj Semasa). Fixed bar color operators (scn/SCN to rg/RG for DeviceRGB). Blanked Kedai Tenaga Terdekat address text on page 2. Deleted legacy Python bill generators, refactored dashboard into AnalyticsSection/CaseManagementSection components with shared types/icons.
 - **Phase 23 — Case Usage Limit System** (2026-04-07): Switched from bill-count to case-count logic (1 case = 1 count regardless of bill types). New case_usage_log and case_limit_change_log tables with Prisma migration and backfill. User-facing /dashboard/usage page with progress bar, dual-axis chart (cumulative usage vs limit bars + percentage line), from/to date filters, purchase history (topup format), and paginated usage history table. Admin dedicated topup modal with quick amounts (+100/500/1000/5000), required reason, live preview of new balance; case limit read-only in edit modal. Bill generation API enforces case-based limits with usage log on first bill per case. Sidebar usage link added.
+- **Google Sheets Sync — DEFERRED (not started)** (was In Progress, displaced 2026-06-10): Per-user append-only sync of case list to a user-managed Google Sheet. Service account (`GOOGLE_SERVICE_ACCOUNT_JSON`), user pastes their own Sheet ID in Settings (no admin visibility), dedup via `synced_to_sheet_at` on `wifibizz_cases` + `google_sheet_id` on `wifibizz_users`, `src/lib/google-sheets.ts` append helper, `POST /api/sheets/sync`, auto-sync after crawl + manual button, service-account email shown in Settings. No code written yet — re-load this spec to resume.
 - **Phase 24 — WhatsApp Closing Script Chat Image** (2026-04-07): Generate Chat button per case row (green chat icon) and in detail panel. ChatImageGenerator component renders WhatsApp iPhone dark mode style incoming message with closing script filled from case data. Two variants: Home (Non-Business) and Business, detected by provider field. Billing address shows "same as above". Package name trimmed after + sign. Preferred installation date randomized 3-7 days from case_created_at (DD/MM/YYYY). Randomized wallpaper from 12 WhatsApp iPhone dark mode colors. iPhone-style bottom bar with aligned +/message/emoji/camera/mic and home indicator. html-to-image library for PNG capture at 2x resolution. Preview modal with Regenerate (picks new wallpaper) and Download PNG buttons.

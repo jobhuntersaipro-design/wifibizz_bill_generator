@@ -6,8 +6,9 @@ import { prisma } from "@/lib/prisma";
 const SCRAPER_API_URL = process.env.SCRAPER_API_URL ?? "http://localhost:5000";
 const INTERNAL_TOKEN = process.env.ORDER_ENTRY_API_TOKEN;
 
-// The portal session cookies stay valid ~1 day (login_manager load_session TTL).
-const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+// How long we treat a captured dealer session as good before prompting a
+// reconnect. Kept short (1h) and backed by the live status check.
+const SESSION_TTL_MS = 60 * 60 * 1000;
 
 type ScraperResult = { ok: boolean; status: number; data: Record<string, unknown> };
 
@@ -55,6 +56,63 @@ export async function getDealerConnection() {
       staffCode: acct.staffCode,
       lastConnectedAt: acct.lastConnectedAt?.toISOString() ?? null,
       sessionExpiresAt: acct.sessionExpiresAt?.toISOString() ?? null,
+      connected,
+    } satisfies DealerConnection,
+  };
+}
+
+export async function checkDealerConnection() {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "Unauthorized", data: null as DealerConnection | null };
+  }
+
+  const acct = await prisma.dealerAccount.findUnique({
+    where: { userId: session.user.id },
+  });
+  if (!acct) {
+    return { success: true, data: null as DealerConnection | null };
+  }
+
+  // Ask Flask to actually load the saved session and hit the portal.
+  let connected = false;
+  try {
+    const { ok, data } = await callScraper("/dealer/login/status", {
+      user_key: session.user.id,
+    });
+    connected = ok && data.connected === true;
+  } catch {
+    // Can't reach the service — fall back to the stored expiry as a best guess.
+    connected =
+      !!acct.sessionExpiresAt && acct.sessionExpiresAt.getTime() > Date.now();
+    return {
+      success: true,
+      unreachable: true,
+      data: {
+        staffCode: acct.staffCode,
+        lastConnectedAt: acct.lastConnectedAt?.toISOString() ?? null,
+        sessionExpiresAt: acct.sessionExpiresAt?.toISOString() ?? null,
+        connected,
+      } satisfies DealerConnection,
+    };
+  }
+
+  // Session timed out — clear the expiry so the UI reflects "needs reconnect".
+  if (!connected && acct.sessionExpiresAt) {
+    await prisma.dealerAccount.update({
+      where: { userId: session.user.id },
+      data: { sessionExpiresAt: null },
+    });
+  }
+
+  return {
+    success: true,
+    data: {
+      staffCode: acct.staffCode,
+      lastConnectedAt: acct.lastConnectedAt?.toISOString() ?? null,
+      sessionExpiresAt: connected
+        ? acct.sessionExpiresAt?.toISOString() ?? null
+        : null,
       connected,
     } satisfies DealerConnection,
   };
