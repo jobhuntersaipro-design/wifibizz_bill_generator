@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { saveOrder, uploadOrderDocument, lookupPostcode } from "@/actions/order";
+import { saveOrder, uploadOrderDocument, lookupPostcode, getOrder } from "@/actions/order";
 import { MAX_DOCS, type OrderDocument } from "@/lib/order-types";
 import { parseMykad, inferRace } from "@/lib/mykad";
 import {
@@ -31,7 +31,18 @@ const labelCls = "text-xs font-medium text-[#425466]";
 const cardCls = "bg-white rounded-lg border border-[#E3E8EF]";
 const headCls = "px-6 py-3 border-b border-[#E3E8EF] text-sm font-semibold text-[#0A2540]";
 
-export function OrderForm() {
+export function OrderForm({
+  editingId,
+  onSaved,
+  onBack,
+}: {
+  editingId?: string | null;
+  onSaved?: () => void;
+  onBack?: () => void;
+}) {
+  const [draftId, setDraftId] = useState<string | null>(editingId ?? null);
+  const [loadingDraft, setLoadingDraft] = useState(!!editingId);
+
   const [idType, setIdType] = useState<IdType>("MyKad");
   const [idNumber, setIdNumber] = useState("");
   const [idExpiry, setIdExpiry] = useState("");
@@ -102,6 +113,49 @@ export function OrderForm() {
     return () => document.removeEventListener("mousedown", onDown);
   }, [pkgOpen]);
 
+  // Load an existing draft for editing. setState runs in the async callback
+  // (not synchronously in the effect), so it doesn't cascade renders.
+  useEffect(() => {
+    if (!editingId) return;
+    let active = true;
+    getOrder(editingId).then((res) => {
+      if (!active) return;
+      if (res.success && res.data) {
+        const o = res.data;
+        setIdType((o.idType as IdType) || "MyKad");
+        setIdNumber(o.idNumber || "");
+        setIdExpiry(o.idExpiry || "");
+        setFullName(o.fullName || "");
+        setGender(o.gender || "");
+        setBirthday(o.birthday || "");
+        setRace(o.race || "");
+        setMobilePrefix(o.mobilePrefix || "60");
+        setMobile(o.mobile || "");
+        setEmail(o.email || "");
+        setPostcode(o.postcode || "");
+        setStateVal(o.state || "");
+        setCity(o.city || "");
+        setStreet(o.street || "");
+        setOfferName(o.offerName || "");
+        setOfferCategory(o.offerCategory || "");
+        setRemarks(o.remarks || "");
+        // Only keep documents that carry a namespaced key (servable via the
+        // authenticated proxy); drop any legacy public-URL entries.
+        const docs = Array.isArray(o.documents)
+          ? (o.documents as unknown as OrderDocument[]).filter((d) => d && typeof d.key === "string" && d.key.startsWith("orders/"))
+          : [];
+        setDocuments(docs);
+        setDraftId(o.id);
+      } else {
+        toast.error(res.error ?? "Couldn't load that draft.");
+      }
+      setLoadingDraft(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [editingId]);
+
   function handlePrefixChange(v: string) {
     const digits = v.replace(/\D/g, "");
     if (digits.length > 2) {
@@ -149,7 +203,7 @@ export function OrderForm() {
     const res = await uploadOrderDocument(fd);
     setUploading(false);
     if (res.success) {
-      setDocuments((d) => [...d, { type: res.type, url: res.url, filename: res.filename }]);
+      setDocuments((d) => [...d, { type: res.type, url: res.url, key: res.key, filename: res.filename }]);
       toast.success("Document uploaded.");
     } else {
       toast.error(res.error ?? "Upload failed");
@@ -168,6 +222,7 @@ export function OrderForm() {
     }
     setSaving(true);
     const result = await saveOrder({
+      id: draftId ?? undefined,
       idType,
       idNumber,
       idExpiry,
@@ -188,12 +243,38 @@ export function OrderForm() {
       documents,
     });
     setSaving(false);
-    if (result.success) toast.success("Order draft saved.");
-    else toast.error(result.error ?? "Failed to save order");
+    if (result.success) {
+      // Remember the id so a follow-up save updates this draft instead of
+      // creating a duplicate.
+      setDraftId(result.id);
+      toast.success(draftId ? "Draft updated." : "Order draft saved.");
+      onSaved?.();
+    } else {
+      toast.error(result.error ?? "Failed to save order");
+    }
+  }
+
+  if (loadingDraft) {
+    return (
+      <div className="bg-white rounded-lg border border-[#E3E8EF] p-12 flex flex-col items-center gap-3">
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />
+        <p className="text-sm text-[#697386]">Loading draft…</p>
+      </div>
+    );
   }
 
   return (
     <form onSubmit={handleSave} className="space-y-5">
+      {editingId && onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-[#635BFF] hover:text-[#0A2540] transition-colors"
+        >
+          <span aria-hidden>←</span> Back to drafts
+        </button>
+      )}
+
       {/* Customer */}
       <div className={`${cardCls} overflow-hidden`}>
         <div className={headCls}>Customer</div>
@@ -395,7 +476,7 @@ export function OrderForm() {
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={saving} className="h-10 px-6 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] hover-glow">
-          {saving ? "Saving…" : "Save Order"}
+          {saving ? "Saving…" : draftId ? "Update Draft" : "Save Order"}
         </Button>
       </div>
     </form>

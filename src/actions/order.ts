@@ -1,11 +1,13 @@
 "use server";
 
+import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { uploadToR2 } from "@/lib/r2";
 import { MAX_DOCS, type OrderDocument, type OrderListItem } from "@/lib/order-types";
 import { MALAYSIA_STATES } from "@/lib/malaysia-states";
+import { ID_TYPES } from "@/lib/dealer-offers";
 
 // ── Postcode -> city + state (Google Geocoding) ──────────────────────────────
 // UX helper so the agent types the postcode and city/state auto-fill. The
@@ -25,7 +27,9 @@ export async function lookupPostcode(postcode: string) {
     const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
       `${pc}, Malaysia`
     )}&region=my&key=${key}`;
-    const resp = await fetch(url, { cache: "force-cache" });
+    // Revalidate daily rather than force-cache: the URL embeds the Maps API key,
+    // and postcode data is cheap to refetch — no need to pin it indefinitely.
+    const resp = await fetch(url, { next: { revalidate: 60 * 60 * 24 } });
     const data = await resp.json();
     if (data.status !== "OK" || !data.results?.length) {
       return { success: false as const, error: "Postcode not found." };
@@ -52,9 +56,18 @@ export async function lookupPostcode(postcode: string) {
 // so two files of the same type never collide, e.g. two MyKad images become
 // {idNumber}_mykad_1 and {idNumber}_mykad_2. Utility bills -> {idNumber}_utilitybill_n.
 const MAX_DOC_BYTES = 5 * 1024 * 1024; // 5MB/file (portal limit)
-const ALLOWED_DOC_EXT = new Set([
-  "jpg", "jpeg", "png", "bmp", "pdf", "webp", "jfif",
-]);
+// Extension -> content-type. We derive the stored content-type from the
+// (allowlisted) extension rather than trusting the client-supplied File.type,
+// so a ".jpg" can't be stored as text/html and served as a script.
+const EXT_CONTENT_TYPE: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  jfif: "image/jpeg",
+  png: "image/png",
+  bmp: "image/bmp",
+  webp: "image/webp",
+  pdf: "application/pdf",
+};
 
 // docType -> filename slug. "id" uses the ID type (mykad/passport/…) passed in.
 function docSlug(docType: string, idType: string): string {
@@ -75,7 +88,8 @@ export async function uploadOrderDocument(formData: FormData) {
     return { success: false as const, error: "File exceeds the 5MB limit." };
   }
   const ext = (file.name.split(".").pop() || "").toLowerCase();
-  if (!ALLOWED_DOC_EXT.has(ext)) {
+  const contentType = EXT_CONTENT_TYPE[ext];
+  if (!contentType) {
     return { success: false as const, error: `Unsupported file type .${ext}` };
   }
 
@@ -86,15 +100,15 @@ export async function uploadOrderDocument(formData: FormData) {
   if (!idNumber) return { success: false as const, error: "Enter the ID number first." };
 
   const filename = `${idNumber}_${docSlug(docType, idType)}_${seq}.${ext}`;
+  // Keys are namespaced per user so the authenticated proxy can scope access to
+  // the owner and MyKad-based filenames can't be enumerated across tenants.
+  const key = `orders/${session.user.id}/${filename}`;
 
   try {
     const buf = Buffer.from(await file.arrayBuffer());
-    const url = await uploadToR2(
-      `orders/${filename}`,
-      buf,
-      file.type || "application/octet-stream"
-    );
-    return { success: true as const, url, filename, type: docType };
+    await uploadToR2(key, buf, contentType);
+    const url = `/api/orders/document?key=${encodeURIComponent(key)}`;
+    return { success: true as const, url, key, filename, type: docType };
   } catch (e) {
     console.error("uploadOrderDocument error:", e instanceof Error ? e.message : e);
     return { success: false as const, error: "Upload failed. Try again." };
@@ -105,8 +119,52 @@ export async function uploadOrderDocument(formData: FormData) {
 // Address is picked from the portal's QryNIGAddress search (see the dealer
 // address-search endpoint), so we store the resourceInstId + structured fields
 // rather than geocoding a postcode.
+const documentSchema = z.object({
+  type: z.enum(["id", "utility_bill", "other"]),
+  url: z.string().max(2048),
+  key: z.string().max(512).regex(/^orders\//),
+  filename: z.string().max(256),
+});
+
+// Server-side validation of the order payload. Server Actions are directly
+// POST-able, so we enforce shape/enums here rather than trusting the client.
+const orderInputSchema = z.object({
+  id: z.string().min(1).optional(),
+  idType: z.enum(ID_TYPES as unknown as [string, ...string[]]),
+  idNumber: z.string().trim().min(1).max(50),
+  idExpiry: z.string().max(20).optional(),
+  fullName: z.string().trim().min(1).max(255),
+  gender: z.enum(["", "Male", "Female"]).optional(),
+  birthday: z.string().max(20).optional(),
+  race: z.enum(["", "Malay", "Chinese", "Indian", "Others"]).optional(),
+  nationality: z.string().max(60).optional(),
+  mobilePrefix: z.string().regex(/^\d{0,3}$/).optional(),
+  mobile: z.string().regex(/^\d{0,15}$/).optional(),
+  email: z
+    .string()
+    .max(255)
+    .regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)
+    .optional()
+    .or(z.literal("")),
+  street: z.string().max(500).optional(),
+  postcode: z.string().regex(/^\d{0,5}$/).optional(),
+  city: z.string().max(120).optional(),
+  state: z.string().max(120).optional(),
+  country: z.string().max(60).optional(),
+  addressId: z.string().max(120).optional(),
+  addressFull: z.string().max(500).optional(),
+  serviceCategory: z.string().max(120).optional(),
+  offerCategory: z.string().max(120).optional(),
+  offerName: z.string().max(255).optional(),
+  remarks: z.string().max(2000).optional(),
+  documents: z.array(documentSchema).max(MAX_DOCS).optional(),
+});
+
+// Loose client-facing shape (friendly types at call sites). The zod schema
+// above is the source of truth and validates at runtime, since Server Actions
+// are directly POST-able.
 export interface OrderInput {
-  id?: string; // present when updating an existing draft
+  id?: string;
   idType: string;
   idNumber: string;
   idExpiry?: string;
@@ -123,7 +181,7 @@ export interface OrderInput {
   city?: string;
   state?: string;
   country?: string;
-  addressId?: string; // resourceInstId
+  addressId?: string;
   addressFull?: string;
   serviceCategory?: string;
   offerCategory?: string;
@@ -132,13 +190,19 @@ export interface OrderInput {
   documents?: OrderDocument[];
 }
 
-export async function saveOrder(input: OrderInput) {
+export async function saveOrder(rawInput: OrderInput) {
   const session = await auth();
   if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
 
-  if (!input.idType || !input.idNumber?.trim() || !input.fullName?.trim()) {
-    return { success: false as const, error: "ID type, ID number, and name are required." };
+  const parsed = orderInputSchema.safeParse(rawInput);
+  if (!parsed.success) {
+    const first = parsed.error.issues[0];
+    return {
+      success: false as const,
+      error: first ? `${first.path.join(".") || "input"}: ${first.message}` : "Invalid order.",
+    };
   }
+  const input = parsed.data;
 
   const data = {
     idType: input.idType,
@@ -183,6 +247,18 @@ export async function saveOrder(input: OrderInput) {
   }
 }
 
+// Full order for editing an existing draft. Scoped to the owner.
+export async function getOrder(id: string) {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false as const, error: "Unauthorized", data: null };
+
+  const order = await prisma.order.findFirst({
+    where: { id, userId: session.user.id },
+  });
+  if (!order) return { success: false as const, error: "Order not found.", data: null };
+  return { success: true as const, data: order };
+}
+
 // ── List / submit / delete orders ────────────────────────────────────────────
 export async function listOrders(): Promise<{
   success: boolean;
@@ -219,7 +295,8 @@ export async function listOrders(): Promise<{
 export async function deleteOrder(id: string) {
   const session = await auth();
   if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
-  await prisma.order.deleteMany({ where: { id, userId: session.user.id } });
+  const res = await prisma.order.deleteMany({ where: { id, userId: session.user.id } });
+  if (res.count === 0) return { success: false as const, error: "Order not found." };
   return { success: true as const };
 }
 

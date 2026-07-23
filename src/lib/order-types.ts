@@ -5,7 +5,8 @@ export const MAX_DOCS = 10;
 
 export interface OrderDocument {
   type: string; // id | utility_bill | other
-  url: string;
+  url: string; // authenticated proxy path (/api/orders/document?key=...)
+  key: string; // R2 object key, namespaced by userId (orders/<userId>/<filename>)
   filename: string;
 }
 

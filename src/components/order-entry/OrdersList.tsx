@@ -12,7 +12,7 @@ const STATUS_STYLES: Record<string, string> = {
   failed: "bg-red-100 text-red-700",
 };
 
-export function OrdersList() {
+export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   const [orders, setOrders] = useState<OrderListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -112,6 +112,16 @@ export function OrdersList() {
                 <td className="px-4 py-3 tabular-nums text-[#0A2540]">{o.orderId ?? "—"}</td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-2">
+                    {o.status !== "submitted" && (
+                      <button
+                        type="button"
+                        disabled={busyId === o.id}
+                        onClick={() => onEdit(o.id)}
+                        className="rounded-md border border-[#E3E8EF] px-3 py-1.5 text-[12px] font-medium text-[#425466] hover:border-[#635BFF] hover:text-[#635BFF] disabled:opacity-50 transition-colors"
+                      >
+                        Edit
+                      </button>
+                    )}
                     {(o.status === "draft" || o.status === "failed") && (
                       <button
                         type="button"

@@ -2,6 +2,7 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 const SCRAPER_API_URL = process.env.SCRAPER_API_URL ?? "http://localhost:5000";
 const INTERNAL_TOKEN = process.env.ORDER_ENTRY_API_TOKEN;
@@ -129,6 +130,17 @@ export async function requestDealerOtp(
   if (!staffCode || !password) {
     return { success: false, error: "Staff code and password are required." };
   }
+
+  // Throttle so BizzFlow can't be used to password-spray the real Unifi dealer
+  // portal (which would lock/flag the staff account).
+  const rl = await checkRateLimit(`dealer-otp:${session.user.id}:${staffCode}`);
+  if (!rl.success) {
+    return {
+      success: false,
+      error: "Too many login attempts. Wait a few minutes and try again.",
+    };
+  }
+
   if (!INTERNAL_TOKEN) {
     return {
       success: false,
@@ -185,6 +197,7 @@ export async function submitDealerOtp(pendingId: string, otp: string) {
     const { ok, data } = await callScraper("/dealer/login/submit-otp", {
       pending_id: pendingId,
       otp,
+      user_key: session.user.id,
     });
 
     if (!ok || data.success === false) {
@@ -225,7 +238,10 @@ export async function cancelDealerOtp(pendingId: string) {
   if (!session?.user?.id) return { success: false };
   if (!pendingId) return { success: true };
   try {
-    await callScraper("/dealer/login/cancel", { pending_id: pendingId });
+    await callScraper("/dealer/login/cancel", {
+      pending_id: pendingId,
+      user_key: session.user.id,
+    });
   } catch {
     // best-effort — the pending login times out server-side anyway.
   }
