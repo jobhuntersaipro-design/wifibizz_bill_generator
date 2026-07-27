@@ -69,10 +69,14 @@ const EXT_CONTENT_TYPE: Record<string, string> = {
   pdf: "application/pdf",
 };
 
-// docType -> filename slug. "id" uses the ID type (mykad/passport/…) passed in.
-function docSlug(docType: string, idType: string): string {
+// docType -> filename slug. "id" uses the ID type (mykad/passport/…); "other"
+// uses the agent-supplied label (e.g. "tenancy agreement" -> "tenancyagreement").
+function docSlug(docType: string, idType: string, otherLabel?: string): string {
   if (docType === "utility_bill") return "utilitybill";
-  if (docType === "other") return "doc";
+  if (docType === "other") {
+    const slug = (otherLabel || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+    return slug || "doc";
+  }
   return idType || "id"; // ID copy
 }
 
@@ -96,10 +100,11 @@ export async function uploadOrderDocument(formData: FormData) {
   const idNumber = String(formData.get("idNumber") || "").replace(/[^A-Za-z0-9]/g, "");
   const idType = String(formData.get("idType") || "id").toLowerCase().replace(/[^a-z0-9]/g, "");
   const docType = String(formData.get("docType") || "id");
+  const otherLabel = String(formData.get("otherLabel") || "");
   const seq = parseInt(String(formData.get("seq") || "1"), 10) || 1;
   if (!idNumber) return { success: false as const, error: "Enter the ID number first." };
 
-  const filename = `${idNumber}_${docSlug(docType, idType)}_${seq}.${ext}`;
+  const filename = `${idNumber}_${docSlug(docType, idType, otherLabel)}_${seq}.${ext}`;
   // Keys are namespaced per user so the authenticated proxy can scope access to
   // the owner and MyKad-based filenames can't be enumerated across tenants.
   const key = `orders/${session.user.id}/${filename}`;
@@ -300,20 +305,146 @@ export async function deleteOrder(id: string) {
   return { success: true as const };
 }
 
+// ── Submit an order to the dealer portal (via the Flask service) ─────────────
+const SCRAPER_API_URL = process.env.SCRAPER_API_URL ?? "http://localhost:5000";
+const ORDER_TOKEN = process.env.ORDER_ENTRY_API_TOKEN ?? "";
+
+interface OrderJobResult {
+  status?: string;
+  order_id?: string;
+  warning?: string;
+  error?: string;
+  message?: string;
+}
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 export async function submitOrder(id: string) {
   const session = await auth();
   if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
+  if (!ORDER_TOKEN) {
+    return { success: false as const, error: "Order service is not configured." };
+  }
 
   const order = await prisma.order.findFirst({
     where: { id, userId: session.user.id },
   });
   if (!order) return { success: false as const, error: "Order not found." };
 
-  // TODO: wire to the Flask /orders endpoint -> enter_order() -> portal.
-  // Until the portal submission path is built, this is intentionally a no-op so
-  // the button exists but never sends a real (billable) order by accident.
-  return {
-    success: false as const,
-    error: "Portal submission isn't wired up yet — coming next.",
+  const headers = {
+    "Content-Type": "application/json",
+    "X-Internal-Token": ORDER_TOKEN,
   };
+  await prisma.order.update({
+    where: { id: order.id, userId: session.user.id },
+    data: { status: "submitting", errorMessage: null },
+  });
+
+  // Send the raw order; the Flask side maps it to a portal payload.
+  const reqOrder = {
+    id: order.id,
+    idType: order.idType,
+    idNumber: order.idNumber,
+    fullName: order.fullName,
+    gender: order.gender,
+    birthday: order.birthday,
+    race: order.race,
+    nationality: order.nationality,
+    mobilePrefix: order.mobilePrefix,
+    mobile: order.mobile,
+    email: order.email,
+    street: order.street,
+    postcode: order.postcode,
+    city: order.city,
+    state: order.state,
+    country: order.country,
+    offerName: order.offerName,
+    offerCategory: order.offerCategory,
+    remarks: order.remarks,
+    documents: order.documents,
+  };
+
+  async function fail(message: string) {
+    await prisma.order.update({
+      where: { id: order!.id, userId: session!.user!.id },
+      data: { status: "failed", errorMessage: message },
+    });
+    return { success: false as const, error: message };
+  }
+
+  try {
+    // NOTE: dry-run customer-fill for now — validates the portal round-trip and
+    // surfaces warnings (e.g. "multiple customer records") without creating a
+    // real/billable order. Flip to a full submit once stages 2+ are wired.
+    const startRes = await fetch(`${SCRAPER_API_URL}/orders`, {
+      method: "POST",
+      headers,
+      cache: "no-store",
+      body: JSON.stringify({
+        order: reqOrder,
+        user_key: session.user.id,
+        dry_run: true,
+        stop_after_customer_fill: true,
+      }),
+    });
+    const start = (await startRes.json().catch(() => ({}))) as {
+      job_id?: string;
+      message?: string;
+    };
+    if (!startRes.ok || !start.job_id) {
+      return fail(start.message || "Couldn't start the order job.");
+    }
+
+    // Poll for completion (customer fill takes ~1-2 min).
+    let result: OrderJobResult | null = null;
+    for (let i = 0; i < 75; i++) {
+      await sleep(2000);
+      const jr = await fetch(`${SCRAPER_API_URL}/jobs/${start.job_id}`, {
+        headers,
+        cache: "no-store",
+      });
+      const j = (await jr.json().catch(() => ({}))) as {
+        status?: string;
+        result?: OrderJobResult;
+        error?: string;
+      };
+      if (j.status === "done") {
+        result = j.result ?? {};
+        break;
+      }
+      if (j.status === "error") {
+        return fail(j.error || "The portal run failed.");
+      }
+    }
+    if (!result) return fail("Timed out waiting for the portal.");
+
+    // Interpret the result → order status.
+    if (result.status === "success" && result.order_id) {
+      await prisma.order.update({
+        where: { id: order.id, userId: session.user.id },
+        data: { status: "submitted", orderId: result.order_id, errorMessage: result.warning ?? null },
+      });
+      return { success: true as const, orderId: result.order_id, warning: result.warning };
+    }
+    if (result.status === "error") {
+      return fail(result.message || result.error || "The portal returned an error.");
+    }
+    // dry-run completed. Surface any warning (e.g. duplicate customer records).
+    if (result.warning) {
+      await prisma.order.update({
+        where: { id: order.id, userId: session.user.id },
+        data: { status: "warning", errorMessage: result.warning },
+      });
+      return { success: true as const, warning: result.warning };
+    }
+    await prisma.order.update({
+      where: { id: order.id, userId: session.user.id },
+      data: { status: "order_entered", errorMessage: null },
+    });
+    return { success: true as const, message: "Order entered (customer form filled)." };
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : "Order service unreachable.");
+  }
 }

@@ -72,7 +72,9 @@ export function OrderForm({
 
   const [documents, setDocuments] = useState<OrderDocument[]>([]);
   const [docType, setDocType] = useState("id");
+  const [otherLabel, setOtherLabel] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
 
   const [saving, setSaving] = useState(false);
 
@@ -93,7 +95,8 @@ export function OrderForm({
   }
   function handleIdNumberChange(raw: string) {
     const mykadLike = MYKAD_LIKE_ID_TYPES.includes(idType);
-    const val = mykadLike ? raw.replace(/\D/g, "").slice(0, 12) : raw;
+    // Portal fields are keyed in uppercase; MyKad is digits-only.
+    const val = mykadLike ? raw.replace(/\D/g, "").slice(0, 12) : raw.toUpperCase();
     setIdNumber(val);
     if (mykadLike) applyMykad(val);
   }
@@ -177,7 +180,7 @@ export function OrderForm({
       setDetecting(false);
       if (r.success) {
         if (r.state) setStateVal(r.state);
-        if (r.city) setCity(r.city);
+        if (r.city) setCity(r.city.toUpperCase());
       }
     }
   }
@@ -186,6 +189,10 @@ export function OrderForm({
     if (!file) return;
     if (!idNumber.trim()) {
       toast.error("Enter the ID number before uploading documents.");
+      return;
+    }
+    if (docType === "other" && !otherLabel.trim()) {
+      toast.error('Enter a document type name for "Other".');
       return;
     }
     if (documents.length >= MAX_DOCS) {
@@ -199,6 +206,7 @@ export function OrderForm({
     fd.append("idNumber", idNumber);
     fd.append("idType", idType);
     fd.append("docType", docType);
+    if (docType === "other") fd.append("otherLabel", otherLabel.trim());
     fd.append("seq", String(seq));
     const res = await uploadOrderDocument(fd);
     setUploading(false);
@@ -208,6 +216,20 @@ export function OrderForm({
     } else {
       toast.error(res.error ?? "Upload failed");
     }
+  }
+
+  // Drag-and-drop: upload dropped files one at a time (respects MAX_DOCS).
+  async function addDocs(files: FileList | File[]) {
+    for (const f of Array.from(files)) {
+      if (documents.length >= MAX_DOCS) break;
+      await addDoc(f);
+    }
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragActive(false);
+    if (e.dataTransfer.files?.length) addDocs(e.dataTransfer.files);
   }
 
   function handleNameBlur() {
@@ -291,14 +313,14 @@ export function OrderForm({
               value={idNumber}
               onChange={(e) => handleIdNumberChange(e.target.value)}
               required
-              className={inputCls}
+              className={`${inputCls} uppercase`}
               placeholder={isMykadLike ? "12-digit MyKad" : "ID / Passport number"}
               inputMode={isMykadLike ? "numeric" : "text"}
             />
           </div>
           <div className="space-y-1.5 sm:col-span-2">
             <Label className={labelCls}>Full Name</Label>
-            <Input value={fullName} onChange={(e) => setFullName(e.target.value)} onBlur={handleNameBlur} required className={inputCls} placeholder="As per ID" />
+            <Input value={fullName} onChange={(e) => setFullName(e.target.value.toUpperCase())} onBlur={handleNameBlur} required className={`${inputCls} uppercase`} placeholder="AS PER ID" />
           </div>
           <div className="space-y-1.5">
             <Label className={labelCls}>Gender {isMykadLike && <span className="text-[#697386]">(auto)</span>}</Label>
@@ -338,12 +360,18 @@ export function OrderForm({
           <div className="space-y-1.5">
             <Label className={labelCls}>Handphone</Label>
             <div className="flex gap-2">
-              <div className="flex items-center gap-1 px-3 h-10 rounded-lg border border-[#E3E8EF] bg-[#F6F9FC] text-sm text-[#425466]">
+              <div className={`flex items-center gap-1 px-3 h-10 rounded-lg border bg-[#F6F9FC] text-sm text-[#425466] ${mobilePrefix.startsWith("0") ? "border-[#DF1B41]" : "border-[#E3E8EF]"}`}>
                 <span>+</span>
-                <input value={mobilePrefix} onChange={(e) => handlePrefixChange(e.target.value)} className="w-8 bg-transparent focus:outline-none" inputMode="numeric" />
+                <input value={mobilePrefix} onChange={(e) => handlePrefixChange(e.target.value)} className="w-8 bg-transparent focus:outline-none" inputMode="numeric" aria-label="Country code" />
               </div>
-              <Input ref={mobileRef} value={mobile} onChange={(e) => setMobile(e.target.value.replace(/\D/g, ""))} className={`flex-1 ${inputCls}`} placeholder="123456789" inputMode="numeric" />
+              {/* Strip a leading 0 — with a country code the national number has no trunk 0 (012… → 12…). */}
+              <Input ref={mobileRef} value={mobile} onChange={(e) => setMobile(e.target.value.replace(/\D/g, "").replace(/^0+/, ""))} className={`flex-1 ${inputCls}`} placeholder="123456789" inputMode="numeric" />
             </div>
+            {mobilePrefix.startsWith("0") ? (
+              <p className="text-[11px] text-[#DF1B41]">That looks like a trunk prefix. Use the country code (e.g. 60 for Malaysia).</p>
+            ) : (
+              <p className="text-[11px] text-[#697386]">Country code (e.g. 60), then the number without the leading 0.</p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label className={labelCls}>Email Address</Label>
@@ -370,11 +398,11 @@ export function OrderForm({
           </div>
           <div className="space-y-1.5">
             <Label className={labelCls}>City <span className="text-[#697386]">(auto)</span></Label>
-            <Input value={city} onChange={(e) => setCity(e.target.value)} className={inputCls} placeholder="Shah Alam" />
+            <Input value={city} onChange={(e) => setCity(e.target.value.toUpperCase())} className={`${inputCls} uppercase`} placeholder="SHAH ALAM" />
           </div>
           <div className="space-y-1.5 sm:col-span-2">
             <Label className={labelCls}>Street Address</Label>
-            <Input value={street} onChange={(e) => setStreet(e.target.value)} className={inputCls} placeholder="Unit / street / area" />
+            <Input value={street} onChange={(e) => setStreet(e.target.value.toUpperCase())} className={`${inputCls} uppercase`} placeholder="UNIT / STREET / AREA" />
           </div>
         </div>
       </div>
@@ -435,7 +463,13 @@ export function OrderForm({
         <div className="p-6 space-y-4">
           <p className="text-[11px] text-[#697386]">
             Customer ID copy required. Up to {MAX_DOCS} files, max 5MB each (JPG/PNG/PDF/WEBP).
-            Saved as {idNumber || "{id}"}_{docType === "utility_bill" ? "utilitybill" : docType === "other" ? "doc" : idType.toLowerCase()}_n.
+            Saved as {idNumber || "{id}"}_
+            {docType === "utility_bill"
+              ? "utilitybill"
+              : docType === "other"
+                ? (otherLabel.trim().toLowerCase().replace(/[^a-z0-9]+/g, "") || "doc")
+                : idType.toLowerCase()}
+            _n.
           </p>
           <div className="flex flex-wrap items-end gap-3">
             <div className="space-y-1.5">
@@ -444,18 +478,42 @@ export function OrderForm({
                 {DOC_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
               </select>
             </div>
-            <div className="flex-1 min-w-50">
-              <Label className={labelCls}>File</Label>
-              <input
-                type="file"
-                accept=".jpg,.jpeg,.png,.bmp,.pdf,.webp,.jfif"
-                disabled={uploading || documents.length >= MAX_DOCS}
-                onChange={(e) => { addDoc(e.target.files?.[0]); e.target.value = ""; }}
-                className="mt-1 block w-full text-xs text-[#425466] file:mr-3 file:rounded-md file:border-0 file:bg-[#635BFF] file:px-3 file:py-1.5 file:text-white file:text-xs file:cursor-pointer disabled:opacity-50"
-              />
-            </div>
+            {docType === "other" && (
+              <div className="space-y-1.5">
+                <Label className={labelCls}>Document Name</Label>
+                <Input
+                  value={otherLabel}
+                  onChange={(e) => setOtherLabel(e.target.value)}
+                  className={inputCls}
+                  placeholder="e.g. tenancy agreement"
+                />
+              </div>
+            )}
             {uploading && <span className="text-[11px] text-[#697386] pb-2">Uploading…</span>}
           </div>
+
+          {/* Drag-and-drop zone (also click-to-browse). */}
+          <label
+            onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={handleDrop}
+            className={`flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-4 py-6 text-center cursor-pointer transition-colors ${
+              dragActive ? "border-[#635BFF] bg-[#635BFF]/5" : "border-[#CBD2DC] hover:border-[#635BFF]/60"
+            } ${uploading || documents.length >= MAX_DOCS ? "opacity-50 pointer-events-none" : ""}`}
+          >
+            <span className="text-[13px] font-medium text-[#425466]">
+              Drag &amp; drop files here, or <span className="text-[#635BFF]">browse</span>
+            </span>
+            <span className="text-[11px] text-[#697386]">JPG, PNG, PDF, WEBP · max 5MB each</span>
+            <input
+              type="file"
+              multiple
+              accept=".jpg,.jpeg,.png,.bmp,.pdf,.webp,.jfif"
+              disabled={uploading || documents.length >= MAX_DOCS}
+              onChange={(e) => { if (e.target.files) addDocs(e.target.files); e.target.value = ""; }}
+              className="hidden"
+            />
+          </label>
 
           {documents.length > 0 && (
             <div className="space-y-1.5">
