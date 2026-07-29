@@ -381,9 +381,8 @@ export async function submitOrder(id: string) {
   }
 
   try {
-    // NOTE: dry-run customer-fill for now — validates the portal round-trip and
-    // surfaces warnings (e.g. "multiple customer records") without creating a
-    // real/billable order. Flip to a full submit once stages 2+ are wired.
+    // "Order entry" (PDF pages 1-16): create the customer profile for real, then
+    // stop. Feasibility -> order id is a separate later step. No Pay/billing.
     const startRes = await fetch(`${SCRAPER_API_URL}/orders`, {
       method: "POST",
       headers,
@@ -391,8 +390,7 @@ export async function submitOrder(id: string) {
       body: JSON.stringify({
         order: reqOrder,
         user_key: session.user.id,
-        dry_run: true,
-        stop_after_customer_fill: true,
+        stop_after_customer_create: true,
       }),
     });
     const start = (await startRes.json().catch(() => ({}))) as {
@@ -437,7 +435,7 @@ export async function submitOrder(id: string) {
     if (result.status === "error") {
       return fail(result.message || result.error || "The portal returned an error.");
     }
-    // dry-run completed. Surface any warning (e.g. duplicate customer records).
+    // Surface any warning (e.g. duplicate customer records).
     if (result.warning) {
       await prisma.order.update({
         where: { id: order.id, userId: session.user.id },
@@ -445,11 +443,13 @@ export async function submitOrder(id: string) {
       });
       return { success: true as const, warning: result.warning };
     }
+    // Customer profile created (order entry, pages 1-16). The order id comes
+    // later from the separate feasibility step.
     await prisma.order.update({
       where: { id: order.id, userId: session.user.id },
       data: { status: "order_entered", errorMessage: null },
     });
-    return { success: true as const, message: "Order entered (customer form filled)." };
+    return { success: true as const, message: result.message || "Customer profile created." };
   } catch (e) {
     return fail(e instanceof Error ? e.message : "Order service unreachable.");
   }
