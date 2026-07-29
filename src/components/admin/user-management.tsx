@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { getUsers, createUser, updateUser, deleteUser, topupUserCaseLimit } from "@/actions/admin-users";
+import { getUsers, createUser, updateUser, deleteUser, topupUserCaseLimit, setOrderEntryAccess } from "@/actions/admin-users";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +14,7 @@ interface UserRow {
   passwordRaw: string | null;
   notes: string | null;
   caseLimit: number;
+  orderEntryEnabled: boolean;
   wifibizzEmail: string | null;
   lastCrawlAt: string | null;
   createdAt: string;
@@ -32,11 +33,13 @@ export function UserManagement() {
   const [topupTarget, setTopupTarget] = useState<UserRow | null>(null);
 
   const loadUsers = useCallback(async () => {
+    // First setState happens only after the await, so calling this from an
+    // effect doesn't trigger a synchronous cascading render.
     try {
-      setError(null);
       const result = await getUsers();
       if (result.success) {
         setUsers(result.data);
+        setError(null);
       } else {
         setError(result.error ?? "Failed to load users");
       }
@@ -46,9 +49,43 @@ export function UserManagement() {
     setLoading(false);
   }, []);
 
+  // Fetch on mount. setState lives inside the async .then callback (past the
+  // await boundary), so it never runs synchronously in the effect body — no
+  // cascading render. `loadUsers` is kept for the Retry button below.
   useEffect(() => {
-    loadUsers();
-  }, [loadUsers]);
+    let active = true;
+    getUsers()
+      .then((result) => {
+        if (!active) return;
+        if (result.success) {
+          setUsers(result.data);
+          setError(null);
+        } else {
+          setError(result.error ?? "Failed to load users");
+        }
+      })
+      .catch(() => {
+        if (active) setError("Failed to connect to server");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function handleToggleOrderEntry(user: UserRow, enabled: boolean) {
+    // Optimistic toggle; revert on failure.
+    setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, orderEntryEnabled: enabled } : u)));
+    const res = await setOrderEntryAccess(user.id, enabled);
+    if (!res.success) {
+      setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, orderEntryEnabled: !enabled } : u)));
+      toast.error(res.error ?? "Failed to update Order Entry access");
+    } else {
+      toast.success(`Order Entry ${enabled ? "enabled" : "disabled"} for ${user.name || user.email}`);
+    }
+  }
 
   function openCreate() {
     setEditingUser(null);
@@ -112,6 +149,7 @@ export function UserManagement() {
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden lg:table-cell">Password</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden lg:table-cell">WifiBizz Email</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden md:table-cell">Case Limit</th>
+                <th className="text-center px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Order Entry</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden lg:table-cell">Notes</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden md:table-cell">Created</th>
                 <th className="text-right px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Actions</th>
@@ -143,7 +181,25 @@ export function UserManagement() {
                       {user.caseLimit}
                     </span>
                   </td>
-                  <td className="px-4 py-3 max-w-[200px] truncate text-[#697386] text-xs hidden lg:table-cell">{user.notes || "—"}</td>
+                  <td className="px-4 py-3 text-center">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={!!user.orderEntryEnabled}
+                      aria-label={`Order Entry access for ${user.name || user.email}`}
+                      onClick={() => handleToggleOrderEntry(user, !user.orderEntryEnabled)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                        user.orderEntryEnabled ? "bg-[#635BFF]" : "bg-[#CBD2DC]"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                          user.orderEntryEnabled ? "translate-x-4.5" : "translate-x-0.5"
+                        }`}
+                      />
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 max-w-50 truncate text-[#697386] text-xs hidden lg:table-cell">{user.notes || "—"}</td>
                   <td className="px-4 py-3 text-xs text-[#697386] tabular-nums hidden md:table-cell">
                     {new Date(user.createdAt).toLocaleDateString()}
                   </td>
@@ -179,7 +235,7 @@ export function UserManagement() {
               ))}
               {users.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-16 text-center">
+                  <td colSpan={9} className="px-4 py-16 text-center">
                     <div className="flex flex-col items-center gap-2">
                       <div className="w-10 h-10 rounded-lg bg-[#F6F9FC] flex items-center justify-center mb-2">
                         <UsersEmptyIcon className="w-5 h-5 text-[#697386]" />
@@ -775,7 +831,7 @@ function UserHistoryPanel({ user, onClose }: { user: UserRow; onClose: () => voi
                       {data.usageLog.map((entry, i) => (
                         <tr key={i} className="hover:bg-[#F6F9FC] transition-colors">
                           <td className="px-6 py-2.5 font-medium text-[#0A2540] tabular-nums">{entry.caseNo}</td>
-                          <td className="px-3 py-2.5 text-[#425466] max-w-[180px] truncate hidden sm:table-cell">{entry.caseName || "—"}</td>
+                          <td className="px-3 py-2.5 text-[#425466] max-w-45 truncate hidden sm:table-cell">{entry.caseName || "—"}</td>
                           <td className="px-3 py-2.5">
                             <span className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-md ${
                               entry.billType === "internet" ? "bg-blue-50 text-blue-700" : "bg-amber-50 text-amber-700"
@@ -814,7 +870,7 @@ function UserHistoryPanel({ user, onClose }: { user: UserRow; onClose: () => voi
                           <td className="px-3 py-2.5 tabular-nums text-[#0A2540]">{entry.previousLimit}</td>
                           <td className="px-3 py-2.5 tabular-nums font-medium text-[#0A2540]">{entry.newLimit}</td>
                           <td className="px-3 py-2.5 text-[#425466] hidden sm:table-cell">{entry.changedBy}</td>
-                          <td className="px-3 py-2.5 text-xs text-[#697386] max-w-[180px] truncate hidden sm:table-cell">{entry.reason || "—"}</td>
+                          <td className="px-3 py-2.5 text-xs text-[#697386] max-w-45 truncate hidden sm:table-cell">{entry.reason || "—"}</td>
                         </tr>
                       ))}
                     </tbody>

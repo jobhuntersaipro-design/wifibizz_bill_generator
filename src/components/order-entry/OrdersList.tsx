@@ -25,12 +25,17 @@ const STATUS_LABELS: Record<string, string> = {
 
 const STATUS_FILTERS = ["all", "draft", "order_entered", "warning", "failed", "submitted"];
 
+// A draft is submittable (and so batch-selectable) in these states.
+const SUBMITTABLE = new Set(["draft", "failed", "warning"]);
+
 export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   const [orders, setOrders] = useState<OrderListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [batchRunning, setBatchRunning] = useState(false);
 
   // Fetch on mount — setState happens in the async callback (not synchronously
   // in the effect body), so it doesn't cause a cascading render.
@@ -51,21 +56,69 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     if (res.success) setOrders(res.data);
   }
 
-  async function handleSubmit(id: string, name: string) {
-    setBusyId(id);
-    // Optimistically reflect the in-progress state while the portal runs.
+  // Core submit for one order. Returns true on success (used by both the per-row
+  // button and the batch runner). Toasts show the customer name + detail.
+  async function runSubmit(id: string, name: string): Promise<boolean> {
     setOrders((o) => o.map((x) => (x.id === id ? { ...x, status: "submitting" } : x)));
     const res = await submitOrder(id);
-    setBusyId(null);
-    // Toasts show the customer name as the title with the detail below it.
     if (res.success) {
       if (res.warning) toast.warning(name, { description: res.warning });
       else if (res.orderId) toast.success(name, { description: `Order No. ${res.orderId}` });
       else toast.success(name, { description: res.message ?? "Order entered." });
-    } else {
-      toast.error(name, { description: res.error ?? "Submit failed" });
+      return true;
     }
+    toast.error(name, { description: res.error ?? "Submit failed" });
+    return false;
+  }
+
+  async function handleSubmit(id: string, name: string) {
+    setBusyId(id);
+    await runSubmit(id, name);
+    setBusyId(null);
     reload();
+  }
+
+  // Batch: submit the selected drafts ONE AT A TIME. A single dealer session
+  // can't safely run concurrent order flows, so we process sequentially and
+  // stop early if the session dies.
+  async function handleSubmitSelected() {
+    const targets = filtered.filter((o) => selected.has(o.id) && SUBMITTABLE.has(o.status));
+    if (targets.length === 0) return;
+    if (!window.confirm(`Submit ${targets.length} order${targets.length === 1 ? "" : "s"} one by one?`)) {
+      return;
+    }
+    setBatchRunning(true);
+    let ok = 0;
+    for (const o of targets) {
+      setBusyId(o.id);
+      const success = await runSubmit(o.id, o.fullName);
+      if (success) ok += 1;
+    }
+    setBusyId(null);
+    setBatchRunning(false);
+    setSelected(new Set());
+    toast.message(`Batch complete: ${ok}/${targets.length} submitted.`);
+    reload();
+  }
+
+  function toggleOne(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll(ids: string[], checked: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (checked) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
   }
 
   async function handleDelete(id: string) {
@@ -108,6 +161,11 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     );
   });
 
+  // Batch selection is scoped to the currently-filtered, submittable rows.
+  const selectableIds = filtered.filter((o) => SUBMITTABLE.has(o.status)).map((o) => o.id);
+  const selectedCount = selectableIds.filter((id) => selected.has(id)).length;
+  const allSelected = selectableIds.length > 0 && selectedCount === selectableIds.length;
+
   return (
     <div className="space-y-3">
       {/* Search + status filter */}
@@ -136,11 +194,55 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
         </select>
       </div>
 
+      {/* Bulk action bar — appears once submittable drafts are selected. */}
+      {selectedCount > 0 && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-[#635BFF]/30 bg-[#635BFF]/5 px-4 py-2.5">
+          <span className="text-[13px] font-medium text-[#0A2540]">
+            {selectedCount} selected
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              disabled={batchRunning}
+              className="rounded-md border border-[#E3E8EF] bg-white px-3 py-1.5 text-[12px] text-[#425466] hover:border-[#635BFF] disabled:opacity-50 transition-colors"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmitSelected}
+              disabled={batchRunning}
+              className="inline-flex items-center gap-1.5 rounded-md bg-[#635BFF] px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-[#0A2540] disabled:opacity-50 transition-colors"
+            >
+              {batchRunning ? (
+                <>
+                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent inline-block" />
+                  Submitting…
+                </>
+              ) : (
+                `Submit Selected (${selectedCount})`
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full text-[13px]">
           <thead>
             <tr className="border-b border-[#E3E8EF] bg-[#F6F9FC] text-left text-[11px] uppercase tracking-wide text-[#697386]">
+              <th className="px-4 py-3 w-10">
+                <input
+                  type="checkbox"
+                  aria-label="Select all submittable drafts"
+                  checked={allSelected}
+                  disabled={selectableIds.length === 0 || batchRunning}
+                  onChange={(e) => toggleAll(selectableIds, e.target.checked)}
+                  className="h-4 w-4 rounded border-[#CBD2DC] accent-[#635BFF] cursor-pointer disabled:opacity-40"
+                />
+              </th>
               <th className="px-4 py-3 font-medium">Customer</th>
               <th className="px-4 py-3 font-medium">Package</th>
               <th className="px-4 py-3 font-medium">Location</th>
@@ -152,13 +254,25 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
           <tbody>
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-sm text-[#697386]">
+                <td colSpan={7} className="px-4 py-8 text-center text-sm text-[#697386]">
                   No orders match your search.
                 </td>
               </tr>
             )}
             {filtered.map((o) => (
               <tr key={o.id} className="border-b border-[#E3E8EF] last:border-0 hover:bg-[#F6F9FC]/60">
+                <td className="px-4 py-3">
+                  {SUBMITTABLE.has(o.status) ? (
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${o.fullName}`}
+                      checked={selected.has(o.id)}
+                      disabled={batchRunning}
+                      onChange={() => toggleOne(o.id)}
+                      className="h-4 w-4 rounded border-[#CBD2DC] accent-[#635BFF] cursor-pointer disabled:opacity-40"
+                    />
+                  ) : null}
+                </td>
                 <td className="px-4 py-3">
                   <div className="font-medium text-[#0A2540]">{o.fullName}</div>
                   <div className="text-[11px] text-[#697386] tabular-nums">{o.idType} · {o.idNumber}</div>

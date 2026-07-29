@@ -5,7 +5,13 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { uploadToR2 } from "@/lib/r2";
-import { MAX_DOCS, type OrderDocument, type OrderListItem } from "@/lib/order-types";
+import {
+  MAX_DOCS,
+  ADDRESS_SEARCH_STATES,
+  type OrderDocument,
+  type OrderListItem,
+  type AddressResult,
+} from "@/lib/order-types";
 import { MALAYSIA_STATES } from "@/lib/malaysia-states";
 import { ID_TYPES } from "@/lib/dealer-offers";
 
@@ -446,5 +452,57 @@ export async function submitOrder(id: string) {
     return { success: true as const, message: "Order entered (customer form filled)." };
   } catch (e) {
     return fail(e instanceof Error ? e.message : "Order service unreachable.");
+  }
+}
+
+// ── Address search (portal QryNIGAddress via the Flask service) ──────────────
+// Read-only lookup of serviceable addresses for the order form's picker. Returns
+// the resourceInstId (addressId) + structured fields the backend later uses to
+// select the address "By Address Id". No order/customer is created.
+type AddressQueryBy = "keyword" | "street" | "building" | "address_id";
+
+export async function searchDealerAddress(
+  state: string,
+  value: string,
+  queryBy: AddressQueryBy = "keyword",
+): Promise<{ success: boolean; error?: string; addresses: AddressResult[] }> {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false, error: "Unauthorized", addresses: [] };
+  if (!ORDER_TOKEN) {
+    return { success: false, error: "Address service is not configured.", addresses: [] };
+  }
+
+  const st = (state || "").trim().toUpperCase();
+  const val = (value || "").trim();
+  if (!ADDRESS_SEARCH_STATES.includes(st as (typeof ADDRESS_SEARCH_STATES)[number])) {
+    return { success: false, error: "Select a valid state.", addresses: [] };
+  }
+  if (val.length < 3) {
+    return { success: false, error: "Enter at least 3 characters to search.", addresses: [] };
+  }
+
+  try {
+    const res = await fetch(`${SCRAPER_API_URL}/dealer/address-search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Internal-Token": ORDER_TOKEN },
+      cache: "no-store",
+      body: JSON.stringify({ user_key: session.user.id, state: st, value: val, query_by: queryBy }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      success?: boolean;
+      addresses?: AddressResult[];
+      message?: string;
+      error?: string;
+    };
+    if (!res.ok || !data.success) {
+      return {
+        success: false,
+        error: data.message || data.error || "Address search failed.",
+        addresses: [],
+      };
+    }
+    return { success: true, addresses: data.addresses ?? [] };
+  } catch {
+    return { success: false, error: "Address service unreachable.", addresses: [] };
   }
 }

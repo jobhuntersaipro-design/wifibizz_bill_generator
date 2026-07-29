@@ -38,6 +38,7 @@ export async function getUsers() {
         passwordRaw: u.passwordRaw,
         notes: u.notes,
         caseLimit: u.caseLimit,
+        orderEntryEnabled: u.orderEntryEnabled,
         wifibizzEmail: u.wifibizzUser?.wifibizzEmail ?? null,
         lastCrawlAt: u.wifibizzUser?.lastCrawlAt?.toISOString() ?? null,
         createdAt: u.createdAt.toISOString(),
@@ -216,6 +217,25 @@ export async function updateUser(
   } catch (err) {
     console.error("updateUser error:", err);
     return { success: false, error: "Failed to update user" };
+  }
+}
+
+// Quick per-user toggle for Order Entry access (the admin table checkbox).
+export async function setOrderEntryAccess(
+  userId: string,
+  enabled: boolean
+): Promise<ActionResult> {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+  try {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { orderEntryEnabled: enabled },
+    });
+    return { success: true };
+  } catch (err) {
+    console.error("setOrderEntryAccess error:", err);
+    return { success: false, error: "Failed to update Order Entry access" };
   }
 }
 

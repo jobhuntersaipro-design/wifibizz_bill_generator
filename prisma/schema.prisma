@@ -15,6 +15,7 @@ model User {
   passwordRaw     String?             @map("password_raw")
   notes           String?
   caseLimit       Int                 @default(10) @map("case_limit")
+  orderEntryEnabled Boolean           @default(false) @map("order_entry_enabled")
   wifibizzUser    WifibizzUser?
   dealerAccount   DealerAccount?
   orders          Order[]

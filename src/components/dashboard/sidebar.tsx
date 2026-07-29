@@ -17,7 +17,16 @@ const navItems = [
 
 export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => void }) {
   const pathname = usePathname();
-  const [sidebarInfo, setSidebarInfo] = useState<{ email: string | null; agent: string | null }>({ email: null, agent: null });
+  const [sidebarInfo, setSidebarInfo] = useState<{
+    email: string | null;
+    agent: string | null;
+    orderEntryEnabled: boolean;
+  }>({ email: null, agent: null, orderEntryEnabled: false });
+
+  // Hide the Order Entry link unless the admin has granted this user access.
+  const visibleNavItems = navItems.filter(
+    (item) => item.href !== "/dashboard/order-entry" || sidebarInfo.orderEntryEnabled
+  );
 
   // Close sidebar on route change (mobile)
   useEffect(() => {
@@ -64,7 +73,7 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 stagger-children">
-        {navItems.map((item) => {
+        {visibleNavItems.map((item) => {
           const isActive =
             item.href === "/dashboard"
               ? pathname === "/dashboard"

@@ -84,17 +84,24 @@ export async function getWifibizzCredentials() {
 export async function getSidebarInfo() {
   const session = await auth();
   if (!session?.user?.id) {
-    return { email: null, agent: null };
+    return { email: null, agent: null, orderEntryEnabled: false };
   }
 
   try {
-    const wifibizzUser = await prisma.wifibizzUser.findUnique({
-      where: { userId: session.user.id },
-      select: { wifibizzEmail: true, id: true },
-    });
+    const [user, wifibizzUser] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { orderEntryEnabled: true },
+      }),
+      prisma.wifibizzUser.findUnique({
+        where: { userId: session.user.id },
+        select: { wifibizzEmail: true, id: true },
+      }),
+    ]);
+    const orderEntryEnabled = !!user?.orderEntryEnabled;
 
     if (!wifibizzUser) {
-      return { email: null, agent: null };
+      return { email: null, agent: null, orderEntryEnabled };
     }
 
     // Get the most common agent from the user's cases
@@ -108,9 +115,26 @@ export async function getSidebarInfo() {
     return {
       email: wifibizzUser.wifibizzEmail,
       agent: rows.length > 0 ? rows[0].agent : null,
+      orderEntryEnabled,
     };
   } catch {
-    return { email: null, agent: null };
+    return { email: null, agent: null, orderEntryEnabled: false };
+  }
+}
+
+// Server-side access gate for the Order Entry route (defense in depth beyond
+// hiding the sidebar link).
+export async function hasOrderEntryAccess(): Promise<boolean> {
+  const session = await auth();
+  if (!session?.user?.id) return false;
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { orderEntryEnabled: true },
+    });
+    return !!user?.orderEntryEnabled;
+  } catch {
+    return false;
   }
 }
 
