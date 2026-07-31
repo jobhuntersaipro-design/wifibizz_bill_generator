@@ -47,4 +47,5 @@ export interface OrderListItem {
   errorMessage: string | null;
   docCount: number;
   createdAt: string;
+  createdByEmail?: string | null; // only populated for superadmins (all-drafts view)
 }

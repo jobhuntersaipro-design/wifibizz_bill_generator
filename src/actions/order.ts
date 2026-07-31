@@ -242,9 +242,12 @@ export async function saveOrder(rawInput: OrderInput) {
   };
 
   try {
+    // Superadmins may edit any draft; everyone else only their own. Editing
+    // leaves the draft's original owner intact.
+    const superAdmin = input.id ? await isSuperAdmin(session.user.id) : false;
     const order = input.id
       ? await prisma.order.update({
-          where: { id: input.id, userId: session.user.id },
+          where: superAdmin ? { id: input.id } : { id: input.id, userId: session.user.id },
           data,
         })
       : await prisma.order.create({
@@ -263,29 +266,44 @@ export async function getOrder(id: string) {
   const session = await auth();
   if (!session?.user?.id) return { success: false as const, error: "Unauthorized", data: null };
 
+  const superAdmin = await isSuperAdmin(session.user.id);
   const order = await prisma.order.findFirst({
-    where: { id, userId: session.user.id },
+    where: superAdmin ? { id } : { id, userId: session.user.id },
   });
   if (!order) return { success: false as const, error: "Order not found.", data: null };
   return { success: true as const, data: order };
 }
 
 // ── List / submit / delete orders ────────────────────────────────────────────
+// A superadmin can view + manage every user's orders (Order Entry drafts).
+async function isSuperAdmin(userId: string): Promise<boolean> {
+  const u = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { isSuperAdmin: true },
+  });
+  return !!u?.isSuperAdmin;
+}
+
 export async function listOrders(): Promise<{
   success: boolean;
   error?: string;
+  isSuperAdmin?: boolean;
   data: OrderListItem[];
 }> {
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: "Unauthorized", data: [] };
 
+  const superAdmin = await isSuperAdmin(session.user.id);
   const orders = await prisma.order.findMany({
-    where: { userId: session.user.id },
+    // Superadmins see ALL drafts; everyone else only their own.
+    where: superAdmin ? {} : { userId: session.user.id },
     orderBy: { createdAt: "desc" },
+    include: { user: { select: { email: true } } },
   });
 
   return {
     success: true,
+    isSuperAdmin: superAdmin,
     data: orders.map((o) => ({
       id: o.id,
       fullName: o.fullName,
@@ -299,6 +317,7 @@ export async function listOrders(): Promise<{
       errorMessage: o.errorMessage,
       docCount: Array.isArray(o.documents) ? (o.documents as unknown[]).length : 0,
       createdAt: o.createdAt.toISOString(),
+      createdByEmail: superAdmin ? o.user?.email ?? null : null,
     })),
   };
 }
@@ -306,7 +325,10 @@ export async function listOrders(): Promise<{
 export async function deleteOrder(id: string) {
   const session = await auth();
   if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
-  const res = await prisma.order.deleteMany({ where: { id, userId: session.user.id } });
+  const superAdmin = await isSuperAdmin(session.user.id);
+  const res = await prisma.order.deleteMany({
+    where: superAdmin ? { id } : { id, userId: session.user.id },
+  });
   if (res.count === 0) return { success: false as const, error: "Order not found." };
   return { success: true as const };
 }
@@ -334,8 +356,11 @@ export async function submitOrder(id: string) {
     return { success: false as const, error: "Order service is not configured." };
   }
 
+  // Superadmins may submit any draft; it runs under THEIR own connected dealer
+  // session (user_key below), regardless of who created the draft.
+  const superAdmin = await isSuperAdmin(session.user.id);
   const order = await prisma.order.findFirst({
-    where: { id, userId: session.user.id },
+    where: superAdmin ? { id } : { id, userId: session.user.id },
   });
   if (!order) return { success: false as const, error: "Order not found." };
 
@@ -344,7 +369,7 @@ export async function submitOrder(id: string) {
     "X-Internal-Token": ORDER_TOKEN,
   };
   await prisma.order.update({
-    where: { id: order.id, userId: session.user.id },
+    where: { id: order.id },
     data: { status: "submitting", errorMessage: null },
   });
 
@@ -374,7 +399,7 @@ export async function submitOrder(id: string) {
 
   async function fail(message: string) {
     await prisma.order.update({
-      where: { id: order!.id, userId: session!.user!.id },
+      where: { id: order!.id },
       data: { status: "failed", errorMessage: message },
     });
     return { success: false as const, error: message };
@@ -427,7 +452,7 @@ export async function submitOrder(id: string) {
     // Interpret the result → order status.
     if (result.status === "success" && result.order_id) {
       await prisma.order.update({
-        where: { id: order.id, userId: session.user.id },
+        where: { id: order.id },
         data: { status: "submitted", orderId: result.order_id, errorMessage: result.warning ?? null },
       });
       return { success: true as const, orderId: result.order_id, warning: result.warning };
@@ -438,7 +463,7 @@ export async function submitOrder(id: string) {
     // Surface any warning (e.g. duplicate customer records).
     if (result.warning) {
       await prisma.order.update({
-        where: { id: order.id, userId: session.user.id },
+        where: { id: order.id },
         data: { status: "warning", errorMessage: result.warning },
       });
       return { success: true as const, warning: result.warning };
@@ -446,7 +471,7 @@ export async function submitOrder(id: string) {
     // Customer profile created (order entry, pages 1-16). The order id comes
     // later from the separate feasibility step.
     await prisma.order.update({
-      where: { id: order.id, userId: session.user.id },
+      where: { id: order.id },
       data: { status: "order_entered", errorMessage: null },
     });
     return { success: true as const, message: result.message || "Customer profile created." };

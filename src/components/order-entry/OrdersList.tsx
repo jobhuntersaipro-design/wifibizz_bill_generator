@@ -36,6 +36,8 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [batchRunning, setBatchRunning] = useState(false);
+  // Superadmins see everyone's drafts + a "Made By" column.
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
 
   // Fetch on mount — setState happens in the async callback (not synchronously
   // in the effect body), so it doesn't cause a cascading render.
@@ -43,7 +45,10 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     let active = true;
     listOrders().then((res) => {
       if (!active) return;
-      if (res.success) setOrders(res.data);
+      if (res.success) {
+        setOrders(res.data);
+        setIsSuperAdmin(!!res.isSuperAdmin);
+      }
       setLoading(false);
     });
     return () => {
@@ -53,7 +58,10 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
 
   async function reload() {
     const res = await listOrders();
-    if (res.success) setOrders(res.data);
+    if (res.success) {
+      setOrders(res.data);
+      setIsSuperAdmin(!!res.isSuperAdmin);
+    }
   }
 
   // Core submit for one order. Returns true on success (used by both the per-row
@@ -244,6 +252,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                 />
               </th>
               <th className="px-4 py-3 font-medium">Customer</th>
+              {isSuperAdmin && <th className="px-4 py-3 font-medium">Made By</th>}
               <th className="px-4 py-3 font-medium">Package</th>
               <th className="px-4 py-3 font-medium">Location</th>
               <th className="px-4 py-3 font-medium">Status</th>
@@ -254,7 +263,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
           <tbody>
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-sm text-[#697386]">
+                <td colSpan={isSuperAdmin ? 8 : 7} className="px-4 py-8 text-center text-sm text-[#697386]">
                   No orders match your search.
                 </td>
               </tr>
@@ -277,6 +286,9 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                   <div className="font-medium text-[#0A2540]">{o.fullName}</div>
                   <div className="text-[11px] text-[#697386] tabular-nums">{o.idType} · {o.idNumber}</div>
                 </td>
+                {isSuperAdmin && (
+                  <td className="px-4 py-3 text-[#425466] text-[12px]">{o.createdByEmail ?? "—"}</td>
+                )}
                 <td className="px-4 py-3 text-[#425466] max-w-55">{o.offerName ?? "—"}</td>
                 <td className="px-4 py-3 text-[#425466]">{[o.city, o.state].filter(Boolean).join(", ") || "—"}</td>
                 <td className="px-4 py-3 align-top">

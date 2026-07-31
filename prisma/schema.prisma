@@ -16,6 +16,7 @@ model User {
   notes           String?
   caseLimit       Int                 @default(10) @map("case_limit")
   orderEntryEnabled Boolean           @default(false) @map("order_entry_enabled")
+  isSuperAdmin    Boolean             @default(false) @map("is_super_admin")
   wifibizzUser    WifibizzUser?
   dealerAccount   DealerAccount?
   orders          Order[]
