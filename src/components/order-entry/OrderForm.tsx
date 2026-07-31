@@ -5,13 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { saveOrder, uploadOrderDocument, searchDealerAddress, getOrder } from "@/actions/order";
-import {
-  MAX_DOCS,
-  ADDRESS_SEARCH_STATES,
-  type OrderDocument,
-  type AddressResult,
-} from "@/lib/order-types";
+import { saveOrder, uploadOrderDocument, lookupPostcode, getOrder } from "@/actions/order";
+import { MAX_DOCS, type OrderDocument } from "@/lib/order-types";
 import { parseMykad, inferRace } from "@/lib/mykad";
 import {
   DEALER_OFFERS,
@@ -19,6 +14,7 @@ import {
   MYKAD_LIKE_ID_TYPES,
   type IdType,
 } from "@/lib/dealer-offers";
+import { MALAYSIA_STATES } from "@/lib/malaysia-states";
 
 const DOC_TYPES = [
   { value: "id", label: "Customer ID copy" },
@@ -60,21 +56,14 @@ export function OrderForm({
   const [email, setEmail] = useState("");
   const mobileRef = useRef<HTMLInputElement>(null);
 
+  // Residence address for the customer profile: postcode auto-detects city/state
+  // (Google geocode), agent types the street. (The serviceable service address
+  // via the portal QryNIGAddress picker is a separate, later feasibility step.)
   const [postcode, setPostcode] = useState("");
   const [stateVal, setStateVal] = useState("");
   const [city, setCity] = useState("");
   const [street, setStreet] = useState("");
-
-  // Portal-backed address picker (QryNIGAddress). The picked address carries the
-  // resourceInstId the backend later uses to select the address "By Address Id".
-  const [addressId, setAddressId] = useState("");
-  const [addressFull, setAddressFull] = useState("");
-  const [serviceCategory, setServiceCategory] = useState("");
-  const [searchState, setSearchState] = useState("");
-  const [searchValue, setSearchValue] = useState("");
-  const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState("");
-  const [results, setResults] = useState<AddressResult[]>([]);
+  const [detecting, setDetecting] = useState(false);
 
   const [offerName, setOfferName] = useState("");
   const [offerCategory, setOfferCategory] = useState("");
@@ -153,9 +142,6 @@ export function OrderForm({
         setStateVal(o.state || "");
         setCity(o.city || "");
         setStreet(o.street || "");
-        setAddressId(o.addressId || "");
-        setAddressFull(o.addressFull || o.street || "");
-        setServiceCategory(o.serviceCategory || "");
         setOfferName(o.offerName || "");
         setOfferCategory(o.offerCategory || "");
         setRemarks(o.remarks || "");
@@ -188,54 +174,19 @@ export function OrderForm({
     }
   }
 
-  async function runAddressSearch() {
-    if (!searchState) {
-      setSearchError("Select a state first.");
-      return;
+  // Postcode -> auto-detect city + state (Google geocode); agent types the street.
+  async function handlePostcode(v: string) {
+    const pc = v.replace(/\D/g, "").slice(0, 5);
+    setPostcode(pc);
+    if (pc.length === 5) {
+      setDetecting(true);
+      const r = await lookupPostcode(pc);
+      setDetecting(false);
+      if (r.success) {
+        if (r.state) setStateVal(r.state);
+        if (r.city) setCity(r.city.toUpperCase());
+      }
     }
-    if (searchValue.trim().length < 3) {
-      setSearchError("Enter at least 3 characters to search.");
-      return;
-    }
-    setSearching(true);
-    setSearchError("");
-    setResults([]);
-    const res = await searchDealerAddress(searchState, searchValue.trim());
-    setSearching(false);
-    if (!res.success) {
-      setSearchError(res.error ?? "Address search failed.");
-      return;
-    }
-    if (res.addresses.length === 0) {
-      setSearchError("No serviceable address found. Try a different keyword.");
-      return;
-    }
-    setResults(res.addresses);
-  }
-
-  // Commit a picked address: fill the stored fields the order + backend need.
-  function selectAddress(a: AddressResult) {
-    setAddressId(a.addressId);
-    setAddressFull(a.addressFull);
-    setServiceCategory(a.serviceCategory ?? "");
-    setStateVal(a.state ?? "");
-    setCity(a.city ?? "");
-    setPostcode(a.postcode ?? "");
-    setStreet(
-      [a.houseUnitLot, a.streetType, a.streetName, a.section]
-        .filter(Boolean)
-        .join(" ")
-        .toUpperCase() || a.addressFull,
-    );
-    setResults([]);
-    setSearchError("");
-  }
-
-  // Clear a picked address to search again.
-  function clearAddress() {
-    setAddressId("");
-    setAddressFull("");
-    setServiceCategory("");
   }
 
   async function addDoc(file: File | undefined) {
@@ -312,9 +263,6 @@ export function OrderForm({
       postcode,
       city,
       state: stateVal,
-      addressId,
-      addressFull,
-      serviceCategory,
       offerCategory,
       offerName,
       remarks,
@@ -437,89 +385,30 @@ export function OrderForm({
         </div>
       </div>
 
-      {/* Installation Address — searched against the portal's serviceable-address
-          database (QryNIGAddress). The picked address carries the resourceInstId. */}
+      {/* Installation Address (customer residence) — postcode auto-detects
+          city + state (geocode); the agent types the street. */}
       <div className={`${cardCls} overflow-hidden`}>
         <div className={headCls}>Installation Address</div>
-        <div className="p-6 space-y-4">
-          {addressId ? (
-            // Picked address — show it with its service category + a Change action.
-            <div className="rounded-lg border border-[#635BFF]/40 bg-[#635BFF]/4 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center rounded-full bg-[#00A854]/10 px-2 py-0.5 text-[10px] font-semibold text-[#00814A]">
-                      {serviceCategory || "SERVICEABLE"}
-                    </span>
-                    <span className="text-[10px] text-[#697386]">Address Id: {addressId}</span>
-                  </div>
-                  <p className="text-sm text-[#0A2540]">{addressFull}</p>
-                </div>
-                <button type="button" onClick={clearAddress} className="shrink-0 text-xs font-medium text-[#635BFF] hover:underline">
-                  Change
-                </button>
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* Search controls: State + keyword. */}
-              <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,220px)_1fr_auto] gap-3">
-                <div className="space-y-1.5">
-                  <Label className={labelCls}>State</Label>
-                  <select value={searchState} onChange={(e) => setSearchState(e.target.value)} className={selectCls}>
-                    <option value="">Select state</option>
-                    {ADDRESS_SEARCH_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className={labelCls}>Search address</Label>
-                  <Input
-                    value={searchValue}
-                    onChange={(e) => setSearchValue(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); runAddressSearch(); } }}
-                    className={inputCls}
-                    placeholder="Street, area or building (min 3 chars)"
-                  />
-                </div>
-                <div className="space-y-1.5 flex flex-col justify-end">
-                  <Button type="button" onClick={runAddressSearch} disabled={searching} className="h-10 bg-[#635BFF] hover:bg-[#0A2540] text-white">
-                    {searching ? "Searching…" : "Search"}
-                  </Button>
-                </div>
-              </div>
-
-              {searchError && <p className="text-[12px] text-[#DF1B41]">{searchError}</p>}
-
-              {/* Results — click a row to pick. Capped list with a refine hint. */}
-              {results.length > 0 && (
-                <div className="rounded-lg border border-[#E3E8EF] overflow-hidden">
-                  <div className="max-h-72 overflow-auto divide-y divide-[#EDF1F6]">
-                    {results.slice(0, 50).map((a) => (
-                      <button
-                        key={a.addressId}
-                        type="button"
-                        onClick={() => selectAddress(a)}
-                        className="w-full text-left px-4 py-2.5 hover:bg-[#635BFF]/5 transition-colors"
-                      >
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <span className="inline-flex items-center rounded-full bg-[#00A854]/10 px-1.5 py-0.5 text-[9px] font-semibold text-[#00814A]">
-                            {a.serviceCategory || "—"}
-                          </span>
-                          <span className="text-[10px] text-[#697386]">{a.addressType}{a.houseType ? ` · ${a.houseType}` : ""}</span>
-                        </div>
-                        <p className="text-[13px] text-[#0A2540] leading-snug">{a.addressFull}</p>
-                      </button>
-                    ))}
-                  </div>
-                  <div className="px-4 py-1.5 bg-[#F6F9FC] text-[10px] text-[#697386]">
-                    {results.length > 50
-                      ? `Showing 50 of ${results.length} — refine your search to narrow results.`
-                      : `${results.length} result${results.length === 1 ? "" : "s"}`}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
+        <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <Label className={labelCls}>Postcode {detecting && <span className="text-[#697386]">(detecting…)</span>}</Label>
+            <Input value={postcode} onChange={(e) => handlePostcode(e.target.value)} className={inputCls} placeholder="40150" inputMode="numeric" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className={labelCls}>State <span className="text-[#697386]">(auto)</span></Label>
+            <select value={stateVal} onChange={(e) => setStateVal(e.target.value)} className={selectCls}>
+              <option value="">---</option>
+              {MALAYSIA_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className={labelCls}>City <span className="text-[#697386]">(auto)</span></Label>
+            <Input value={city} onChange={(e) => setCity(e.target.value.toUpperCase())} className={`${inputCls} uppercase`} placeholder="SHAH ALAM" />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label className={labelCls}>Street Address</Label>
+            <Input value={street} onChange={(e) => setStreet(e.target.value.toUpperCase())} className={`${inputCls} uppercase`} placeholder="UNIT / STREET / AREA" />
+          </div>
         </div>
       </div>
 
