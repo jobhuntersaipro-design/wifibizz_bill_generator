@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { hasOrderEntryAccess } from "@/actions/settings";
+import { hasOrderEntryAccess, isCurrentUserSuperAdmin } from "@/actions/settings";
 import OrderEntryShell from "@/components/order-entry/OrderEntryShell";
 
 // Server-side gate: only users the admin has granted Order Entry access reach
@@ -8,5 +8,6 @@ export default async function OrderEntryLayout({ children }: { children: React.R
   if (!(await hasOrderEntryAccess())) {
     redirect("/dashboard");
   }
-  return <OrderEntryShell>{children}</OrderEntryShell>;
+  const superAdmin = await isCurrentUserSuperAdmin();
+  return <OrderEntryShell isSuperAdmin={superAdmin}>{children}</OrderEntryShell>;
 }

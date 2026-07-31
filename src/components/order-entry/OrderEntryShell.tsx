@@ -23,7 +23,13 @@ const TABS = [
   { href: "/dashboard/order-entry/drafts", label: "Drafts" },
 ];
 
-export default function OrderEntryShell({ children }: { children: React.ReactNode }) {
+export default function OrderEntryShell({
+  children,
+  isSuperAdmin = false,
+}: {
+  children: React.ReactNode;
+  isSuperAdmin?: boolean;
+}) {
   const pathname = usePathname();
   const isDrafts = pathname?.endsWith("/drafts");
 
@@ -164,6 +170,10 @@ export default function OrderEntryShell({ children }: { children: React.ReactNod
   }
 
   const isConnected = connection?.connected && !reconnecting;
+  // Superadmins may browse the drafts view without a live portal session
+  // (view-only — submitting an order still needs a real connection).
+  const canView = isConnected || isSuperAdmin;
+  const viewOnly = isSuperAdmin && !isConnected;
 
   return (
     <div className="space-y-6">
@@ -427,9 +437,18 @@ export default function OrderEntryShell({ children }: { children: React.ReactNod
           segment and throws "Rendered more hooks". So gate visibility with CSS,
           never by unmounting. */}
       <div
-        className={`${isConnected ? (isDrafts ? "w-full" : "max-w-4xl") : "hidden"} animate-fade-in-up`}
+        className={`${canView ? (isDrafts ? "w-full" : "max-w-4xl") : "hidden"} animate-fade-in-up`}
         style={{ animationDelay: "300ms" }}
       >
+        {viewOnly && (
+          <div className="flex items-start gap-2 text-xs bg-[#F6F9FC] text-[#425466] rounded-lg px-4 py-2.5 mb-4 border border-[#E3E8EF]">
+            <ClockIcon className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[#635BFF]" />
+            <span>
+              Superadmin view — browsing all drafts without a portal session.
+              Connect a dealer account above to submit orders.
+            </span>
+          </div>
+        )}
         <div className="flex gap-1 border-b border-[#E3E8EF] mb-5">
           {TABS.map((tab) => {
             const active = pathname?.startsWith(tab.href);

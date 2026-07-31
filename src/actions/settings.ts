@@ -138,6 +138,23 @@ export async function hasOrderEntryAccess(): Promise<boolean> {
   }
 }
 
+// Superadmins can view/manage every user's Order Entry drafts, and may browse
+// the drafts view without connecting a dealer portal session (view-only —
+// submitting still requires a live portal connection).
+export async function isCurrentUserSuperAdmin(): Promise<boolean> {
+  const session = await auth();
+  if (!session?.user?.id) return false;
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { isSuperAdmin: true },
+    });
+    return !!user?.isSuperAdmin;
+  } catch {
+    return false;
+  }
+}
+
 export async function getGoogleSheetSettings() {
   const session = await auth();
   if (!session?.user?.id) {
