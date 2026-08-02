@@ -98,11 +98,20 @@ export async function checkDealerConnection() {
     };
   }
 
-  // Session timed out — clear the expiry so the UI reflects "needs reconnect".
-  if (!connected && acct.sessionExpiresAt) {
+  // Reconcile the stored expiry with what the portal just told us, so the badge
+  // and the countdown can never contradict each other:
+  //  - connected  -> the session is provably alive, so (re)start the TTL clock
+  //    from now. This is what stops the confusing "Connected" + "expired" state
+  //    (the old code kept a stale, already-elapsed expiry).
+  //  - not connected -> clear the expiry so the UI shows "needs reconnect".
+  const refreshedExpiry = connected ? new Date(Date.now() + SESSION_TTL_MS) : null;
+  if (
+    (refreshedExpiry?.getTime() ?? null) !==
+    (acct.sessionExpiresAt?.getTime() ?? null)
+  ) {
     await prisma.dealerAccount.update({
       where: { userId: session.user.id },
-      data: { sessionExpiresAt: null },
+      data: { sessionExpiresAt: refreshedExpiry },
     });
   }
 
@@ -111,9 +120,7 @@ export async function checkDealerConnection() {
     data: {
       staffCode: acct.staffCode,
       lastConnectedAt: acct.lastConnectedAt?.toISOString() ?? null,
-      sessionExpiresAt: connected
-        ? acct.sessionExpiresAt?.toISOString() ?? null
-        : null,
+      sessionExpiresAt: refreshedExpiry?.toISOString() ?? null,
       connected,
     } satisfies DealerConnection,
   };

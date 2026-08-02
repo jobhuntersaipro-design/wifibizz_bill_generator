@@ -73,12 +73,14 @@ export default function OrderEntryShell({
     if (result.success) {
       setConnection(result.data);
       if (result.data?.staffCode) setStaffCode(result.data.staffCode);
+      // Derive the expiry state from the STORED clock — no live portal check on
+      // load. A live verification (which spins up a browser on the scraper) only
+      // runs when the user clicks "Check connection". This avoids a Chromium
+      // launch on every page load / refresh.
+      setSessionExpired(!!result.data && !result.data.connected);
     }
     setLoading(false);
-    if (result.success && result.data) {
-      runStatusCheck();
-    }
-  }, [runStatusCheck]);
+  }, []);
 
   useEffect(() => {
     // loadConnection awaits before any setState, so this isn't a synchronous
@@ -241,9 +243,15 @@ export default function OrderEntryShell({
                   </div>
                   <div className="bg-[#F6F9FC] rounded-lg px-4 py-3">
                     <p className="text-[#697386]">Session expires in</p>
-                    <p className={`font-semibold mt-0.5 tabular-nums ${sessionSecondsLeft <= 60 ? "text-[#DF1B41]" : "text-[#0A2540]"}`}>
-                      {sessionSecondsLeft > 0 ? fmtCountdown(sessionSecondsLeft) : "expired"}
-                    </p>
+                    {sessionSecondsLeft > 0 ? (
+                      <p className={`font-semibold mt-0.5 tabular-nums ${sessionSecondsLeft <= 60 ? "text-[#DF1B41]" : "text-[#0A2540]"}`}>
+                        {fmtCountdown(sessionSecondsLeft)}
+                      </p>
+                    ) : (
+                      // Stored clock elapsed. We haven't live-checked, so don't
+                      // claim "expired" — prompt a verify instead.
+                      <p className="font-medium mt-0.5 text-[#B54708]">Tap “Check connection”</p>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-3">

@@ -426,9 +426,11 @@ export async function submitOrder(id: string) {
       return fail(start.message || "Couldn't start the order job.");
     }
 
-    // Poll for completion (customer fill takes ~1-2 min).
+    // Poll for completion (customer fill takes ~1-2 min). Poll a touch longer
+    // than the scraper's 210s per-order cap so a hung run surfaces the backend's
+    // clear "portal busy / session expired" error instead of this generic one.
     let result: OrderJobResult | null = null;
-    for (let i = 0; i < 75; i++) {
+    for (let i = 0; i < 115; i++) {
       await sleep(2000);
       const jr = await fetch(`${SCRAPER_API_URL}/jobs/${start.job_id}`, {
         headers,
