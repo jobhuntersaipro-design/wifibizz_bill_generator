@@ -14,8 +14,14 @@ import {
 } from "@/lib/order-types";
 import { MALAYSIA_STATES } from "@/lib/malaysia-states";
 import { ID_TYPES } from "@/lib/dealer-offers";
+import MY_POSTCODES from "@/lib/malaysia-postcodes.json";
 
-// ── Postcode -> city + state (Google Geocoding) ──────────────────────────────
+// Static MY postcode -> [CITY, State] map (~2,900 postcodes). Reliable, offline,
+// and instant — Google geocoding returns the state but rarely the city for bare
+// Malaysian postcodes (e.g. 42610), so we resolve locally first.
+const POSTCODES = MY_POSTCODES as unknown as Record<string, [string, string]>;
+
+// ── Postcode -> city + state ─────────────────────────────────────────────────
 // UX helper so the agent types the postcode and city/state auto-fill. The
 // backend still resolves the exact serviceable address via the portal search.
 function normalizeState(raw: string | undefined): string | undefined {
@@ -27,8 +33,16 @@ function normalizeState(raw: string | undefined): string | undefined {
 export async function lookupPostcode(postcode: string) {
   const pc = (postcode || "").trim();
   if (!/^\d{5}$/.test(pc)) return { success: false as const, error: "Enter a 5-digit postcode" };
+
+  // Static dataset first — resolves both city + state reliably, offline, no key.
+  const local = POSTCODES[pc];
+  if (local) {
+    return { success: true as const, city: local[0], state: normalizeState(local[1]) };
+  }
+
+  // Fall back to Google geocode for any postcode not in the dataset.
   const key = process.env.GOOGLE_MAPS_API_KEY;
-  if (!key) return { success: false as const, error: "Geocoding is not configured." };
+  if (!key) return { success: false as const, error: "Postcode not found." };
   try {
     const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
       `${pc}, Malaysia`

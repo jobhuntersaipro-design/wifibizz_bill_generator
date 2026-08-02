@@ -185,6 +185,16 @@ export function OrderForm({
       if (r.success) {
         if (r.state) setStateVal(r.state);
         if (r.city) setCity(r.city.toUpperCase());
+        // Some postcodes (e.g. 42610) geocode to a state but no city — tell the
+        // agent to fill whatever autodetect couldn't, rather than silently
+        // leaving a required field blank.
+        if (!r.state || !r.city) {
+          toast.warning(
+            `Auto-detected ${[r.state && "state", r.city && "city"].filter(Boolean).join(" + ") || "nothing"}. Fill the rest manually.`
+          );
+        }
+      } else {
+        toast.error(r.error ?? "Couldn't auto-detect city/state — enter them manually.");
       }
     }
   }
@@ -244,6 +254,24 @@ export function OrderForm({
     e.preventDefault();
     if (!emailValid) {
       toast.error("Enter a valid email address.");
+      return;
+    }
+    // Residence address is required — an empty address is what makes the portal
+    // reject the customer profile as "data incomplete", so block it here.
+    if (!/^\d{5}$/.test(postcode.trim())) {
+      toast.error("Enter a valid 5-digit postcode.");
+      return;
+    }
+    if (!stateVal) {
+      toast.error("Select a state.");
+      return;
+    }
+    if (!city.trim()) {
+      toast.error("Enter the city.");
+      return;
+    }
+    if (!street.trim()) {
+      toast.error("Enter the street address.");
       return;
     }
     setSaving(true);
@@ -391,22 +419,22 @@ export function OrderForm({
         <div className={headCls}>Installation Address</div>
         <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1.5">
-            <Label className={labelCls}>Postcode {detecting && <span className="text-[#697386]">(detecting…)</span>}</Label>
+            <Label className={labelCls}>Postcode <span className="text-[#DF1B41]">*</span> {detecting && <span className="text-[#697386]">(detecting…)</span>}</Label>
             <Input value={postcode} onChange={(e) => handlePostcode(e.target.value)} className={inputCls} placeholder="40150" inputMode="numeric" />
           </div>
           <div className="space-y-1.5">
-            <Label className={labelCls}>State <span className="text-[#697386]">(auto)</span></Label>
+            <Label className={labelCls}>State <span className="text-[#DF1B41]">*</span> <span className="text-[#697386]">(auto)</span></Label>
             <select value={stateVal} onChange={(e) => setStateVal(e.target.value)} className={selectCls}>
               <option value="">---</option>
               {MALAYSIA_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
           <div className="space-y-1.5">
-            <Label className={labelCls}>City <span className="text-[#697386]">(auto)</span></Label>
+            <Label className={labelCls}>City <span className="text-[#DF1B41]">*</span> <span className="text-[#697386]">(auto)</span></Label>
             <Input value={city} onChange={(e) => setCity(e.target.value.toUpperCase())} className={`${inputCls} uppercase`} placeholder="SHAH ALAM" />
           </div>
           <div className="space-y-1.5 sm:col-span-2">
-            <Label className={labelCls}>Street Address</Label>
+            <Label className={labelCls}>Street Address <span className="text-[#DF1B41]">*</span></Label>
             <Input value={street} onChange={(e) => setStreet(e.target.value.toUpperCase())} className={`${inputCls} uppercase`} placeholder="UNIT / STREET / AREA" />
           </div>
         </div>
