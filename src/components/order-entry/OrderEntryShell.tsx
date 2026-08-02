@@ -343,7 +343,7 @@ export default function OrderEntryShell({
                     onChange={(e) => setChannel(e.target.value as "Email" | "SMS")}
                     className="w-full rounded-lg h-10 px-3 border border-[#E3E8EF] bg-white text-sm text-[#0A2540] focus:border-[#635BFF] focus:outline-none"
                   >
-                    <option value="Email">Email</option>
+                    <option value="Email">Email / 邮箱</option>
                     <option value="SMS">SMS</option>
                   </select>
                 </div>
