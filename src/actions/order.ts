@@ -420,8 +420,8 @@ export async function submitOrder(id: string) {
   }
 
   try {
-    // "Order entry" (PDF pages 1-16): create the customer profile for real, then
-    // stop. Feasibility -> order id is a separate later step. No Pay/billing.
+    // Full per-order flow: create the customer profile, then feasibility -> Order
+    // -> attach the customer -> capture the order id. One dealer session.
     const startRes = await fetch(`${SCRAPER_API_URL}/orders`, {
       method: "POST",
       headers,
@@ -429,7 +429,7 @@ export async function submitOrder(id: string) {
       body: JSON.stringify({
         order: reqOrder,
         user_key: session.user.id,
-        stop_after_customer_create: true,
+        full_order: true,
       }),
     });
     const start = (await startRes.json().catch(() => ({}))) as {
@@ -440,11 +440,11 @@ export async function submitOrder(id: string) {
       return fail(start.message || "Couldn't start the order job.");
     }
 
-    // Poll for completion (customer fill takes ~1-2 min). Poll a touch longer
-    // than the scraper's 210s per-order cap so a hung run surfaces the backend's
-    // clear "portal busy / session expired" error instead of this generic one.
+    // Poll for completion. The full flow runs longer (customer create ~1-2 min +
+    // feasibility/attach), so poll past the scraper's 360s per-order cap.
     let result: OrderJobResult | null = null;
-    for (let i = 0; i < 115; i++) {
+    let enteredMarked = false;
+    for (let i = 0; i < 195; i++) {
       await sleep(2000);
       const jr = await fetch(`${SCRAPER_API_URL}/jobs/${start.job_id}`, {
         headers,
@@ -452,9 +452,18 @@ export async function submitOrder(id: string) {
       });
       const j = (await jr.json().catch(() => ({}))) as {
         status?: string;
+        stage?: string;
         result?: OrderJobResult;
         error?: string;
       };
+      // Live intermediate: customer profile created -> "order entered".
+      if (j.stage === "order_entered" && !enteredMarked) {
+        enteredMarked = true;
+        await prisma.order.update({
+          where: { id: order.id },
+          data: { status: "order_entered", errorMessage: null },
+        });
+      }
       if (j.status === "done") {
         result = j.result ?? {};
         break;

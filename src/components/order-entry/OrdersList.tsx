@@ -64,6 +64,24 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     }
   }
 
+  // While an order is mid-flight, poll so the live status transitions
+  // (submitting -> order entered -> submitted) show up without a manual refresh.
+  const processing = orders.some(
+    (o) => o.status === "submitting" || o.status === "order_entered",
+  );
+  useEffect(() => {
+    if (!processing) return;
+    const t = setInterval(() => {
+      listOrders().then((res) => {
+        if (res.success) {
+          setOrders(res.data);
+          setIsSuperAdmin(!!res.isSuperAdmin);
+        }
+      });
+    }, 4000);
+    return () => clearInterval(t);
+  }, [processing]);
+
   // Core submit for one order. Returns true on success (used by both the per-row
   // button and the batch runner). Toasts show the customer name + detail.
   async function runSubmit(id: string, name: string): Promise<boolean> {
@@ -306,7 +324,21 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                     </div>
                   )}
                 </td>
-                <td className="px-4 py-3 tabular-nums text-[#0A2540]">{o.orderId ?? "—"}</td>
+                <td className="px-4 py-3 tabular-nums text-[#0A2540]">
+                  {o.orderId ? (
+                    <a
+                      href={`https://dealer.unifi.com.my/esales/h5/onBoarding/OrderDetails?custOrderId=${o.orderId}&custOrderNbr=${o.orderId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#635BFF] hover:underline"
+                      title="Open the order on the dealer portal (may take a moment to appear after creation)"
+                    >
+                      {o.orderId}
+                    </a>
+                  ) : (
+                    "—"
+                  )}
+                </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-2">
                     {o.status !== "submitted" && (
