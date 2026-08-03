@@ -73,14 +73,17 @@ export default function OrderEntryShell({
     if (result.success) {
       setConnection(result.data);
       if (result.data?.staffCode) setStaffCode(result.data.staffCode);
-      // Derive the expiry state from the STORED clock — no live portal check on
-      // load. A live verification (which spins up a browser on the scraper) only
-      // runs when the user clicks "Check connection". This avoids a Chromium
-      // launch on every page load / refresh.
       setSessionExpired(!!result.data && !result.data.connected);
     }
     setLoading(false);
-  }, []);
+    // Verify against the portal on load so the badge reflects REALITY — the
+    // stored clock is only a guess and can show "Connected" after the portal
+    // session has already expired. (Affordable now: droplet is 2GB with bounded
+    // browser teardown.)
+    if (result.success && result.data) {
+      runStatusCheck();
+    }
+  }, [runStatusCheck]);
 
   useEffect(() => {
     // loadConnection awaits before any setState, so this isn't a synchronous
@@ -171,7 +174,11 @@ export default function OrderEntryShell({
     setPassword("");
   }
 
-  const isConnected = connection?.connected && !reconnecting;
+  // Green "Connected" only while BOTH the live/stored state says connected AND
+  // the countdown hasn't elapsed — so it can never show "Connected" next to an
+  // expired clock. `checking` keeps it shown (as "Verifying…") during a check.
+  const isConnected =
+    connection?.connected && !reconnecting && (checking || sessionSecondsLeft > 0);
   // Superadmins may browse the drafts view without a live portal session
   // (view-only — submitting an order still needs a real connection).
   const canView = isConnected || isSuperAdmin;
