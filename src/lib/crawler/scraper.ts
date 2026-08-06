@@ -19,6 +19,7 @@ async function getCsrfToken(baseUrl: string): Promise<{ token: string; cookies: 
     headers: {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     },
+    signal: AbortSignal.timeout(30000),
   });
 
   const html = await res.text();
@@ -60,6 +61,7 @@ async function login(
     },
     body: body.toString(),
     redirect: "manual",
+    signal: AbortSignal.timeout(30000),
   });
 
   const setCookies = res.headers.getSetCookie?.() ?? [];
@@ -98,25 +100,43 @@ interface DataTablesResponse {
   data: Record<string, unknown>[];
 }
 
-async function fetchCases(
+// Parse the portal's "YYYY-MM-DD HH:MM:SS" timestamp; null if unparseable.
+function parseCreatedAt(s: string | undefined): Date | null {
+  if (!s) return null;
+  const d = new Date(s.replace(" ", "T"));
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// Fetch cases NEWEST-FIRST (order by created_at DESC) and STOP as soon as we page
+// past the `from` cutoff. The shared admin account sees the ENTIRE platform
+// (200k+ records) and the endpoint has NO server-side date filter, so ordering
+// desc + an early stop is the only way to bound the crawl to a recent window
+// instead of downloading everything (which hangs). The `module` param is ignored
+// by the portal — one sweep already returns all operator_types (home/biz/4g) — so
+// we sweep once and rely on each row's `operator_type`. Rows newer than `to` are
+// skipped (they're outside the window's upper bound).
+async function fetchCasesInWindow(
   baseUrl: string,
   session: LoginSession,
-  module: string
+  from: Date | null,
+  to: Date | null,
+  onPage?: (rowsSoFar: number) => void
 ): Promise<Record<string, unknown>[]> {
   const allRecords: Record<string, unknown>[] = [];
   let start = 0;
   const length = 100;
+  const MAX_PAGES = 800; // backstop (~80k rows) so a bad cutoff can never run away
 
-  while (true) {
+  for (let page = 0; page < MAX_PAGES; page++) {
     const params = new URLSearchParams({
       draw: "1",
       start: start.toString(),
       length: length.toString(),
-      "columns[0][data]": "prefix_with_no",
-      "columns[0][name]": "",
-      "columns[0][searchable]": "true",
+      "columns[0][data]": "created_at",
+      "columns[0][name]": "created_at",
       "columns[0][orderable]": "true",
-      module,
+      "order[0][column]": "0",
+      "order[0][dir]": "desc",
     });
 
     const res = await fetch(`${baseUrl}/applications?${params.toString()}`, {
@@ -127,6 +147,7 @@ async function fetchCases(
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         Referer: `${baseUrl}/applications`,
       },
+      signal: AbortSignal.timeout(30000),
     });
 
     if (!res.ok) {
@@ -134,12 +155,22 @@ async function fetchCases(
     }
 
     const json = (await res.json()) as DataTablesResponse;
+    const rows = json.data || [];
+    if (rows.length === 0) break;
 
-    allRecords.push(...(json.data || []));
-
-    if (!json.data?.length || start + length >= json.recordsFiltered) {
-      break;
+    let reachedCutoff = false;
+    for (const r of rows) {
+      const ca = parseCreatedAt(r.created_at as string);
+      if (from && ca && ca < from) {
+        reachedCutoff = true; // rows are newest-first, so everything after is older too
+        break;
+      }
+      if (to && ca && ca > to) continue; // newer than the window end — skip
+      allRecords.push(r);
     }
+
+    onPage?.(allRecords.length);
+    if (reachedCutoff) break;
     start += length;
   }
 
@@ -147,8 +178,10 @@ async function fetchCases(
 }
 
 // ── Step 3b: Fetch case detail page for address ──
+// Exported for lazy, on-demand use at bill-generation time — the crawl no longer
+// fetches addresses inline (too many detail pages for a month of platform data).
 
-async function fetchCaseAddress(
+export async function fetchCaseAddress(
   baseUrl: string,
   session: LoginSession,
   caseId: number,
@@ -159,6 +192,7 @@ async function fetchCaseAddress(
       Cookie: session.cookies,
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     },
+    signal: AbortSignal.timeout(30000),
   });
 
   if (!res.ok) return "";
@@ -273,76 +307,38 @@ export async function crawl(
   onProgress?.({ step: "Logging in to WifiBizz...", current: 0, total: 0, percent: 5 });
   const session = await login(baseUrl, email, password);
 
-  onProgress?.({ step: "Fetching cases...", current: 0, total: 0, percent: 15 });
-  const modules = ["home_fibre", "biz_fibre"];
-  const allRecords: Record<string, unknown>[] = [];
-  for (const mod of modules) {
-    const records = await fetchCases(baseUrl, session, mod);
-    allRecords.push(...records);
-  }
+  // Bound the crawl to a recent window. The admin account sees the entire
+  // platform (200k+ cases) and the endpoint has no server-side date filter, so we
+  // page NEWEST-FIRST and stop at the `from` cutoff. Default window = the last
+  // 1 month; the crawl page's From/To override it.
+  const now = new Date();
+  const from = options?.dateFrom
+    ? new Date(options.dateFrom + "T00:00:00")
+    : new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+  const to = options?.dateTo ? new Date(options.dateTo + "T23:59:59") : null;
 
-  onProgress?.({ step: "Processing cases...", current: 0, total: allRecords.length, percent: 25 });
+  onProgress?.({ step: "Fetching recent cases...", current: 0, total: 0, percent: 15 });
+  const allRecords = await fetchCasesInWindow(baseUrl, session, from, to, (rowsSoFar) => {
+    onProgress?.({
+      step: `Fetching recent cases... ${rowsSoFar} found`,
+      current: rowsSoFar,
+      total: 0,
+      percent: Math.min(90, 15 + Math.floor(rowsSoFar / 100)),
+    });
+  });
+
+  onProgress?.({ step: "Processing cases...", current: 0, total: allRecords.length, percent: 92 });
   let cases = extractCases(allRecords, baseUrl);
 
-  // Only keep cases whose status is Activated or Pending (skip Rejected/Processed/…).
+  // Only keep cases whose status is Activated or Pending (skip Processed/Rejected/
+  // Follow Up/etc.). All modules (home/biz/4g) come from the single sweep above.
   cases = cases.filter((c) => /^(activated|pending)$/i.test((c.status || "").trim()));
 
-  // Apply date filter if provided
-  if (options?.dateFrom || options?.dateTo) {
-    const from = options.dateFrom ? new Date(options.dateFrom + "T00:00:00") : null;
-    const to = options.dateTo ? new Date(options.dateTo + "T23:59:59") : null;
+  // NOTE: addresses are intentionally NOT fetched here. The detail-page address is
+  // one HTTP request PER case; for a month of platform-wide cases (thousands) that
+  // would take ~10 min and blow the serverless limit. `full_address` stays empty
+  // and is filled lazily (fetchCaseAddress) when a bill is generated for a case.
 
-    cases = cases.filter((c) => {
-      if (!c.case_created_at) return false;
-      const caseDate = new Date(c.case_created_at);
-      if (from && caseDate < from) return false;
-      if (to && caseDate > to) return false;
-      return true;
-    });
-
-    onProgress?.({
-      step: `Filtered to ${cases.length} cases in date range...`,
-      current: 0,
-      total: cases.length,
-      percent: 28,
-    });
-  }
-
-  // Fetch each case's detail-page address CONCURRENTLY (in bounded batches) so a
-  // large account (hundreds of Activated/Pending cases) doesn't run one-by-one and
-  // blow past the serverless time limit. Each fetch is wrapped so one failure can't
-  // kill the whole crawl.
-  const totalCases = cases.length;
-  const CONCURRENCY = 8;
-  let done = 0;
-  for (let batchStart = 0; batchStart < cases.length; batchStart += CONCURRENCY) {
-    const batch = cases.slice(batchStart, batchStart + CONCURRENCY);
-    await Promise.all(
-      batch.map(async (c) => {
-        const record = allRecords.find((r) => {
-          const raw = (r.prefix_with_no as string) || "";
-          return raw.replace(/<[^>]*>/g, "").trim() === c.case_no;
-        });
-        if (record) {
-          const caseId = record.id as number;
-          const moduleName = (record.operator_type as string) || "home_fibre";
-          try {
-            c.full_address = await fetchCaseAddress(baseUrl, session, caseId, moduleName);
-          } catch {
-            // Leave full_address empty on a per-case failure — don't abort the run.
-          }
-        }
-        done += 1;
-      })
-    );
-    onProgress?.({
-      step: `Fetching addresses ${done}/${totalCases}...`,
-      current: done,
-      total: totalCases,
-      percent: 28 + Math.round((done / totalCases) * 67), // 28% to 95%
-    });
-  }
-
-  onProgress?.({ step: "Complete", current: totalCases, total: totalCases, percent: 100 });
+  onProgress?.({ step: "Complete", current: cases.length, total: cases.length, percent: 100 });
   return { cases };
 }
