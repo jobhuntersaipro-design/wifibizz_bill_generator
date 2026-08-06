@@ -38,12 +38,20 @@ export async function POST(request: Request) {
     const dateFrom = url.searchParams.get("date_from") || undefined;
     const dateTo = url.searchParams.get("date_to") || undefined;
 
-    const password = getUserPassword({
+    const perUserPassword = getUserPassword({
       id: wifibizzUser.id,
       wifibizz_email: wifibizzUser.wifibizzEmail,
       wifibizz_password_enc: wifibizzUser.wifibizzPasswordEnc,
       last_crawl_at: wifibizzUser.lastCrawlAt?.toISOString() ?? null,
     });
+
+    // SHARED crawl account: every enabled user (i.e. one the admin gave WifiBizz
+    // credentials to, so `wifibizzUser` exists) crawls with the SAME WifiBizz
+    // account, regardless of which BizzFlow email they signed in with. Configure
+    // it via WIFIBIZZ_CRAWL_EMAIL / WIFIBIZZ_CRAWL_PASSWORD; falls back to the
+    // per-user stored creds when the shared env isn't set.
+    const crawlEmail = process.env.WIFIBIZZ_CRAWL_EMAIL || wifibizzUser.wifibizzEmail;
+    const password = process.env.WIFIBIZZ_CRAWL_PASSWORD || perUserPassword;
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
@@ -56,7 +64,7 @@ export async function POST(request: Request) {
 
         try {
           const { cases } = await crawl(
-            wifibizzUser.wifibizzEmail,
+            crawlEmail,
             password,
             (progress: CrawlProgress) => {
               sendEvent("progress", progress);
