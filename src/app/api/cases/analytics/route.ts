@@ -63,11 +63,12 @@ export async function GET(request: Request) {
 
     const [totalResult, byStatus, byProvider, timeSeriesByStatusRaw, addresses, allStatuses, allProviders, allPackages] =
       await Promise.all([
-        sql`SELECT COUNT(*)::int as count FROM wifibizz_cases WHERE user_id = ${userId}`,
+        sql`SELECT COUNT(*)::int as count FROM wifibizz_cases WHERE user_id = ${userId} AND LOWER(TRIM(regexp_replace(status, '<[^>]*>', '', 'g'))) IN ('activated', 'pending')`,
         sql`
           SELECT status as name, COUNT(*)::int as value
           FROM wifibizz_cases
           WHERE user_id = ${userId}
+            AND LOWER(TRIM(regexp_replace(status, '<[^>]*>', '', 'g'))) IN ('activated', 'pending')
           GROUP BY status
           ORDER BY value DESC
         `,
@@ -75,6 +76,7 @@ export async function GET(request: Request) {
           SELECT provider as name, COUNT(*)::int as value
           FROM wifibizz_cases
           WHERE user_id = ${userId} AND provider IS NOT NULL
+            AND LOWER(TRIM(regexp_replace(status, '<[^>]*>', '', 'g'))) IN ('activated', 'pending')
           GROUP BY provider
           ORDER BY value DESC
           LIMIT 8
@@ -86,6 +88,7 @@ export async function GET(request: Request) {
             COUNT(*)::int as cases
           FROM wifibizz_cases
           WHERE user_id = ${userId}
+            AND LOWER(TRIM(regexp_replace(status, '<[^>]*>', '', 'g'))) IN ('activated', 'pending')
             AND case_created_at IS NOT NULL
             AND (${chartProvider}::text IS NULL OR provider = ${chartProvider})
           GROUP BY period, status
@@ -94,6 +97,7 @@ export async function GET(request: Request) {
         sql`
           SELECT full_address FROM wifibizz_cases
           WHERE user_id = ${userId}
+            AND LOWER(TRIM(regexp_replace(status, '<[^>]*>', '', 'g'))) IN ('activated', 'pending')
             AND full_address IS NOT NULL
             AND (${stateStatus}::text IS NULL OR status = ${stateStatus})
             AND (${stateProvider}::text IS NULL OR provider = ${stateProvider})
@@ -107,11 +111,15 @@ export async function GET(request: Request) {
         `,
         sql`
           SELECT DISTINCT provider FROM wifibizz_cases
-          WHERE user_id = ${userId} AND provider IS NOT NULL ORDER BY provider
+          WHERE user_id = ${userId} AND provider IS NOT NULL
+            AND LOWER(TRIM(regexp_replace(status, '<[^>]*>', '', 'g'))) IN ('activated', 'pending')
+          ORDER BY provider
         `,
         sql`
           SELECT DISTINCT package FROM wifibizz_cases
-          WHERE user_id = ${userId} AND package IS NOT NULL ORDER BY package
+          WHERE user_id = ${userId} AND package IS NOT NULL
+            AND LOWER(TRIM(regexp_replace(status, '<[^>]*>', '', 'g'))) IN ('activated', 'pending')
+          ORDER BY package
         `,
       ]);
 

@@ -537,7 +537,7 @@ export default function AnalyticsSection() {
             <div className="flex flex-wrap items-center gap-2 mt-3">
               <select className="h-7 rounded-md border border-[#E3E8EF] bg-white px-2 text-[11px] text-[#425466] focus:border-[#635BFF] outline-none transition-all" value={mapStatus} onChange={(e) => setMapStatus(e.target.value)}>
                 <option value="">All Statuses</option>
-                {((analytics?.allStatuses ?? []).includes("Activated") ? (analytics?.allStatuses ?? []) : ["Activated", ...(analytics?.allStatuses ?? [])]).map((s) => (<option key={s} value={s}>{s}</option>))}
+                {["Activated", "Pending"].map((s) => (<option key={s} value={s}>{s}</option>))}
               </select>
               <select className="h-7 rounded-md border border-[#E3E8EF] bg-white px-2 text-[11px] text-[#425466] focus:border-[#635BFF] outline-none transition-all max-w-[160px]" value={mapProvider} onChange={(e) => setMapProvider(e.target.value)}>
                 <option value="">All Providers</option>
