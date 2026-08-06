@@ -342,3 +342,40 @@ export async function crawl(
   onProgress?.({ step: "Complete", current: cases.length, total: cases.length, percent: 100 });
   return { cases };
 }
+
+// ── Lazy address fill (bill-time) ──
+// The crawl stores cases list-only (no address). When a bill is generated for a
+// case that has no stored address, resolve it on demand: log in once with the
+// shared crawl account and pull each case's detail-page address. The portal case
+// id + module are parsed from the stored `case_url`
+// (…/applications/<id>?module=<operator_type>). Best-effort — a case that can't be
+// resolved is simply omitted from the result. Returns { case_no: address }.
+export async function fetchAddressesForCases(
+  email: string,
+  password: string,
+  items: { caseNo: string; caseUrl: string }[]
+): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  if (items.length === 0) return out;
+
+  const baseUrl = getBaseUrl();
+  const session = await login(baseUrl, email, password);
+
+  const CONCURRENCY = 6;
+  for (let i = 0; i < items.length; i += CONCURRENCY) {
+    const batch = items.slice(i, i + CONCURRENCY);
+    await Promise.all(
+      batch.map(async (it) => {
+        const m = it.caseUrl?.match(/\/applications\/(\d+)(?:\/edit)?\?module=([a-z0-9_]+)/i);
+        if (!m) return;
+        try {
+          const addr = await fetchCaseAddress(baseUrl, session, Number(m[1]), m[2]);
+          if (addr && addr.trim()) out[it.caseNo] = addr.trim();
+        } catch {
+          // best-effort — leave this case unresolved (bill just won't get an address)
+        }
+      })
+    );
+  }
+  return out;
+}
