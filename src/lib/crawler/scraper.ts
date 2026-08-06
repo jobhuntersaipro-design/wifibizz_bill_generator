@@ -1,7 +1,7 @@
 import * as cheerio from "cheerio";
 import type { CaseData } from "./db";
 
-const DEFAULT_BASE_URL = "https://wifibizz.com";
+const DEFAULT_BASE_URL = "https://admin.wifibizz.com";
 
 function getBaseUrl(): string {
   return process.env.WIFIBIZZ_BASE_URL || DEFAULT_BASE_URL;
@@ -202,8 +202,8 @@ export function extractCases(records: Record<string, unknown>[], baseUrl: string
 
     // Fallback: build URL from record id + module if href extraction failed
     if (!caseUrl && r.id) {
-      const module = (r.operator_type as string) || "home_fibre";
-      caseUrl = `${baseUrl}/applications/${r.id}?module=${module}${caseNo ? `&application_no=${caseNo}` : ""}`;
+      const moduleName = (r.operator_type as string) || "home_fibre";
+      caseUrl = `${baseUrl}/applications/${r.id}?module=${moduleName}${caseNo ? `&application_no=${caseNo}` : ""}`;
     }
 
     // status contains HTML like <span class="badge badge-success">Activated</span>
@@ -284,6 +284,9 @@ export async function crawl(
   onProgress?.({ step: "Processing cases...", current: 0, total: allRecords.length, percent: 25 });
   let cases = extractCases(allRecords, baseUrl);
 
+  // Only keep cases whose status is Activated or Pending (skip Rejected/Processed/…).
+  cases = cases.filter((c) => /^(activated|pending)$/i.test((c.status || "").trim()));
+
   // Apply date filter if provided
   if (options?.dateFrom || options?.dateTo) {
     const from = options.dateFrom ? new Date(options.dateFrom + "T00:00:00") : null;
@@ -305,27 +308,39 @@ export async function crawl(
     });
   }
 
-  // Fetch address from each case's detail page
+  // Fetch each case's detail-page address CONCURRENTLY (in bounded batches) so a
+  // large account (hundreds of Activated/Pending cases) doesn't run one-by-one and
+  // blow past the serverless time limit. Each fetch is wrapped so one failure can't
+  // kill the whole crawl.
   const totalCases = cases.length;
-  for (let i = 0; i < cases.length; i++) {
-    const c = cases[i];
-    const percent = 28 + Math.round(((i + 1) / totalCases) * 67); // 28% to 95%
+  const CONCURRENCY = 8;
+  let done = 0;
+  for (let batchStart = 0; batchStart < cases.length; batchStart += CONCURRENCY) {
+    const batch = cases.slice(batchStart, batchStart + CONCURRENCY);
+    await Promise.all(
+      batch.map(async (c) => {
+        const record = allRecords.find((r) => {
+          const raw = (r.prefix_with_no as string) || "";
+          return raw.replace(/<[^>]*>/g, "").trim() === c.case_no;
+        });
+        if (record) {
+          const caseId = record.id as number;
+          const moduleName = (record.operator_type as string) || "home_fibre";
+          try {
+            c.full_address = await fetchCaseAddress(baseUrl, session, caseId, moduleName);
+          } catch {
+            // Leave full_address empty on a per-case failure — don't abort the run.
+          }
+        }
+        done += 1;
+      })
+    );
     onProgress?.({
-      step: `Fetching address ${i + 1}/${totalCases}...`,
-      current: i + 1,
+      step: `Fetching addresses ${done}/${totalCases}...`,
+      current: done,
       total: totalCases,
-      percent,
+      percent: 28 + Math.round((done / totalCases) * 67), // 28% to 95%
     });
-
-    const record = allRecords.find((r) => {
-      const raw = (r.prefix_with_no as string) || "";
-      return raw.replace(/<[^>]*>/g, "").trim() === c.case_no;
-    });
-    if (record) {
-      const caseId = record.id as number;
-      const module = (record.operator_type as string) || "home_fibre";
-      c.full_address = await fetchCaseAddress(baseUrl, session, caseId, module);
-    }
   }
 
   onProgress?.({ step: "Complete", current: totalCases, total: totalCases, percent: 100 });
