@@ -6,6 +6,7 @@ import { uploadToR2 } from "@/lib/r2";
 import { generateInternetBill } from "@/lib/bill-generator/internet-bill";
 import { generateUtilityBill } from "@/lib/bill-generator/utility-bill";
 import { getUserCaseUsage } from "@/lib/case-limit";
+import { fetchAddressesForCases } from "@/lib/crawler/scraper";
 
 const MAX_BATCH = 20;
 
@@ -103,7 +104,7 @@ export async function POST(request: Request) {
 
     // Fetch all case data upfront in a single query
     const casesData = await sql`
-      SELECT case_no, full_name, full_address, mobile
+      SELECT case_no, full_name, full_address, mobile, case_url
       FROM wifibizz_cases
       WHERE case_no = ANY(${cappedCaseNos}) AND user_id = ${wifibizzUserId}
     `;
@@ -116,9 +117,43 @@ export async function POST(request: Request) {
           full_name: c.full_name as string,
           full_address: c.full_address as string,
           mobile: c.mobile as string,
+          case_url: (c.case_url as string) || "",
         },
       ])
     );
+
+    // Lazy address fill: the crawler stores cases list-only (no address), so cases
+    // crawled that way have an empty full_address. Fetch it on demand from the
+    // portal (shared crawl account), persist it, and use it — so bills get the real
+    // address. Best-effort: if creds are unset or a case can't be resolved, the bill
+    // still generates (with a blank address) rather than failing.
+    const crawlEmail = process.env.WIFIBIZZ_CRAWL_EMAIL;
+    const crawlPassword = process.env.WIFIBIZZ_CRAWL_PASSWORD;
+    const missingAddr = [...caseDataMap.values()].filter(
+      (c) => (!c.full_address || !c.full_address.trim()) && c.case_url
+    );
+    if (missingAddr.length > 0 && crawlEmail && crawlPassword) {
+      try {
+        const resolved = await fetchAddressesForCases(
+          crawlEmail,
+          crawlPassword,
+          missingAddr.map((c) => ({ caseNo: c.case_no, caseUrl: c.case_url }))
+        );
+        await Promise.all(
+          Object.entries(resolved).map(async ([caseNo, address]) => {
+            await sql`
+              UPDATE wifibizz_cases
+              SET full_address = ${address}, updated_at = NOW()
+              WHERE case_no = ${caseNo} AND user_id = ${wifibizzUserId}
+            `;
+            const cd = caseDataMap.get(caseNo);
+            if (cd) cd.full_address = address;
+          })
+        );
+      } catch (err) {
+        console.error("Lazy address fetch failed:", err);
+      }
+    }
 
     const r2Prefix = billType === "utility" ? "utility_bill" : "internet_bill";
     const newCaseSet = new Set(allowedNewCases);
