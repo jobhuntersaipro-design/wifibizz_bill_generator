@@ -4,6 +4,10 @@ import { upsertCases, updateLastCrawl, getUserPassword } from "@/lib/crawler/db"
 import { prisma } from "@/lib/prisma";
 import { appendCasesToSheet, getSheetCaseNumbers } from "@/lib/google-sheets";
 
+// Large accounts have many Activated/Pending cases; give the crawl room to finish
+// (Vercel caps this at the plan max — Hobby 60s, Pro 300s).
+export const maxDuration = 300;
+
 export async function POST(request: Request) {
   try {
     const session = await auth();
