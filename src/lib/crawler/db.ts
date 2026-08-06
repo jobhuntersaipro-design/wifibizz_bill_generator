@@ -148,7 +148,10 @@ export async function upsertCases(userId: number, cases: CaseData[]): Promise<{ 
         ON CONFLICT (user_id, case_no) DO UPDATE SET
           case_url = ${c.case_url},
           full_name = ${c.full_name},
-          full_address = ${c.full_address},
+          -- Don't clobber an already-resolved address: the crawl stores cases
+          -- list-only (full_address ''), so keep the lazily-fetched value on re-crawl.
+          full_address = CASE WHEN ${c.full_address} = '' THEN wifibizz_cases.full_address
+                              ELSE ${c.full_address} END,
           mobile = ${c.mobile},
           email = ${c.email},
           id_no = ${c.id_no},
