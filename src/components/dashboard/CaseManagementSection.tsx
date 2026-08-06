@@ -170,7 +170,6 @@ export default function CaseManagementSection() {
   const [status, setStatus] = useState("Activated");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [statuses, setStatuses] = useState<string[]>([]);
   const [casesLoading, setCasesLoading] = useState(true);
   const [lastCrawlAt, setLastCrawlAt] = useState<string | null>(null);
   const [sort, setSort] = useState<SortState>({ column: "case_created_at", dir: "desc" });
@@ -183,6 +182,8 @@ export default function CaseManagementSection() {
   const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0, type: "" });
   const [downloadConfirm, setDownloadConfirm] = useState<{ type: "internet" | "utility"; withBills: number; total: number } | null>(null);
   const [billCacheBuster, setBillCacheBuster] = useState(0);
+  // Per-row single-bill generation in flight, keyed `${caseNo}:${type}`.
+  const [generatingCell, setGeneratingCell] = useState<string | null>(null);
   const [chatCase, setChatCase] = useState<CaseRow | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<"success" | "error" | null>(null);
@@ -206,7 +207,6 @@ export default function CaseManagementSection() {
     const json = await res.json();
     setCases(json.data ?? []);
     setCount(json.count ?? 0);
-    if (json.statuses) setStatuses(json.statuses);
     if (json.last_crawl_at !== undefined) setLastCrawlAt(json.last_crawl_at);
     setCasesLoading(false);
   }, [page, search, status, dateFrom, dateTo, sort]);
@@ -352,6 +352,48 @@ export default function CaseManagementSection() {
     }
   }
 
+  // Generate a single bill straight from its row icon (no need to select first),
+  // then open it right away. Address is lazily fetched server-side during generation.
+  async function handleGenerateSingle(caseNo: string, type: "internet" | "utility") {
+    const key = `${caseNo}:${type}`;
+    if (generatingCell || generating) return;
+    setGeneratingCell(key);
+    try {
+      const res = await fetch("/api/bills/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ caseNos: [caseNo], type }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body.success === false) {
+        toast.error(
+          body.error === "case_limit_reached"
+            ? "Case limit reached. Please top up your usage to generate more bills."
+            : body.error || "Bill generation failed.",
+          { duration: 5000 }
+        );
+        return;
+      }
+      const result = body.results?.[0];
+      if (result && result.status === "error") {
+        toast.error(result.error || "Bill generation failed.");
+        return;
+      }
+      const bust = billCacheBuster + 1;
+      setBillCacheBuster(bust);
+      await fetchCases();
+      window.dispatchEvent(new Event("usage-updated"));
+      toast.success(`${type === "internet" ? "Internet" : "Utility"} bill generated`);
+      // Open the freshly generated bill right away.
+      window.open(`/api/bills/download?case_no=${caseNo}&type=${type}&t=${bust}`, "_blank");
+    } catch (err) {
+      console.error("Bill generation failed:", err);
+      toast.error("Bill generation failed. Please try again.");
+    } finally {
+      setGeneratingCell(null);
+    }
+  }
+
   function handleDownloadClick(type: "internet" | "utility") {
     if (selectedCases.size === 0 || downloading) return;
     const billKey = type === "internet" ? "internet_bill_url" : "utility_bill_url";
@@ -469,7 +511,7 @@ export default function CaseManagementSection() {
             </div>
             <select className="h-9 rounded-lg border border-[#E3E8EF] bg-white px-3 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none" value={status} onChange={(e) => { setPage(0); setStatus(e.target.value); }}>
               <option value="">All Statuses</option>
-              {(statuses.includes("Activated") ? statuses : ["Activated", ...statuses]).map((s) => (<option key={s} value={s}>{s}</option>))}
+              {["Activated", "Pending"].map((s) => (<option key={s} value={s}>{s}</option>))}
             </select>
             <div className="flex flex-wrap items-center gap-2">
               <label className="text-xs text-[#697386] whitespace-nowrap font-medium hidden sm:inline">From</label>
@@ -696,22 +738,30 @@ export default function CaseManagementSection() {
                             <MessageSquareIcon className="w-4 h-4" />
                           </button>
                           <button
-                            title={c.internet_bill_url ? "Download Internet Bill" : "Internet bill not generated"}
-                            aria-label={c.internet_bill_url ? `Download internet bill for ${c.case_no}` : `Internet bill not generated for ${c.case_no}`}
-                            disabled={!c.internet_bill_url}
-                            onClick={() => c.internet_bill_url && window.open(`/api/bills/download?case_no=${c.case_no}&type=internet&t=${billCacheBuster}`, "_blank")}
-                            className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors ${c.internet_bill_url ? "text-[#635BFF] hover:bg-[#F0EEFF]" : "text-[#D1D5DB] opacity-40 cursor-not-allowed"}`}
+                            title={c.internet_bill_url ? "Download Internet Bill" : "Generate Internet Bill"}
+                            aria-label={c.internet_bill_url ? `Download internet bill for ${c.case_no}` : `Generate internet bill for ${c.case_no}`}
+                            disabled={generatingCell === `${c.case_no}:internet`}
+                            onClick={() => c.internet_bill_url
+                              ? window.open(`/api/bills/download?case_no=${c.case_no}&type=internet&t=${billCacheBuster}`, "_blank")
+                              : handleGenerateSingle(c.case_no, "internet")}
+                            className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed ${c.internet_bill_url ? "text-[#635BFF] hover:bg-[#F0EEFF]" : "text-[#9CA3AF] hover:text-[#635BFF] hover:bg-[#F0EEFF]"}`}
                           >
-                            <InternetBillIcon className="w-4 h-4" />
+                            {generatingCell === `${c.case_no}:internet`
+                              ? <span className="w-3.5 h-3.5 rounded-full border-2 border-[#635BFF] border-t-transparent animate-spin" />
+                              : <InternetBillIcon className="w-4 h-4" />}
                           </button>
                           <button
-                            title={c.utility_bill_url ? "Download Utility Bill" : "Utility bill not generated"}
-                            aria-label={c.utility_bill_url ? `Download utility bill for ${c.case_no}` : `Utility bill not generated for ${c.case_no}`}
-                            disabled={!c.utility_bill_url}
-                            onClick={() => c.utility_bill_url && window.open(`/api/bills/download?case_no=${c.case_no}&type=utility&t=${billCacheBuster}`, "_blank")}
-                            className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors ${c.utility_bill_url ? "text-[#FF6B35] hover:bg-[#FFF0EB]" : "text-[#D1D5DB] opacity-40 cursor-not-allowed"}`}
+                            title={c.utility_bill_url ? "Download Utility Bill" : "Generate Utility Bill"}
+                            aria-label={c.utility_bill_url ? `Download utility bill for ${c.case_no}` : `Generate utility bill for ${c.case_no}`}
+                            disabled={generatingCell === `${c.case_no}:utility`}
+                            onClick={() => c.utility_bill_url
+                              ? window.open(`/api/bills/download?case_no=${c.case_no}&type=utility&t=${billCacheBuster}`, "_blank")
+                              : handleGenerateSingle(c.case_no, "utility")}
+                            className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed ${c.utility_bill_url ? "text-[#FF6B35] hover:bg-[#FFF0EB]" : "text-[#9CA3AF] hover:text-[#FF6B35] hover:bg-[#FFF0EB]"}`}
                           >
-                            <UtilityBillIcon className="w-4 h-4" />
+                            {generatingCell === `${c.case_no}:utility`
+                              ? <span className="w-3.5 h-3.5 rounded-full border-2 border-[#FF6B35] border-t-transparent animate-spin" />
+                              : <UtilityBillIcon className="w-4 h-4" />}
                           </button>
                         </div>
                       </td>
