@@ -126,8 +126,15 @@ export interface CaseData {
 export async function upsertCases(userId: number, cases: CaseData[]): Promise<{ inserted: number; updated: number }> {
   const sql = getDb();
 
-  const results = await Promise.all(
-    cases.map((c) =>
+  // Upsert in bounded-concurrency chunks. A month of platform-wide cases is now
+  // thousands of rows; firing them all at once (one Neon HTTP request each) blows
+  // past connection limits. CHUNK requests run concurrently, chunks run in series.
+  const CHUNK = 50;
+  const results: { is_insert: boolean }[][] = [];
+  for (let i = 0; i < cases.length; i += CHUNK) {
+    const batch = cases.slice(i, i + CHUNK);
+    const batchResults = await Promise.all(
+      batch.map((c) =>
       sql`
         INSERT INTO wifibizz_cases (
           user_id, case_no, case_url, full_name, full_address, mobile, email, id_no,
@@ -156,8 +163,10 @@ export async function upsertCases(userId: number, cases: CaseData[]): Promise<{ 
           updated_at = NOW()
         RETURNING (xmax = 0) AS is_insert
       `
-    )
-  );
+      )
+    );
+    results.push(...(batchResults as { is_insert: boolean }[][]));
+  }
 
   let inserted = 0;
   let updated = 0;
