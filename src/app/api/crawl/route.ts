@@ -45,13 +45,12 @@ export async function POST(request: Request) {
       last_crawl_at: wifibizzUser.lastCrawlAt?.toISOString() ?? null,
     });
 
-    // SHARED crawl account: every enabled user (i.e. one the admin gave WifiBizz
-    // credentials to, so `wifibizzUser` exists) crawls with the SAME WifiBizz
-    // account, regardless of which BizzFlow email they signed in with. Configure
-    // it via WIFIBIZZ_CRAWL_EMAIL / WIFIBIZZ_CRAWL_PASSWORD; falls back to the
-    // per-user stored creds when the shared env isn't set.
-    const crawlEmail = process.env.WIFIBIZZ_CRAWL_EMAIL || wifibizzUser.wifibizzEmail;
-    const password = process.env.WIFIBIZZ_CRAWL_PASSWORD || perUserPassword;
+    // Role-based: each user crawls with THEIR OWN WifiBizz account, so the WifiBizz
+    // portal scopes the results to their role — a regular agent sees only their own
+    // cases, not everyone's. (The WifiBizz superadmin account sees all cases; the
+    // crawler bounds it to the recent window so it no longer hangs / fails to fetch.)
+    const crawlEmail = wifibizzUser.wifibizzEmail;
+    const password = perUserPassword;
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
