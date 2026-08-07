@@ -1,7 +1,9 @@
 import * as cheerio from "cheerio";
 import type { CaseData } from "./db";
 
-const DEFAULT_BASE_URL = "https://admin.wifibizz.com";
+// Regular agents live on wifibizz.com (the admin portal admin.wifibizz.com only
+// accepts superadmin accounts, so per-user login there fails for normal agents).
+const DEFAULT_BASE_URL = "https://wifibizz.com";
 
 function getBaseUrl(): string {
   return process.env.WIFIBIZZ_BASE_URL || DEFAULT_BASE_URL;
@@ -120,6 +122,7 @@ async function fetchCasesInWindow(
   session: LoginSession,
   from: Date | null,
   to: Date | null,
+  module: string,
   onPage?: (rowsSoFar: number) => void
 ): Promise<Record<string, unknown>[]> {
   const allRecords: Record<string, unknown>[] = [];
@@ -137,6 +140,7 @@ async function fetchCasesInWindow(
       "columns[0][orderable]": "true",
       "order[0][column]": "0",
       "order[0][dir]": "desc",
+      module, // required on wifibizz.com — /applications 404s without it (each module is its own endpoint)
     });
 
     const res = await fetch(`${baseUrl}/applications?${params.toString()}`, {
@@ -307,31 +311,45 @@ export async function crawl(
   onProgress?.({ step: "Logging in to WifiBizz...", current: 0, total: 0, percent: 5 });
   const session = await login(baseUrl, email, password);
 
-  // Bound the crawl to a recent window. The admin account sees the entire
-  // platform (200k+ cases) and the endpoint has no server-side date filter, so we
-  // page NEWEST-FIRST and stop at the `from` cutoff. Default window = the last
-  // 1 month; the crawl page's From/To override it.
+  // Bound the crawl to a recent window. The account can see a huge set (tens of
+  // thousands) and the endpoint has no server-side date filter, so we page
+  // NEWEST-FIRST per module and stop at the `from` cutoff. Default window = the
+  // last 1 month; the crawl page's From/To override it.
   const now = new Date();
   const from = options?.dateFrom
     ? new Date(options.dateFrom + "T00:00:00")
     : new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
   const to = options?.dateTo ? new Date(options.dateTo + "T23:59:59") : null;
 
-  onProgress?.({ step: "Fetching recent cases...", current: 0, total: 0, percent: 15 });
-  const allRecords = await fetchCasesInWindow(baseUrl, session, from, to, (rowsSoFar) => {
-    onProgress?.({
-      step: `Fetching recent cases... ${rowsSoFar} found`,
-      current: rowsSoFar,
-      total: 0,
-      percent: Math.min(90, 15 + Math.floor(rowsSoFar / 100)),
+  // Each module is a separate endpoint on wifibizz.com (/applications?module=…),
+  // so sweep them one by one and combine, de-duping by case number.
+  const MODULES = ["home_fibre", "biz_fibre", "4g"];
+  const allRecords: Record<string, unknown>[] = [];
+  const seenCaseNos = new Set<string>();
+  for (const mod of MODULES) {
+    onProgress?.({ step: `Fetching ${mod}…`, current: allRecords.length, total: 0, percent: 15 });
+    const recs = await fetchCasesInWindow(baseUrl, session, from, to, mod, (rowsInModule) => {
+      const found = allRecords.length + rowsInModule;
+      onProgress?.({
+        step: `Fetching ${mod}… ${found} found`,
+        current: found,
+        total: 0,
+        percent: Math.min(90, 15 + Math.floor(found / 100)),
+      });
     });
-  });
+    for (const r of recs) {
+      const cn = ((r.prefix_with_no as string) || "").replace(/<[^>]*>/g, "").trim();
+      if (cn && seenCaseNos.has(cn)) continue;
+      if (cn) seenCaseNos.add(cn);
+      allRecords.push(r);
+    }
+  }
 
   onProgress?.({ step: "Processing cases...", current: 0, total: allRecords.length, percent: 92 });
   let cases = extractCases(allRecords, baseUrl);
 
   // Only keep cases whose status is Activated or Pending (skip Processed/Rejected/
-  // Follow Up/etc.). All modules (home/biz/4g) come from the single sweep above.
+  // Follow Up/etc.). All modules (home/biz/4g) are combined above.
   cases = cases.filter((c) => /^(activated|pending)$/i.test((c.status || "").trim()));
 
   // NOTE: addresses are intentionally NOT fetched here. The detail-page address is
