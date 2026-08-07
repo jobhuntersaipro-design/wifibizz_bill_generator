@@ -7,6 +7,7 @@ import { generateInternetBill } from "@/lib/bill-generator/internet-bill";
 import { generateUtilityBill } from "@/lib/bill-generator/utility-bill";
 import { getUserCaseUsage } from "@/lib/case-limit";
 import { fetchAddressesForCases } from "@/lib/crawler/scraper";
+import { getUserPassword } from "@/lib/crawler/db";
 
 const MAX_BATCH = 20;
 
@@ -40,7 +41,7 @@ export async function POST(request: Request) {
 
     const wifibizzUser = await prisma.wifibizzUser.findUnique({
       where: { userId: session.user.id },
-      select: { id: true },
+      select: { id: true, wifibizzEmail: true, wifibizzPasswordEnc: true, lastCrawlAt: true },
     });
 
     if (!wifibizzUser) {
@@ -127,8 +128,16 @@ export async function POST(request: Request) {
     // portal (shared crawl account), persist it, and use it — so bills get the real
     // address. Best-effort: if creds are unset or a case can't be resolved, the bill
     // still generates (with a blank address) rather than failing.
-    const crawlEmail = process.env.WIFIBIZZ_CRAWL_EMAIL;
-    const crawlPassword = process.env.WIFIBIZZ_CRAWL_PASSWORD;
+    // Role-based: resolve the address using the bill owner's own WifiBizz account
+    // (they own the case). Falls back to the shared crawl env if configured.
+    const crawlEmail = wifibizzUser.wifibizzEmail || process.env.WIFIBIZZ_CRAWL_EMAIL || "";
+    const crawlPassword =
+      getUserPassword({
+        id: wifibizzUser.id,
+        wifibizz_email: wifibizzUser.wifibizzEmail,
+        wifibizz_password_enc: wifibizzUser.wifibizzPasswordEnc,
+        last_crawl_at: wifibizzUser.lastCrawlAt?.toISOString() ?? null,
+      }) || process.env.WIFIBIZZ_CRAWL_PASSWORD || "";
     const missingAddr = [...caseDataMap.values()].filter(
       (c) => (!c.full_address || !c.full_address.trim()) && c.case_url
     );
