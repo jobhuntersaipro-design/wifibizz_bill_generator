@@ -116,7 +116,7 @@ function MalaysiaMap({ stateData, maxValue, selectedState, onStateClick, status 
   onStateClick?: (name: string) => void;
   status?: string;
 }) {
-  const [tooltip, setTooltip] = useState<{ name: string; value: number; x: number; y: number } | null>(null);
+  const [tooltip, setTooltip] = useState<{ name: string; value: number; x: number; y: number; w: number } | null>(null);
   const [hoveredState, setHoveredState] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -129,6 +129,7 @@ function MalaysiaMap({ stateData, maxValue, selectedState, onStateClick, status 
       value: stateData.get(name) ?? 0,
       x: e.clientX - rect.left,
       y: e.clientY - rect.top,
+      w: rect.width,
     });
   }
 
@@ -186,7 +187,7 @@ function MalaysiaMap({ stateData, maxValue, selectedState, onStateClick, status 
         <div
           className="absolute pointer-events-none z-10 bg-white rounded-lg shadow-lg border border-[#E3E8EF] px-3 py-2 tooltip-enter"
           style={{
-            left: Math.min(tooltip.x + 14, (containerRef.current?.clientWidth ?? 400) - 150),
+            left: Math.min(tooltip.x + 14, (tooltip.w || 400) - 150),
             top: Math.max(tooltip.y - 52, 4),
           }}
         >
