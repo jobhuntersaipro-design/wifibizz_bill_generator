@@ -26,7 +26,11 @@ const STATUS_LABELS: Record<string, string> = {
 const STATUS_FILTERS = ["all", "draft", "order_entered", "warning", "failed", "submitted"];
 
 // A draft is submittable (and so batch-selectable) in these states.
-const SUBMITTABLE = new Set(["draft", "failed", "warning"]);
+// Submittable until we actually have a portal order id — a customer profile may
+// be "entered" without the order id yet, so it must stay re-submittable. Only an
+// in-flight ("submitting") row or one that already has an order id is locked.
+const canSubmit = (o: { status: string; orderId?: string | null }) =>
+  !o.orderId && o.status !== "submitting";
 
 export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   const [orders, setOrders] = useState<OrderListItem[]>([]);
@@ -108,7 +112,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   // can't safely run concurrent order flows, so we process sequentially and
   // stop early if the session dies.
   async function handleSubmitSelected() {
-    const targets = filtered.filter((o) => selected.has(o.id) && SUBMITTABLE.has(o.status));
+    const targets = filtered.filter((o) => selected.has(o.id) && canSubmit(o));
     if (targets.length === 0) return;
     if (!window.confirm(`Submit ${targets.length} order${targets.length === 1 ? "" : "s"} one by one?`)) {
       return;
@@ -188,7 +192,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   });
 
   // Batch selection is scoped to the currently-filtered, submittable rows.
-  const selectableIds = filtered.filter((o) => SUBMITTABLE.has(o.status)).map((o) => o.id);
+  const selectableIds = filtered.filter((o) => canSubmit(o)).map((o) => o.id);
   const selectedCount = selectableIds.filter((id) => selected.has(id)).length;
   const allSelected = selectableIds.length > 0 && selectedCount === selectableIds.length;
 
@@ -288,8 +292,8 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
             )}
             {filtered.map((o) => (
               <tr key={o.id} className="border-b border-[#E3E8EF] last:border-0 hover:bg-[#F6F9FC]/60">
-                <td className="px-4 py-3">
-                  {SUBMITTABLE.has(o.status) ? (
+                <td className="px-4 py-3 align-middle">
+                  {canSubmit(o) ? (
                     <input
                       type="checkbox"
                       aria-label={`Select ${o.fullName}`}
@@ -300,17 +304,17 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                     />
                   ) : null}
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-3 align-middle">
                   <div className="font-medium text-[#0A2540]">{o.fullName}</div>
                   <div className="text-[11px] text-[#697386] tabular-nums">{o.idType} · {o.idNumber}</div>
                 </td>
                 {isSuperAdmin && (
-                  <td className="px-4 py-3 text-[#425466] text-[12px]">{o.createdByEmail ?? "—"}</td>
+                  <td className="px-4 py-3 align-middle text-[#425466] text-[12px]">{o.createdByEmail ?? "—"}</td>
                 )}
-                <td className="px-4 py-3 text-[#425466] max-w-55">{o.offerName ?? "—"}</td>
-                <td className="px-4 py-3 text-[#425466]">{[o.city, o.state].filter(Boolean).join(", ") || "—"}</td>
-                <td className="px-4 py-3 align-top">
-                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_STYLES[o.status] ?? STATUS_STYLES.draft}`}>
+                <td className="px-4 py-3 align-middle text-[#425466] max-w-55">{o.offerName ?? "—"}</td>
+                <td className="px-4 py-3 align-middle text-[#425466]">{[o.city, o.state].filter(Boolean).join(", ") || "—"}</td>
+                <td className="px-4 py-3 align-middle">
+                  <span className={`inline-flex items-center justify-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium text-center whitespace-nowrap ${STATUS_STYLES[o.status] ?? STATUS_STYLES.draft}`}>
                     {o.status === "submitting" && (
                       <span className="h-2.5 w-2.5 animate-spin rounded-full border-2 border-amber-600 border-t-transparent inline-block" />
                     )}
@@ -324,7 +328,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                     </div>
                   )}
                 </td>
-                <td className="px-4 py-3 tabular-nums text-[#0A2540]">
+                <td className="px-4 py-3 align-middle tabular-nums text-[#0A2540]">
                   {o.orderId ? (
                     <a
                       href={`https://dealer.unifi.com.my/esales/h5/onBoarding/OrderDetails?custOrderId=${o.orderId}&custOrderNbr=${o.orderId}`}
@@ -339,7 +343,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                     "—"
                   )}
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-3 align-middle">
                   <div className="flex items-center justify-end gap-2">
                     {o.status !== "submitted" && (
                       <button
@@ -351,7 +355,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                         Edit
                       </button>
                     )}
-                    {(o.status === "draft" || o.status === "failed" || o.status === "warning") && (
+                    {canSubmit(o) && (
                       <button
                         type="button"
                         disabled={busyId === o.id}

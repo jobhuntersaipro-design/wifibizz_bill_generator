@@ -93,11 +93,14 @@ const EXT_CONTENT_TYPE: Record<string, string> = {
 // uses the agent-supplied label (e.g. "tenancy agreement" -> "tenancyagreement").
 function docSlug(docType: string, idType: string, otherLabel?: string): string {
   if (docType === "utility_bill") return "utilitybill";
+  if (docType === "im_conversation") return "imconversation";
+  if (docType === "mykad") return "mykad";
+  if (docType === "passport") return "passport";
   if (docType === "other") {
     const slug = (otherLabel || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
     return slug || "doc";
   }
-  return idType || "id"; // ID copy
+  return idType || "id"; // ID copy — slug is the ID type (mykad/passport/…)
 }
 
 export async function uploadOrderDocument(formData: FormData) {
@@ -122,9 +125,13 @@ export async function uploadOrderDocument(formData: FormData) {
   const docType = String(formData.get("docType") || "id");
   const otherLabel = String(formData.get("otherLabel") || "");
   const seq = parseInt(String(formData.get("seq") || "1"), 10) || 1;
+  // MyKad can be uploaded as two files — front/back designates the suffix instead
+  // of a running sequence number (…_mykad_front / …_mykad_back).
+  const side = String(formData.get("side") || "").toLowerCase();
   if (!idNumber) return { success: false as const, error: "Enter the ID number first." };
 
-  const filename = `${idNumber}_${docSlug(docType, idType, otherLabel)}_${seq}.${ext}`;
+  const suffix = side === "front" || side === "back" ? side : String(seq);
+  const filename = `${idNumber}_${docSlug(docType, idType, otherLabel)}_${suffix}.${ext}`;
   // Keys are namespaced per user so the authenticated proxy can scope access to
   // the owner and MyKad-based filenames can't be enumerated across tenants.
   const key = `orders/${session.user.id}/${filename}`;
@@ -145,7 +152,7 @@ export async function uploadOrderDocument(formData: FormData) {
 // address-search endpoint), so we store the resourceInstId + structured fields
 // rather than geocoding a postcode.
 const documentSchema = z.object({
-  type: z.enum(["id", "utility_bill", "other"]),
+  type: z.enum(["id", "im_conversation", "mykad", "passport", "utility_bill", "other"]),
   url: z.string().max(2048),
   key: z.string().max(512).regex(/^orders\//),
   filename: z.string().max(256),
@@ -181,6 +188,8 @@ const orderInputSchema = z.object({
   serviceCategory: z.string().max(120).optional(),
   offerCategory: z.string().max(120).optional(),
   offerName: z.string().max(255).optional(),
+  deviceCode: z.string().max(40).optional(),
+  deviceName: z.string().max(255).optional(),
   remarks: z.string().max(2000).optional(),
   documents: z.array(documentSchema).max(MAX_DOCS).optional(),
 });
@@ -211,6 +220,8 @@ export interface OrderInput {
   serviceCategory?: string;
   offerCategory?: string;
   offerName?: string;
+  deviceCode?: string;
+  deviceName?: string;
   remarks?: string;
   documents?: OrderDocument[];
 }
@@ -251,6 +262,8 @@ export async function saveOrder(rawInput: OrderInput) {
     serviceCategory: input.serviceCategory || null,
     offerCategory: input.offerCategory || null,
     offerName: input.offerName || null,
+    deviceCode: input.deviceCode || null,
+    deviceName: input.deviceName || null,
     remarks: input.remarks || null,
     documents: (input.documents ?? []).slice(0, MAX_DOCS) as unknown as Prisma.InputJsonValue,
   };
@@ -354,6 +367,8 @@ const ORDER_TOKEN = process.env.ORDER_ENTRY_API_TOKEN ?? "";
 interface OrderJobResult {
   status?: string;
   order_id?: string;
+  order_url?: string;
+  advance_payment?: string;
   warning?: string;
   error?: string;
   message?: string;
@@ -377,6 +392,18 @@ export async function submitOrder(id: string) {
     where: superAdmin ? { id } : { id, userId: session.user.id },
   });
   if (!order) return { success: false as const, error: "Order not found." };
+
+  // Feasibility needs a serviceable address (resourceInstId) to select "By Address
+  // Id". Without it the portal can't check feasibility, so block early with a
+  // clear message rather than failing deep in the flow.
+  if (!order.addressId) {
+    const msg = "Select a serviceable Service Address before submitting (search + pick it in the draft).";
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { status: "failed", errorMessage: msg },
+    });
+    return { success: false as const, error: msg };
+  }
 
   const headers = {
     "Content-Type": "application/json",
@@ -405,8 +432,13 @@ export async function submitOrder(id: string) {
     city: order.city,
     state: order.state,
     country: order.country,
+    addressId: order.addressId,
+    addressFull: order.addressFull,
+    serviceCategory: order.serviceCategory,
     offerName: order.offerName,
     offerCategory: order.offerCategory,
+    deviceCode: order.deviceCode,
+    deviceName: order.deviceName,
     remarks: order.remarks,
     documents: order.documents,
   };
@@ -430,6 +462,13 @@ export async function submitOrder(id: string) {
         order: reqOrder,
         user_key: session.user.id,
         full_order: true,
+        // Real submit: the scraper defaults dry_run=true, so opt OUT explicitly to
+        // actually click Order + drive the whole New Connection flow through Pay.
+        dry_run: false,
+        // do_pay clicks the REAL, billable Pay button. Default false (stops at the
+        // Pay gate). Enable per-environment via ORDER_ENTRY_DO_PAY=true — so prod,
+        // which never sets it, can never place a billable order by accident.
+        do_pay: process.env.ORDER_ENTRY_DO_PAY === "true",
       }),
     });
     const start = (await startRes.json().catch(() => ({}))) as {
@@ -444,7 +483,8 @@ export async function submitOrder(id: string) {
     // feasibility/attach), so poll past the scraper's 360s per-order cap.
     let result: OrderJobResult | null = null;
     let enteredMarked = false;
-    for (let i = 0; i < 195; i++) {
+    // Full flow through Pay runs long; poll past the scraper's 600s per-order cap.
+    for (let i = 0; i < 310; i++) {
       await sleep(2000);
       const jr = await fetch(`${SCRAPER_API_URL}/jobs/${start.job_id}`, {
         headers,
@@ -456,8 +496,16 @@ export async function submitOrder(id: string) {
         result?: OrderJobResult;
         error?: string;
       };
-      // Live intermediate: customer profile created -> "order entered".
-      if (j.stage === "order_entered" && !enteredMarked) {
+      // Live intermediate: "Order Entered" = the customer profile is created, which
+      // is true from the order_entered stage onward (feasibility → … → pay). That
+      // stage flashes by in <1s, so mark on ANY post-create stage, not just the exact
+      // "order_entered". No order id here — it's minted during feasibility and saved
+      // with the final "submitted" status.
+      const POST_CREATE_STAGES = new Set([
+        "order_entered", "feasibility", "new_connection_page1",
+        "subproduct_tabs", "customer_order_info", "pay", "submitted",
+      ]);
+      if (!enteredMarked && j.stage && POST_CREATE_STAGES.has(j.stage)) {
         enteredMarked = true;
         await prisma.order.update({
           where: { id: order.id },
@@ -475,12 +523,17 @@ export async function submitOrder(id: string) {
     if (!result) return fail("Timed out waiting for the portal.");
 
     // Interpret the result → order status.
-    if (result.status === "success" && result.order_id) {
+    // "submitted" = full flow through Pay done; "success" = legacy order-id-only.
+    if ((result.status === "submitted" || result.status === "success") && result.order_id) {
+      const ap = result.advance_payment
+        ? `Advance Payment RM${result.advance_payment} was required.`
+        : null;
+      const note = [result.warning, ap].filter(Boolean).join(" ") || null;
       await prisma.order.update({
         where: { id: order.id },
-        data: { status: "submitted", orderId: result.order_id, errorMessage: result.warning ?? null },
+        data: { status: "submitted", orderId: result.order_id, errorMessage: note },
       });
-      return { success: true as const, orderId: result.order_id, warning: result.warning };
+      return { success: true as const, orderId: result.order_id, warning: note ?? undefined };
     }
     if (result.status === "error") {
       return fail(result.message || result.error || "The portal returned an error.");
