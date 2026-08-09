@@ -46,7 +46,6 @@ export async function GET(request: Request) {
       SELECT full_address, status, provider, package
       FROM wifibizz_cases
       WHERE user_id = ${userId}
-        AND LOWER(TRIM(regexp_replace(status, '<[^>]*>', '', 'g'))) IN ('activated', 'pending')
         AND full_address IS NOT NULL
         AND (${filterStatus}::text IS NULL OR status = ${filterStatus})
         AND (${filterProvider}::text IS NULL OR provider = ${filterProvider})

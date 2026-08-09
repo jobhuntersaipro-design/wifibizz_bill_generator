@@ -536,18 +536,27 @@ export default function AnalyticsSection() {
 
             {/* Map filters row */}
             <div className="flex flex-wrap items-center gap-2 mt-3">
-              <select className="h-7 rounded-md border border-[#E3E8EF] bg-white px-2 text-[11px] text-[#425466] focus:border-[#635BFF] outline-none transition-all" value={mapStatus} onChange={(e) => setMapStatus(e.target.value)}>
-                <option value="">All Statuses</option>
-                {["Activated", "Pending"].map((s) => (<option key={s} value={s}>{s}</option>))}
-              </select>
-              <select className="h-7 rounded-md border border-[#E3E8EF] bg-white px-2 text-[11px] text-[#425466] focus:border-[#635BFF] outline-none transition-all max-w-[160px]" value={mapProvider} onChange={(e) => setMapProvider(e.target.value)}>
-                <option value="">All Providers</option>
-                {(analytics?.allProviders ?? []).map((p) => (<option key={p} value={p}>{truncateLabel(p, 28)}</option>))}
-              </select>
-              <select className="h-7 rounded-md border border-[#E3E8EF] bg-white px-2 text-[11px] text-[#425466] focus:border-[#635BFF] outline-none transition-all max-w-[200px]" value={mapPackage} onChange={(e) => setMapPackage(e.target.value)}>
-                <option value="">All Packages</option>
-                {(analytics?.allPackages ?? []).map((p) => (<option key={p} value={p}>{truncateLabel(p, 35)}</option>))}
-              </select>
+              <div className="relative">
+                <select className="h-7 rounded-md border border-[#E3E8EF] bg-white pl-2 pr-7 text-[11px] text-[#425466] focus:border-[#635BFF] outline-none transition-all appearance-none" value={mapStatus} onChange={(e) => setMapStatus(e.target.value)}>
+                  <option value="">All Statuses</option>
+                  {(analytics?.allStatuses ?? []).map((s) => (<option key={s} value={s}>{s}</option>))}
+                </select>
+                <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[#697386]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+              </div>
+              <div className="relative max-w-40">
+                <select className="h-7 w-full rounded-md border border-[#E3E8EF] bg-white pl-2 pr-7 text-[11px] text-[#425466] focus:border-[#635BFF] outline-none transition-all appearance-none" value={mapProvider} onChange={(e) => setMapProvider(e.target.value)}>
+                  <option value="">All Providers</option>
+                  {(analytics?.allProviders ?? []).map((p) => (<option key={p} value={p}>{truncateLabel(p, 28)}</option>))}
+                </select>
+                <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[#697386]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+              </div>
+              <div className="relative max-w-50">
+                <select className="h-7 w-full rounded-md border border-[#E3E8EF] bg-white pl-2 pr-7 text-[11px] text-[#425466] focus:border-[#635BFF] outline-none transition-all appearance-none" value={mapPackage} onChange={(e) => setMapPackage(e.target.value)}>
+                  <option value="">All Packages</option>
+                  {(analytics?.allPackages ?? []).map((p) => (<option key={p} value={p}>{truncateLabel(p, 35)}</option>))}
+                </select>
+                <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[#697386]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+              </div>
               <div className="h-5 w-px bg-[#E3E8EF]" />
               <select className="h-7 rounded-md border border-[#E3E8EF] bg-white px-2 text-[11px] text-[#425466] focus:border-[#635BFF] outline-none transition-all" value={mapDateRange} onChange={(e) => handleMapDatePreset(e.target.value)}>
                 {DATE_RANGE_PRESETS.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}

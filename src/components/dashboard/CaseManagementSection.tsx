@@ -184,6 +184,7 @@ export default function CaseManagementSection() {
   const [billCacheBuster, setBillCacheBuster] = useState(0);
   // Per-row single-bill generation in flight, keyed `${caseNo}:${type}`.
   const [generatingCell, setGeneratingCell] = useState<string | null>(null);
+  const [statuses, setStatuses] = useState<string[]>([]);
   const [chatCase, setChatCase] = useState<CaseRow | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<"success" | "error" | null>(null);
@@ -207,6 +208,7 @@ export default function CaseManagementSection() {
     const json = await res.json();
     setCases(json.data ?? []);
     setCount(json.count ?? 0);
+    if (json.statuses) setStatuses(json.statuses);
     if (json.last_crawl_at !== undefined) setLastCrawlAt(json.last_crawl_at);
     setCasesLoading(false);
   }, [page, search, status, dateFrom, dateTo, sort]);
@@ -509,10 +511,13 @@ export default function CaseManagementSection() {
               <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#697386] transition-colors group-focus-within:text-[#635BFF]" />
               <Input placeholder="Search name, case no, mobile, provider..." defaultValue="" onChange={(e) => handleSearchChange(e.target.value)} className="pl-9 h-9 bg-[#F6F9FC] border-[#E3E8EF] rounded-lg text-sm text-[#0A2540] placeholder:text-[#697386] focus:bg-white focus:border-[#635BFF] transition-all" />
             </div>
-            <select className="h-9 rounded-lg border border-[#E3E8EF] bg-white px-3 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none" value={status} onChange={(e) => { setPage(0); setStatus(e.target.value); }}>
-              <option value="">All Statuses</option>
-              {["Activated", "Pending"].map((s) => (<option key={s} value={s}>{s}</option>))}
-            </select>
+            <div className="relative">
+              <select className="h-9 rounded-lg border border-[#E3E8EF] bg-white pl-3 pr-9 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none appearance-none" value={status} onChange={(e) => { setPage(0); setStatus(e.target.value); }}>
+                <option value="">All Statuses</option>
+                {statuses.map((s) => (<option key={s} value={s}>{s}</option>))}
+              </select>
+              <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#697386]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <label className="text-xs text-[#697386] whitespace-nowrap font-medium hidden sm:inline">From</label>
               <input type="date" aria-label="From date" className="h-9 rounded-lg border border-[#E3E8EF] bg-white px-2 sm:px-3 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none max-w-37.5" value={dateFrom} onChange={(e) => { setPage(0); setDateFrom(e.target.value); }} />

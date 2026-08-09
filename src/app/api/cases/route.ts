@@ -48,7 +48,6 @@ export async function GET(request: Request) {
       SELECT COUNT(*)::int as count
       FROM wifibizz_cases
       WHERE user_id = ${wifibizzUser.id}
-        AND LOWER(TRIM(regexp_replace(status, '<[^>]*>', '', 'g'))) IN ('activated', 'pending')
         AND (${!search} OR (
           full_name ILIKE ${searchPattern}
           OR case_no ILIKE ${searchPattern}
@@ -69,7 +68,6 @@ export async function GET(request: Request) {
              status, internet_bill_url, utility_bill_url, case_created_at, updated_at
       FROM wifibizz_cases
       WHERE user_id = ${wifibizzUser.id}
-        AND LOWER(TRIM(regexp_replace(status, '<[^>]*>', '', 'g'))) IN ('activated', 'pending')
         AND (${!search} OR (
           full_name ILIKE ${searchPattern}
           OR case_no ILIKE ${searchPattern}
@@ -89,7 +87,6 @@ export async function GET(request: Request) {
     const statuses = await sql`
       SELECT DISTINCT status FROM wifibizz_cases
       WHERE user_id = ${wifibizzUser.id}
-        AND LOWER(TRIM(regexp_replace(status, '<[^>]*>', '', 'g'))) IN ('activated', 'pending')
       ORDER BY status
     `;
 
