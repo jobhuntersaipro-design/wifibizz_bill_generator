@@ -63,6 +63,11 @@ model Order {
   offerCategory  String?   @map("offer_category")
   offerName      String?   @map("offer_name")
 
+  // Device / add-on (VAS) — chosen for "with device" bundles; picked after the
+  // package. deviceCode is the portal VAS numeric id (js-vas-name-container id).
+  deviceCode     String?   @map("device_code")
+  deviceName     String?   @map("device_name")
+
   remarks        String?   // additional remarks / customer remarks
 
   // Documents — array of { type, url, filename } (up to 10 files)

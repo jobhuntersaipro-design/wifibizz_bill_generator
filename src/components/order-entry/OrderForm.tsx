@@ -5,8 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { saveOrder, uploadOrderDocument, lookupPostcode, getOrder } from "@/actions/order";
-import { MAX_DOCS, type OrderDocument } from "@/lib/order-types";
+import { saveOrder, uploadOrderDocument, lookupPostcode, getOrder, searchDealerAddress } from "@/actions/order";
+import { MAX_DOCS, type OrderDocument, type AddressResult } from "@/lib/order-types";
 import { parseMykad, inferRace } from "@/lib/mykad";
 import {
   DEALER_OFFERS,
@@ -14,13 +14,8 @@ import {
   MYKAD_LIKE_ID_TYPES,
   type IdType,
 } from "@/lib/dealer-offers";
+import { DEALER_DEVICES } from "@/lib/dealer-devices";
 import { MALAYSIA_STATES } from "@/lib/malaysia-states";
-
-const DOC_TYPES = [
-  { value: "id", label: "Customer ID copy" },
-  { value: "utility_bill", label: "Utility Bill" },
-  { value: "other", label: "Other" },
-];
 
 // Shared field styles — light border + hover to signal clickability.
 const inputCls =
@@ -65,16 +60,32 @@ export function OrderForm({
   const [street, setStreet] = useState("");
   const [detecting, setDetecting] = useState(false);
 
+  // Serviceable SERVICE address (portal QryNIGAddress) — required for feasibility.
+  // The agent searches, picks the exact unit, and we store the resourceInstId so
+  // the backend selects the address "By Address Id" (the reliable path).
+  const [addressId, setAddressId] = useState("");
+  const [addressFull, setAddressFull] = useState("");
+  const [serviceCategory, setServiceCategory] = useState("");
+  const [addrResults, setAddrResults] = useState<AddressResult[]>([]);
+  const [addrSearching, setAddrSearching] = useState(false);
+  const [addrSearched, setAddrSearched] = useState(false);
+
   const [offerName, setOfferName] = useState("");
   const [offerCategory, setOfferCategory] = useState("");
   const [pkgQuery, setPkgQuery] = useState("");
   const [pkgOpen, setPkgOpen] = useState(false);
   const pkgRef = useRef<HTMLDivElement>(null);
 
+  const [deviceCode, setDeviceCode] = useState("");
+  const [deviceName, setDeviceName] = useState("");
+  const [devQuery, setDevQuery] = useState("");
+  const [devOpen, setDevOpen] = useState(false);
+  const devRef = useRef<HTMLDivElement>(null);
+
   const [remarks, setRemarks] = useState("");
 
   const [documents, setDocuments] = useState<OrderDocument[]>([]);
-  const [docType, setDocType] = useState("id");
+  const [docType, setDocType] = useState("im_conversation");
   const [otherLabel, setOtherLabel] = useState("");
   const [uploading, setUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
@@ -83,6 +94,20 @@ export function OrderForm({
 
   const isMykadLike = MYKAD_LIKE_ID_TYPES.includes(idType);
   const emailValid = !email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+  // Documents: IM Conversation is the default + always required. The ID document
+  // matches the chosen ID Type (MyKad / Passport). Required = IM Conversation +
+  // ONE identity doc (MyKad / Passport / Others) — MyKad itself isn't mandatory.
+  const idDocType = isMykadLike ? "mykad" : idType === "Passport" ? "passport" : "id";
+  const idDocLabel = isMykadLike ? "MyKad" : idType === "Passport" ? "Passport" : "ID Document";
+  const docTypeOptions = [
+    { value: "im_conversation", label: "IM Conversation" },
+    { value: idDocType, label: idDocLabel },
+    { value: "other", label: "Others" },
+    { value: "utility_bill", label: "Utility Bill" },
+  ];
+  const hasImDoc = documents.some((d) => d.type === "im_conversation");
+  const hasIdentityDoc = documents.some((d) => ["mykad", "passport", "id", "other"].includes(d.type));
 
   // Derive gender + birthday during the change (no effect needed).
   function applyMykad(ic: string) {
@@ -109,6 +134,14 @@ export function OrderForm({
     return q ? DEALER_OFFERS.filter((o) => o.name.toLowerCase().includes(q)) : DEALER_OFFERS;
   }, [pkgQuery]);
 
+  // Device picker only applies to "with device" bundles (the portal shows the
+  // device/add-on tree after such a package). Clearing the package clears it.
+  const isWithDevice = /with\s*device/i.test(offerName);
+  const filteredDevices = useMemo(() => {
+    const q = devQuery.trim().toLowerCase();
+    return q ? DEALER_DEVICES.filter((d) => d.name.toLowerCase().includes(q)) : DEALER_DEVICES;
+  }, [devQuery]);
+
   // Close the package dropdown when clicking anywhere outside it.
   useEffect(() => {
     if (!pkgOpen) return;
@@ -118,6 +151,16 @@ export function OrderForm({
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [pkgOpen]);
+
+  // Close the device dropdown when clicking outside it.
+  useEffect(() => {
+    if (!devOpen) return;
+    function onDown(e: MouseEvent) {
+      if (devRef.current && !devRef.current.contains(e.target as Node)) setDevOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [devOpen]);
 
   // Load an existing draft for editing. setState runs in the async callback
   // (not synchronously in the effect), so it doesn't cascade renders.
@@ -142,8 +185,13 @@ export function OrderForm({
         setStateVal(o.state || "");
         setCity(o.city || "");
         setStreet(o.street || "");
+        setAddressId(o.addressId || "");
+        setAddressFull(o.addressFull || "");
+        setServiceCategory(o.serviceCategory || "");
         setOfferName(o.offerName || "");
         setOfferCategory(o.offerCategory || "");
+        setDeviceCode(o.deviceCode || "");
+        setDeviceName(o.deviceName || "");
         setRemarks(o.remarks || "");
         // Only keep documents that carry a namespaced key (servable via the
         // authenticated proxy); drop any legacy public-URL entries.
@@ -199,7 +247,7 @@ export function OrderForm({
     }
   }
 
-  async function addDoc(file: File | undefined) {
+  async function addDoc(file: File | undefined, side?: "front" | "back") {
     if (!file) return;
     if (!idNumber.trim()) {
       toast.error("Enter the ID number before uploading documents.");
@@ -216,6 +264,7 @@ export function OrderForm({
     const seq = documents.filter((d) => d.type === docType).length + 1;
     setUploading(true);
     const fd = new FormData();
+    if (side) fd.append("side", side);
     fd.append("file", file);
     fd.append("idNumber", idNumber);
     fd.append("idType", idType);
@@ -250,6 +299,62 @@ export function OrderForm({
     if (fullName && !race) setRace(inferRace(fullName));
   }
 
+  // Search the portal's serviceable addresses (QryNIGAddress). Needs a state +
+  // a keyword (street/building). Picking a result stores the resourceInstId used
+  // for feasibility "By Address Id".
+  async function runAddressSearch() {
+    const q = street.trim();
+    if (!stateVal) { toast.error("Select the State (above) before searching."); return; }
+    if (q.length < 3) { toast.error("Type the street address (min 3 chars) to search."); return; }
+    setAddrSearching(true);
+    setAddrSearched(true);
+    const res = await searchDealerAddress(stateVal, q, "keyword");
+    setAddrSearching(false);
+    if (!res.success) {
+      setAddrResults([]);
+      toast.error(res.error ?? "Address search failed.");
+      return;
+    }
+    // Surface the closest match to what was typed first (the portal returns the
+    // building's units in arbitrary order — e.g. B,D,A,C,E — which is annoying).
+    const qn = q.toUpperCase();
+    const prefix = (s: string) => {
+      const a = s.toUpperCase();
+      let i = 0;
+      while (i < a.length && i < qn.length && a[i] === qn[i]) i++;
+      return i;
+    };
+    const sorted = [...res.addresses].sort((x, y) => {
+      const ex = x.addressFull.toUpperCase() === qn ? 1 : 0;
+      const ey = y.addressFull.toUpperCase() === qn ? 1 : 0;
+      if (ex !== ey) return ey - ex; // exact match first
+      return prefix(y.addressFull) - prefix(x.addressFull); // then longest common prefix
+    });
+    setAddrResults(sorted);
+    if (sorted.length === 0) toast.message("No serviceable address found for that search.");
+  }
+
+  // Picking a serviceable unit fills EVERYTHING — feasibility id + the profile's
+  // residence address — so there's a single address source, no second field.
+  function pickAddress(a: AddressResult) {
+    setAddressId(a.addressId);
+    setAddressFull(a.addressFull);
+    setServiceCategory(a.serviceCategory ?? "");
+    // Derive the customer-profile residence fields from the picked address.
+    // Match the State to a MALAYSIA_STATES option (title-case) so the dropdown
+    // reflects it instead of falling back to "---".
+    if (a.state) {
+      const st = MALAYSIA_STATES.find((s) => s.toUpperCase() === a.state!.toUpperCase());
+      setStateVal(st ?? a.state);
+    }
+    if (a.city) setCity(a.city.toUpperCase());
+    if (a.postcode) setPostcode(a.postcode);
+    setStreet(a.addressFull.toUpperCase());
+    setAddrResults([]);
+    setAddrSearched(false);
+    toast.success("Serviceable address selected.");
+  }
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (!emailValid) {
@@ -274,6 +379,20 @@ export function OrderForm({
       toast.error("Enter the street address.");
       return;
     }
+    if (!hasImDoc) {
+      toast.error("Attach the IM Conversation document (required).");
+      return;
+    }
+    if (!hasIdentityDoc) {
+      toast.error("Attach an ID document (MyKad / Passport / Others).");
+      return;
+    }
+    // "with Device" packages require a device — the portal blocks the order
+    // ("select one offer in the Smart Device group") without one.
+    if (isWithDevice && !deviceCode) {
+      toast.error("This package includes a device — pick a device.");
+      return;
+    }
     setSaving(true);
     const result = await saveOrder({
       id: draftId ?? undefined,
@@ -291,8 +410,13 @@ export function OrderForm({
       postcode,
       city,
       state: stateVal,
+      addressId,
+      addressFull,
+      serviceCategory,
       offerCategory,
       offerName,
+      deviceCode: isWithDevice ? deviceCode : "",
+      deviceName: isWithDevice ? deviceName : "",
       remarks,
       documents,
     });
@@ -413,29 +537,84 @@ export function OrderForm({
         </div>
       </div>
 
-      {/* Installation Address (customer residence) — postcode auto-detects
-          city + state (geocode); the agent types the street. */}
+      {/* Installation Address — ONE card: search the portal for the serviceable
+          unit and pick it (that fills the fields below + the feasibility id);
+          postcode / city / state / street stay visible and editable. */}
       <div className={`${cardCls} overflow-hidden`}>
-        <div className={headCls}>Installation Address</div>
-        <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label className={labelCls}>Postcode <span className="text-[#DF1B41]">*</span> {detecting && <span className="text-[#697386]">(detecting…)</span>}</Label>
-            <Input value={postcode} onChange={(e) => handlePostcode(e.target.value)} className={inputCls} placeholder="40150" inputMode="numeric" />
+        <div className={headCls}>
+          Installation Address <span className="text-[#697386] font-normal">— search &amp; pick the serviceable unit</span>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label className={labelCls}>Postcode <span className="text-[#DF1B41]">*</span> {detecting && <span className="text-[#697386]">(detecting…)</span>}</Label>
+              <Input value={postcode} onChange={(e) => handlePostcode(e.target.value)} className={inputCls} placeholder="40150" inputMode="numeric" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className={labelCls}>State <span className="text-[#DF1B41]">*</span> <span className="text-[#697386] font-normal">(auto)</span></Label>
+              <select value={stateVal} onChange={(e) => setStateVal(e.target.value)} className={selectCls}>
+                <option value="">---</option>
+                {MALAYSIA_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label className={labelCls}>City <span className="text-[#DF1B41]">*</span> <span className="text-[#697386] font-normal">(auto)</span></Label>
+              <Input value={city} onChange={(e) => setCity(e.target.value.toUpperCase())} className={`${inputCls} uppercase`} placeholder="SHAH ALAM" />
+            </div>
           </div>
+
+          {/* Street Address IS the search field — type it, Search the portal, and
+              pick the serviceable unit (fills the address + the feasibility id). */}
           <div className="space-y-1.5">
-            <Label className={labelCls}>State <span className="text-[#DF1B41]">*</span> <span className="text-[#697386]">(auto)</span></Label>
-            <select value={stateVal} onChange={(e) => setStateVal(e.target.value)} className={selectCls}>
-              <option value="">---</option>
-              {MALAYSIA_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-          <div className="space-y-1.5">
-            <Label className={labelCls}>City <span className="text-[#DF1B41]">*</span> <span className="text-[#697386]">(auto)</span></Label>
-            <Input value={city} onChange={(e) => setCity(e.target.value.toUpperCase())} className={`${inputCls} uppercase`} placeholder="SHAH ALAM" />
-          </div>
-          <div className="space-y-1.5 sm:col-span-2">
-            <Label className={labelCls}>Street Address <span className="text-[#DF1B41]">*</span></Label>
-            <Input value={street} onChange={(e) => setStreet(e.target.value.toUpperCase())} className={`${inputCls} uppercase`} placeholder="UNIT / STREET / AREA" />
+            <Label className={labelCls}>
+              Street Address <span className="text-[#DF1B41]">*</span>{" "}
+              <span className="text-[#697386] font-normal">— type it, then Search &amp; pick the serviceable unit</span>
+            </Label>
+            <div className="flex gap-2">
+              <Input
+                value={street}
+                onChange={(e) => setStreet(e.target.value.toUpperCase())}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); runAddressSearch(); } }}
+                className={`flex-1 ${inputCls} uppercase`}
+                placeholder="A-07-15 PERSIARAN SAUJANA PUTRA UTAMA 7…"
+              />
+              <Button
+                type="button"
+                onClick={runAddressSearch}
+                disabled={addrSearching}
+                className="h-10 px-4 rounded-lg text-sm font-medium bg-[#0A2540] hover:bg-[#635BFF]"
+              >
+                {addrSearching ? "Searching…" : "Search"}
+              </Button>
+            </div>
+            {addressId ? (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-green-500 bg-green-50 px-3 py-2 text-[12px] text-[#0A2540]">
+                <span><span className="text-green-700 font-medium">✓ Serviceable</span> {addressFull}{serviceCategory && ` · ${serviceCategory}`}</span>
+                <button type="button" onClick={() => { setAddressId(""); setAddressFull(""); setServiceCategory(""); }} className="shrink-0 text-[11px] text-[#DF1B41] hover:underline">Clear</button>
+              </div>
+            ) : (
+              <p className="text-[11px] text-[#697386]">Pick a unit to confirm it&apos;s serviceable (required to submit). Closest match to what you typed is shown first.</p>
+            )}
+            {addrResults.length > 0 && (
+              <div className="max-h-72 overflow-auto rounded-lg border border-[#E3E8EF] divide-y divide-[#F0F3F8]">
+                {addrResults.map((a) => (
+                  <button
+                    key={a.addressId}
+                    type="button"
+                    onClick={() => pickAddress(a)}
+                    className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[12px] text-[#0A2540] hover:bg-[#F6F9FC]"
+                  >
+                    <span className="truncate">{a.addressFull}</span>
+                    {a.serviceCategory && (
+                      <span className="ml-3 shrink-0 text-[11px] text-[#697386]">{a.serviceCategory}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+            {addrSearched && !addrSearching && addrResults.length === 0 && !addressId && (
+              <p className="text-[11px] text-[#DF1B41]">No serviceable address found — try a different search term (or the address may not be serviceable yet).</p>
+            )}
           </div>
         </div>
       </div>
@@ -476,6 +655,43 @@ export function OrderForm({
         </div>
       </div>
 
+      {/* Device — only for "with device" bundles (picked after the package) */}
+      {isWithDevice && (
+        <div className={cardCls}>
+          <div className={headCls}>Device</div>
+          <div className="p-6 space-y-1.5">
+            <Label className={labelCls}>Device / Add-on <span className="text-[#DF1B41]">*</span></Label>
+            <div className="relative" ref={devRef}>
+              <Input
+                value={devQuery || deviceName}
+                onChange={(e) => { setDevQuery(e.target.value); setDevOpen(true); setDeviceName(""); setDeviceCode(""); }}
+                onFocus={() => setDevOpen(true)}
+                className={inputCls}
+                placeholder="Search devices here"
+              />
+              {devOpen && (
+                <div className="absolute z-20 mt-1 w-full max-h-80 overflow-auto rounded-lg border border-[#E3E8EF] bg-white shadow-lg py-1">
+                  {filteredDevices.length === 0 && (
+                    <div className="px-3 py-2 text-xs text-[#697386]">No matching device</div>
+                  )}
+                  {filteredDevices.map((d) => (
+                    <button
+                      key={d.code}
+                      type="button"
+                      onClick={() => { setDeviceName(d.name); setDeviceCode(d.code); setDevQuery(""); setDevOpen(false); }}
+                      className="block w-full px-3 py-2 text-left text-[13px] text-[#0A2540] hover:bg-[#F6F9FC]"
+                    >
+                      {d.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {deviceName && <p className="text-[11px] text-green-700 pt-1">Selected: {deviceName}</p>}
+          </div>
+        </div>
+      )}
+
       {/* Remarks */}
       <div className={`${cardCls} overflow-hidden`}>
         <div className={headCls}>Additional Remarks</div>
@@ -495,20 +711,25 @@ export function OrderForm({
         <div className={headCls}>Documents <span className="text-[#697386] font-normal">({documents.length}/{MAX_DOCS})</span></div>
         <div className="p-6 space-y-4">
           <p className="text-[11px] text-[#697386]">
-            Customer ID copy required. Up to {MAX_DOCS} files, max 5MB each (JPG/PNG/PDF/WEBP).
+            <span className={hasImDoc ? "text-green-700" : "text-[#DF1B41]"}>IM Conversation</span>
+            {" and one of "}
+            <span className={hasIdentityDoc ? "text-green-700" : "text-[#DF1B41]"}>MyKad / Passport / Others</span>
+            {" are required. Up to "}{MAX_DOCS} files, max 5MB each (JPG/PNG/PDF/WEBP).
             Saved as {idNumber || "{id}"}_
             {docType === "utility_bill"
               ? "utilitybill"
-              : docType === "other"
-                ? (otherLabel.trim().toLowerCase().replace(/[^a-z0-9]+/g, "") || "doc")
-                : idType.toLowerCase()}
+              : docType === "im_conversation"
+                ? "imconversation"
+                : docType === "other"
+                  ? (otherLabel.trim().toLowerCase().replace(/[^a-z0-9]+/g, "") || "doc")
+                  : idType.toLowerCase()}
             _n.
           </p>
           <div className="flex flex-wrap items-end gap-3">
             <div className="space-y-1.5">
               <Label className={labelCls}>Type</Label>
               <select value={docType} onChange={(e) => setDocType(e.target.value)} className={selectCls}>
-                {DOC_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+                {docTypeOptions.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
               </select>
             </div>
             {docType === "other" && (
@@ -525,7 +746,8 @@ export function OrderForm({
             {uploading && <span className="text-[11px] text-[#697386] pb-2">Uploading…</span>}
           </div>
 
-          {/* Drag-and-drop zone (also click-to-browse). */}
+          {/* Drag-and-drop zone (also click-to-browse). `multiple` lets any doc
+              type take 2+ files (e.g. MyKad front + back) under the same Type. */}
           <label
             onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
             onDragLeave={() => setDragActive(false)}
@@ -537,7 +759,7 @@ export function OrderForm({
             <span className="text-[13px] font-medium text-[#425466]">
               Drag &amp; drop files here, or <span className="text-[#635BFF]">browse</span>
             </span>
-            <span className="text-[11px] text-[#697386]">JPG, PNG, PDF, WEBP · max 5MB each</span>
+            <span className="text-[11px] text-[#697386]">JPG, PNG, PDF, WEBP · max 5MB each · add 2+ files for the same type</span>
             <input
               type="file"
               multiple

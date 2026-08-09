@@ -46,7 +46,7 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
         <div className="fixed inset-0 z-40 bg-black/30 md:hidden" onClick={onClose} />
       )}
       <aside className={cn(
-        "flex flex-col w-[240px] border-r border-sidebar-border bg-sidebar min-h-screen animate-fade-in-left",
+        "flex flex-col w-60 border-r border-sidebar-border bg-sidebar min-h-screen animate-fade-in-left",
         // Mobile: fixed overlay, hidden by default
         "fixed inset-y-0 left-0 z-50 transition-transform duration-300 md:relative md:translate-x-0",
         open ? "translate-x-0" : "-translate-x-full"
@@ -91,7 +91,7 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
             >
               <item.icon
                 className={cn(
-                  "w-[18px] h-[18px] transition-transform duration-200 group-hover:scale-110",
+                  "w-4.5 h-4.5 transition-transform duration-200 group-hover:scale-110",
                   isActive ? "text-white" : ""
                 )}
               />
@@ -108,7 +108,7 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
           onClick={() => signOut({ callbackUrl: "/auth/signin" })}
           className="group flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] text-[#425466] hover:bg-red-50 hover:text-[#DF1B41] transition-all duration-150 w-full press-effect"
         >
-          <LogOutIcon className="w-[18px] h-[18px] transition-transform duration-200 group-hover:scale-110" />
+          <LogOutIcon className="w-4.5 h-4.5 transition-transform duration-200 group-hover:scale-110" />
           Logout
         </button>
       </div>
