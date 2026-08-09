@@ -366,7 +366,7 @@ export default function CrawlPage() {
                 Ready to crawl
               </h3>
               <p className="text-xs text-[#697386] max-w-60 leading-relaxed">
-                Hit &quot;Start Crawl&quot; to fetch the latest activated and pending cases from your
+                Hit &quot;Start Crawl&quot; to fetch the latest cases from your
                 WifiBizz account
               </p>
             </div>
