@@ -536,15 +536,32 @@ export async function submitOrder(id: string) {
       return { success: true as const, orderId: result.order_id, warning: note ?? undefined };
     }
     if (result.status === "error") {
+      // If the order id was already minted (Order clicked before the failure), the
+      // order EXISTS in the portal — persist the id so a retry can't create a
+      // DUPLICATE (canSubmit gates on orderId). Surface it as a warning to verify/
+      // complete manually rather than a plain "failed" (which would re-enable submit).
+      if (result.order_id) {
+        const msg = `Order ${result.order_id} was created but the flow didn't finish: ${result.message || result.error || "error"}. Verify in the portal before retrying.`;
+        await prisma.order.update({
+          where: { id: order.id },
+          data: { status: "warning", orderId: result.order_id, errorMessage: msg },
+        });
+        return { success: false as const, error: msg, orderId: result.order_id };
+      }
       return fail(result.message || result.error || "The portal returned an error.");
     }
-    // Surface any warning (e.g. duplicate customer records).
+    // Surface any warning (e.g. duplicate customer records). Keep the order id if the
+    // scraper returned one, so a partially-placed order can't be re-submitted.
     if (result.warning) {
       await prisma.order.update({
         where: { id: order.id },
-        data: { status: "warning", errorMessage: result.warning },
+        data: {
+          status: "warning",
+          ...(result.order_id ? { orderId: result.order_id } : {}),
+          errorMessage: result.warning,
+        },
       });
-      return { success: true as const, warning: result.warning };
+      return { success: true as const, warning: result.warning, orderId: result.order_id };
     }
     // Customer profile created (order entry, pages 1-16). The order id comes
     // later from the separate feasibility step.
