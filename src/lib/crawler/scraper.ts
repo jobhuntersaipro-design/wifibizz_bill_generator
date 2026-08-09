@@ -346,11 +346,9 @@ export async function crawl(
   }
 
   onProgress?.({ step: "Processing cases...", current: 0, total: allRecords.length, percent: 92 });
-  let cases = extractCases(allRecords, baseUrl);
-
-  // Only keep cases whose status is Activated or Pending (skip Processed/Rejected/
-  // Follow Up/etc.). All modules (home/biz/4g) are combined above.
-  cases = cases.filter((c) => /^(activated|pending)$/i.test((c.status || "").trim()));
+  const cases = extractCases(allRecords, baseUrl);
+  // Keep ALL statuses (Activated/Pending/Processed/Rejected/Follow Up/…) within the
+  // window. All modules (home/biz/4g) are combined above.
 
   // NOTE: addresses are intentionally NOT fetched here. The detail-page address is
   // one HTTP request PER case; for a month of platform-wide cases (thousands) that
