@@ -41,7 +41,7 @@ export async function POST(request: Request) {
 
     const wifibizzUser = await prisma.wifibizzUser.findUnique({
       where: { userId: session.user.id },
-      select: { id: true, wifibizzEmail: true, wifibizzPasswordEnc: true, lastCrawlAt: true },
+      select: { id: true, wifibizzEmail: true, wifibizzPasswordEnc: true, lastCrawlAt: true, googleSheetId: true },
     });
 
     if (!wifibizzUser) {
@@ -159,6 +159,19 @@ export async function POST(request: Request) {
             if (cd) cd.full_address = address;
           })
         );
+        // Push the freshly-resolved addresses straight to the user's Google Sheet
+        // (if configured) so they appear without waiting for a manual sync.
+        if (wifibizzUser.googleSheetId && Object.keys(resolved).length > 0) {
+          try {
+            const { updateSheetAddresses } = await import("@/lib/google-sheets");
+            await updateSheetAddresses(
+              wifibizzUser.googleSheetId,
+              Object.entries(resolved).map(([caseNo, fullAddress]) => ({ caseNo, fullAddress }))
+            );
+          } catch (e) {
+            console.error("Sheet address sync failed:", e);
+          }
+        }
       } catch (err) {
         console.error("Lazy address fetch failed:", err);
       }
