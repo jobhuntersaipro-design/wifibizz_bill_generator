@@ -244,7 +244,7 @@ export async function syncCasesToSheet() {
     }
 
     // Check sheet for rows that were manually deleted by the user
-    const { appendCasesToSheet, getSheetCaseNumbers } = await import("@/lib/google-sheets");
+    const { appendCasesToSheet, getSheetCaseNumbers, updateSheetAddresses } = await import("@/lib/google-sheets");
     const sheetCaseNos = await getSheetCaseNumbers(wifibizzUser.googleSheetId);
 
     // Find cases marked as synced in DB but missing from sheet (user deleted them)
@@ -277,26 +277,37 @@ export async function syncCasesToSheet() {
       orderBy: { caseCreatedAt: "asc" },
     });
 
-    if (unsyncedCases.length === 0) {
-      return { success: true, synced: 0, message: "All cases already synced." };
+    // Append any unsynced cases (new since last sync).
+    let appendedRows = 0;
+    if (unsyncedCases.length > 0) {
+      ({ appendedRows } = await appendCasesToSheet(
+        wifibizzUser.googleSheetId,
+        unsyncedCases
+      ));
+      const now = new Date();
+      await prisma.wifibizzCase.updateMany({
+        where: { id: { in: unsyncedCases.map((c) => c.id) } },
+        data: { syncedToSheetAt: now },
+      });
     }
 
-    // Append to Google Sheet
-    const { appendedRows } = await appendCasesToSheet(
+    // Backfill addresses filled AFTER a case was first synced (e.g. at bill-
+    // generation time) — append-only never updates those cells, so patch them.
+    const withAddress = await prisma.wifibizzCase.findMany({
+      where: {
+        userId: wifibizzUser.id,
+        syncedToSheetAt: { not: null },
+        fullAddress: { not: null },
+        NOT: { fullAddress: "" },
+      },
+      select: { caseNo: true, fullAddress: true },
+    });
+    const { updated: addressesUpdated } = await updateSheetAddresses(
       wifibizzUser.googleSheetId,
-      unsyncedCases
+      withAddress
     );
 
-    // Mark cases as synced
-    const now = new Date();
-    await prisma.wifibizzCase.updateMany({
-      where: {
-        id: { in: unsyncedCases.map((c) => c.id) },
-      },
-      data: { syncedToSheetAt: now },
-    });
-
-    return { success: true, synced: appendedRows };
+    return { success: true, synced: appendedRows, addressesUpdated };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("Sync to sheet error:", message);
