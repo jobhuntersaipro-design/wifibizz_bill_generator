@@ -469,10 +469,14 @@ export default function CaseManagementSection() {
     if (result.success) {
       setSyncResult("success");
       setSyncCount(result.synced ?? 0);
-      if (result.synced === 0) {
+      const addr = result.addressesUpdated ?? 0;
+      if (!result.synced && !addr) {
         toast.info("All cases already synced to Google Sheet.");
       } else {
-        toast.success(`Synced ${result.synced} case(s) to Google Sheet.`);
+        const parts: string[] = [];
+        if (result.synced) parts.push(`synced ${result.synced} case(s)`);
+        if (addr) parts.push(`updated ${addr} address(es)`);
+        toast.success(`${parts.join(", ")} to Google Sheet.`);
       }
     } else {
       setSyncResult("error");

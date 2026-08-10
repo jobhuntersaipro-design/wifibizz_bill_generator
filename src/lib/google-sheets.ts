@@ -111,6 +111,53 @@ export async function appendCasesToSheet(
 }
 
 /**
+ * Patch the Address column (L) for cases already in the sheet whose address was
+ * filled AFTER they were first synced (append-only never updates an existing row).
+ * Reads case_no (A) + current Address (L), and batch-updates only the cells whose
+ * DB address is non-empty and differs from the sheet. Returns how many were updated.
+ */
+export async function updateSheetAddresses(
+  sheetId: string,
+  cases: { caseNo: string; fullAddress: string | null }[]
+): Promise<{ updated: number }> {
+  const withAddr = cases.filter((c) => c.fullAddress && c.fullAddress.trim());
+  if (withAddr.length === 0) return { updated: 0 };
+
+  const auth = getAuth();
+  const sheets = google.sheets({ version: "v4", auth });
+
+  // Read case numbers (A) + current addresses (L) with their row positions.
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: sheetId,
+    range: "Sheet1!A:L",
+  });
+  const rows = res.data.values ?? [];
+  const rowByCase = new Map<string, { row: number; addr: string }>();
+  for (let i = 1; i < rows.length; i++) {
+    // skip header
+    const caseNo = (rows[i]?.[0] ?? "").toString().trim();
+    if (!caseNo) continue;
+    const addr = (rows[i]?.[11] ?? "").toString(); // column L (index 11) = Address
+    rowByCase.set(caseNo, { row: i + 1, addr });
+  }
+
+  const data: { range: string; values: string[][] }[] = [];
+  for (const c of withAddr) {
+    const hit = rowByCase.get(c.caseNo);
+    if (hit && hit.addr.trim() !== c.fullAddress!.trim()) {
+      data.push({ range: `Sheet1!L${hit.row}`, values: [[c.fullAddress!]] });
+    }
+  }
+  if (data.length === 0) return { updated: 0 };
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: sheetId,
+    requestBody: { valueInputOption: "USER_ENTERED", data },
+  });
+  return { updated: data.length };
+}
+
+/**
  * Read all case numbers currently in the sheet (column A, skipping header).
  * Used to detect rows manually deleted by the user.
  */
