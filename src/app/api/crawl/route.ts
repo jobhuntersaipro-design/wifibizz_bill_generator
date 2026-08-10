@@ -2,7 +2,7 @@ import { auth } from "@/auth";
 import { crawl, type CrawlProgress } from "@/lib/crawler/scraper";
 import { upsertCases, updateLastCrawl, getUserPassword } from "@/lib/crawler/db";
 import { prisma } from "@/lib/prisma";
-import { appendCasesToSheet, getSheetCaseNumbers } from "@/lib/google-sheets";
+import { appendCasesToSheet, getSheetCaseNumbers, updateSheetAddresses } from "@/lib/google-sheets";
 
 // Large accounts have many Activated/Pending cases; give the crawl room to finish
 // (Vercel caps this at the plan max — Hobby 60s, Pro 300s).
@@ -116,6 +116,19 @@ export async function POST(request: Request) {
                   data: { syncedToSheetAt: new Date() },
                 });
               }
+
+              // Backfill addresses filled since the last sync (e.g. at bill time)
+              // into already-synced rows — append-only never updates those cells.
+              const withAddress = await prisma.wifibizzCase.findMany({
+                where: {
+                  userId: wifibizzUser.id,
+                  syncedToSheetAt: { not: null },
+                  fullAddress: { not: null },
+                  NOT: { fullAddress: "" },
+                },
+                select: { caseNo: true, fullAddress: true },
+              });
+              await updateSheetAddresses(wifibizzUser.googleSheetId, withAddress);
             } catch (sheetErr) {
               console.error("Auto-sync to sheet failed:", sheetErr);
             }
