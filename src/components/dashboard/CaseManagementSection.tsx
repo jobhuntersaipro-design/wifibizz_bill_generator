@@ -167,7 +167,7 @@ export default function CaseManagementSection() {
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("Activated");
+  const [status, setStatus] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [casesLoading, setCasesLoading] = useState(true);
