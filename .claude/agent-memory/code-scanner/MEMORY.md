@@ -1,2 +1,3 @@
 - [project_architecture.md](project_architecture.md) — Stack, key file paths, security-relevant patterns, data model notes
 - [project_dead_code.md](project_dead_code.md) — src/app/auth/signin/actions.ts is dead code; all 4 imports unused
+- [order_entry_feature.md](order_entry_feature.md) — Order Entry (Unifi eSales): two disconnected login subsystems, open job-log leak, unwired submitOrder stub — re-check when wired up

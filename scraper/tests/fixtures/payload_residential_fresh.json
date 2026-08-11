@@ -1,0 +1,43 @@
+{
+  "customer": {
+    "id_type": "MyKad",
+    "id_number": "900215145528",
+    "name": "Test Order 0721",
+    "gender": "Female",
+    "birthday": "15-02-1990",
+    "race": "Malay",
+    "nationality": "Malaysia",
+    "preferred_language": "Bahasa Malaysia",
+    "customer_type": "A",
+    "residence_address": "DK01-08-15, Jalan Contoh, 40000 Shah Alam, SELANGOR",
+    "customer_tenure": "New",
+    "sub_segment": "Residential",
+    "segment": "Consumer",
+    "segment_code": "R10",
+    "contact": {
+      "name": "Test Order 0721",
+      "preferred_contact": "Yes",
+      "role": "Owner",
+      "contact_man_type": "Owner",
+      "mobile_prefix": "60",
+      "mobile": "1234567",
+      "email": "testorder0721@gmail.com"
+    },
+    "id_doc_path": "tests/fixtures/sample_id.png"
+  },
+  "address": {
+    "customer_type": "Individual",
+    "search_type": "By keyword",
+    "state": "SELANGOR",
+    "keywords": "DK01-08-15",
+    "pick_text": null
+  },
+  "plan": {
+    "category": "unifi Home Bundle Sale Catg",
+    "name": "Unifi Home 300Mbps Netflix",
+    "all_categories": false
+  },
+  "login_id": "testabc01",
+  "appointment": { "strategy": "earliest" },
+  "contactless": true
+}

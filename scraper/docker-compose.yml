@@ -1,0 +1,39 @@
+# BizzFlow scraper / order-entry service for a DigitalOcean droplet.
+# Caddy fronts the Flask app with automatic HTTPS (needs a domain -> droplet IP).
+services:
+  scraper:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    # Chromium needs more than Docker's default 64MB /dev/shm or it crashes.
+    # 256m suits a 1GB droplet (shm is RAM-backed tmpfs, so it can't be large
+    # on a small box). Bump to "1gb" if you size up to a 4GB+ droplet.
+    # NOTE: on 1GB you MUST add OS swap (see DEPLOY_DIGITALOCEAN.md) or Chromium
+    # will OOM. No mem_limit here on purpose — let Chromium spill into swap
+    # rather than get killed prematurely.
+    shm_size: "256m"
+    volumes:
+      - ./sessions:/app/sessions   # dealer login sessions (persist across restarts)
+      - ./config:/app/config       # encryption key / optional creds
+      - ./logs:/app/logs           # screenshots + job logs
+    expose:
+      - "5000"                     # internal only; Caddy proxies to it
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - SCRAPER_DOMAIN=${SCRAPER_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - scraper
+
+volumes:
+  caddy_data:
+  caddy_config:

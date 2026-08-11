@@ -1,0 +1,5 @@
+# Automatic HTTPS (Let's Encrypt) for the scraper API. Requires SCRAPER_DOMAIN
+# to be a real subdomain whose A record points at this droplet's IP.
+{$SCRAPER_DOMAIN} {
+	reverse_proxy scraper:5000
+}

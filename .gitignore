@@ -49,3 +49,9 @@ next-env.d.ts
 .playwright-mcp/
 *.png
 
+# scraper (separate Python project — contains dealer credentials, session
+# state, and Google service-account keys; managed/deployed outside this repo)
+# /scraper/
+
+*.html
+*.pdf
