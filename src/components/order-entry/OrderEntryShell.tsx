@@ -12,11 +12,18 @@ import {
   requestDealerOtp,
   submitDealerOtp,
   cancelDealerOtp,
+  checkDealerOtpAutoStatus,
+  checkDealerOtpNow,
+  disconnectDealerAccount,
   type DealerConnection,
 } from "@/actions/dealer";
 import { toast } from "sonner";
 
-type Step = "form" | "otp";
+// "auto" = server is reading the OTP from Gmail in the background (tried for
+// every Email-channel login; only actually succeeds if it lands in the
+// mailbox the server has access to). Manual entry via "otp" is always one
+// click away from "auto", and is what SMS-channel logins go straight to.
+type Step = "form" | "auto" | "otp";
 
 const TABS = [
   { href: "/dashboard/order-entry/new-order", label: "New Order" },
@@ -42,6 +49,8 @@ export default function OrderEntryShell({
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [channel, setChannel] = useState<"Email" | "SMS">("Email");
+  const [registeredEmail, setRegisteredEmail] = useState("");
+  const [showForwardHelp, setShowForwardHelp] = useState(false);
 
   // Two-step state
   const [step, setStep] = useState<Step>("form");
@@ -51,6 +60,8 @@ export default function OrderEntryShell({
 
   const [sending, setSending] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [checkingNow, setCheckingNow] = useState(false);
 
   // Live session-health check state
   const [checking, setChecking] = useState(false);
@@ -63,6 +74,7 @@ export default function OrderEntryShell({
     if (result.success) {
       setConnection(result.data);
       if (result.data?.staffCode) setStaffCode(result.data.staffCode);
+      if (result.data?.registeredEmail) setRegisteredEmail(result.data.registeredEmail);
       setSessionExpired(!!result.data && !result.data.connected);
     }
     setChecking(false);
@@ -73,6 +85,7 @@ export default function OrderEntryShell({
     if (result.success) {
       setConnection(result.data);
       if (result.data?.staffCode) setStaffCode(result.data.staffCode);
+      if (result.data?.registeredEmail) setRegisteredEmail(result.data.registeredEmail);
       setSessionExpired(!!result.data && !result.data.connected);
     }
     setLoading(false);
@@ -92,9 +105,57 @@ export default function OrderEntryShell({
     loadConnection();
   }, [loadConnection]);
 
+  // Poll while the server is auto-reading the OTP from Gmail. Stops itself on
+  // any terminal result; "timeout"/"error"/"not_applicable" fall back to the
+  // manual OTP form rather than failing the login outright.
+  useEffect(() => {
+    if (step !== "auto" || !pendingId) return;
+    let cancelled = false;
+
+    async function poll() {
+      const result = await checkDealerOtpAutoStatus(pendingId!);
+      if (cancelled) return;
+
+      if (!result.success || !result.data) return; // transient — try again next tick
+
+      switch (result.data.status) {
+        case "completed":
+          toast.success("Dealer account connected automatically.");
+          setPassword("");
+          setOtp("");
+          setPendingId(null);
+          setStep("form");
+          setReconnecting(false);
+          setSessionExpired(false);
+          await loadConnection();
+          break;
+        case "timeout":
+        case "error":
+        case "not_applicable":
+        case "not_found":
+          if (result.data.status !== "not_applicable") {
+            toast.message(
+              result.data.message ||
+                "Couldn't read the OTP automatically — enter it manually."
+            );
+          }
+          setStep("otp");
+          break;
+        // "pending" — keep polling
+      }
+    }
+
+    const t = setInterval(poll, 2500);
+    poll();
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [step, pendingId, loadConnection]);
+
   // OTP-window countdown. On expiry, drop back to step 1.
   useEffect(() => {
-    if (step !== "otp" || secondsLeft <= 0) return;
+    if ((step !== "otp" && step !== "auto") || secondsLeft <= 0) return;
     const t = setInterval(() => {
       setSecondsLeft((s) => {
         if (s <= 1) {
@@ -133,14 +194,24 @@ export default function OrderEntryShell({
   async function handleSendOtp(e: React.FormEvent) {
     e.preventDefault();
     setSending(true);
-    const result = await requestDealerOtp(staffCode.trim(), password, channel);
+    const result = await requestDealerOtp(
+      staffCode.trim(),
+      password,
+      channel,
+      channel === "Email" ? registeredEmail.trim() : undefined
+    );
     setSending(false);
     if (result.success && result.pendingId) {
       setPendingId(result.pendingId);
       setSecondsLeft(result.expiresIn ?? 240);
-      setStep("otp");
       setOtp("");
-      toast.success(`OTP sent via ${channel}. Enter the code you received.`);
+      if (result.autoOtp) {
+        setStep("auto");
+        toast.success(`OTP sent via ${channel}. Reading it automatically…`);
+      } else {
+        setStep("otp");
+        toast.success(`OTP sent via ${channel}. Enter the code you received.`);
+      }
     } else {
       toast.error(result.error ?? "Failed to send OTP");
     }
@@ -172,6 +243,43 @@ export default function OrderEntryShell({
     setStep("form");
     setOtp("");
     setPassword("");
+  }
+
+  async function handleDisconnect() {
+    setDisconnecting(true);
+    await disconnectDealerAccount();
+    setDisconnecting(false);
+    toast.success("Dealer account disconnected.");
+    setPassword("");
+    setStep("form");
+    setReconnecting(false);
+    await loadConnection();
+  }
+
+  async function handleCheckNow() {
+    if (!pendingId) return;
+    setCheckingNow(true);
+    const result = await checkDealerOtpNow(pendingId);
+    setCheckingNow(false);
+    if (result.success) {
+      toast.success("Dealer account connected.");
+      setPassword("");
+      setOtp("");
+      setPendingId(null);
+      setStep("form");
+      setReconnecting(false);
+      setSessionExpired(false);
+      await loadConnection();
+    } else if (result.connecting) {
+      // Already found and mid-login — stay on the auto step; its poll will
+      // report success shortly.
+      setStep("auto");
+      toast.message("Code found — connecting…");
+    } else if (result.notFound) {
+      toast.message("No OTP email found yet — check your inbox and try again in a few seconds.");
+    } else {
+      toast.error(result.error ?? "Couldn't check for the OTP right now.");
+    }
   }
 
   // Green "Connected" only while BOTH the live/stored state says connected AND
@@ -254,23 +362,16 @@ export default function OrderEntryShell({
                       <p className={`font-semibold mt-0.5 tabular-nums ${sessionSecondsLeft <= 60 ? "text-[#DF1B41]" : "text-[#0A2540]"}`}>
                         {fmtCountdown(sessionSecondsLeft)}
                       </p>
+                    ) : checking ? (
+                      <p className="font-medium mt-0.5 text-[#697386]">Verifying…</p>
                     ) : (
-                      // Stored clock elapsed. We haven't live-checked, so don't
-                      // claim "expired" — prompt a verify instead.
-                      <p className="font-medium mt-0.5 text-[#B54708]">Tap “Check connection”</p>
+                      // Stored clock elapsed but we haven't re-verified, so don't
+                      // claim "expired" — the check runs automatically on load.
+                      <p className="font-medium mt-0.5 text-[#B54708]">Reload to verify</p>
                     )}
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={checking}
-                    onClick={runStatusCheck}
-                    className="h-10 px-5 rounded-lg text-sm font-medium border-[#E3E8EF] text-[#425466] hover:border-[#635BFF] hover:text-[#635BFF] press-effect"
-                  >
-                    {checking ? "Checking…" : "Check connection"}
-                  </Button>
                   <Button
                     type="button"
                     variant="outline"
@@ -282,6 +383,15 @@ export default function OrderEntryShell({
                     className="h-10 px-5 rounded-lg text-sm font-medium border-[#E3E8EF] text-[#425466] hover:border-[#635BFF] hover:text-[#635BFF] press-effect"
                   >
                     Reconnect
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={disconnecting}
+                    onClick={handleDisconnect}
+                    className="h-10 px-5 rounded-lg text-sm font-medium border-[#E3E8EF] text-[#DF1B41] hover:border-[#DF1B41] hover:bg-red-50 press-effect"
+                  >
+                    {disconnecting ? "Disconnecting…" : "Disconnect"}
                   </Button>
                 </div>
               </div>
@@ -355,6 +465,62 @@ export default function OrderEntryShell({
                   </select>
                 </div>
 
+                {channel === "Email" && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="registered-email" className="text-xs font-medium text-[#425466]">
+                      Registered Email
+                    </Label>
+                    <Input
+                      id="registered-email"
+                      type="email"
+                      placeholder="e.g. nexion.eform@gmail.com"
+                      value={registeredEmail}
+                      onChange={(e) => setRegisteredEmail(e.target.value)}
+                      required
+                      className="rounded-lg h-10 border-[#E3E8EF] focus:border-[#635BFF]"
+                    />
+                    <p className="text-[11px] text-[#697386]">
+                      The email address registered on this dealer account — needed
+                      so BizzFlow can read the OTP automatically instead of you
+                      typing it in.{" "}
+                      <button
+                        type="button"
+                        onClick={() => setShowForwardHelp((v) => !v)}
+                        className="text-[#635BFF] font-medium hover:underline"
+                      >
+                        {showForwardHelp ? "Hide instructions" : "How to set this up"}
+                      </button>
+                    </p>
+                    {showForwardHelp && (
+                      <div className="text-[11px] text-[#425466] bg-[#F6F9FC] rounded-lg px-3 py-2.5 space-y-1.5 leading-relaxed">
+                        <p>
+                          In the Gmail account above, go to{" "}
+                          <span className="font-medium">
+                            Settings → See all settings → Forwarding and POP/IMAP
+                          </span>{" "}
+                          → <span className="font-medium">Add a forwarding address</span> →
+                          enter{" "}
+                          <span className="font-mono font-medium">
+                            jobhunters.ai.pro@gmail.com
+                          </span>
+                          .
+                        </p>
+                        <p>
+                          Gmail will ask us to confirm on our end — once we do, enable
+                          forwarding for future messages. After that, OTP emails sent to
+                          this address arrive automatically and BizzFlow reads them for
+                          you.
+                        </p>
+                        <p className="text-[#697386]">
+                          Without forwarding set up, auto-read simply won&apos;t find
+                          anything and you&apos;ll fall back to entering the code
+                          manually — nothing breaks either way.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex items-center gap-3">
                   <Button
                     type="submit"
@@ -385,8 +551,55 @@ export default function OrderEntryShell({
                   )}
                 </div>
               </form>
+            ) : step === "auto" ? (
+              /* ---------- Step 2 (auto): reading OTP from Gmail ---------- */
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-xs bg-[#EBE9FE] text-[#5851DB] rounded-lg px-4 py-2.5">
+                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#5851DB] border-t-transparent inline-block shrink-0" />
+                  <span>
+                    Reading the OTP from email automatically. Expires in{" "}
+                    <span className="font-semibold tabular-nums">
+                      {Math.floor(secondsLeft / 60)}:
+                      {String(secondsLeft % 60).padStart(2, "0")}
+                    </span>
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <Button
+                    type="button"
+                    disabled={checkingNow}
+                    onClick={handleCheckNow}
+                    className="h-10 px-5 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] hover-glow"
+                  >
+                    {checkingNow ? (
+                      <>
+                        <span className="h-3.5 w-3.5 mr-2 animate-spin rounded-full border-2 border-white border-t-transparent inline-block" />
+                        Checking…
+                      </>
+                    ) : (
+                      "Check email now"
+                    )}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setStep("otp")}
+                    className="h-10 px-5 rounded-lg text-sm font-medium border-[#E3E8EF] text-[#425466] press-effect"
+                  >
+                    Enter code manually instead
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleCancel}
+                    className="h-10 px-5 rounded-lg text-sm font-medium border-[#E3E8EF] text-[#425466] press-effect"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
             ) : (
-              /* ---------- Step 2: OTP ---------- */
+              /* ---------- Step 2 (manual): OTP ---------- */
               <form onSubmit={handleVerify} className="space-y-4">
                 <div className="flex items-center gap-2 text-xs bg-[#EBE9FE] text-[#5851DB] rounded-lg px-4 py-2.5">
                   <ClockIcon className="w-3.5 h-3.5 shrink-0" />
@@ -398,6 +611,20 @@ export default function OrderEntryShell({
                     </span>
                   </span>
                 </div>
+
+                {channel === "Email" && (
+                  <div className="flex items-center gap-2 text-xs bg-[#F6F9FC] text-[#425466] rounded-lg px-4 py-2.5">
+                    <span>Already see the code in your inbox?</span>
+                    <button
+                      type="button"
+                      disabled={checkingNow}
+                      onClick={handleCheckNow}
+                      className="text-[#635BFF] font-medium hover:underline disabled:opacity-50"
+                    >
+                      {checkingNow ? "Checking…" : "Check email now"}
+                    </button>
+                  </div>
+                )}
 
                 <div className="space-y-1.5">
                   <Label htmlFor="otp" className="text-xs font-medium text-[#425466]">

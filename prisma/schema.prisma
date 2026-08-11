@@ -93,6 +93,9 @@ model DealerAccount {
   id               String    @id @default(cuid())
   userId           String    @unique @map("user_id")
   staffCode        String    @map("staff_code")
+  // Email registered on the Unifi dealer account, set up by the user to
+  // auto-forward OTP mail to the shared inbox — see gmail-otp-auto-read-spec.md.
+  registeredEmail  String?   @map("registered_email")
   lastConnectedAt  DateTime? @map("last_connected_at")
   sessionExpiresAt DateTime? @map("session_expires_at")
   createdAt        DateTime  @default(now()) @map("created_at")
