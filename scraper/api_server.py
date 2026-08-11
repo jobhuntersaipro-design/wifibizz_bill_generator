@@ -476,7 +476,10 @@ def _internal_unauthorized_response():
 @app.post("/dealer/login/request-otp")
 def dealer_request_otp():
     """Step 1: fill credentials + channel, click GET. Body: {staff_code,
-    password, channel, user_key}. Returns {pending_id, expires_in}."""
+    password, channel, user_key, registered_email}. registered_email (the
+    dealer account's registered email, needed for auto-OTP's `to:` filter) is
+    optional — omitting it just skips auto-read, no manual-flow regression.
+    Returns {pending_id, expires_in, auto_otp}."""
     if not _order_entry_authorized(request):
         return _internal_unauthorized_response()
 
@@ -485,13 +488,16 @@ def dealer_request_otp():
     password = data.get("password") or ""
     channel = (data.get("channel") or "Email").strip()
     user_key = data.get("user_key") or "shared"
+    registered_email = (data.get("registered_email") or "").strip()
     if not staff_code or not password:
         return jsonify({"success": False, "error": "STAFF_CODE_PASSWORD_REQUIRED",
                         "message": "staff_code and password are required."}), 400
 
     import dealer_login_service
 
-    result = dealer_login_service.request_otp(staff_code, password, channel, user_key)
+    result = dealer_login_service.request_otp(
+        staff_code, password, channel, user_key, registered_email
+    )
     if result.get("error"):
         return jsonify({"success": False, **result}), 502
     return jsonify({"success": True, **result}), 200
@@ -519,6 +525,69 @@ def dealer_submit_otp():
         status = 404 if result["error"] == "pending_not_found" else 401
         return jsonify({"success": False, **result}), status
     return jsonify({"success": True, **result}), 200
+
+
+@app.post("/dealer/login/check-now")
+def dealer_check_now():
+    """One-shot manual retry: look at the shared inbox right now instead of
+    waiting out the rest of the auto-read window or typing the code by hand.
+    Body: {pending_id, user_key}. Same success shape as submit-otp; "error":
+    "not_found" specifically means try again shortly, not a hard failure."""
+    if not _order_entry_authorized(request):
+        return _internal_unauthorized_response()
+
+    data = request.get_json(silent=True) or {}
+    pending_id = (data.get("pending_id") or "").strip()
+    user_key = data.get("user_key") or None
+    if not pending_id:
+        return jsonify({"success": False, "error": "PENDING_ID_REQUIRED",
+                        "message": "pending_id is required."}), 400
+
+    import dealer_login_service
+
+    result = dealer_login_service.check_now(pending_id, user_key)
+    if result.get("error"):
+        status = 404 if result["error"] == "pending_not_found" else 200
+        return jsonify({"success": False, **result}), status
+    return jsonify({"success": True, **result}), 200
+
+
+@app.post("/dealer/login/auto-status")
+def dealer_auto_otp_status():
+    """Poll an in-flight auto-OTP read (see dealer_login_service module
+    docstring). Body: {pending_id, user_key}. Returns {status:
+    pending|completed|timeout|error|not_applicable|not_found}.
+    "not_applicable" means this login used the SMS channel (auto-read only
+    ever applies to Email); the client should show the manual OTP form
+    immediately instead of polling."""
+    if not _order_entry_authorized(request):
+        return _internal_unauthorized_response()
+
+    data = request.get_json(silent=True) or {}
+    pending_id = (data.get("pending_id") or "").strip()
+    user_key = data.get("user_key") or None
+    if not pending_id:
+        return jsonify({"success": False, "error": "PENDING_ID_REQUIRED",
+                        "message": "pending_id is required."}), 400
+
+    import dealer_login_service
+
+    return jsonify({"success": True, **dealer_login_service.auto_status(pending_id, user_key)}), 200
+
+
+@app.post("/dealer/login/logout")
+def dealer_logout():
+    """Drop a user's saved dealer session (disconnect). Body: {user_key}.
+    No portal round-trip — just deletes the local session file."""
+    if not _order_entry_authorized(request):
+        return _internal_unauthorized_response()
+
+    data = request.get_json(silent=True) or {}
+    user_key = data.get("user_key") or "shared"
+
+    import dealer_login_service
+
+    return jsonify({"success": True, **dealer_login_service.logout(user_key)}), 200
 
 
 @app.post("/dealer/login/status")

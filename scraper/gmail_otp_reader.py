@@ -68,7 +68,8 @@ class GmailOTPReader:
         return build("gmail", "v1", credentials=creds)
 
     def get_latest_otp(
-        self, sender_filter="@forward-sms.com", wait_seconds=60, max_wait=1800
+        self, sender_filter="@forward-sms.com", wait_seconds=60, max_wait=1800,
+        to_filter=None,
     ):
         """
         Read latest OTP from email
@@ -77,11 +78,18 @@ class GmailOTPReader:
             sender_filter: Email sender pattern (e.g. '@forward-sms.com')
             wait_seconds: Initial wait time
             max_wait: Maximum wait time (30 minutes = 1800 seconds)
+            to_filter: Original recipient to match (e.g. the dealer account's
+                registered email, like 'nexion.eform@gmail.com'). Gmail's
+                auto-forwarding preserves the original To header, so this
+                disambiguates between multiple accounts forwarding OTPs into
+                the same shared inbox at the same time — without it, two
+                concurrent logins could cross-match each other's codes.
 
         Returns:
             OTP code as string, or None if not found
         """
-        print(f"Waiting for OTP email from {sender_filter}...")
+        print(f"Waiting for OTP email from {sender_filter}" +
+              (f" to {to_filter}" if to_filter else "") + "...")
         print(f"Will check for up to {max_wait} seconds (timeout for delays)...")
 
         start_time = time.time() - 60
@@ -93,6 +101,8 @@ class GmailOTPReader:
 
                 # Search for forwarded SMS from any forward-sms.com mailer
                 query = f"from:{sender_filter} newer_than:5m"
+                if to_filter:
+                    query += f" to:{to_filter}"
 
                 results = (
                     self.service.users()
@@ -163,6 +173,42 @@ class GmailOTPReader:
                 time.sleep(5)
 
         print(f"✗ OTP not found after {max_wait} seconds")
+        return None
+
+    def check_now(self, sender_filter="@forward-sms.com", to_filter=None, lookback_minutes=10):
+        """One-shot search — a single Gmail query, no wait/poll loop. For a
+        manual "check now" retry after the user says the email has already
+        arrived, so it doesn't have to wait through get_latest_otp()'s
+        multi-minute polling window just to look once.
+
+        Unlike get_latest_otp(), this has no "must have arrived after I
+        started waiting" cutoff — it just looks at the last `lookback_minutes`
+        of matching mail and returns the newest OTP found, or None.
+        """
+        query = f"from:{sender_filter} newer_than:{lookback_minutes}m"
+        if to_filter:
+            query += f" to:{to_filter}"
+
+        results = (
+            self.service.users()
+            .messages()
+            .list(userId="me", q=query, maxResults=5)
+            .execute()
+        )
+
+        for msg_data in results.get("messages", []):
+            message = (
+                self.service.users()
+                .messages()
+                .get(userId="me", id=msg_data["id"], format="full")
+                .execute()
+            )
+            subject = self._get_header(message, "Subject")
+            body = self._get_message_body(message)
+            otp = self._extract_otp(f"{subject} {body}")
+            if otp:
+                return otp
+
         return None
 
     def _get_header(self, message, header_name):
@@ -238,10 +284,18 @@ class GmailOTPReader:
 
 
 # Standalone function for easy import
-def get_latest_otp(sender_filter="@unifi.com.my", max_age_seconds=1800):
+def get_latest_otp(sender_filter="@unifi.com.my", max_age_seconds=1800, to_filter=None):
     reader = GmailOTPReader()
     return reader.get_latest_otp(
-        sender_filter=sender_filter, wait_seconds=60, max_wait=max_age_seconds
+        sender_filter=sender_filter, wait_seconds=60, max_wait=max_age_seconds,
+        to_filter=to_filter,
+    )
+
+
+def check_now_otp(sender_filter="@unifi.com.my", to_filter=None, lookback_minutes=10):
+    reader = GmailOTPReader()
+    return reader.check_now(
+        sender_filter=sender_filter, to_filter=to_filter, lookback_minutes=lookback_minutes
     )
 
 

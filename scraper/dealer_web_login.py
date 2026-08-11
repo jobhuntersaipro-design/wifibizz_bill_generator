@@ -84,6 +84,55 @@ def _shot_path(name: str) -> str:
     return f"logs/{name}_{int(time.time() * 1000)}.png"
 
 
+# The portal (Ant Design) surfaces a failed Sign In through several different
+# containers depending on whether it's a field-level validation error, a toast,
+# or a banner — so check all of them rather than assuming one shape.
+_LOGIN_ERROR_SELECTORS = (
+    ".ant-message-error",
+    ".ant-message-notice-content",
+    ".ant-form-item-explain-error",
+    ".ant-alert-error",
+    ".ant-notification-notice-message",
+    ".ant-notification-notice-description",
+)
+
+
+async def _read_login_error(page) -> str:
+    """Return whatever error text the portal is currently showing, or ''.
+
+    Used instead of guessing the failure reason: a wrong PASSWORD and a wrong
+    OTP both just bounce back to /login, so without reading the portal's own
+    message we can't tell the user which one was actually wrong.
+    """
+    seen = []
+    for sel in _LOGIN_ERROR_SELECTORS:
+        try:
+            loc = page.locator(sel)
+            for i in range(await loc.count()):
+                node = loc.nth(i)
+                if not await node.is_visible():
+                    continue
+                text = " ".join((await node.inner_text()).split()).strip()
+                if text and text not in seen:
+                    seen.append(text)
+        except Exception:
+            continue
+    return " | ".join(seen)
+
+
+def _describe_login_failure(portal_error: str) -> str:
+    """Report the portal's own wording, plus which credential it points at."""
+    low = portal_error.lower()
+    if any(k in low for k in ("password", "credential", "staff code", "staffcode",
+                              "username", "账号", "密码")):
+        hint = " Check your staff code and password."
+    elif any(k in low for k in ("otp", "verification code", "sms code", "验证码")):
+        hint = " Check the OTP — it may be wrong or expired."
+    else:
+        hint = ""
+    return f"Portal said: {portal_error}.{hint}"
+
+
 async def _save_session(context, session_path: str) -> None:
     """Persist the portal cookies to a per-user path (own copy — login_manager's
     save_session is hardcoded to the shared session file)."""
@@ -181,6 +230,13 @@ async def open_and_request_otp(
         print(f"⚠️ Warning clicking GET: {e}")
 
     await page.wait_for_timeout(2000)
+    # Log — deliberately do NOT raise. We don't yet know whether the portal
+    # validates credentials at this step, so failing here could break a working
+    # login on a false positive. Capturing the text costs nothing and tells us
+    # what the portal says the next time someone's password is genuinely wrong.
+    get_error = await _read_login_error(page)
+    if get_error:
+        print(f"  ⚠️ Portal message after GET: {get_error}")
     await page.screenshot(path=_shot_path("after_get_click"))
 
 
@@ -221,9 +277,24 @@ async def submit_otp_and_finalize(
     except Exception:
         await page.locator('button[type="submit"]').click(force=True)
 
-    await page.wait_for_timeout(8000)
+    # Poll for the portal's own error while we wait, instead of one long sleep.
+    # Ant toasts auto-dismiss after a few seconds, and the History navigation
+    # below wipes the page — either would lose the message and force us back to
+    # guessing "OTP wrong" even when the real problem was the password.
+    portal_error = ""
+    for _ in range(16):  # ~8s, same total budget as the previous fixed wait
+        await page.wait_for_timeout(500)
+        portal_error = await _read_login_error(page)
+        if portal_error:
+            print(f"  ⚠️ Portal error after Sign In: {portal_error}")
+            break
+
     await page.screenshot(path=_shot_path("after_sign_in"))
     print(f"  📍 URL after sign in: {page.url}")
+
+    if portal_error:
+        await page.screenshot(path=_shot_path("login_error"))
+        raise RuntimeError(_describe_login_failure(portal_error))
 
     if "login" in page.url.lower():
         # Some flows land back on /login briefly; a nav to History confirms auth.
@@ -233,7 +304,8 @@ async def submit_otp_and_finalize(
     if "login" in page.url.lower():
         await page.screenshot(path=_shot_path("login_redirect"))
         raise RuntimeError(
-            "Bounced back to login after Sign In — OTP likely wrong or expired."
+            "Bounced back to login after Sign In, and the portal gave no "
+            "specific reason — either the password or the OTP is wrong/expired."
         )
 
     try:

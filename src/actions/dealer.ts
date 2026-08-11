@@ -29,6 +29,7 @@ async function callScraper(path: string, body: unknown): Promise<ScraperResult> 
 
 export type DealerConnection = {
   staffCode: string;
+  registeredEmail: string | null;
   lastConnectedAt: string | null;
   sessionExpiresAt: string | null;
   connected: boolean;
@@ -55,6 +56,7 @@ export async function getDealerConnection() {
     success: true,
     data: {
       staffCode: acct.staffCode,
+      registeredEmail: acct.registeredEmail,
       lastConnectedAt: acct.lastConnectedAt?.toISOString() ?? null,
       sessionExpiresAt: acct.sessionExpiresAt?.toISOString() ?? null,
       connected,
@@ -91,6 +93,7 @@ export async function checkDealerConnection() {
       unreachable: true,
       data: {
         staffCode: acct.staffCode,
+        registeredEmail: acct.registeredEmail,
         lastConnectedAt: acct.lastConnectedAt?.toISOString() ?? null,
         sessionExpiresAt: acct.sessionExpiresAt?.toISOString() ?? null,
         connected,
@@ -119,6 +122,7 @@ export async function checkDealerConnection() {
     success: true,
     data: {
       staffCode: acct.staffCode,
+      registeredEmail: acct.registeredEmail,
       lastConnectedAt: acct.lastConnectedAt?.toISOString() ?? null,
       sessionExpiresAt: refreshedExpiry?.toISOString() ?? null,
       connected,
@@ -129,7 +133,8 @@ export async function checkDealerConnection() {
 export async function requestDealerOtp(
   staffCode: string,
   password: string,
-  channel: "Email" | "SMS"
+  channel: "Email" | "SMS",
+  registeredEmail?: string
 ) {
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: "Unauthorized" };
@@ -161,6 +166,7 @@ export async function requestDealerOtp(
       password,
       channel,
       user_key: session.user.id,
+      registered_email: registeredEmail?.trim() || undefined,
     });
 
     if (!ok || data.success === false) {
@@ -172,17 +178,24 @@ export async function requestDealerOtp(
       };
     }
 
-    // Remember the staff code so we can prefill it next time. Never store the password.
+    // Remember the staff code (and registered email, for auto-OTP's `to:`
+    // filter) so we can prefill both next time. Never store the password.
     await prisma.dealerAccount.upsert({
       where: { userId: session.user.id },
-      create: { userId: session.user.id, staffCode },
-      update: { staffCode },
+      create: { userId: session.user.id, staffCode, registeredEmail: registeredEmail?.trim() || null },
+      update: { staffCode, registeredEmail: registeredEmail?.trim() || null },
     });
 
     return {
       success: true,
       pendingId: data.pending_id as string,
       expiresIn: (data.expires_in as number) ?? 240,
+      // true for every Email-channel login — the server always attempts to
+      // read the OTP from Gmail, but only succeeds if it actually lands in
+      // the mailbox the server has access to; otherwise it times out and
+      // falls back to the manual flow below. See
+      // context/features/gmail-otp-auto-read-spec.md.
+      autoOtp: data.auto_otp === true,
     };
   } catch {
     return {
@@ -190,6 +203,23 @@ export async function requestDealerOtp(
       error: "Couldn't reach the order service. Is it running?",
     };
   }
+}
+
+async function markDealerConnected(userId: string) {
+  const now = new Date();
+  await prisma.dealerAccount.upsert({
+    where: { userId },
+    create: {
+      userId,
+      staffCode: "",
+      lastConnectedAt: now,
+      sessionExpiresAt: new Date(now.getTime() + SESSION_TTL_MS),
+    },
+    update: {
+      lastConnectedAt: now,
+      sessionExpiresAt: new Date(now.getTime() + SESSION_TTL_MS),
+    },
+  });
 }
 
 export async function submitDealerOtp(pendingId: string, otp: string) {
@@ -216,21 +246,86 @@ export async function submitDealerOtp(pendingId: string, otp: string) {
       };
     }
 
-    const now = new Date();
-    await prisma.dealerAccount.upsert({
-      where: { userId: session.user.id },
-      create: {
-        userId: session.user.id,
-        staffCode: "",
-        lastConnectedAt: now,
-        sessionExpiresAt: new Date(now.getTime() + SESSION_TTL_MS),
-      },
-      update: {
-        lastConnectedAt: now,
-        sessionExpiresAt: new Date(now.getTime() + SESSION_TTL_MS),
-      },
+    await markDealerConnected(session.user.id);
+    return { success: true };
+  } catch {
+    return {
+      success: false,
+      error: "Couldn't reach the order service. Is it running?",
+    };
+  }
+}
+
+export type DealerOtpAutoStatus = {
+  status: "pending" | "completed" | "timeout" | "error" | "not_applicable" | "not_found";
+  message?: string;
+};
+
+// Poll target for the auto-read path (see requestDealerOtp's `autoOtp` flag).
+// Only meaningful when that flag came back true — callers should skip polling
+// entirely for "not_applicable" logins and show the manual OTP form right away.
+export async function checkDealerOtpAutoStatus(
+  pendingId: string
+): Promise<{ success: boolean; data?: DealerOtpAutoStatus; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+  if (!pendingId) return { success: false, error: "Missing pending login." };
+
+  try {
+    const { ok, data } = await callScraper("/dealer/login/auto-status", {
+      pending_id: pendingId,
+      user_key: session.user.id,
     });
 
+    if (!ok || data.success === false) {
+      return { success: false, error: (data.message as string) || "Status check failed." };
+    }
+
+    const status = data.status as DealerOtpAutoStatus["status"];
+    if (status === "completed") {
+      await markDealerConnected(session.user.id);
+    }
+
+    return {
+      success: true,
+      data: { status, message: data.message as string | undefined },
+    };
+  } catch {
+    return {
+      success: false,
+      error: "Couldn't reach the order service. Is it running?",
+    };
+  }
+}
+
+// One-shot manual retry: check the shared inbox right now instead of waiting
+// out the rest of the auto-read window or typing the code by hand. Same
+// success shape as submitDealerOtp; error === "not_found" means "nothing yet,
+// try again shortly" rather than a hard failure — surface that as a gentle
+// message, not a scary error toast.
+export async function checkDealerOtpNow(pendingId: string) {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+  if (!pendingId) return { success: false, error: "Missing pending login." };
+
+  try {
+    const { ok, data } = await callScraper("/dealer/login/check-now", {
+      pending_id: pendingId,
+      user_key: session.user.id,
+    });
+
+    if (!ok || data.success === false) {
+      return {
+        success: false,
+        notFound: data.error === "not_found",
+        // Not a failure — the code was already found and the login is
+        // completing right now; the auto-status poll will report success.
+        connecting: data.error === "connecting",
+        error: (data.message as string) || "Couldn't check for the OTP right now.",
+      };
+    }
+
+    await markDealerConnected(session.user.id);
     return { success: true };
   } catch {
     return {
@@ -252,5 +347,29 @@ export async function cancelDealerOtp(pendingId: string) {
   } catch {
     // best-effort — the pending login times out server-side anyway.
   }
+  return { success: true };
+}
+
+// Ends the connected Unifi dealer portal session — distinct from the
+// BizzFlow account itself (that's the sidebar's own Logout). Best-effort on
+// the scraper call (drops the saved session file server-side) but always
+// clears the local "connected" state so the UI reflects it either way.
+export async function disconnectDealerAccount() {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false, error: "Unauthorized" };
+
+  try {
+    await callScraper("/dealer/login/logout", { user_key: session.user.id });
+  } catch {
+    // best-effort — still clear local state below even if unreachable.
+  }
+
+  // updateMany (not update) so this doesn't throw if there's nothing to
+  // disconnect — same best-effort spirit as the scraper call above.
+  await prisma.dealerAccount.updateMany({
+    where: { userId: session.user.id },
+    data: { sessionExpiresAt: null, lastConnectedAt: null },
+  });
+
   return { success: true };
 }
