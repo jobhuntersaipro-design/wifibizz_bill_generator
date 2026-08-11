@@ -1,85 +1,19 @@
-# Current Feature: Auto Read Gmail OTP for Dealer Login
+# Current Feature
 
 ## Status
 
-In Progress
+Not Started
 
 ## Goals
 
-- When a user connects their dealer account via the Email OTP channel, BizzFlow reads the OTP straight from Gmail and completes login — no manual copy-paste of the code into the UI
-- Manual OTP entry must remain available as a fallback if auto-read times out or fails (no regression to the current working flow)
-- Concurrent logins from different users must not cross-match each other's OTP emails
-- Surface a clear, real error (not a silent failure) if the Gmail token is expired/revoked server-side
+<!-- Bullet points of what success looks like -->
 
 ## Notes
 
-### Source spec
-- Full spec: [context/features/gmail-otp-auto-read-spec.md](context/features/gmail-otp-auto-read-spec.md) — reload for full detail (current-state audit, proposed approach, edge cases, acceptance criteria).
-
-### Final design (no per-user OAuth — Gmail native forwarding instead)
-No staff-code allowlist, no per-user OAuth consent screen. One shared inbox (`jobhunters.ai.pro@gmail.com`) has Gmail API read access; each dealer-account owner self-service sets up Gmail's native "Forwarding and POP/IMAP" to forward their OTP mail to that shared inbox (screenshot-documented in the UI's "How to set this up" popover). Gmail preserves the original sender AND original `to:` recipient on auto-forwarded mail, so the read query filters on both — `to:<registered_email>` is what stops two concurrent Email-channel logins forwarding into the same shared inbox from cross-matching each other's OTP. Auto-read is attempted for every Email-channel login WITH a registered email supplied; without one, or if the forward isn't set up / hasn't landed, it times out (`GMAIL_OTP_TIMEOUT_SECONDS`, default 90s) and falls back to the manual OTP form (also reachable immediately via "Enter code manually instead"). SMS-channel logins are unaffected (`not_applicable`, straight to manual).
-
-### Implemented
-- `scraper/gmail_otp_reader.py`: `get_latest_otp()` (both the class method and the module-level convenience function) takes a new `to_filter` param, appended to the Gmail search query as `to:<email>` alongside the existing sender filter.
-- `scraper/dealer_login_service.py`: `request_otp()` now also takes `registered_email`; `auto_otp = channel == "Email" and bool(registered_email)`. When true, fires `_auto_otp_task` (fire-and-forget on the persistent event loop) which reads `registered_email` off the pending record and passes it as `to_filter`, then finishes the login via a shared `_finish_with_otp()` helper (also used by manual `submit_otp()`, coordinated via the existing `in_progress` guard so the two paths can't double-finish). New `auto_status(pending_id, user_key)` for polling, backed by a separate `_AUTO_STATUS` dict (since a successful auto-finish pops the pending record) with its own TTL-based purge alongside `_purge_expired()`. `cancel()` also clears `_AUTO_STATUS`.
-- `scraper/api_server.py`: `POST /dealer/login/request-otp` accepts `registered_email` (optional — omitting it just skips auto-read). New `POST /dealer/login/auto-status` route (same `_order_entry_authorized` gate as the other dealer routes).
-- `prisma/schema.prisma`: `DealerAccount.registeredEmail` (nullable). Migration `20260811140000_dealer_registered_email` hand-written and applied via `prisma migrate deploy` — `prisma migrate dev`'s shadow-database replay fails on a pre-existing, unrelated early migration (`wifibizz_cases` table not created via Prisma); `migrate status` on the real DB is clean, this is a shadow-DB-only quirk this project has hit before (see `20260728000000_order_entry_access`, also hand-written for the same reason).
-- `src/actions/dealer.ts`: `DealerConnection` gained `registeredEmail`; `requestDealerOtp()` takes an optional `registeredEmail` param (sent as `registered_email`, persisted on the `DealerAccount` upsert) and returns `autoOtp`; new `checkDealerOtpAutoStatus()` polls and marks the account connected via a shared `markDealerConnected()` helper (factored out of `submitDealerOtp`'s success path) on `"completed"`.
-- `src/components/order-entry/OrderEntryShell.tsx`: registered-email input (required, shown only for the Email channel) with an inline "How to set this up" toggle explaining the Gmail forwarding setup (target address `jobhunters.ai.pro@gmail.com`); new `"auto"` step (spinner + countdown, 2.5s poll interval) with an always-visible "Enter code manually instead" button and automatic fallback to the manual `"otp"` step on `timeout`/`error`/`not_applicable`/`not_found`.
-- `.env.example`: documents `GMAIL_OTP_SENDER_FILTER` (default `@unifi.com.my`) and `GMAIL_OTP_TIMEOUT_SECONDS` (default `210` — see live-testing notes below for why not 90).
-- Verified: Python files compile (`py_compile`), `tsc --noEmit` and `eslint` clean, migration applied + `prisma generate` re-run.
-
-### Live-tested (2026-08-11) — Gmail OAuth configured, real end-to-end run against the actual Unifi portal
-- **Gmail OAuth is now live** for the shared inbox — `scraper/config/gmail_credentials.json` + `gmail_token.json` exist and authenticate as `jobhunters.ai.pro@gmail.com` (verified via a direct `getProfile` API call).
-- **The `to:` filter is proven correct** — an isolated `get_latest_otp` call found real forwarded OTP emails matching `to:nexion.eform@gmail.com` in the shared inbox. Gmail forwarding + the disambiguation filter genuinely work.
-- **Two real bugs found via live testing, both fixed:**
-  1. `_auto_otp_task` called the module-level `gmail_otp_reader.get_latest_otp()` with `max_wait=` — that function's actual parameter is `max_age_seconds` (the class *method* is the one named `max_wait`). Silent `TypeError` on every attempt, caught and surfaced as a fast, confusing fallback to manual. Fixed: call site now uses `max_age_seconds=`.
-  2. Timeout too short for reality: `get_latest_otp()` backdates its internal search start by 60s, so the real search budget is `GMAIL_OTP_TIMEOUT_SECONDS - 60`. Old default (90) gave only ~30s of real search time; live-measured Unifi-send → Gmail-forward → API-visible latency was **~150s**. Bumped default to 210.
-- **Diagnostics hardened**: both exception handlers in `_auto_otp_task`/`_finish_with_otp` now fall back to `f"{type(e).__name__} (no message)"` when `str(e)` is empty (some exceptions stringify to `""`), and both now `traceback.print_exc()` to the scraper's stdout — a real occurrence of this (empty-message error during the finish-login step, cause not yet root-caused) is what prompted the fix.
-- **Still open**: one live run got past the pure timeout (found the OTP) but failed with a blank-message error while submitting it to the portal — root cause not yet identified; the diagnostics above should surface it next time it happens.
-
-### New: "Check email now" one-shot manual retry (2026-08-11)
-Prompted by realizing the background auto-read **gives up permanently** once its window (210s) closes — if the forwarded email lands moments after that, nothing is still looking for it, even though it's sitting in the inbox. Added an instant, non-polling retry path instead of just "wait longer" or "type it yourself":
-- `scraper/gmail_otp_reader.py`: new `GmailOTPReader.check_now()` method + module-level `check_now_otp()` wrapper — a single Gmail query (`newer_than:10m`, no wait/sleep loop), returns immediately.
-- `scraper/dealer_login_service.py`: new `check_now(pending_id, user_key)` — validates ownership/`registered_email`/`in_progress` the same way `submit_otp` does, calls `check_now_otp`, and on a hit finishes the login via the same shared `_finish_with_otp()`. `"not_found"` is a soft/expected outcome (try again shortly), not a hard error.
-- `scraper/api_server.py`: new `POST /dealer/login/check-now` route.
-- `src/actions/dealer.ts`: new `checkDealerOtpNow()` action, surfaces `notFound` separately from hard errors so the UI can use a gentle message instead of an error toast.
-- `src/components/order-entry/OrderEntryShell.tsx`: "Check email now" button in both the `"auto"` step (primary action, next to "Enter code manually instead") and the manual `"otp"` step (small inline link — "Already see the code in your inbox? Check email now", Email channel only).
-- Verified: `tsc --noEmit`, `eslint`, and `py_compile` all clean. Not yet live-tested end-to-end (added just now) — needs a scraper restart + one more real run.
-
-### ROOT CAUSE FOUND (2026-08-11) — event-loop deadlock in `_auto_otp_task`
-The blank-message error, the auto-read never completing, AND the spurious "Still verifying the previous code — please wait a moment." were **all one bug**.
-
-`_auto_otp_task` is scheduled onto the shared persistent event loop via `asyncio.run_coroutine_threadsafe(...)`, so it runs **on the loop thread**. When it found the OTP it called the *synchronous* `_finish_with_otp()`, which calls `_submit()` → `fut.result(timeout=180)`. That blocks the calling thread — which is the loop thread — so the `finish_web_login` coroutine `_submit()` had just scheduled onto that same loop could never execute. Guaranteed deadlock until the 180s timeout fired as a bare `concurrent.futures.TimeoutError`, whose `str()` is `""` (the mystery blank message). And for that entire 180s window `rec["in_progress"]` stayed `True`, so any "Check email now" click hit the in-progress guard.
-
-**Proven** with a standalone reproduction (background loop + blocking `_submit` + coroutine-on-loop calling it): BROKEN path deadlocked and produced `str(e) == ''`; the `to_thread` variant returned normally in 0.11s.
-
-**Fix:** `result = await asyncio.to_thread(_finish_with_otp, pending_id, rec, otp)` — the blocking call runs on a worker thread, leaving the loop free to execute the coroutine it schedules. Audited every other `_submit()` caller (`request_otp`, `submit_otp`, `check_now`, `check_status`, `_teardown`/`_purge_expired`): all run on Flask request threads, so `_auto_otp_task` was the only affected site.
-
-**Related changes:**
-- `GMAIL_OTP_TIMEOUT_SECONDS` default 210 → **300** (=240s real search after the reader's internal 60s backdating; still well inside `PENDING_TTL_SECONDS` 540).
-- The `in_progress` case in `check_now()` no longer returns the alarming `otp_in_progress` error. It's genuinely good news (code found, login completing), so it returns a soft `connecting` code; `dealer.ts` exposes it as `connecting` and the UI shows "Code found — connecting…" and stays on the auto step, whose existing poll reports success.
-
-### ✅ VERIFIED WORKING END-TO-END (2026-08-11 16:30)
-After the deadlock fix, a clean live run against the real Unifi portal **completed the login fully automatically** — Disconnect → Send OTP → (no OTP typed, no button clicked) → "Connected as TMRS00517". Confirmed real, not just a UI state: `sessions/dealer_<user>.json` was written with 20 live portal cookies at the moment of connection. This is the first fully-automated dealer login.
-
-### Password vs OTP error attribution (2026-08-11)
-**Problem:** the password was only ever validated at the final Sign In step, and a wrong password and a wrong OTP both just bounce back to `/login` — but the code hardcoded `"OTP likely wrong or expired"`, so a wrong password was actively misreported as a bad OTP.
-
-**Fix (in `scraper/dealer_web_login.py`):**
-- `_read_login_error(page)` — reads the portal's own error text across the several Ant Design containers it might use (`.ant-message-error`, `.ant-form-item-explain-error`, `.ant-alert-error`, notification variants).
-- `_describe_login_failure(text)` — surfaces that text verbatim (`"Portal said: …"`) plus a hint naming the actual credential; keyword-matches EN **and** ZH (`密码` / `验证码`), since the portal is partly Chinese. Unit-checked against 7 representative messages.
-- Wired into `submit_otp_and_finalize` as a **poll during** the post-Sign-In wait (~8s, same total budget), not a single check after it — Ant toasts auto-dismiss, and the existing `HISTORY_URL` navigation wipes the page, so either would have lost the message.
-- Fallback when the portal says nothing now names **both** possibilities instead of blaming the OTP.
-- `open_and_request_otp` additionally **logs** (deliberately does not raise on) any portal message after the GET click. This answers "does the portal validate the password before sending the OTP?" for free the next time a password is genuinely wrong — without a deliberate bad-password probe, which risks locking/flagging the real staff account.
-
-### UI: removed "Check connection"
-Removed the button from the connected-state row (Reconnect / Disconnect remain). `runStatusCheck` itself is kept — it still runs automatically on page load, which is what actually keeps the badge honest. The "Session expires in" placeholder that read `Tap "Check connection"` would have referenced a control that no longer exists, so it now shows `Verifying…` while a check is in flight and `Reload to verify` otherwise.
-
-### Open items
-1. The running scraper at test time had the deadlock fix but **not** the `dealer_web_login.py` error-attribution changes (edited after that restart) — those still need a restart + a real failure to exercise.
+<!-- Additional context, constraints, or details from spec -->
 
 ## History
+
 
 <!-- Keep this updated. Earliest to latest -->
 
@@ -109,3 +43,4 @@ Removed the button from the connected-state row (Reconnect / Disconnect remain).
 - **Google Sheets Sync — DEFERRED (not started)** (was In Progress, displaced 2026-06-10): Per-user append-only sync of case list to a user-managed Google Sheet. Service account (`GOOGLE_SERVICE_ACCOUNT_JSON`), user pastes their own Sheet ID in Settings (no admin visibility), dedup via `synced_to_sheet_at` on `wifibizz_cases` + `google_sheet_id` on `wifibizz_users`, `src/lib/google-sheets.ts` append helper, `POST /api/sheets/sync`, auto-sync after crawl + manual button, service-account email shown in Settings. No code written yet — re-load this spec to resume.
 - **Phase 24 — WhatsApp Closing Script Chat Image** (2026-04-07): Generate Chat button per case row (green chat icon) and in detail panel. ChatImageGenerator component renders WhatsApp iPhone dark mode style incoming message with closing script filled from case data. Two variants: Home (Non-Business) and Business, detected by provider field. Billing address shows "same as above". Package name trimmed after + sign. Preferred installation date randomized 3-7 days from case_created_at (DD/MM/YYYY). Randomized wallpaper from 12 WhatsApp iPhone dark mode colors. iPhone-style bottom bar with aligned +/message/emoji/camera/mic and home indicator. html-to-image library for PNG capture at 2x resolution. Preview modal with Regenerate (picks new wallpaper) and Download PNG buttons.
 - **Unifi eSales Order Entry Automation — DEFERRED (in progress, displaced 2026-08-11)**: Playwright automation in `scraper/` (`order_entry.py`, `oe_feasibility.py`, `oe_helpers.py`, etc.) driving the Unifi dealer portal's Order Entry CRM end-to-end, exposed via the Flask service (`api_server.py`) and BizzFlow's `/dashboard/order-entry` page. Built and verified live: per-user dealer login (two-step OTP), session health checks, order form + drafts + batch submit, admin per-user access toggle, portal address search (QryNIGAddress, CSRF solved), production deployment (Vercel + DigitalOcean droplet at scraper.bizzflow.top), customer-profile creation (`stop_after_customer_create`), and the full New Connection → Pay flow validated end-to-end up to the Pay gate (`do_pay` still FALSE pending the first real payment). Order source shifted from WifiBizz cases to a respond.io → BizzFlow agent-entry form. Remaining before this can be called done: (1) wire "Feasibility → order id" (create/select customer → Feasibility Check by Address Id → Main Offer → Order → capture Customer Order Number, write back to `Order`), (2) run one complete customer-create test end-to-end to confirm the profile actually saves, (3) flip `do_pay` to TRUE only after a verified real Pay, (4) size up the DigitalOcean droplet before multi-agent use and watch for portal bot-detection from the datacenter IP. Full detail: [context/features/order-entry-build-spec.md](context/features/order-entry-build-spec.md), [context/features/order-entry-address-api.md](context/features/order-entry-address-api.md), [context/features/selector_map.md](context/features/selector_map.md). Re-load `order-entry-build-spec` (plus the git log for `feat(order-entry)` commits) to resume.
+- **Auto Read Gmail OTP for Dealer Login** (2026-08-11): Dealer portal login now completes without the user copy-pasting the OTP. Account owners point Gmail's native forwarding at a shared inbox (`jobhunters.ai.pro@gmail.com`, Gmail API read access via `scraper/config/gmail_token.json`) — no per-user OAuth consent. Reads filter on sender AND `to:<registered_email>` (Gmail preserves the original recipient on forwarded mail), which is what prevents concurrent logins cross-matching each other's codes. New `DealerAccount.registeredEmail` (migration `20260811140000_dealer_registered_email`, applied via `migrate deploy` — `migrate dev`'s shadow DB fails on a pre-existing unrelated migration). Backend: `to_filter`/`check_now` in `gmail_otp_reader.py`, `request_otp(registered_email)` + `_auto_otp_task` + `auto_status` + `check_now` + `logout` in `dealer_login_service.py`, and `/dealer/login/{auto-status,check-now,logout}` routes. UI: registered-email field with inline forwarding instructions, an `auto` step that polls and self-completes, "Check email now" one-shot retry, and a Disconnect button; removed "Check connection" (it already runs on page load). Manual OTP entry is preserved throughout as a fallback. **Two real bugs found by live testing:** a wrong kwarg (`max_wait` vs `max_age_seconds`) silently broke every attempt, and an **event-loop deadlock** — `_auto_otp_task` ran on the shared loop and called a blocking helper waiting on a coroutine scheduled onto that same loop, hanging until a bare `TimeoutError` (empty `str()`, the unexplained blank errors) while `in_progress` stayed set (the spurious "still verifying" message); proven with a standalone repro and fixed with `asyncio.to_thread`. Also: failed sign-ins now report the portal's own error text instead of always blaming the OTP, since a wrong password took the same bounce-to-login path and was misreported. **Verified live end-to-end** against the real Unifi portal: Disconnect → Send OTP → connected with no OTP typed and no button clicked, with a real 20-cookie session written. Spec: [context/features/gmail-otp-auto-read-spec.md](context/features/gmail-otp-auto-read-spec.md).
