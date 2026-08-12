@@ -1,14 +1,22 @@
 # Current Feature
 
+## Fetch Installation Address Before Generating WhatsApp Chat
+
 ## Status
 
-Not Started
+Implemented — build passes, pending live browser verification
 
 ## Goals
 
-<!-- Bullet points of what success looks like -->
+- Clicking "Generate Chat" (row icon or detail panel) resolves the case's installation address from the WifiBizz portal first, exactly like internet bill generation does, before rendering the closing script.
+- Cases that already have `full_address` open the chat immediately (no extra round trip).
+- Failure to resolve is non-blocking: a toast warns and the chat still generates.
 
 ## Notes
+
+- Extracted the bill route's lazy address fill into `src/lib/crawler/lazy-address.ts` (`fillMissingAddresses`) — fetches via `fetchAddressesForCases`, persists to `wifibizz_cases`, and pushes to the user's Google Sheet if configured. `POST /api/bills/generate` now calls the shared helper.
+- New `POST /api/cases/address` (`{ caseNos }` → `{ addresses }`) returns known + newly-resolved addresses, auth-scoped to the caller's WifiBizz user, max 20 per batch.
+- `CaseManagementSection` gains `chatLoadingCase` state; the chat button shows a spinner while resolving, and the resolved address is written back into the table row and detail panel so the UI stays in sync.
 
 <!-- Additional context, constraints, or details from spec -->
 

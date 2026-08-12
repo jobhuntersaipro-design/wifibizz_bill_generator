@@ -6,8 +6,7 @@ import { uploadToR2 } from "@/lib/r2";
 import { generateInternetBill } from "@/lib/bill-generator/internet-bill";
 import { generateUtilityBill } from "@/lib/bill-generator/utility-bill";
 import { getUserCaseUsage } from "@/lib/case-limit";
-import { fetchAddressesForCases } from "@/lib/crawler/scraper";
-import { getUserPassword } from "@/lib/crawler/db";
+import { fillMissingAddresses } from "@/lib/crawler/lazy-address";
 
 const MAX_BATCH = 20;
 
@@ -123,58 +122,15 @@ export async function POST(request: Request) {
       ])
     );
 
-    // Lazy address fill: the crawler stores cases list-only (no address), so cases
-    // crawled that way have an empty full_address. Fetch it on demand from the
-    // portal (shared crawl account), persist it, and use it — so bills get the real
-    // address. Best-effort: if creds are unset or a case can't be resolved, the bill
-    // still generates (with a blank address) rather than failing.
-    // Role-based: resolve the address using the bill owner's own WifiBizz account
-    // (they own the case). Falls back to the shared crawl env if configured.
-    const crawlEmail = wifibizzUser.wifibizzEmail || process.env.WIFIBIZZ_CRAWL_EMAIL || "";
-    const crawlPassword =
-      getUserPassword({
-        id: wifibizzUser.id,
-        wifibizz_email: wifibizzUser.wifibizzEmail,
-        wifibizz_password_enc: wifibizzUser.wifibizzPasswordEnc,
-        last_crawl_at: wifibizzUser.lastCrawlAt?.toISOString() ?? null,
-      }) || process.env.WIFIBIZZ_CRAWL_PASSWORD || "";
-    const missingAddr = [...caseDataMap.values()].filter(
-      (c) => (!c.full_address || !c.full_address.trim()) && c.case_url
+    // Fetch any missing installation addresses from the portal before generating,
+    // so bills carry the real address rather than a blank one.
+    const resolvedAddresses = await fillMissingAddresses(
+      wifibizzUser,
+      [...caseDataMap.values()]
     );
-    if (missingAddr.length > 0 && crawlEmail && crawlPassword) {
-      try {
-        const resolved = await fetchAddressesForCases(
-          crawlEmail,
-          crawlPassword,
-          missingAddr.map((c) => ({ caseNo: c.case_no, caseUrl: c.case_url }))
-        );
-        await Promise.all(
-          Object.entries(resolved).map(async ([caseNo, address]) => {
-            await sql`
-              UPDATE wifibizz_cases
-              SET full_address = ${address}, updated_at = NOW()
-              WHERE case_no = ${caseNo} AND user_id = ${wifibizzUserId}
-            `;
-            const cd = caseDataMap.get(caseNo);
-            if (cd) cd.full_address = address;
-          })
-        );
-        // Push the freshly-resolved addresses straight to the user's Google Sheet
-        // (if configured) so they appear without waiting for a manual sync.
-        if (wifibizzUser.googleSheetId && Object.keys(resolved).length > 0) {
-          try {
-            const { updateSheetAddresses } = await import("@/lib/google-sheets");
-            await updateSheetAddresses(
-              wifibizzUser.googleSheetId,
-              Object.entries(resolved).map(([caseNo, fullAddress]) => ({ caseNo, fullAddress }))
-            );
-          } catch (e) {
-            console.error("Sheet address sync failed:", e);
-          }
-        }
-      } catch (err) {
-        console.error("Lazy address fetch failed:", err);
-      }
+    for (const [caseNo, address] of Object.entries(resolvedAddresses)) {
+      const cd = caseDataMap.get(caseNo);
+      if (cd) cd.full_address = address;
     }
 
     const r2Prefix = billType === "utility" ? "utility_bill" : "internet_bill";

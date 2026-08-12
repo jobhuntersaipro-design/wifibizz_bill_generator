@@ -19,7 +19,7 @@ import { syncCasesToSheet } from "@/actions/settings";
 
 // ── Case Detail Panel ──
 
-function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat }: { caseData: CaseRow; onClose: () => void; cacheBuster: number; onGenerateChat: (c: CaseRow) => void }) {
+function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatLoading }: { caseData: CaseRow; onClose: () => void; cacheBuster: number; onGenerateChat: (c: CaseRow) => void; chatLoading: boolean }) {
   const [isVisible, setIsVisible] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -141,9 +141,19 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat }: { c
             <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">Closing Script</h3>
             <button
               onClick={() => onGenerateChat(caseData)}
-              className="inline-flex items-center gap-2 text-sm font-medium text-[#25D366] hover:text-[#1DA851] transition-colors duration-200"
+              disabled={chatLoading}
+              className="inline-flex items-center gap-2 text-sm font-medium text-[#25D366] hover:text-[#1DA851] transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-70"
             >
-              <MessageSquareIcon className="w-3.5 h-3.5" />Generate Chat Image
+              {chatLoading ? (
+                <>
+                  <span className="w-3.5 h-3.5 rounded-full border-2 border-[#25D366] border-t-transparent animate-spin" />
+                  Fetching address…
+                </>
+              ) : (
+                <>
+                  <MessageSquareIcon className="w-3.5 h-3.5" />Generate Chat Image
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -186,6 +196,8 @@ export default function CaseManagementSection() {
   const [generatingCell, setGeneratingCell] = useState<string | null>(null);
   const [statuses, setStatuses] = useState<string[]>([]);
   const [chatCase, setChatCase] = useState<CaseRow | null>(null);
+  // Case whose installation address is being fetched before the chat opens.
+  const [chatLoadingCase, setChatLoadingCase] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<"success" | "error" | null>(null);
   const [syncCount, setSyncCount] = useState(0);
@@ -393,6 +405,41 @@ export default function CaseManagementSection() {
       toast.error("Bill generation failed. Please try again.");
     } finally {
       setGeneratingCell(null);
+    }
+  }
+
+  // The crawler stores cases list-only, so full_address is often blank. Resolve it
+  // from the portal first (same lazy fill the bill generator does) so the closing
+  // script carries the real installation address.
+  async function handleGenerateChat(c: CaseRow) {
+    if (chatLoadingCase) return;
+    if ((c.full_address && c.full_address.trim()) || !c.case_url) {
+      setChatCase(c);
+      return;
+    }
+    setChatLoadingCase(c.case_no);
+    try {
+      const res = await fetch("/api/cases/address", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ caseNos: [c.case_no] }),
+      });
+      const body = await res.json().catch(() => ({}));
+      const address: string | undefined = body?.addresses?.[c.case_no];
+      if (address) {
+        setCases((prev) => prev.map((r) => (r.case_no === c.case_no ? { ...r, full_address: address } : r)));
+        setSelectedCase((prev) => (prev && prev.case_no === c.case_no ? { ...prev, full_address: address } : prev));
+        setChatCase({ ...c, full_address: address });
+      } else {
+        toast.error("Couldn't fetch the installation address — generating chat without it.");
+        setChatCase(c);
+      }
+    } catch (err) {
+      console.error("Address fetch failed:", err);
+      toast.error("Couldn't fetch the installation address — generating chat without it.");
+      setChatCase(c);
+    } finally {
+      setChatLoadingCase(null);
     }
   }
 
@@ -741,10 +788,13 @@ export default function CaseManagementSection() {
                           <button
                             title="Generate Chat"
                             aria-label={`Generate closing script chat for ${c.case_no}`}
-                            onClick={() => setChatCase(c)}
-                            className="w-7 h-7 flex items-center justify-center rounded-md transition-colors text-[#25D366] hover:bg-[#E8FFF3]"
+                            disabled={chatLoadingCase === c.case_no}
+                            onClick={() => handleGenerateChat(c)}
+                            className="w-7 h-7 flex items-center justify-center rounded-md transition-colors text-[#25D366] hover:bg-[#E8FFF3] disabled:cursor-not-allowed"
                           >
-                            <MessageSquareIcon className="w-4 h-4" />
+                            {chatLoadingCase === c.case_no
+                              ? <span className="w-3.5 h-3.5 rounded-full border-2 border-[#25D366] border-t-transparent animate-spin" />
+                              : <MessageSquareIcon className="w-4 h-4" />}
                           </button>
                           <button
                             title={c.internet_bill_url ? "Download Internet Bill" : "Generate Internet Bill"}
@@ -807,7 +857,7 @@ export default function CaseManagementSection() {
 
       {/* Slide-in detail panel */}
       {selectedCase && createPortal(
-        <CaseDetailPanel caseData={selectedCase} onClose={() => setSelectedCase(null)} cacheBuster={billCacheBuster} onGenerateChat={(c) => setChatCase(c)} />,
+        <CaseDetailPanel caseData={selectedCase} onClose={() => setSelectedCase(null)} cacheBuster={billCacheBuster} onGenerateChat={handleGenerateChat} chatLoading={chatLoadingCase === selectedCase.case_no} />,
         document.body
       )}
 
