@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Input } from "@/components/ui/input";
@@ -25,6 +25,18 @@ import { toast } from "sonner";
 // click away from "auto", and is what SMS-channel logins go straight to.
 type Step = "form" | "auto" | "otp";
 
+// The session clock starts at 60:00. Re-validate against the portal once it
+// drops to this mark, which resets it to a full hour — so the session is kept
+// alive rather than silently lapsing mid-order.
+const SESSION_REFRESH_AT_SECONDS = 50 * 60;
+
+// Floor between auto-refreshes. Normally inert (they land ~10 min apart), but
+// the trigger reads a countdown derived from the BROWSER clock against an
+// expiry set by the SERVER clock. If those disagree enough, the countdown can
+// sit below the threshold even right after a refresh — this stops that
+// becoming a hot loop of real portal hits.
+const SESSION_REFRESH_MIN_GAP_MS = 5 * 60 * 1000;
+
 const TABS = [
   { href: "/dashboard/order-entry/new-order", label: "New Order" },
   { href: "/dashboard/order-entry/drafts", label: "Drafts" },
@@ -42,7 +54,6 @@ export default function OrderEntryShell({
 
   const [loading, setLoading] = useState(true);
   const [connection, setConnection] = useState<DealerConnection | null>(null);
-  const [reconnecting, setReconnecting] = useState(false);
 
   // Step 1 fields
   const [staffCode, setStaffCode] = useState("");
@@ -64,6 +75,7 @@ export default function OrderEntryShell({
   const [checkingNow, setCheckingNow] = useState(false);
 
   // Live session-health check state
+  const lastAutoRefreshRef = useRef(0);
   const [checking, setChecking] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [nowTs, setNowTs] = useState(() => Date.now());
@@ -125,7 +137,6 @@ export default function OrderEntryShell({
           setOtp("");
           setPendingId(null);
           setStep("form");
-          setReconnecting(false);
           setSessionExpired(false);
           await loadConnection();
           break;
@@ -182,6 +193,23 @@ export default function OrderEntryShell({
     ? Math.max(0, Math.floor((new Date(connection.sessionExpiresAt).getTime() - nowTs) / 1000))
     : 0;
 
+  // Auto-refresh the session at the 50-minute mark. A successful check resets
+  // the clock to a full hour, which takes it back out of this window.
+  //   - `checking` guard: don't stack a second check on an in-flight one.
+  //   - `> 0` guard: a FAILED check clears the expiry (countdown 0), which
+  //     would otherwise still satisfy `<= threshold` and spin in a retry loop.
+  //   - min-gap guard: backstop against clock skew (see the constant).
+  useEffect(() => {
+    if (!connection?.connected || checking) return;
+    if (sessionSecondsLeft <= 0 || sessionSecondsLeft > SESSION_REFRESH_AT_SECONDS) return;
+    if (Date.now() - lastAutoRefreshRef.current < SESSION_REFRESH_MIN_GAP_MS) return;
+    lastAutoRefreshRef.current = Date.now();
+    // runStatusCheck flips `checking` synchronously; that's the intended
+    // guard above, not an unintended render cascade.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    runStatusCheck();
+  }, [connection?.connected, checking, sessionSecondsLeft, runStatusCheck]);
+
   function fmtCountdown(secs: number) {
     const h = Math.floor(secs / 3600);
     const m = Math.floor((secs % 3600) / 60);
@@ -229,7 +257,6 @@ export default function OrderEntryShell({
       setOtp("");
       setPendingId(null);
       setStep("form");
-      setReconnecting(false);
       setSessionExpired(false);
       await loadConnection();
     } else {
@@ -252,7 +279,6 @@ export default function OrderEntryShell({
     toast.success("Dealer account disconnected.");
     setPassword("");
     setStep("form");
-    setReconnecting(false);
     await loadConnection();
   }
 
@@ -267,7 +293,6 @@ export default function OrderEntryShell({
       setOtp("");
       setPendingId(null);
       setStep("form");
-      setReconnecting(false);
       setSessionExpired(false);
       await loadConnection();
     } else if (result.connecting) {
@@ -286,7 +311,7 @@ export default function OrderEntryShell({
   // the countdown hasn't elapsed — so it can never show "Connected" next to an
   // expired clock. `checking` keeps it shown (as "Verifying…") during a check.
   const isConnected =
-    connection?.connected && !reconnecting && (checking || sessionSecondsLeft > 0);
+    connection?.connected && (checking || sessionSecondsLeft > 0);
   // Superadmins may browse the drafts view without a live portal session
   // (view-only — submitting an order still needs a real connection).
   const canView = isConnected || isSuperAdmin;
@@ -372,18 +397,6 @@ export default function OrderEntryShell({
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setReconnecting(true);
-                      setStep("form");
-                      setPassword("");
-                    }}
-                    className="h-10 px-5 rounded-lg text-sm font-medium border-[#E3E8EF] text-[#425466] hover:border-[#635BFF] hover:text-[#635BFF] press-effect"
-                  >
-                    Reconnect
-                  </Button>
                   <Button
                     type="button"
                     variant="outline"
@@ -536,19 +549,6 @@ export default function OrderEntryShell({
                       "Send OTP"
                     )}
                   </Button>
-                  {reconnecting && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        setReconnecting(false);
-                        setPassword("");
-                      }}
-                      className="h-10 px-5 rounded-lg text-sm font-medium border-[#E3E8EF] text-[#425466] press-effect"
-                    >
-                      Cancel
-                    </Button>
-                  )}
                 </div>
               </form>
             ) : step === "auto" ? (
