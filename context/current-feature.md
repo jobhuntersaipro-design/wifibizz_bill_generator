@@ -2,15 +2,65 @@
 
 ## Status
 
-Not Started
+In Progress — step 1 (log-only instrumentation) implemented on `feature/dealer-password-validation`, awaiting live-run data.
 
 ## Goals
 
-<!-- Bullet points of what success looks like -->
+Tell the user their **dealer password** is wrong, instead of the current vague "either the password or the OTP is wrong/expired".
+
+- Detect an invalid staff code / password from the portal's own API response, not from scraped DOM toasts.
+- If the portal rejects credentials at the **GET (send OTP)** step, fail there — the user learns immediately instead of waiting for an OTP email that will never arrive.
+- At the **Sign In** step, distinguish "password wrong" from "OTP wrong/expired" and report the portal's own wording.
+- Surface the distinction in the Order Entry UI so the user knows which field to fix.
 
 ## Notes
 
-<!-- Additional context, constraints, or details from spec -->
+### Why the current approach doesn't work
+
+`_read_login_error()` ([scraper/dealer_web_login.py:100](../scraper/dealer_web_login.py#L100)) scrapes Ant Design error containers (`.ant-message-error`, `.ant-form-item-explain-error`, etc.). Evidence it never fires: **there is no `login_error_*.png` in [scraper/logs/](../scraper/logs/)** across every run to date — only `login_redirect_*.png`. Ant toasts auto-dismiss after a few seconds and the page reloads, so the message is gone before we read it. Failures therefore always fall through to the generic bounce message at [dealer_web_login.py:306-309](../scraper/dealer_web_login.py#L306-L309).
+
+A wrong password and a wrong OTP both just reset the form back to a blank `/login` — visually identical (see `logs/login_redirect_1786436627323.png`), which is why the DOM can't tell them apart.
+
+### Approach: capture the portal's API response
+
+Attach a `page.on("response")` listener **before** the GET click and **before** the Sign In click, capturing responses whose URL matches the login / OTP-send endpoints, and keep status + parsed JSON. Immune to toast timing and page reloads — captured the moment the response arrives. The portal's JSON is expected to carry distinct codes/messages for invalid credentials vs invalid OTP.
+
+### Open question — RESOLVED by the live run (2026-08-13)
+
+The code used to record that we didn't know whether the portal validates at the GET click. It does. Captured live:
+
+```
+417 https://dealer.unifi.com.my/portal/api/prod/genCaptcha
+{"code": "46410045", "type": 0, "stack": "",
+ "message": "Access to otp code is too frequent, please try again later."}
+```
+
+Findings:
+
+- **Endpoint**: `/portal/api/prod/genCaptcha` (matched by the loose `"captcha"` URL hint).
+- **Error envelope**: `{code, message, type, stack}` with a non-2xx HTTP status. `code` is a numeric string; `message` is human-readable and worth showing verbatim.
+- **The old behavior was actively misleading**: the flow printed "✅ OTP requested — check your Email" when the portal had sent nothing, leaving the user watching a countdown for a mail that would never arrive.
+- The success-response shape is still **unknown** — nothing gates on it.
+- The wrong-password `code` is still unknown; the rate limit blocked that test. Not required, since the gate is on HTTP status.
+
+### Plan
+
+1. ~~**Instrument, log-only.**~~ **Done** — `_capture_auth_api` in [dealer_web_login.py](../scraper/dealer_web_login.py) wraps the GET and Sign In clicks. Confirmed against the live portal.
+2. ~~**Gate on it at GET.**~~ **Done** — `_first_api_failure` raises when the OTP endpoint returns non-2xx (or a 2xx carrying the `message`+`stack` exception envelope), and `_describe_otp_request_failure` leads with the portal's own wording. Verified against fakes, including the exact live payload; **not yet re-run against the live portal.**
+3. **UI** — no change needed. The message already flows: `request_otp` → 502 → [dealer.ts:171-179](../src/actions/dealer.ts#L171-L179) → `toast.error` in `handleSendOtp`.
+4. ~~**Sign In step.**~~ **Done** — the same capture wraps the Sign In click. A failure whose wording points at the staff code/password raises the typed `CredentialsError`; anything else stays a plain `RuntimeError` (wrong/expired OTP). OTP wording wins when a message names both.
+5. ~~**Send the user back to the login form.**~~ **Done** — `CredentialsError` makes `_finish_with_otp` `cancel()` the pending login (browser closed, record dropped) and return `error: "bad_credentials"`, which flows through `submitDealerOtp` (`badCredentials`) and the auto-status `reason` field to `failToCredentials()` in the UI: back to step "form", password cleared, red inline banner + toast. The OTP screen is never left showing a box that can't accept a code.
+
+### Still unverified against the live portal
+
+- The GET-step raise has not been re-run live (a good login must still succeed — the false-positive check).
+- **The wrong-password message is still unknown.** `_is_credentials_message` keyword-matches on wording we have never seen from this portal; if the real message says something like "Login failed" with no credential noun, the user drops to the generic OTP-failure path instead of the credentials form. One live wrong-password run confirms or corrects the keyword list. Carries the lockout risk.
+
+### Risks / constraints
+
+- **Account lockout.** Verifying step 2 requires at least one deliberate wrong-password attempt against a real dealer account. The portal's lockout policy is unknown. Prefer a spare/throwaway staff code; otherwise this is an accepted risk on the main account — confirm before running.
+- Never raise at the GET step on an ambiguous response — a false positive breaks logins that would otherwise succeed. When in doubt, fall through to the existing behavior.
+- Password stays in memory only, never logged. **Redact request bodies** in any captured/printed network data.
 
 ## History
 

@@ -59,6 +59,8 @@ export default function OrderEntryShell({
   const [staffCode, setStaffCode] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  // Inline "staff code or password is wrong" banner on the credentials form.
+  const [credentialsError, setCredentialsError] = useState("");
   const [channel, setChannel] = useState<"Email" | "SMS">("Email");
   const [registeredEmail, setRegisteredEmail] = useState("");
   const [showForwardHelp, setShowForwardHelp] = useState(false);
@@ -90,6 +92,21 @@ export default function OrderEntryShell({
       setSessionExpired(!!result.data && !result.data.connected);
     }
     setChecking(false);
+  }, []);
+
+  // The portal rejected the staff code / password. No OTP can rescue that
+  // attempt (the server has already closed its browser), so abandon the OTP
+  // step entirely and put the user back on the credentials form with the
+  // reason shown inline — rather than leaving them typing codes into a box
+  // that can never accept one.
+  const failToCredentials = useCallback((message: string) => {
+    setStep("form");
+    setPendingId(null);
+    setOtp("");
+    setPassword(""); // it was wrong — make them retype it, don't hide that
+    setSecondsLeft(0);
+    setCredentialsError(message);
+    toast.error(message);
   }, []);
 
   const loadConnection = useCallback(async () => {
@@ -140,8 +157,18 @@ export default function OrderEntryShell({
           setSessionExpired(false);
           await loadConnection();
           break;
-        case "timeout":
         case "error":
+          // A rejected password surfaces here too when auto-read completed the
+          // login for the user — same outcome as the manual path.
+          if (result.data.reason === "bad_credentials") {
+            failToCredentials(
+              result.data.message || "Your staff code or password is incorrect."
+            );
+            break;
+          }
+        // falls through — any other error means "couldn't auto-read", so offer
+        // the manual OTP form.
+        case "timeout":
         case "not_applicable":
         case "not_found":
           if (result.data.status !== "not_applicable") {
@@ -162,7 +189,7 @@ export default function OrderEntryShell({
       cancelled = true;
       clearInterval(t);
     };
-  }, [step, pendingId, loadConnection]);
+  }, [step, pendingId, loadConnection, failToCredentials]);
 
   // OTP-window countdown. On expiry, drop back to step 1.
   useEffect(() => {
@@ -222,6 +249,7 @@ export default function OrderEntryShell({
   async function handleSendOtp(e: React.FormEvent) {
     e.preventDefault();
     setSending(true);
+    setCredentialsError("");
     const result = await requestDealerOtp(
       staffCode.trim(),
       password,
@@ -241,7 +269,12 @@ export default function OrderEntryShell({
         toast.success(`OTP sent via ${channel}. Enter the code you received.`);
       }
     } else {
-      toast.error(result.error ?? "Failed to send OTP");
+      // The portal validates the staff code / password at this step, so a
+      // rejection here never reaches the OTP screen at all — keep the user on
+      // the form and say why.
+      const message = result.error ?? "Failed to send OTP";
+      setCredentialsError(message);
+      toast.error(message);
     }
   }
 
@@ -259,6 +292,8 @@ export default function OrderEntryShell({
       setStep("form");
       setSessionExpired(false);
       await loadConnection();
+    } else if (result.badCredentials) {
+      failToCredentials(result.error ?? "Your staff code or password is incorrect.");
     } else {
       toast.error(result.error ?? "OTP verification failed");
     }
@@ -420,6 +455,17 @@ export default function OrderEntryShell({
                     </span>
                   </div>
                 )}
+                {credentialsError && (
+                  <div
+                    role="alert"
+                    className="flex items-start gap-2 text-xs bg-red-50 text-[#B42318] rounded-lg px-4 py-2.5"
+                  >
+                    <span aria-hidden="true" className="mt-0.5 shrink-0 font-semibold">
+                      !
+                    </span>
+                    <span>{credentialsError}</span>
+                  </div>
+                )}
                 <div className="space-y-1.5">
                   <Label htmlFor="staff-code" className="text-xs font-medium text-[#425466]">
                     Staff Code
@@ -563,39 +609,6 @@ export default function OrderEntryShell({
                       {String(secondsLeft % 60).padStart(2, "0")}
                     </span>
                   </span>
-                </div>
-                <div className="flex items-center gap-3 flex-wrap">
-                  <Button
-                    type="button"
-                    disabled={checkingNow}
-                    onClick={handleCheckNow}
-                    className="h-10 px-5 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] hover-glow"
-                  >
-                    {checkingNow ? (
-                      <>
-                        <span className="h-3.5 w-3.5 mr-2 animate-spin rounded-full border-2 border-white border-t-transparent inline-block" />
-                        Checking…
-                      </>
-                    ) : (
-                      "Check email now"
-                    )}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setStep("otp")}
-                    className="h-10 px-5 rounded-lg text-sm font-medium border-[#E3E8EF] text-[#425466] press-effect"
-                  >
-                    Enter code manually instead
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleCancel}
-                    className="h-10 px-5 rounded-lg text-sm font-medium border-[#E3E8EF] text-[#425466] press-effect"
-                  >
-                    Cancel
-                  </Button>
                 </div>
               </div>
             ) : (

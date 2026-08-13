@@ -241,16 +241,25 @@ def _finish_with_otp(pending_id: str, rec: dict, otp: str) -> dict:
             timeout=180,
         )
     except Exception as e:
-        # Wrong/expired OTP: KEEP the pending record and its still-open browser so
-        # the user can retry with another code (finish_web_login left it open).
-        with _PENDING_LOCK:
-            if pending_id in _PENDING:
-                _PENDING[pending_id]["in_progress"] = False
         # Some exceptions (e.g. bare `raise RuntimeError()`, some Playwright
         # errors) stringify to "" — fall back to type name so callers/logs
         # always get something diagnosable instead of a blank message.
         message = str(e) or f"{type(e).__name__} (no message)"
         traceback.print_exc()
+
+        if isinstance(e, dealer_web_login.CredentialsError):
+            # The password is wrong, so no OTP can fix it — this login is dead.
+            # Drop the record and close the browser (cancel() does both) so the
+            # UI can send the user back to the credentials form instead of
+            # leaving them staring at an OTP box that will never accept a code.
+            cancel(pending_id)
+            return {"error": "bad_credentials", "message": message}
+
+        # Wrong/expired OTP: KEEP the pending record and its still-open browser so
+        # the user can retry with another code (finish_web_login left it open).
+        with _PENDING_LOCK:
+            if pending_id in _PENDING:
+                _PENDING[pending_id]["in_progress"] = False
         return {"error": "otp_verify_failed", "message": message}
 
     # Success — the browser is already torn down; drop the pending record.
@@ -394,7 +403,12 @@ async def _auto_otp_task(pending_id: str) -> None:
     # to "" — the mystery blank-message error). to_thread keeps the loop free.
     result = await asyncio.to_thread(_finish_with_otp, pending_id, rec, otp)
     if result.get("error"):
-        _set_auto_status(pending_id, "error", message=result.get("message", "OTP verification failed."))
+        # `reason` carries "bad_credentials" through to the polling client, which
+        # needs it to drop back to the credentials form. Set AFTER _finish_with_otp,
+        # since its cancel() on that path clears this pending id's auto status.
+        _set_auto_status(pending_id, "error",
+                         message=result.get("message", "OTP verification failed."),
+                         reason=result["error"])
     else:
         _set_auto_status(pending_id, "completed", session_path=result["session_path"])
 
