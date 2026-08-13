@@ -238,11 +238,18 @@ export async function submitDealerOtp(pendingId: string, otp: string) {
     });
 
     if (!ok || data.success === false) {
+      // "bad_credentials" means the portal rejected the staff code/password,
+      // not the OTP — the caller has to send the user back to the credentials
+      // form, since no code they type can rescue this attempt.
+      const badCredentials = data.error === "bad_credentials";
       return {
         success: false,
+        badCredentials,
         error:
           (data.message as string) ||
-          "OTP verification failed — it may be wrong or expired. Start again.",
+          (badCredentials
+            ? "Your staff code or password is incorrect."
+            : "OTP verification failed — it may be wrong or expired. Start again."),
       };
     }
 
@@ -259,6 +266,9 @@ export async function submitDealerOtp(pendingId: string, otp: string) {
 export type DealerOtpAutoStatus = {
   status: "pending" | "completed" | "timeout" | "error" | "not_applicable" | "not_found";
   message?: string;
+  // Set to "bad_credentials" when the auto-read path finished the login and the
+  // portal rejected the staff code/password — same handling as the manual path.
+  reason?: string;
 };
 
 // Poll target for the auto-read path (see requestDealerOtp's `autoOtp` flag).
@@ -288,7 +298,11 @@ export async function checkDealerOtpAutoStatus(
 
     return {
       success: true,
-      data: { status, message: data.message as string | undefined },
+      data: {
+        status,
+        message: data.message as string | undefined,
+        reason: data.reason as string | undefined,
+      },
     };
   } catch {
     return {
