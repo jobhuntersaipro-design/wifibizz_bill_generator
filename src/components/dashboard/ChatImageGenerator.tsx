@@ -338,6 +338,16 @@ function WhatsAppChat({
               </div>
             ))}
 
+            {/* Consent statement */}
+            <div style={{ ...S.text, marginTop: 14 }}>
+              By replying &ldquo;YES&rdquo; , I hereby acknowledge, confirm and agree to the following.
+            </div>
+
+            {/* Agreement line */}
+            <div style={{ ...S.text, fontWeight: 700, marginTop: 14 }}>
+              YES I AGREED
+            </div>
+
             {/* Timestamp — bottom right, no read receipt for incoming */}
             <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginTop: 2, paddingRight: 2 }}>
               <span style={{ color: "#8696A0", fontSize: 11 }}>{time}</span>
