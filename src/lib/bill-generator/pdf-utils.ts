@@ -376,7 +376,10 @@ export function registerStandardFont(
   if (!fonts || !(fonts instanceof PDFDict)) return;
 
   const fontsDict = fonts as PDFDict;
-  const nameObj = PDFName.of(fontName);
+  // Callers pass the name as it appears in content streams ("/FHB"). PDFName.of
+  // adds the slash itself, so a leading one would be escaped into the key (#2FFHB)
+  // and the Tf lookup would miss.
+  const nameObj = PDFName.of(fontName.replace(/^\//, ''));
   if (fontsDict.get(nameObj)) return; // already registered
 
   const fontDict = pdfDoc.context.obj({
