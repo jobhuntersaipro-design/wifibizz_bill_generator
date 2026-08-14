@@ -1,114 +1,16 @@
-# Current Feature: Order Entry — Full Address + Confirm
+# Current Feature
 
 ## Status
 
-In Progress — branch `feature/full-address-confirm`. Code complete. Build + lint clean, 23 unit tests pass, and **all 6 acceptance criteria verified live in the browser** against the real Unifi portal (2026-08-14). Awaiting review/commit.
-
-**Live run found one real bug, now fixed:** after picking a unit and then typing a *different* address, the green "✓ Serviceable" strip and its `addressId` survived — so an order could carry an `addressId` belonging to an address the agent had typed away from. `handleStreetChange()` now invalidates the pick whenever the field diverges from `addressFull`, and `confirmAddress()` clears it at the start of every run.
+Not Started
 
 ## Goals
 
-Make the agent type **one complete, portal-verified address** into the Installation Address card on `/dashboard/order-entry` and press **Confirm**. Postcode / State / City stop being inputs the agent fills and become **outputs** of that confirmation.
-
-- Rename **Street Address** → **Full Address**, with subtext making it explicit the address must be complete and already verified/findable in the Unifi portal — the agent owns that correctness.
-- Rename the **Search** button → **Confirm** (busy label `Confirming…`).
-- On Confirm, show the portal's ranked results; picking a unit auto-populates Postcode, State and City from that portal record (no auto-select — see Decisions).
-- Validate the typed string as a plausible Malaysian address **before** any portal call, so malformed input never burns a dealer-session round trip.
-- Drop today's requirement to pick State *before* searching — parse the state out of the typed address instead.
+<!-- Bullet points of what success looks like -->
 
 ## Notes
 
-Full spec: [context/features/order-entry-full-address-confirm.md](features/order-entry-full-address-confirm.md). Portal API reference: [context/features/order-entry-address-api.md](features/order-entry-address-api.md).
-
-### Reference address (the shape validation is modelled on)
-
-```
-A-07-15 PERSIARAN SAUJANA PUTRA UTAMA 7 FTTH BSP 21 BANDAR SAUJANA PUTRA JENJAROM SELANGOR MALAYSIA 42610
-```
-
-This is what the portal itself returns as `concatAddress` — unit, street, section, city/town, **STATE**, **MALAYSIA**, **postcode**.
-
-### What changes in the current code
-
-| Today | After |
-|---|---|
-| Label "Street Address — type it, then Search & pick the serviceable unit" | "Full Address" + portal-verified subtext |
-| Button **Search** / `Searching…` | Button **Confirm** / `Confirming…` |
-| `runAddressSearch()` hard-fails at [OrderForm.tsx:307](../src/components/order-entry/OrderForm.tsx#L307) with "Select the State (above) before searching." | `confirmAddress()` parses the state out of the typed address |
-| Agent types postcode → `handlePostcode` geocodes City + State | Postcode / State / City filled from the confirmed portal record |
-| No format validation — any ≥3-char string is searched | `validateMalaysianAddress()` runs first, client-side |
-
-Unchanged: `addressId` (`resourceInstId`) is still what feasibility runs on; the green "✓ Serviceable" strip and Clear button stay as they are. `pickAddress()` already sets `postcode` / `city` / `stateVal` / `street` / `addressId` / `serviceCategory` — the portal record stays the source of truth, parsed values are only a fallback.
-
-### Validation rules (new `src/lib/malaysia-address.ts`)
-
-Pure helper `validateMalaysianAddress(input)` → `{ ok: true, state, postcode, city? } | { ok: false, reason }`:
-
-1. ≥ 20 chars and ≥ 5 tokens → "Enter the full address, not just the street."
-2. Exactly one 5-digit postcode (`\b\d{5}\b`) → missing / more-than-one messages.
-3. A recognised state, via the existing `extractState()` in [src/lib/malaysia-states.ts:47](../src/lib/malaysia-states.ts#L47) (reuses `MALAYSIA_STATES` + `STATE_ALIASES`).
-4. **Postcode ↔ state agree** — look the postcode up in `malaysia-postcodes.json`; mismatch → "Postcode 42610 belongs to SELANGOR, but the address says PAHANG." *This is the rule that catches real typos.*
-5. State must be in `ADDRESS_SEARCH_STATES` ([src/actions/order.ts](../src/actions/order.ts)).
-6. A street-ish token (`JALAN LORONG PERSIARAN TAMAN BANDAR …`) or a unit pattern (`A-07-15`, `LOT 123`, `NO 45`).
-7. `MALAYSIA` is a soft hint only, not required.
-
-Nothing here proves the address is *real* — only the portal search does. Mirror the same check server-side in `saveOrder` so a malformed address can't be persisted if the client is bypassed.
-
-### Deliberately NOT doing
-
-- **No Google Places validation.** The authority is the Unifi portal, not Google — an address Google likes but the portal can't find is useless, and new FTTH estates go the other way.
-- **No autocomplete-as-you-type.** Every search is an authenticated dealer-session round trip through the scraper service; Confirm stays an explicit click.
-
-### Files touched
-
-- [src/components/order-entry/OrderForm.tsx](../src/components/order-entry/OrderForm.tsx) — label, subtext, Search→Confirm, `confirmAddress()`, auto-select exact match, auto-fill postcode·state·city
-- `src/lib/malaysia-address.ts` *(new)* — `validateMalaysianAddress()` + `parseMalaysianAddress()`
-- [src/actions/order.ts](../src/actions/order.ts) — server-side validation in `saveOrder`; `searchDealerAddress` unchanged
-- `src/lib/__tests__/malaysia-address.test.ts` *(new)* — Vitest, one case per rule + the reference address
-
-No Prisma/schema change — `Order.addressId` / `addressFull` / `postcode` / `city` / `state` / `street` all exist.
-
-### Acceptance criteria
-
-1. Pasting the reference address and clicking Confirm fills Postcode `42610`, State `Selangor`, City from the portal record, shows ✓ Serviceable and sets `addressId` — no State pre-selection, no result list.
-2. A partial address is rejected client-side with no portal call.
-3. A postcode/state mismatch is rejected with the specific mismatch message.
-4. A well-formed address the portal doesn't know shows the not-found error and can't be submitted.
-5. A well-formed address matching several units still shows the ranked picker; picking behaves as today.
-6. `npm run build` and `npm run lint` clean.
-
-### UI/UX pass (added 2026-08-14, after the first live verification)
-
-- **Progress bar on Confirm** — indeterminate bar (`.progress-indeterminate`) plus a stage label (`Searching the Unifi portal in <state>…` → `No exact match — widening the search…`). Indeterminate on purpose: the portal returns no percentage, so a determinate bar would be inventing one. Button gets `aria-busy` + `disabled`.
-- **Auto-extracted fields made explicit** — the Postcode/State/City block now sits under a sparkle-icon caption "Extracted from the address above", which switches from "— fills in when you press Confirm" to "— check these, edit if the portal disagrees". Each field plays a one-shot 900ms `field-flash` the moment Confirm writes it, so values never change silently. Icon + text, never colour alone (UX rule #37).
-- **Richer address guidance** — the subtext became a bordered panel: what to paste, the named order of parts (unit · street · area · city · state · MALAYSIA · postcode), a monospaced example, and what Confirm will do. Hidden while the search runs so the progress bar owns that space.
-- **Package picker reorganised** — 60 offers in one flat list replaced by **speed chips (with counts) → grouped list by add-on flavour** (sticky headers: Plain broadband · With Netflix · With MAX · With TV pack · With Device · 5G SIM bundle · PrimePromo · Premium Value). Free-text search still works as the fast path. `offerFlavour()` derives the group from the portal name; first match wins, so a package bundling a 5G SIM *and* a TV pack files under 5G SIM (the SIM count is what must be right). Business/VOF are their own chips, not speeds.
-  - Rejected the "speed → device" tree from the original ask: only 9 of 60 offers are "with Device", and the device is already a separate step *after* the package, so device isn't a property most packages have.
-- **Motion, restrained** — card entrance stagger (reuses Phase 15's `.stagger-children`), 200ms colour transitions on fields/buttons, `cursor-pointer` on every clickable, `disabled:opacity-60 disabled:cursor-not-allowed`. Chose "purposeful only" over per-field entrance animations: the skill rates "animate everything" a High-severity anti-pattern (#7, max 1–2 animated elements per view).
-- **`prefers-reduced-motion` added globally** ([src/app/globals.css](../src/app/globals.css)) — there was **no** such block anywhere in the app before, so every pre-existing animation ignored the OS setting too. Adding motion without it would have made an existing High-severity a11y gap worse.
-
-### Field validation + dropdown fix (added 2026-08-14)
-
-- **Email is now required** and checked with `isValidEmail()` ([src/lib/mykad.ts](../src/lib/mykad.ts)) — stricter than the old `x@y.z`: rejects `..`, leading/trailing dots either side, bare domains, 1-char TLDs, spaces. It was optional before, and the scraper types it straight into the portal's `emailAddr`, so a blank one only surfaced as a late "data incomplete" rejection. Client-side only; `saveOrder`'s zod schema still has email optional.
-- **MyKad display mask `XXXXXX-XX-XXXX`** — `formatMykad()` formats progressively as the agent types and accepts a pasted formatted IC. **Storage stays raw digits** (decided): document keys embed `idNumber`, existing rows are raw, and `order_to_payload.py:53` strips non-digits before the portal sees it anyway.
-- **12-digit enforcement** for MyKad-like types (MyKad / MyKAS / MyTentera) — live `(n/12)` counter on the label, inline "N more to go" error with icon, `aria-invalid`, and a hard block on Save. Verified that MyKad auto-fill (gender/birthday) still derives through the mask.
-- **Package dropdown overlap — fixed.** Caused by the entrance animation added earlier the same day: `animation-fill-mode: both` retains the final keyframe transform, and **even `transform: none` resolves to an identity matrix**, which makes every card its own stacking context — so the later Device/Documents cards painted over the open dropdown regardless of its `z-20`. Changing the keyframes to end at `transform: none` was *not* sufficient (verified in-browser). Fix is explicit stacking order: Package card `relative z-30`, Device card `relative z-20`, later cards default. Confirmed by hit-testing three points down the open dropdown.
-- New tests: [src/lib/__tests__/mykad.test.ts](../src/lib/__tests__/mykad.test.ts) (11 cases). Suite now 34 tests.
-
-### Device picker (added 2026-08-14)
-
-Same shape as the package picker — **type chips → grouped list** — in new [src/lib/device-catalog.ts](../src/lib/device-catalog.ts):
-
-- **Chips by category**, because the catalog is not all devices: Tablet 49 · TV 27 · Smart Home 20 · Gaming 4 · Mesh Wi-Fi 4 · Add-on packs 4 · Laptop & PC 3 · **Charges & discounts 3**. That last bucket (Stamp Duty, Professional Charge, Promo Discount) was previously mixed in among the iPads where it could be picked by accident. `deviceCategory()` tests Gaming before TV so the "PlayStation 5 + SHARP TV" bundles don't file as TVs.
-- **Repeated models collapse under one header.** 35 of the 49 tablets are two iPad models × colour × price; they now render as one header + variant-only rows ("Blue", "Blue (36M)") instead of the model repeating 21 times. Families with a single entry collect in one "Individual models" bucket rather than producing 38 one-row headers.
-- **Sorted cheapest first** within a group (was arbitrary — the screenshot showed RM31, RM40, RM43, RM60, RM10…), unpriced entries last. Monthly price gets its own right-hand column, and `variantLabel()` strips the now-duplicated "(RM31)" from the row text while keeping the contract term.
-- **17 entries share a name with another entry**, distinguished only by portal code — six identical "Smart Home Solar Outdoor Camera" rows, some differing only by a non-breaking space. The agent literally could not tell them apart. `isAmbiguousDevice()` appends `#<code>` on exactly those rows and on the selected-device line, so the pick is explicit and repeatable. **Which code is correct for a given package is still unknown** — the portal filters this list per package and we hold the superset ([dealer-devices.ts](../src/lib/dealer-devices.ts) header). Worth resolving against the live portal before this matters.
-- Tests: [src/lib/__tests__/device-catalog.test.ts](../src/lib/__tests__/device-catalog.test.ts) (19 cases, incl. "every catalog entry is classified" and "grouping drops nothing"). Suite now 53 tests.
-
-### Decisions (settled 2026-08-14)
-
-- **Do NOT hard-block submit on a confirmed `addressId`.** `handleSave` keeps validating postcode/state/city/street only ([OrderForm.tsx:366-381](../src/components/order-entry/OrderForm.tsx#L366-L381)); an order with an unconfirmed address still saves, exactly as today. Confirm stays the strongly-encouraged path, not a gate — existing drafts keep working.
-- **No auto-select. Confirm always shows the result list and the agent picks.** Overrides §2 step 4 of the spec: no normalized exact-match shortcut, and no auto-select even when the portal returns a single result. The agent's click on a specific unit is what sets `addressId`. This sidesteps needing a live run to prove the portal's `concatAddress` round-trips identically to pasted text.
+<!-- Additional context, constraints, or details from spec -->
 
 ## History
 
@@ -144,3 +46,4 @@ Same shape as the package picker — **type chips → grouped list** — in new 
 - **Auto Read Gmail OTP for Dealer Login** (2026-08-11): Dealer portal login now completes without the user copy-pasting the OTP. Account owners point Gmail's native forwarding at a shared inbox (`jobhunters.ai.pro@gmail.com`, Gmail API read access via `scraper/config/gmail_token.json`) — no per-user OAuth consent. Reads filter on sender AND `to:<registered_email>` (Gmail preserves the original recipient on forwarded mail), which is what prevents concurrent logins cross-matching each other's codes. New `DealerAccount.registeredEmail` (migration `20260811140000_dealer_registered_email`, applied via `migrate deploy` — `migrate dev`'s shadow DB fails on a pre-existing unrelated migration). Backend: `to_filter`/`check_now` in `gmail_otp_reader.py`, `request_otp(registered_email)` + `_auto_otp_task` + `auto_status` + `check_now` + `logout` in `dealer_login_service.py`, and `/dealer/login/{auto-status,check-now,logout}` routes. UI: registered-email field with inline forwarding instructions, an `auto` step that polls and self-completes, "Check email now" one-shot retry, and a Disconnect button; removed "Check connection" (it already runs on page load). Manual OTP entry is preserved throughout as a fallback. **Two real bugs found by live testing:** a wrong kwarg (`max_wait` vs `max_age_seconds`) silently broke every attempt, and an **event-loop deadlock** — `_auto_otp_task` ran on the shared loop and called a blocking helper waiting on a coroutine scheduled onto that same loop, hanging until a bare `TimeoutError` (empty `str()`, the unexplained blank errors) while `in_progress` stayed set (the spurious "still verifying" message); proven with a standalone repro and fixed with `asyncio.to_thread`. Also: failed sign-ins now report the portal's own error text instead of always blaming the OTP, since a wrong password took the same bounce-to-login path and was misreported. **Verified live end-to-end** against the real Unifi portal: Disconnect → Send OTP → connected with no OTP typed and no button clicked, with a real 20-cookie session written. Spec: [context/features/gmail-otp-auto-read-spec.md](context/features/gmail-otp-auto-read-spec.md).
 - **Dealer Password Validation — CODE MERGED, LIVE-UNVERIFIED (displaced 2026-08-13)**: Tell the user their **dealer password** is wrong instead of the vague "either the password or the OTP is wrong/expired". DOM scraping of Ant toasts never worked (`_read_login_error()` — no `login_error_*.png` ever written; toasts auto-dismiss before the read, and wrong-password vs wrong-OTP both bounce to an identical blank `/login`). Replaced with an API-response capture: `_capture_auth_api` in [scraper/dealer_web_login.py](../scraper/dealer_web_login.py) attaches a `page.on("response")` listener around both the GET (send OTP) and Sign In clicks. Live-confirmed endpoint `/portal/api/prod/genCaptcha` with envelope `{code, message, type, stack}` on a non-2xx status — captured payload: `417 {"code":"46410045","message":"Access to otp code is too frequent, please try again later."}`. `_first_api_failure` now raises at the GET step (previously the flow printed "✅ OTP requested" when the portal had sent nothing, leaving the user watching a countdown for mail that never arrives); `_describe_otp_request_failure` leads with the portal's own wording. At Sign In, credential-sounding wording raises a typed `CredentialsError` (OTP wording wins when a message names both), which makes `_finish_with_otp` `cancel()` the pending login and return `error: "bad_credentials"` → `submitDealerOtp` (`badCredentials`) → `failToCredentials()` in the UI: back to step "form", password cleared, red inline banner + toast. No UI plumbing change was needed for the GET path — it already flows `request_otp` → 502 → [src/actions/dealer.ts:171-179](../src/actions/dealer.ts#L171-L179) → `toast.error`. Merged to main as `117dfeb` / `ba2f843`. **Two things remain unverified against the live portal**: (1) the GET-step raise has not been re-run live, so the false-positive check (a *good* login must still succeed) is outstanding; (2) **the real wrong-password message is still unknown** — `_is_credentials_message` keyword-matches wording this portal has never actually emitted, so if it says e.g. "Login failed" with no credential noun, the user drops to the generic OTP path instead of the credentials form. Confirming it needs one deliberate wrong-password attempt against a real dealer account, and **the portal's lockout policy is unknown** — use a spare staff code, or accept the lockout risk on the main account. Resume by re-reading this entry plus `git log` for the two commits above.
 - **Fetch Installation Address Before Generating WhatsApp Chat** (2026-08-12): "Generate Chat" now resolves the case's installation address from the WifiBizz portal before rendering the closing script — the same lazy fill the internet bill generator already did — so scripts stop showing a blank address for cases the crawler stored list-only. That fill was extracted out of `POST /api/bills/generate` into `fillMissingAddresses()` in [src/lib/crawler/lazy-address.ts](src/lib/crawler/lazy-address.ts) (resolve via `fetchAddressesForCases` → persist to `wifibizz_cases` → push to the user's Google Sheet if configured) and both callers now share it. New `POST /api/cases/address` (`{ caseNos }` → `{ addresses }`, auth-scoped to the caller's WifiBizz user, max 20/batch) returns known plus newly-resolved addresses. In `CaseManagementSection`, `handleGenerateChat()` replaces the direct `setChatCase()` on both the row icon and the detail-panel button: cases that already have an address (or lack a `case_url` to look up) open instantly, otherwise the button spins while resolving and the result is written back into the table row and the open detail panel. Resolution failure is non-blocking — a toast warns and the chat generates without the address. Also separated the Installation Address label from its value with `" : "` in both script variants. **Verified by build + lint only** — not yet exercised in the browser against a real address-less case. Known cosmetic gap: the portal's own blank address segments still render as `- -` inside the address string.
+- **Order Entry — Full Address + Confirm** (2026-08-14): The Installation Address card on `/dashboard/order-entry` now takes **one complete address** the agent pastes from the Unifi portal and presses **Confirm**; Postcode / State / City became outputs of that confirmation instead of inputs. New [src/lib/malaysia-address.ts](../src/lib/malaysia-address.ts) validates the string before any portal call (one 5-digit postcode, recognised state, **postcode↔state agreement** against `malaysia-postcodes.json`, street/unit token) — mirrored in `saveOrder` so a malformed address can't be persisted. Deliberately did **not** reuse `extractState()`: its `segment.includes(alias)` scan lets two-letter aliases (`ns`/`kl`/`jb`) match inside unrelated words and beat the real trailing state, so `findState()` does a whole-token scan backwards from the end. `toPortalState()` maps the federal territories to the portal's own combobox names (`W.P. KUALA LUMPUR`), **fixing a pre-existing bug where address search always failed for KL / Putrajaya / Labuan** with "Select a valid state". Confirm shows an indeterminate progress bar + stage label, then the portal's ranked units — **no auto-select, submit is not gated on `addressId`** (both decided explicitly). Also in this branch: package picker reorganised to speed chips → add-on-flavour groups (60 flat rows before); device picker to type chips → repeated models collapsed under one header, cheapest first, with `#code` shown on the 17 entries whose names duplicate verbatim; email required + validated; MyKad masked `XXXXXX-XX-XXXX` (stored raw — `order_to_payload.py:53` strips it anyway) and enforced at 12 digits; a global `prefers-reduced-motion` block, which **the app had never had**. **Three real bugs found by live testing:** (1) after picking a unit then typing a different address, the ✓ Serviceable strip and its `addressId` survived, so an order could carry an id for an address the agent had typed away from — `handleStreetChange()` now invalidates it; (2) the card entrance animation left every card with a retained transform (`fill-mode: both` resolves even `transform: none` to an identity matrix), making each a stacking context that painted over the open dropdown — ending the keyframes at `none` was **not** sufficient, fixed with explicit `z-30`/`z-20` on the Package/Device cards; (3) 10 "Value TV Pack" bundles were misfiling as Plain broadband. **Verified live end-to-end against the real Unifi dealer portal** (all 6 acceptance criteria, plus progress bar, flash, masks and both pickers), 53 unit tests, build + lint clean. **Known gaps:** editing Postcode/State/City after Confirm does not invalidate `addressId` (deliberate — those feed the customer profile, the portal record stays truth); email validation is client-side only, `saveOrder`'s zod schema still has email optional; `saveOrder` now rejects malformed addresses, so **an old draft with a short street can't re-save until its address is completed**; and **which portal code is correct for a duplicated device name is still unknown** — the portal filters that list per package and we hold the superset. Spec: [context/features/order-entry-full-address-confirm.md](features/order-entry-full-address-confirm.md).
