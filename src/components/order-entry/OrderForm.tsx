@@ -7,15 +7,31 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { saveOrder, uploadOrderDocument, lookupPostcode, getOrder, searchDealerAddress } from "@/actions/order";
 import { MAX_DOCS, type OrderDocument, type AddressResult } from "@/lib/order-types";
-import { parseMykad, inferRace } from "@/lib/mykad";
+import { parseMykad, inferRace, formatMykad, isCompleteMykad, isValidEmail } from "@/lib/mykad";
 import {
   DEALER_OFFERS,
+  OFFER_CATEGORIES,
   ID_TYPES,
   MYKAD_LIKE_ID_TYPES,
   type IdType,
 } from "@/lib/dealer-offers";
 import { DEALER_DEVICES } from "@/lib/dealer-devices";
+import {
+  DEVICE_CATEGORIES,
+  DEVICE_CATEGORY_COUNTS,
+  deviceCategory,
+  deviceFamily,
+  groupDevices,
+  isAmbiguousDevice,
+  variantLabel,
+} from "@/lib/device-catalog";
 import { MALAYSIA_STATES } from "@/lib/malaysia-states";
+import {
+  validateMalaysianAddress,
+  toPortalState,
+  searchKeywordFrom,
+  widenKeyword,
+} from "@/lib/malaysia-address";
 
 // Shared field styles — light border + hover to signal clickability.
 const inputCls =
@@ -25,6 +41,70 @@ const selectCls =
 const labelCls = "text-xs font-medium text-[#425466]";
 const cardCls = "bg-white rounded-lg border border-[#E3E8EF]";
 const headCls = "px-6 py-3 border-b border-[#E3E8EF] text-sm font-semibold text-[#0A2540]";
+
+// Add-on flavour of an offer, derived from its portal name. Display order —
+// plain packages first, then the bundles, since plain is the common case.
+const FLAVOURS = [
+  "Plain broadband",
+  "With Netflix",
+  "With MAX",
+  "With TV pack",
+  "With Device",
+  "5G SIM bundle",
+  "PrimePromo",
+  "Premium Value",
+] as const;
+
+// Order matters: the first match wins, so the most order-affecting add-on is
+// checked first. A package bundling both a 5G SIM and a TV pack files under
+// 5G SIM — the SIM count is what the agent has to get right.
+function offerFlavour(name: string): (typeof FLAVOURS)[number] {
+  const n = name.toLowerCase();
+  if (/with\s*device/.test(n)) return "With Device";
+  if (n.includes("netflix")) return "With Netflix";
+  if (n.includes("uni5g")) return "5G SIM bundle";
+  if (/\bmax\b/.test(n)) return "With MAX";
+  if (/value\s*(tv\s*)?pack/.test(n)) return "With TV pack";
+  if (n.includes("primepromo")) return "PrimePromo";
+  if (n.includes("premium value")) return "Premium Value";
+  return "Plain broadband";
+}
+
+/** Speed chips, in the order the portal lists them. BIZ/VOF are separate. */
+const SPEED_CHIPS = ["100M", "300M", "500M", "1G", "2G", "BIZ", "VOF"] as const;
+const SPEED_LABELS: Record<string, string> = {
+  "100M": "100Mbps", "300M": "300Mbps", "500M": "500Mbps",
+  "1G": "1Gbps", "2G": "2Gbps", BIZ: "Business", VOF: "VOF",
+};
+
+/** Inline validation error marker — icon + text, never colour alone. */
+function WarnIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 8v4" />
+      <path d="M12 16h.01" />
+    </svg>
+  );
+}
+
+/** Marks values the system derived rather than the agent typing them. */
+function AutoIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-3.5 w-3.5 shrink-0 text-[#635BFF]"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
+    </svg>
+  );
+}
 
 export function OrderForm({
   editingId,
@@ -51,9 +131,9 @@ export function OrderForm({
   const [email, setEmail] = useState("");
   const mobileRef = useRef<HTMLInputElement>(null);
 
-  // Residence address for the customer profile: postcode auto-detects city/state
-  // (Google geocode), agent types the street. (The serviceable service address
-  // via the portal QryNIGAddress picker is a separate, later feasibility step.)
+  // ONE address field: the agent types the complete address (the shape the
+  // portal returns as `concatAddress`) and Confirm derives postcode / state /
+  // city from it, then searches the portal for the serviceable unit.
   const [postcode, setPostcode] = useState("");
   const [stateVal, setStateVal] = useState("");
   const [city, setCity] = useState("");
@@ -69,16 +149,27 @@ export function OrderForm({
   const [addrResults, setAddrResults] = useState<AddressResult[]>([]);
   const [addrSearching, setAddrSearching] = useState(false);
   const [addrSearched, setAddrSearched] = useState(false);
+  // Set once the typed address validates — that's what unlocks the derived
+  // postcode / state / city for manual correction.
+  const [addrConfirmed, setAddrConfirmed] = useState(false);
+  const [addrError, setAddrError] = useState("");
+  // What the progress bar is reporting right now. The portal returns no
+  // percentage, so this narrates the stage instead of faking one.
+  const [addrStage, setAddrStage] = useState("");
+  // Fields most recently auto-filled by Confirm — drives the one-shot flash.
+  const [autoFilled, setAutoFilled] = useState<string[]>([]);
 
   const [offerName, setOfferName] = useState("");
   const [offerCategory, setOfferCategory] = useState("");
   const [pkgQuery, setPkgQuery] = useState("");
+  const [speedFilter, setSpeedFilter] = useState("");
   const [pkgOpen, setPkgOpen] = useState(false);
   const pkgRef = useRef<HTMLDivElement>(null);
 
   const [deviceCode, setDeviceCode] = useState("");
   const [deviceName, setDeviceName] = useState("");
   const [devQuery, setDevQuery] = useState("");
+  const [devCategory, setDevCategory] = useState("");
   const [devOpen, setDevOpen] = useState(false);
   const devRef = useRef<HTMLDivElement>(null);
 
@@ -93,7 +184,13 @@ export function OrderForm({
   const [saving, setSaving] = useState(false);
 
   const isMykadLike = MYKAD_LIKE_ID_TYPES.includes(idType);
-  const emailValid = !email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  // Email is required — the scraper types it straight into the portal's
+  // emailAddr field, and a blank one only surfaces as a "data incomplete"
+  // rejection much later in the flow.
+  const emailValid = isValidEmail(email);
+  // Only complain about a half-typed ID once the agent has moved on / typed
+  // enough to mean it — an empty field is the "required" error, not this one.
+  const idNumberIncomplete = isMykadLike && idNumber.length > 0 && !isCompleteMykad(idNumber);
 
   // Documents: IM Conversation is the default + always required. The ID document
   // matches the chosen ID Type (MyKad / Passport). Required = IM Conversation +
@@ -129,18 +226,64 @@ export function OrderForm({
     if (mykadLike) applyMykad(val);
   }
 
+  // The flash is a one-shot: drop the marker once it has played so the next
+  // Confirm re-adds the class and the animation runs again.
+  useEffect(() => {
+    if (!autoFilled.length) return;
+    const t = setTimeout(() => setAutoFilled([]), 1000);
+    return () => clearTimeout(t);
+  }, [autoFilled]);
+
+  // 60 offers is too many for one flat list. Narrow by speed first (the thing
+  // the customer actually asked for), then group what's left by add-on flavour
+  // — that's the real second axis, since only 9 offers are "with Device" and
+  // the device itself is a separate step after the package.
   const filteredOffers = useMemo(() => {
     const q = pkgQuery.trim().toLowerCase();
-    return q ? DEALER_OFFERS.filter((o) => o.name.toLowerCase().includes(q)) : DEALER_OFFERS;
-  }, [pkgQuery]);
+    return DEALER_OFFERS.filter((o) => {
+      if (q && !o.name.toLowerCase().includes(q)) return false;
+      if (!speedFilter) return true;
+      if (speedFilter === "BIZ" || speedFilter === "VOF") return o.category === OFFER_CATEGORIES[speedFilter];
+      return o.category === OFFER_CATEGORIES.HOME && o.bandwidth === speedFilter;
+    });
+  }, [pkgQuery, speedFilter]);
+
+  // Group the visible offers under their add-on flavour, keeping FLAVOURS order.
+  const groupedOffers = useMemo(() => {
+    const groups = new Map<string, typeof DEALER_OFFERS>();
+    for (const o of filteredOffers) {
+      const key = offerFlavour(o.name);
+      const list = groups.get(key);
+      if (list) list.push(o);
+      else groups.set(key, [o]);
+    }
+    return FLAVOURS.filter((f) => groups.has(f)).map((f) => [f, groups.get(f)!] as const);
+  }, [filteredOffers]);
+
+  // Counts per speed chip, so the agent sees where the packages actually are.
+  const speedCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const o of DEALER_OFFERS) {
+      const key =
+        o.category === OFFER_CATEGORIES.BIZ ? "BIZ" : o.category === OFFER_CATEGORIES.VOF ? "VOF" : o.bandwidth;
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+  }, []);
 
   // Device picker only applies to "with device" bundles (the portal shows the
   // device/add-on tree after such a package). Clearing the package clears it.
   const isWithDevice = /with\s*device/i.test(offerName);
+  // Same treatment as packages: narrow by category, then collapse repeated
+  // models under one header so only the varying part shows per row.
   const filteredDevices = useMemo(() => {
     const q = devQuery.trim().toLowerCase();
-    return q ? DEALER_DEVICES.filter((d) => d.name.toLowerCase().includes(q)) : DEALER_DEVICES;
-  }, [devQuery]);
+    return DEALER_DEVICES.filter((d) => {
+      if (q && !d.name.toLowerCase().includes(q)) return false;
+      return !devCategory || deviceCategory(d.name) === devCategory;
+    });
+  }, [devQuery, devCategory]);
+  const deviceGroups = useMemo(() => groupDevices(filteredDevices), [filteredDevices]);
 
   // Close the package dropdown when clicking anywhere outside it.
   useEffect(() => {
@@ -188,6 +331,9 @@ export function OrderForm({
         setAddressId(o.addressId || "");
         setAddressFull(o.addressFull || "");
         setServiceCategory(o.serviceCategory || "");
+        // An existing draft already has its address fields — never lock the
+        // agent out of editing what was saved before this flow existed.
+        setAddrConfirmed(Boolean(o.postcode || o.state || o.city || o.addressId));
         setOfferName(o.offerName || "");
         setOfferCategory(o.offerCategory || "");
         setDeviceCode(o.deviceCode || "");
@@ -299,17 +445,81 @@ export function OrderForm({
     if (fullName && !race) setRace(inferRace(fullName));
   }
 
-  // Search the portal's serviceable addresses (QryNIGAddress). Needs a state +
-  // a keyword (street/building). Picking a result stores the resourceInstId used
-  // for feasibility "By Address Id".
-  async function runAddressSearch() {
+  /**
+   * Editing the address invalidates a previously picked unit — otherwise the
+   * green "✓ Serviceable" strip (and the addressId the order is submitted with)
+   * keeps pointing at a unit the agent has since typed away from.
+   */
+  function handleStreetChange(value: string) {
+    const next = value.toUpperCase();
+    setStreet(next);
+    if (addrError) setAddrError("");
+    if (autoFilled.length) setAutoFilled([]);
+    if (addressId && next !== addressFull.toUpperCase()) {
+      setAddressId("");
+      setAddressFull("");
+      setServiceCategory("");
+    }
+  }
+
+  // Confirm the typed full address: validate the format, derive postcode /
+  // state / city from it, then ask the portal (QryNIGAddress) for the matching
+  // serviceable units. Picking one stores the resourceInstId used for
+  // feasibility "By Address Id".
+  async function confirmAddress() {
     const q = street.trim();
-    if (!stateVal) { toast.error("Select the State (above) before searching."); return; }
-    if (q.length < 3) { toast.error("Type the street address (min 3 chars) to search."); return; }
+
+    // A fresh Confirm re-decides serviceability from scratch.
+    setAddressId("");
+    setAddressFull("");
+    setServiceCategory("");
+
+    const check = validateMalaysianAddress(q);
+    if (!check.ok) {
+      setAddrError(check.reason);
+      setAddrResults([]);
+      setAddrSearched(false);
+      toast.error(check.reason);
+      return;
+    }
+    setAddrError("");
+
+    // Fill the derived fields immediately — they hold even if the portal search
+    // comes back empty, so the agent can still save a draft. Flag which ones we
+    // touched so each flashes once instead of silently changing under the agent.
+    setPostcode(check.postcode);
+    setStateVal(check.state);
+    if (check.city) setCity(check.city);
+    setAutoFilled(["postcode", "state", ...(check.city ? ["city"] : [])]);
+    setAddrConfirmed(true);
+    if (check.hint) toast.message(check.hint);
+
+    const portalState = toPortalState(check.state);
+    if (!portalState) {
+      const reason = `The portal doesn't support address search for ${check.state}.`;
+      setAddrError(reason);
+      toast.error(reason);
+      return;
+    }
+
     setAddrSearching(true);
     setAddrSearched(true);
-    const res = await searchDealerAddress(stateVal, q, "keyword");
+    setAddrStage(`Searching the Unifi portal in ${check.state}…`);
+    // The state travels as its own request field, so the keyword drops the
+    // trailing "<STATE> MALAYSIA <postcode>" tail. If the exact address finds
+    // nothing, retry once without the leading unit number — the portal indexes
+    // street and building names more reliably than units.
+    const keyword = searchKeywordFrom(q);
+    let res = await searchDealerAddress(portalState, keyword, "keyword");
+    if (res.success && res.addresses.length === 0) {
+      const wider = widenKeyword(keyword);
+      if (wider && wider !== keyword) {
+        setAddrStage("No exact match — widening the search…");
+        res = await searchDealerAddress(portalState, wider, "keyword");
+      }
+    }
     setAddrSearching(false);
+    setAddrStage("");
     if (!res.success) {
       setAddrResults([]);
       toast.error(res.error ?? "Address search failed.");
@@ -331,7 +541,7 @@ export function OrderForm({
       return prefix(y.addressFull) - prefix(x.addressFull); // then longest common prefix
     });
     setAddrResults(sorted);
-    if (sorted.length === 0) toast.message("No serviceable address found for that search.");
+    if (sorted.length === 0) toast.message("No serviceable address found for that address.");
   }
 
   // Picking a serviceable unit fills EVERYTHING — feasibility id + the profile's
@@ -352,17 +562,35 @@ export function OrderForm({
     setStreet(a.addressFull.toUpperCase());
     setAddrResults([]);
     setAddrSearched(false);
+    setAddrConfirmed(true);
+    setAddrError("");
     toast.success("Serviceable address selected.");
   }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
+    if (isMykadLike && !isCompleteMykad(idNumber)) {
+      toast.error("MyKad must be 12 digits.");
+      return;
+    }
+    if (!email.trim()) {
+      toast.error("Email address is required.");
+      return;
+    }
     if (!emailValid) {
       toast.error("Enter a valid email address.");
       return;
     }
-    // Residence address is required — an empty address is what makes the portal
-    // reject the customer profile as "data incomplete", so block it here.
+    // The address is required — an empty or half-typed one is what makes the
+    // portal reject the customer profile as "data incomplete", so block it here.
+    // (A confirmed addressId is NOT required: an order can still be saved as a
+    // draft while the agent sorts out serviceability.)
+    const addrCheck = validateMalaysianAddress(street);
+    if (!addrCheck.ok) {
+      setAddrError(addrCheck.reason);
+      toast.error(addrCheck.reason);
+      return;
+    }
     if (!/^\d{5}$/.test(postcode.trim())) {
       toast.error("Enter a valid 5-digit postcode.");
       return;
@@ -373,10 +601,6 @@ export function OrderForm({
     }
     if (!city.trim()) {
       toast.error("Enter the city.");
-      return;
-    }
-    if (!street.trim()) {
-      toast.error("Enter the street address.");
       return;
     }
     if (!hasImDoc) {
@@ -442,7 +666,7 @@ export function OrderForm({
   }
 
   return (
-    <form onSubmit={handleSave} className="space-y-5">
+    <form onSubmit={handleSave} className="space-y-5 stagger-children [&>*]:animate-fade-in-up">
       {editingId && onBack && (
         <button
           type="button"
@@ -464,15 +688,30 @@ export function OrderForm({
             </select>
           </div>
           <div className="space-y-1.5">
-            <Label className={labelCls}>ID Number</Label>
+            <Label className={labelCls}>
+              ID Number <span className="text-[#DF1B41]">*</span>{" "}
+              {isMykadLike && (
+                <span className="text-[#697386] font-normal tabular-nums">
+                  ({idNumber.length}/12)
+                </span>
+              )}
+            </Label>
             <Input
-              value={idNumber}
+              value={isMykadLike ? formatMykad(idNumber) : idNumber}
               onChange={(e) => handleIdNumberChange(e.target.value)}
               required
-              className={`${inputCls} uppercase`}
-              placeholder={isMykadLike ? "12-digit MyKad" : "ID / Passport number"}
+              aria-invalid={idNumberIncomplete}
+              className={`${inputCls} uppercase tabular-nums ${idNumberIncomplete ? "border-[#DF1B41] focus:border-[#DF1B41]" : ""}`}
+              placeholder={isMykadLike ? "XXXXXX-XX-XXXX" : "ID / Passport number"}
               inputMode={isMykadLike ? "numeric" : "text"}
+              autoComplete="off"
             />
+            {idNumberIncomplete && (
+              <p className="flex items-center gap-1.5 text-[11px] text-[#DF1B41]">
+                <WarnIcon />
+                <span>MyKad must be 12 digits — {12 - idNumber.length} more to go.</span>
+              </p>
+            )}
           </div>
           <div className="space-y-1.5 sm:col-span-2">
             <Label className={labelCls}>Full Name</Label>
@@ -530,71 +769,114 @@ export function OrderForm({
             )}
           </div>
           <div className="space-y-1.5">
-            <Label className={labelCls}>Email Address</Label>
-            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={`${inputCls} ${!emailValid ? "border-[#DF1B41] focus:border-[#DF1B41]" : ""}`} placeholder="name@example.com" />
-            {!emailValid && <p className="text-[11px] text-[#DF1B41]">Enter a valid email address.</p>}
+            <Label className={labelCls}>Email Address <span className="text-[#DF1B41]">*</span></Label>
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value.trim())}
+              required
+              autoComplete="email"
+              aria-invalid={email.length > 0 && !emailValid}
+              className={`${inputCls} ${email.length > 0 && !emailValid ? "border-[#DF1B41] focus:border-[#DF1B41]" : ""}`}
+              placeholder="name@example.com"
+            />
+            {email.length > 0 && !emailValid && (
+              <p className="flex items-center gap-1.5 text-[11px] text-[#DF1B41]">
+                <WarnIcon />
+                <span>That email address isn&apos;t valid.</span>
+              </p>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Installation Address — ONE card: search the portal for the serviceable
-          unit and pick it (that fills the fields below + the feasibility id);
-          postcode / city / state / street stay visible and editable. */}
+      {/* Installation Address — ONE card, ONE field: the agent types the
+          complete address and Confirm derives postcode / state / city from it,
+          then searches the portal for the serviceable unit to pick. */}
       <div className={`${cardCls} overflow-hidden`}>
         <div className={headCls}>
-          Installation Address <span className="text-[#697386] font-normal">— search &amp; pick the serviceable unit</span>
+          Installation Address <span className="text-[#697386] font-normal">— type the full address, then Confirm</span>
         </div>
         <div className="p-6 space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label className={labelCls}>Postcode <span className="text-[#DF1B41]">*</span> {detecting && <span className="text-[#697386]">(detecting…)</span>}</Label>
-              <Input value={postcode} onChange={(e) => handlePostcode(e.target.value)} className={inputCls} placeholder="40150" inputMode="numeric" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className={labelCls}>State <span className="text-[#DF1B41]">*</span> <span className="text-[#697386] font-normal">(auto)</span></Label>
-              <select value={stateVal} onChange={(e) => setStateVal(e.target.value)} className={selectCls}>
-                <option value="">---</option>
-                {MALAYSIA_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label className={labelCls}>City <span className="text-[#DF1B41]">*</span> <span className="text-[#697386] font-normal">(auto)</span></Label>
-              <Input value={city} onChange={(e) => setCity(e.target.value.toUpperCase())} className={`${inputCls} uppercase`} placeholder="SHAH ALAM" />
-            </div>
-          </div>
-
-          {/* Street Address IS the search field — type it, Search the portal, and
-              pick the serviceable unit (fills the address + the feasibility id). */}
+          {/* Full Address IS the search field — Confirm validates it, fills the
+              fields below, and asks the portal for the serviceable units. */}
           <div className="space-y-1.5">
             <Label className={labelCls}>
-              Street Address <span className="text-[#DF1B41]">*</span>{" "}
-              <span className="text-[#697386] font-normal">— type it, then Search &amp; pick the serviceable unit</span>
+              Full Address <span className="text-[#DF1B41]">*</span>
             </Label>
             <div className="flex gap-2">
               <Input
                 value={street}
-                onChange={(e) => setStreet(e.target.value.toUpperCase())}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); runAddressSearch(); } }}
+                onChange={(e) => handleStreetChange(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); confirmAddress(); } }}
                 className={`flex-1 ${inputCls} uppercase`}
-                placeholder="A-07-15 PERSIARAN SAUJANA PUTRA UTAMA 7…"
+                placeholder="A-07-15 PERSIARAN SAUJANA PUTRA UTAMA 7 BANDAR SAUJANA PUTRA JENJAROM SELANGOR MALAYSIA 42610"
               />
               <Button
                 type="button"
-                onClick={runAddressSearch}
+                onClick={confirmAddress}
                 disabled={addrSearching}
-                className="h-10 px-4 rounded-lg text-sm font-medium bg-[#0A2540] hover:bg-[#635BFF]"
+                aria-busy={addrSearching}
+                className="h-10 px-4 rounded-lg text-sm font-medium bg-[#0A2540] hover:bg-[#635BFF] transition-colors duration-200 hover-glow press-effect cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {addrSearching ? "Searching…" : "Search"}
+                {addrSearching ? "Confirming…" : "Confirm"}
               </Button>
             </div>
+
+            {/* Progress while the portal is being queried. The portal reports no
+                percentage, so this is an indeterminate bar plus a stage label —
+                honest about "working" without inventing a completion figure. */}
+            {addrSearching && (
+              <div className="space-y-1.5 pt-0.5" role="status" aria-live="polite">
+                <div className="h-1 w-full overflow-hidden rounded-full bg-[#EEF1F6]">
+                  <div className="progress-indeterminate h-full w-1/3 rounded-full bg-[#635BFF]" />
+                </div>
+                <p className="text-[11px] text-[#697386]">{addrStage || "Checking the address…"}</p>
+              </div>
+            )}
+
+            {/* Guidance: what "full address" means, in the order the portal
+                writes it, with the parts named so the agent can self-check. */}
+            {!addrSearching && (
+              <div className="rounded-lg border border-[#E3E8EF] bg-[#F6F9FC] px-3 py-2.5 space-y-1.5">
+                <p className="text-[11px] text-[#0A2540]">
+                  <span className="font-medium">Paste the address exactly as the Unifi portal shows it.</span>{" "}
+                  It must already exist and be serviceable there — checking that is the agent&apos;s responsibility.
+                </p>
+                <p className="text-[11px] text-[#697386]">
+                  Order of parts:{" "}
+                  <span className="text-[#0A2540]">unit</span> · <span className="text-[#0A2540]">street</span> ·{" "}
+                  <span className="text-[#0A2540]">area</span> · <span className="text-[#0A2540]">city</span> ·{" "}
+                  <span className="text-[#0A2540]">state</span> · <span className="text-[#0A2540]">MALAYSIA</span> ·{" "}
+                  <span className="text-[#0A2540]">postcode</span>
+                </p>
+                <p className="text-[11px] text-[#697386]">
+                  Example:{" "}
+                  <code className="rounded bg-white px-1.5 py-0.5 text-[10px] text-[#0A2540] border border-[#E3E8EF]">
+                    A-07-15 PERSIARAN SAUJANA PUTRA UTAMA 7 BANDAR SAUJANA PUTRA JENJAROM SELANGOR MALAYSIA 42610
+                  </code>
+                </p>
+                <p className="text-[11px] text-[#697386]">
+                  Confirm fills Postcode, State and City for you, then lists the serviceable units to pick from.
+                </p>
+              </div>
+            )}
+            {addrError && (
+              <p className="flex items-start gap-1.5 text-[11px] text-[#DF1B41]" role="alert">
+                <svg viewBox="0 0 24 24" className="mt-px h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10" /><path d="M12 8v4" /><path d="M12 16h.01" />
+                </svg>
+                <span>{addrError}</span>
+              </p>
+            )}
             {addressId ? (
               <div className="flex items-center justify-between gap-3 rounded-lg border border-green-500 bg-green-50 px-3 py-2 text-[12px] text-[#0A2540]">
                 <span><span className="text-green-700 font-medium">✓ Serviceable</span> {addressFull}{serviceCategory && ` · ${serviceCategory}`}</span>
                 <button type="button" onClick={() => { setAddressId(""); setAddressFull(""); setServiceCategory(""); }} className="shrink-0 text-[11px] text-[#DF1B41] hover:underline">Clear</button>
               </div>
-            ) : (
-              <p className="text-[11px] text-[#697386]">Pick a unit to confirm it&apos;s serviceable (required to submit). Closest match to what you typed is shown first.</p>
-            )}
+            ) : addrResults.length > 0 ? (
+              <p className="text-[11px] text-[#697386]">Pick a unit below to confirm it&apos;s serviceable. Closest match to what you typed is shown first.</p>
+            ) : null}
             {addrResults.length > 0 && (
               <div className="max-h-72 overflow-auto rounded-lg border border-[#E3E8EF] divide-y divide-[#F0F3F8]">
                 {addrResults.map((a) => (
@@ -602,7 +884,7 @@ export function OrderForm({
                     key={a.addressId}
                     type="button"
                     onClick={() => pickAddress(a)}
-                    className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[12px] text-[#0A2540] hover:bg-[#F6F9FC]"
+                    className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[12px] text-[#0A2540] cursor-pointer transition-colors duration-200 hover:bg-[#F6F9FC] focus:bg-[#F6F9FC] focus:outline-none"
                   >
                     <span className="truncate">{a.addressFull}</span>
                     {a.serviceCategory && (
@@ -613,81 +895,279 @@ export function OrderForm({
               </div>
             )}
             {addrSearched && !addrSearching && addrResults.length === 0 && !addressId && (
-              <p className="text-[11px] text-[#DF1B41]">No serviceable address found — try a different search term (or the address may not be serviceable yet).</p>
+              <p className="text-[11px] text-[#DF1B41]">Not found in the Unifi portal. Check the address in the portal first — it must exist and be serviceable.</p>
             )}
           </div>
-        </div>
-      </div>
 
-      {/* Package — card NOT clipped so the dropdown shows fully */}
-      <div className={cardCls}>
-        <div className={headCls}>Package</div>
-        <div className="p-6 space-y-1.5">
-          <Label className={labelCls}>Main Offer</Label>
-          <div className="relative" ref={pkgRef}>
-            <Input
-              value={pkgQuery || offerName}
-              onChange={(e) => { setPkgQuery(e.target.value); setPkgOpen(true); setOfferName(""); }}
-              onFocus={() => setPkgOpen(true)}
-              className={inputCls}
-              placeholder="Search packages here"
-            />
-            {pkgOpen && (
-              <div className="absolute z-20 mt-1 w-full max-h-80 overflow-auto rounded-lg border border-[#E3E8EF] bg-white shadow-lg py-1">
-                {filteredOffers.length === 0 && (
-                  <div className="px-3 py-2 text-xs text-[#697386]">No matching package</div>
-                )}
-                {filteredOffers.map((o) => (
-                  <button
-                    key={o.name}
-                    type="button"
-                    onClick={() => { setOfferName(o.name); setOfferCategory(o.category); setPkgQuery(""); setPkgOpen(false); }}
-                    className="flex w-full items-center justify-between px-3 py-2 text-left text-[13px] text-[#0A2540] hover:bg-[#F6F9FC]"
-                  >
-                    <span>{o.name}</span>
-                    <span className="ml-3 shrink-0 text-[11px] text-[#697386] tabular-nums">{o.bandwidth}</span>
-                  </button>
-                ))}
+          {/* Derived from the address above on Confirm — kept visible and, once
+              confirmed, editable so the agent can correct what was derived. */}
+          <div className="border-t border-[#F0F3F8] pt-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <AutoIcon />
+              <span className="text-[11px] font-medium text-[#0A2540]">Extracted from the address above</span>
+              <span className="text-[11px] text-[#697386]">
+                {addrConfirmed ? "— check these, edit if the portal disagrees" : "— fills in when you press Confirm"}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className={labelCls}>
+                  Postcode <span className="text-[#DF1B41]">*</span>{" "}
+                  {detecting && <span className="text-[#697386] font-normal">(detecting…)</span>}
+                </Label>
+                <Input
+                  value={postcode}
+                  onChange={(e) => handlePostcode(e.target.value)}
+                  readOnly={!addrConfirmed}
+                  aria-readonly={!addrConfirmed}
+                  className={`${inputCls} transition-colors duration-200 ${autoFilled.includes("postcode") ? "field-flash" : ""} ${!addrConfirmed ? "bg-[#F6F9FC] text-[#697386] cursor-not-allowed" : ""}`}
+                  placeholder="40150"
+                  inputMode="numeric"
+                />
               </div>
-            )}
+              <div className="space-y-1.5">
+                <Label className={labelCls}>
+                  State <span className="text-[#DF1B41]">*</span>
+                </Label>
+                <select
+                  value={stateVal}
+                  onChange={(e) => setStateVal(e.target.value)}
+                  disabled={!addrConfirmed}
+                  className={`${selectCls} transition-colors duration-200 ${autoFilled.includes("state") ? "field-flash" : ""} ${!addrConfirmed ? "bg-[#F6F9FC] text-[#697386] opacity-70 cursor-not-allowed" : ""}`}
+                >
+                  <option value="">---</option>
+                  {MALAYSIA_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label className={labelCls}>
+                  City <span className="text-[#DF1B41]">*</span>
+                </Label>
+                <Input
+                  value={city}
+                  onChange={(e) => setCity(e.target.value.toUpperCase())}
+                  readOnly={!addrConfirmed}
+                  aria-readonly={!addrConfirmed}
+                  className={`${inputCls} uppercase transition-colors duration-200 ${autoFilled.includes("city") ? "field-flash" : ""} ${!addrConfirmed ? "bg-[#F6F9FC] text-[#697386] cursor-not-allowed" : ""}`}
+                  placeholder="SHAH ALAM"
+                />
+              </div>
+            </div>
           </div>
-          {offerName && <p className="text-[11px] text-green-700 pt-1">Selected: {offerName}</p>}
         </div>
       </div>
 
-      {/* Device — only for "with device" bundles (picked after the package) */}
-      {isWithDevice && (
-        <div className={cardCls}>
-          <div className={headCls}>Device</div>
-          <div className="p-6 space-y-1.5">
-            <Label className={labelCls}>Device / Add-on <span className="text-[#DF1B41]">*</span></Label>
-            <div className="relative" ref={devRef}>
+      {/* Package — card NOT clipped so the dropdown shows fully.
+          `relative z-30` is load-bearing: the entrance animation leaves every
+          card with a retained transform (fill-mode: both resolves even
+          `transform: none` to an identity matrix), which makes each card its
+          own stacking context. Without an explicit z-index the later Device /
+          Documents cards would paint over this card's open dropdown. Package
+          must also outrank Device, whose own dropdown sits below it. */}
+      <div className={`${cardCls} relative z-30`}>
+        <div className={headCls}>
+          Package <span className="text-[#697386] font-normal">— pick the speed, then the bundle</span>
+        </div>
+        <div className="p-6 space-y-3">
+          {/* Speed first: it's what the customer actually asked for, and it cuts
+              60 offers down to at most 18. */}
+          <div className="space-y-1.5">
+            <Label className={labelCls}>Speed</Label>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setSpeedFilter("")}
+                aria-pressed={speedFilter === ""}
+                className={`h-8 rounded-full px-3 text-[12px] font-medium cursor-pointer transition-colors duration-200 border ${
+                  speedFilter === ""
+                    ? "bg-[#0A2540] text-white border-[#0A2540]"
+                    : "bg-white text-[#425466] border-[#E3E8EF] hover:border-[#635BFF] hover:text-[#0A2540]"
+                }`}
+              >
+                All <span className="tabular-nums opacity-70">{DEALER_OFFERS.length}</span>
+              </button>
+              {SPEED_CHIPS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setSpeedFilter(speedFilter === s ? "" : s)}
+                  aria-pressed={speedFilter === s}
+                  className={`h-8 rounded-full px-3 text-[12px] font-medium cursor-pointer transition-colors duration-200 border ${
+                    speedFilter === s
+                      ? "bg-[#0A2540] text-white border-[#0A2540]"
+                      : "bg-white text-[#425466] border-[#E3E8EF] hover:border-[#635BFF] hover:text-[#0A2540]"
+                  }`}
+                >
+                  {SPEED_LABELS[s]} <span className="tabular-nums opacity-70">{speedCounts[s] ?? 0}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className={labelCls}>Main Offer</Label>
+            <div className="relative" ref={pkgRef}>
               <Input
-                value={devQuery || deviceName}
-                onChange={(e) => { setDevQuery(e.target.value); setDevOpen(true); setDeviceName(""); setDeviceCode(""); }}
-                onFocus={() => setDevOpen(true)}
+                value={pkgQuery || offerName}
+                onChange={(e) => { setPkgQuery(e.target.value); setPkgOpen(true); setOfferName(""); }}
+                onFocus={() => setPkgOpen(true)}
                 className={inputCls}
-                placeholder="Search devices here"
+                placeholder={speedFilter ? `Search ${SPEED_LABELS[speedFilter]} packages…` : "Search all packages, or pick a speed above"}
               />
-              {devOpen && (
-                <div className="absolute z-20 mt-1 w-full max-h-80 overflow-auto rounded-lg border border-[#E3E8EF] bg-white shadow-lg py-1">
-                  {filteredDevices.length === 0 && (
-                    <div className="px-3 py-2 text-xs text-[#697386]">No matching device</div>
+              {pkgOpen && (
+                <div className="absolute z-20 mt-1 w-full max-h-80 overflow-auto rounded-lg border border-[#E3E8EF] bg-white shadow-lg py-1 animate-fade-in">
+                  {groupedOffers.length === 0 && (
+                    <div className="px-3 py-3 text-xs text-[#697386]">
+                      No package matches{pkgQuery && ` “${pkgQuery}”`}
+                      {speedFilter && ` in ${SPEED_LABELS[speedFilter]}`}.
+                      {speedFilter && " Try the All chip to search every speed."}
+                    </div>
                   )}
-                  {filteredDevices.map((d) => (
-                    <button
-                      key={d.code}
-                      type="button"
-                      onClick={() => { setDeviceName(d.name); setDeviceCode(d.code); setDevQuery(""); setDevOpen(false); }}
-                      className="block w-full px-3 py-2 text-left text-[13px] text-[#0A2540] hover:bg-[#F6F9FC]"
-                    >
-                      {d.name}
-                    </button>
+                  {groupedOffers.map(([flavour, offers]) => (
+                    <div key={flavour}>
+                      <div className="sticky top-0 z-10 flex items-center justify-between bg-[#F6F9FC] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-[#697386] border-y border-[#E3E8EF]">
+                        <span>{flavour}</span>
+                        <span className="tabular-nums">{offers.length}</span>
+                      </div>
+                      {offers.map((o) => (
+                        <button
+                          key={o.name}
+                          type="button"
+                          onClick={() => { setOfferName(o.name); setOfferCategory(o.category); setPkgQuery(""); setPkgOpen(false); }}
+                          className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[13px] text-[#0A2540] cursor-pointer transition-colors duration-200 hover:bg-[#F6F9FC] focus:bg-[#F6F9FC] focus:outline-none"
+                        >
+                          <span>{o.name}</span>
+                          <span className="ml-3 shrink-0 text-[11px] text-[#697386] tabular-nums">{o.bandwidth}</span>
+                        </button>
+                      ))}
+                    </div>
                   ))}
                 </div>
               )}
             </div>
-            {deviceName && <p className="text-[11px] text-green-700 pt-1">Selected: {deviceName}</p>}
+          </div>
+          {offerName && (
+            <p className="flex items-center gap-1.5 text-[11px] text-green-700">
+              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+              <span>Selected: {offerName}{isWithDevice && " — pick the device below"}</span>
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Device — only for "with device" bundles (picked after the package).
+          Ranks above the later cards for its own dropdown, below Package. */}
+      {isWithDevice && (
+        <div className={`${cardCls} relative z-20`}>
+          <div className={headCls}>
+            Device <span className="text-[#697386] font-normal">— pick the type, then the model</span>
+          </div>
+          <div className="p-6 space-y-3">
+            {/* Category first — the catalog mixes tablets, TVs, Smart Home kit
+                and pure line items (Stamp Duty, Promo Discount) in one list. */}
+            <div className="space-y-1.5">
+              <Label className={labelCls}>Type</Label>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setDevCategory("")}
+                  aria-pressed={devCategory === ""}
+                  className={`h-8 rounded-full px-3 text-[12px] font-medium cursor-pointer transition-colors duration-200 border ${
+                    devCategory === ""
+                      ? "bg-[#0A2540] text-white border-[#0A2540]"
+                      : "bg-white text-[#425466] border-[#E3E8EF] hover:border-[#635BFF] hover:text-[#0A2540]"
+                  }`}
+                >
+                  All <span className="tabular-nums opacity-70">{DEALER_DEVICES.length}</span>
+                </button>
+                {DEVICE_CATEGORIES.filter((c) => DEVICE_CATEGORY_COUNTS[c]).map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setDevCategory(devCategory === c ? "" : c)}
+                    aria-pressed={devCategory === c}
+                    className={`h-8 rounded-full px-3 text-[12px] font-medium cursor-pointer transition-colors duration-200 border ${
+                      devCategory === c
+                        ? "bg-[#0A2540] text-white border-[#0A2540]"
+                        : "bg-white text-[#425466] border-[#E3E8EF] hover:border-[#635BFF] hover:text-[#0A2540]"
+                    }`}
+                  >
+                    {c} <span className="tabular-nums opacity-70">{DEVICE_CATEGORY_COUNTS[c]}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className={labelCls}>Device / Add-on <span className="text-[#DF1B41]">*</span></Label>
+              <div className="relative" ref={devRef}>
+                <Input
+                  value={devQuery || deviceName}
+                  onChange={(e) => { setDevQuery(e.target.value); setDevOpen(true); setDeviceName(""); setDeviceCode(""); }}
+                  onFocus={() => setDevOpen(true)}
+                  className={inputCls}
+                  placeholder={devCategory ? `Search ${devCategory}…` : "Search all devices, or pick a type above"}
+                />
+                {devOpen && (
+                  <div className="absolute z-20 mt-1 w-full max-h-80 overflow-auto rounded-lg border border-[#E3E8EF] bg-white shadow-lg py-1 animate-fade-in">
+                    {deviceGroups.length === 0 && (
+                      <div className="px-3 py-3 text-xs text-[#697386]">
+                        No device matches{devQuery && ` “${devQuery}”`}
+                        {devCategory && ` in ${devCategory}`}.
+                        {devCategory && " Try the All chip to search every type."}
+                      </div>
+                    )}
+                    {deviceGroups.map((g) => (
+                      <div key={g.header}>
+                        <div className="sticky top-0 z-10 flex items-center justify-between bg-[#F6F9FC] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-[#697386] border-y border-[#E3E8EF]">
+                          <span className="truncate">{g.header}</span>
+                          <span className="tabular-nums shrink-0 pl-2">{g.items.length}</span>
+                        </div>
+                        {g.items.map((d) => {
+                          // Inside a model group only the varying part is worth
+                          // reading — the model is already the header.
+                          const { variant } = deviceFamily(d.name);
+                          const label = g.singles ? d.name : variantLabel(variant, d.monthly) || d.name;
+                          return (
+                            <button
+                              key={d.code}
+                              type="button"
+                              onClick={() => { setDeviceName(d.name); setDeviceCode(d.code); setDevQuery(""); setDevOpen(false); }}
+                              className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[13px] text-[#0A2540] cursor-pointer transition-colors duration-200 hover:bg-[#F6F9FC] focus:bg-[#F6F9FC] focus:outline-none"
+                            >
+                              <span className="truncate">
+                                {label}
+                                {/* Some catalog names repeat verbatim and differ
+                                    only by portal code — show it so the pick is
+                                    explicit rather than a coin flip. */}
+                                {isAmbiguousDevice(d.name) && (
+                                  <span className="ml-2 text-[10px] text-[#697386] tabular-nums">#{d.code}</span>
+                                )}
+                              </span>
+                              {d.monthly !== null && (
+                                <span className="ml-3 shrink-0 text-[11px] text-[#697386] tabular-nums">
+                                  RM{d.monthly}/mth
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            {deviceName && (
+              <p className="flex items-center gap-1.5 text-[11px] text-green-700">
+                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M20 6 9 17l-5-5" />
+                </svg>
+                <span>Selected: {deviceName}{isAmbiguousDevice(deviceName) && ` (#${deviceCode})`}</span>
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -788,7 +1268,7 @@ export function OrderForm({
       </div>
 
       <div className="flex items-center gap-3">
-        <Button type="submit" disabled={saving} className="h-10 px-6 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] hover-glow">
+        <Button type="submit" disabled={saving} aria-busy={saving} className="h-10 px-6 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] hover-glow press-effect cursor-pointer transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed">
           {saving ? "Saving…" : draftId ? "Update Draft" : "Save Order"}
         </Button>
       </div>
