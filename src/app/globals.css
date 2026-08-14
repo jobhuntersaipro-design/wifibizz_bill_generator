@@ -30,7 +30,7 @@
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 }
 
@@ -41,7 +41,7 @@
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 }
 
@@ -52,7 +52,7 @@
   }
   to {
     opacity: 1;
-    transform: translateX(0);
+    transform: none;
   }
 }
 
@@ -63,7 +63,7 @@
   }
   to {
     opacity: 1;
-    transform: translateX(0);
+    transform: none;
   }
 }
 
@@ -74,7 +74,7 @@
   }
   to {
     opacity: 1;
-    transform: scale(1);
+    transform: none;
   }
 }
 
@@ -85,7 +85,7 @@
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 }
 
@@ -519,4 +519,46 @@
   background-repeat: no-repeat;
   background-position: right 14px center;
   padding-right: 2.5rem;
+}
+
+/* ── Order Entry: address confirm feedback ───────────────────────────────── */
+
+/* Indeterminate progress bar for the portal address check — the portal gives
+   no percentage, so the bar reports "working", not "how far". */
+@keyframes indeterminate-bar {
+  0%   { transform: translateX(-100%) scaleX(0.4); }
+  50%  { transform: translateX(20%)  scaleX(0.6); }
+  100% { transform: translateX(220%) scaleX(0.4); }
+}
+.progress-indeterminate {
+  animation: indeterminate-bar 1.4s ease-in-out infinite;
+  transform-origin: left center;
+}
+
+/* One-shot highlight on a field the moment Confirm auto-fills it, so the agent
+   can see which values the system derived rather than silently swapping them. */
+@keyframes field-flash {
+  0%   { background-color: rgba(99, 91, 255, 0.14); border-color: #635BFF; }
+  100% { background-color: transparent; border-color: #E3E8EF; }
+}
+.field-flash {
+  animation: field-flash 900ms ease-out both;
+}
+
+/* Respect the OS "reduce motion" setting across the whole app: keep state
+   changes instant instead of animating them, but never hide content (the
+   entrance animations use fill-mode both, so they must still resolve). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .progress-indeterminate {
+    animation: none;
+    transform: scaleX(1);
+  }
 }

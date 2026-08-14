@@ -29,6 +29,42 @@ export function parseMykad(ic: string): MykadInfo | null {
   return { gender, birthday: `${pad(dd)}-${pad(mm)}-${year}` };
 }
 
+/**
+ * Display form of a MyKad-like ID: XXXXXX-XX-XXXX.
+ *
+ * Presentation only — the stored value stays raw digits, which is what the
+ * document keys embed and what `order_to_payload.py` sends to the portal
+ * (it strips non-digits anyway). Formats partial input as the agent types.
+ */
+export function formatMykad(value: string): string {
+  const d = (value || "").replace(/\D/g, "").slice(0, 12);
+  if (d.length <= 6) return d;
+  if (d.length <= 8) return `${d.slice(0, 6)}-${d.slice(6)}`;
+  return `${d.slice(0, 6)}-${d.slice(6, 8)}-${d.slice(8)}`;
+}
+
+/** True when a MyKad-like ID has all 12 digits. */
+export function isCompleteMykad(value: string): boolean {
+  return (value || "").replace(/\D/g, "").length === 12;
+}
+
+/**
+ * Email check for the portal's contact form. Stricter than `x@y.z`: rejects
+ * consecutive dots, a leading/trailing dot in either part, and a TLD shorter
+ * than two characters — the shapes the portal bounces.
+ */
+export function isValidEmail(value: string): boolean {
+  const v = (value || "").trim();
+  if (!v || /\s/.test(v)) return false;
+  if (v.includes("..")) return false;
+  const parts = v.split("@");
+  if (parts.length !== 2) return false;
+  const [local, domain] = parts as [string, string];
+  if (!local || local.startsWith(".") || local.endsWith(".")) return false;
+  if (domain.startsWith(".") || domain.startsWith("-") || domain.endsWith(".")) return false;
+  return /^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/.test(domain);
+}
+
 /** Best-effort race from Malaysian name markers (portal needs a value). */
 export function inferRace(name: string): "Malay" | "Indian" | "Chinese" {
   const n = ` ${(name || "").toUpperCase()} `;

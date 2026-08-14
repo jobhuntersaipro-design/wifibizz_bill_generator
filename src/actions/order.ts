@@ -15,6 +15,7 @@ import {
 import { MALAYSIA_STATES } from "@/lib/malaysia-states";
 import { ID_TYPES } from "@/lib/dealer-offers";
 import MY_POSTCODES from "@/lib/malaysia-postcodes.json";
+import { validateMalaysianAddress } from "@/lib/malaysia-address";
 
 // Static MY postcode -> [CITY, State] map (~2,900 postcodes). Reliable, offline,
 // and instant — Google geocoding returns the state but rarely the city for bare
@@ -239,6 +240,14 @@ export async function saveOrder(rawInput: OrderInput) {
     };
   }
   const input = parsed.data;
+
+  // Mirror the client's Full Address check — the client can be bypassed, and a
+  // half-typed address is what makes the portal reject the customer profile as
+  // "data incomplete" later, far from where it could still be fixed.
+  const addrCheck = validateMalaysianAddress(input.street ?? "");
+  if (!addrCheck.ok) {
+    return { success: false as const, error: `Installation address — ${addrCheck.reason}` };
+  }
 
   const data = {
     idType: input.idType,
