@@ -1,16 +1,35 @@
 # Current Feature
 
+## Order Entry — Step-by-Step Submit Progress
+
 ## Status
 
-Not Started
+In Progress — branch `feature/order-submit-progress`
+
+Full spec: [context/features/order-submit-progress.md](features/order-submit-progress.md)
 
 ## Goals
 
-<!-- Bullet points of what success looks like -->
+- The agent watches a submit advance through ~14 named steps in real time, inline in the order row.
+- A failure names the step it happened on, with the portal's own message.
+- Closing the tab mid-submit cannot strand an order in `submitting` forever.
+- No long-running server action (today's `submitOrder` blocks up to ~620s, over Vercel's 300s cap).
 
 ## Notes
 
-<!-- Additional context, constraints, or details from spec -->
+The stage stream already exists end-to-end — the scraper fires `on_stage` at 8
+milestones and `GET /jobs/<id>` returns it — but `submitOrder` collapses it to two
+DB statuses and the browser never sees it. The work is: emit the missing
+fine-grained stages (feasibility is one opaque stage covering five real steps),
+split `submitOrder` into `startSubmit` + a polled progress route that finalizes
+idempotently, and render the checklist.
+
+Decisions taken: job-id + client polling (not SSE, not a DB stage column); flat
+14-step list (not collapsed phases); inline in the row (not a modal); no
+address re-check at submit — trust the confirmed `addressId`.
+
+Point of no return is step 8 (`capturing_order_no`) — after it the order exists in
+the portal and resubmission must stay locked.
 
 ## History
 

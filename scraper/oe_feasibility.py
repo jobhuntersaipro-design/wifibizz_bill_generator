@@ -21,6 +21,101 @@ from oe_helpers import set_combobox
 from order_entry import ORDER_ENTRY_URL, _frame, ensure_on_order_entry
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Clicking through the portal's busy overlay.
+#
+# The portal uses jQuery blockUI: while an AJAX call is in flight it lays a
+# `.blockUI.ui-widget-overlay.blocking` (and/or a Bootstrap `.modal-backdrop`)
+# over everything. Playwright's actionability check still reports the button
+# underneath as "visible, enabled and stable", so it tries to click, the overlay
+# eats the pointer event, and it retries until the timeout — producing a
+# 40-line "intercepts pointer events" dump that says nothing to an agent.
+#
+# So: wait for the overlay to clear first, and if it never does, click through
+# the DOM (a JS .click() dispatches straight to the element and ignores pointer
+# interception). Only when BOTH fail is it a real error.
+# ─────────────────────────────────────────────────────────────────────────────
+_OVERLAY_SEL = ".blockUI, .ui-widget-overlay.blocking, .modal-backdrop.in"
+
+
+def humanize_error(e) -> str:
+    """Turn a raw Playwright failure into one sentence an agent can act on.
+
+    Playwright's timeouts carry a 40-line "Call log:" dump naming CSS selectors
+    and retry counts. That is the right thing in a job log and the wrong thing in
+    the UI, where it reads as a crash rather than as "the portal was busy". The
+    full text is always kept alongside, under `exception`, for debugging.
+    """
+    text = str(e) or type(e).__name__
+    low = text.lower()
+    if "intercepts pointer events" in low or "blockui" in low or "modal-backdrop" in low:
+        return ("The portal was still busy (its loading overlay was up) and didn't "
+                "accept the click. It may be under load — try again in a moment.")
+    if "timeout" in low and "exceeded" in low:
+        # Name the element it was waiting for, if the selector hints at one.
+        what = ("the confirmation dialog" if "js-ok" in low else
+                "a portal field" if "locator(" in low else "the portal")
+        return (f"Timed out waiting for {what} to respond. The portal may be slow "
+                "or the page may have changed — try again.")
+    if "target closed" in low or "browser has been closed" in low:
+        return "The portal session ended mid-order. Reconnect and try again."
+    if "net::" in low or "econnrefused" in low:
+        return "Lost the connection to the portal. Check the network and try again."
+    # Unrecognised: keep it, but trim the call log so the UI stays readable.
+    return text.split("Call log:")[0].strip()[:300] or type(e).__name__
+
+
+async def _wait_unblocked(frame, timeout_ms: int = 15000) -> bool:
+    """Wait until no busy overlay is visible. True if clear, False if it stayed."""
+    step, waited = 250, 0
+    while waited < timeout_ms:
+        try:
+            if await frame.locator(_OVERLAY_SEL).filter(visible=True).count() == 0:
+                return True
+        except Exception:
+            return True  # can't inspect it — let the caller try the click
+        await asyncio.sleep(step / 1000)
+        waited += step
+    return False
+
+
+async def _click_dialog_ok(frame, page, timeout_ms: int = 8000) -> dict:
+    """OK the topmost visible dialog, tolerating the busy overlay.
+
+    Returns {"status": "ok", "how": "click"|"js"} or {"status": "error", ...}
+    with a message written for a human, not a stack trace.
+    """
+    sel = '.ui-dialog:visible .js-ok, .ui-dialog:visible button:has-text("OK")'
+    cleared = await _wait_unblocked(frame)
+    try:
+        await frame.locator(sel).last.click(timeout=timeout_ms)
+        return {"status": "ok", "how": "click"}
+    except Exception:
+        pass
+
+    # Fall back to a direct DOM click — immune to pointer-event interception.
+    clicked = await page.evaluate(r"""(() => {
+      const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
+      const vis=e=>e&&e.offsetParent!==null;
+      const dl=[...d.querySelectorAll('.ui-dialog, .modal.in')].filter(vis).pop(); if(!dl) return 'nodialog';
+      const b=dl.querySelector('.js-ok')
+        || [...dl.querySelectorAll('button, a.btn')].find(x=>/^ok$/i.test((x.innerText||'').trim()));
+      if(!b) return 'nobutton'; b.click(); return 'ok';
+    })()""")
+    if clicked == "ok":
+        return {"status": "ok", "how": "js"}
+
+    # Both paths failed — say WHY in the portal's own terms.
+    if not cleared:
+        msg = ("The portal stayed busy (loading overlay never cleared) and wouldn't "
+               "accept the OK click. It may be under load — try again in a moment.")
+    elif clicked == "nodialog":
+        msg = "The dialog closed before it could be confirmed."
+    else:
+        msg = f"Couldn't confirm the dialog (OK button: {clicked})."
+    return {"status": "error", "message": msg}
+
+
 async def open_feasibility(frame) -> dict:
     btn = frame.locator(".js-anonymous-add-survey").first
     await btn.wait_for(state="visible", timeout=45000)
@@ -246,14 +341,19 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
         return r
     await asyncio.sleep(2)
 
+    # Each step below is reported so a failure names the step it happened on.
+    # Emission is additive — it must never change what the portal flow does.
+    stage("checking_address")
     r = await select_address(frame, payload["address"])
     if r["status"] != "ok":
         return r
 
+    stage("checking_plan")
     r = await select_plan(frame, payload["plan"])
     if r["status"] != "ok":
         return r
 
+    stage("placing_order")
     order_btn = frame.locator(".js-orderNow").first
     order_ready = (await order_btn.is_enabled()) if await order_btn.count() else False
 
@@ -274,10 +374,12 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
     cust = payload.get("customer", {})
     ic = cust.get("id_number")
     if ic:
+        stage("attaching_customer")
         r = await attach_customer(frame, ic, cust.get("name", ""), cust.get("id_type", "MyKad"))
         if r["status"] != "ok":
             return r
 
+    stage("capturing_order_no")
     await asyncio.sleep(3)  # let the New Connection order-detail page render
     order_id = await _capture_order_id(frame)
     if not order_id:
@@ -415,9 +517,11 @@ async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = 
         import traceback
         traceback.print_exc()  # full traceback -> job log for debugging
         popup = await _capture_dialog_message(page) if page is not None else None
+        # Prefer the portal's own popup text; otherwise a humanised summary. The
+        # verbatim exception still rides along for the job log.
         return {"status": "error", "stage": "order_entry",
                 "error": "portal_error" if popup else "exception",
-                "message": popup or f"{type(e).__name__}: {e}",
+                "message": popup or humanize_error(e),
                 "exception": f"{type(e).__name__}: {e}"}
     finally:
         await dealer_web_login.safe_teardown(pw, browser, context)
@@ -659,10 +763,15 @@ async def set_winback_tagging(frame, page, value: str = "HSBA Wireless Access") 
     return {"status": "ok", "stage": "winback"}
 
 
-async def complete_new_connection(page, payload: dict = None) -> dict:
+async def complete_new_connection(page, payload: dict = None, on_stage=None) -> dict:
     """New Connection page 1: Installation Contact + NEW billing Account + Winback.
     Stops before Next. Fields differ per offer — each step skips cleanly if its
     field is absent. Returns {status:'ok'|'error', steps:{...}}."""
+    def stage(n):
+        if on_stage:
+            try: on_stage(n)
+            except Exception: pass
+
     frame = _frame(page)
     await cancel_customer_popup(page)
     payload = payload or {}
@@ -671,10 +780,13 @@ async def complete_new_connection(page, payload: dict = None) -> dict:
 
     steps = {}
     await cancel_customer_popup(page)
+    stage("installation_contact")
     steps["install_contact"] = await set_installation_contact(frame, page)
     await cancel_customer_popup(page)
+    stage("billing_account")
     steps["account"] = await create_billing_account(frame, page, acct_name)
     await cancel_customer_popup(page)
+    stage("winback_tagging")
     steps["winback"] = await set_winback_tagging(frame, page)
 
     for name, r in steps.items():
@@ -778,11 +890,10 @@ async def _pick_voice_number(frame, page) -> dict:
     if not selected:
         return {"status": "error", "error": "voice_number_not_selected",
                 "stage": "voice_number", "message": "no number card became 'selected'"}
-    try:
-        await frame.locator('.ui-dialog:visible .js-ok, '
-                            '.ui-dialog:visible button:has-text("OK")').last.click(timeout=6000)
-    except Exception as e:
-        return {"status": "error", "error": "voice_ok_failed", "stage": "voice_number", "message": str(e)}
+    ok = await _click_dialog_ok(frame, page, timeout_ms=6000)
+    if ok["status"] != "ok":
+        return {"status": "error", "error": "voice_ok_failed", "stage": "voice_number",
+                "message": f"Confirming the voice number failed. {ok['message']}"}
     await asyncio.sleep(2)
     return {"status": "ok", "stage": "voice_number"}
 
@@ -799,9 +910,14 @@ async def _subproduct_tabs(frame):
     return out
 
 
-async def fill_subproduct_tabs(page, payload: dict) -> dict:
+async def fill_subproduct_tabs(page, payload: dict, on_stage=None) -> dict:
     """Fill Broadband / Voice / TV tabs (Bundle already done on page 1). Reveals
     the 4th (TV) tab via the pager. Returns {status, tabs:{...}}."""
+    def stage(n):
+        if on_stage:
+            try: on_stage(n)
+            except Exception: pass
+
     frame = _frame(page)
     email = (payload.get("customer", {}).get("contact", {}) or {}).get("email", "") if payload else ""
     results = {}
@@ -855,6 +971,7 @@ async def fill_subproduct_tabs(page, payload: dict) -> dict:
         # Device selection lives on the BROADBAND tab only (verified live) — its
         # "Select Offer" opens the 126-row device picker. Voice/TV have no device.
         if "Broadband" in txt:
+            stage("selecting_device")
             dev = await select_device(page, payload)
             results[txt]["device"] = dev
             if dev.get("status") not in ("ok", "skipped"):
@@ -1012,12 +1129,14 @@ async def select_device(page, payload: dict) -> dict:
         return {"status": "error", "error": "device_rejected", "stage": "device",
                 "message": rej, "device": dev_name or dev_code}
 
-    # OK the Offer dialog.
-    try:
-        await frame.locator('.ui-dialog:visible .js-ok, '
-                            '.ui-dialog:visible button:has-text("OK")').last.click(timeout=8000)
-    except Exception as e:
-        return {"status": "error", "error": "device_ok_failed", "stage": "device", "message": str(e)}
+    # OK the Offer dialog. Ticking the device fires an AJAX price refresh, so the
+    # busy overlay is very often still up at this exact moment — this is the click
+    # that produced the "intercepts pointer events" timeouts.
+    ok = await _click_dialog_ok(frame, page)
+    if ok["status"] != "ok":
+        return {"status": "error", "error": "device_ok_failed", "stage": "device",
+                "message": f"Confirming the device selection failed. {ok['message']}",
+                "device": dev_name or dev_code}
     await asyncio.sleep(2)
     # A rejection can also surface only after OK.
     rej = await _dismiss_popup_ok(frame, page, exclude_title_re=r"offer")
@@ -1101,10 +1220,16 @@ async def _select_attach_type(page, container_key: str, label_re: str) -> str:
 
 
 async def fill_customer_order_info(page, payload: dict,
-                                   im_paths: list = None, id_paths: list = None) -> dict:
+                                   im_paths: list = None, id_paths: list = None,
+                                   on_stage=None) -> dict:
     """Fill the Customer Order Information page. im_paths/id_paths are local files
     (downloaded from R2). IM Conversation goes in container 1 (locked type); each
     ID file gets its own container with Attachment Type = 'ID copy'."""
+    def stage(n):
+        if on_stage:
+            try: on_stage(n)
+            except Exception: pass
+
     frame = _frame(page)
     im_paths = im_paths or []
     id_paths = id_paths or []
@@ -1123,6 +1248,7 @@ async def fill_customer_order_info(page, payload: dict,
     await asyncio.sleep(2.5)  # let the page finish laying out before we touch fields
 
     # ── Attachments ──────────────────────────────────────────────────────────
+    stage("uploading_attachments")
     # Container 1 is locked to IM Conversation. Set the IM file there.
     if im_paths:
         try:
@@ -1175,12 +1301,15 @@ async def fill_customer_order_info(page, payload: dict,
                     "stage": "attachments", "message": f"id#{i}: {e}"}
 
     # ── Appointment (earliest available slot > 12h) ──────────────────────────
+    stage("appointment")
     appt = await _set_appointment(page)
     steps["appointment"] = appt.get("status")
     if appt.get("status") not in ("ok", "skipped"):
         return {"status": "error", "error": "appointment_failed",
                 "stage": "appointment", "message": appt.get("message"), "steps": steps}
 
+    # ── Delivery details + order confirmation ────────────────────────────────
+    stage("delivery_terms")
     # ── Default From Billing Address (check -> "Enter Address" popup -> OK) ────
     # The popup is a plain form dialog (NOT warn/error), so _dismiss_popup_ok
     # won't touch it — explicitly OK the "Enter Address" dialog (its fields are
@@ -1461,7 +1590,7 @@ async def submit_new_connection(page, payload: dict, im_paths: list = None,
             except Exception: pass
 
     stage("new_connection_page1")
-    r = await complete_new_connection(page, payload)
+    r = await complete_new_connection(page, payload, on_stage=on_stage)
     print(f"    ↳ page1: {r}", flush=True)
     if r.get("status") != "ok":
         return r
@@ -1469,7 +1598,7 @@ async def submit_new_connection(page, payload: dict, im_paths: list = None,
     # Sub-tabs (Broadband/Voice/TV). Device selection happens INSIDE this step, on
     # the Broadband tab (fill_subproduct_tabs calls select_device there).
     stage("subproduct_tabs")
-    r = await fill_subproduct_tabs(page, payload)
+    r = await fill_subproduct_tabs(page, payload, on_stage=on_stage)
     print(f"    ↳ subproduct_tabs: {r}", flush=True)
     if r.get("status") != "ok":
         return r
@@ -1484,7 +1613,8 @@ async def submit_new_connection(page, payload: dict, im_paths: list = None,
         return {"status": "error", "stage": "customer_order_info",
                 "error": nx.get("error", "next_blocked"),
                 "message": nx.get("message", "Next did not advance to Customer Order Information.")}
-    r = await fill_customer_order_info(page, payload, im_paths=im_paths, id_paths=id_paths)
+    r = await fill_customer_order_info(page, payload, im_paths=im_paths,
+                                       id_paths=id_paths, on_stage=on_stage)
     print(f"    ↳ customer_order_info: {r}", flush=True)
     if r.get("status") != "ok":
         return r

@@ -78,6 +78,14 @@ model Order {
   orderId        String?   @map("order_id")   // dealer portal order number
   errorMessage   String?   @map("error_message")
 
+  // Live submit progress. The scraper reports a stage key per portal milestone;
+  // the browser polls for it rather than holding a long request open.
+  // jobId is what lets a poll AFTER the submitting tab is gone still reconcile
+  // the run — without it, a closed tab strands the order in `submitting`.
+  jobId          String?   @map("job_id")      // Flask job id for the in-flight run
+  stage          String?                        // last stage key seen (e.g. checking_address)
+  stageAt        DateTime? @map("stage_at")     // when `stage` last changed — staleness check
+
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 

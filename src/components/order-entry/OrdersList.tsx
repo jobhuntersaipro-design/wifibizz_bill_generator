@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import { toast } from "sonner";
-import { listOrders, submitOrder, deleteOrder } from "@/actions/order";
+import { listOrders, startSubmit, deleteOrder } from "@/actions/order";
 import type { OrderListItem } from "@/lib/order-types";
+import { SubmitProgress } from "./SubmitProgress";
 
 const STATUS_STYLES: Record<string, string> = {
   draft: "bg-[#E3E8EF] text-[#425466]",
@@ -47,72 +48,195 @@ function formatAddress(o: OrderListItem): string {
 // resourceInstId — not merely that the agent typed something well-formed.
 const isVerified = (o: OrderListItem) => !!o.addressId?.trim();
 
+// One poll's view of an in-flight submit, as returned by the progress route.
+interface ProgressState {
+  status: string;
+  stage: string | null;
+  orderId: string | null;
+  errorMessage: string | null;
+  done: boolean;
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// A row shows its step checklist while it runs, and keeps it after a failure so
+// the agent can see which step stopped it.
+const hasProgress = (o: OrderListItem) =>
+  o.status === "submitting" || ((o.status === "failed" || o.status === "warning") && !!o.stage);
+
 export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   const [orders, setOrders] = useState<OrderListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  // Set when the list itself couldn't be fetched — shown instead of an empty
+  // table, so a server-side failure never masquerades as "no drafts".
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [batchRunning, setBatchRunning] = useState(false);
+  // Rows whose submit checklist is open. Opens itself when a submit starts.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // Superadmins see everyone's drafts + a "Made By" column.
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
 
   // Fetch on mount — setState happens in the async callback (not synchronously
   // in the effect body), so it doesn't cause a cascading render.
+  //
+  // The catch is load-bearing, not defensive habit: a rejected server action
+  // skips .then entirely, so without it `loading` stays true and the user waits
+  // on a spinner forever with the real error invisible in the console.
   useEffect(() => {
     let active = true;
-    listOrders().then((res) => {
-      if (!active) return;
-      if (res.success) {
-        setOrders(res.data);
-        setIsSuperAdmin(!!res.isSuperAdmin);
-      }
-      setLoading(false);
-    });
+    listOrders()
+      .then((res) => {
+        if (!active) return;
+        if (res.success) {
+          setOrders(res.data);
+          setIsSuperAdmin(!!res.isSuperAdmin);
+        } else {
+          setLoadError(res.error ?? "Couldn't load drafts.");
+        }
+      })
+      .catch((e) => {
+        if (!active) return;
+        console.error("[OrdersList] listOrders failed:", e);
+        setLoadError("Couldn't load drafts. Reload the page — if it keeps failing, the server is erroring.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
     return () => {
       active = false;
     };
   }, []);
 
   async function reload() {
-    const res = await listOrders();
-    if (res.success) {
-      setOrders(res.data);
-      setIsSuperAdmin(!!res.isSuperAdmin);
+    try {
+      const res = await listOrders();
+      if (res.success) {
+        setOrders(res.data);
+        setIsSuperAdmin(!!res.isSuperAdmin);
+        setLoadError(null);
+      }
+    } catch (e) {
+      console.error("[OrdersList] reload failed:", e);
+      toast.error("Couldn't refresh the drafts list.");
+      // Also record it, so a failed "Try again" shows the error state again
+      // rather than silently falling through to "No orders yet".
+      setLoadError("Couldn't load drafts. Reload the page — if it keeps failing, the server is erroring.");
     }
   }
 
-  // While an order is mid-flight, poll so the live status transitions
-  // (submitting -> order entered -> submitted) show up without a manual refresh.
-  const processing = orders.some(
-    (o) => o.status === "submitting" || o.status === "order_entered",
-  );
+  // Ids this tab is already following, so two loops never poll the same order.
+  const followingRef = useRef<Set<string>>(new Set());
+
+  // Follow one in-flight submit to completion, writing each stage into the row
+  // as it arrives. The server does the finalizing, so abandoning this loop (a
+  // closed tab, a navigation) can't strand the order — the next listOrders
+  // reconciles it.
+  async function followProgress(id: string): Promise<ProgressState | null> {
+    // Generous: the full portal flow can run ~10 minutes at 2s per poll.
+    for (let i = 0; i < 400; i++) {
+      await sleep(2000);
+      let state: ProgressState;
+      try {
+        const res = await fetch(`/api/orders/${id}/progress`, { cache: "no-store" });
+        if (!res.ok) continue; // transient — the run is still the server's to finish
+        state = (await res.json()) as ProgressState;
+      } catch {
+        continue;
+      }
+      setOrders((o) =>
+        o.map((x) =>
+          x.id === id
+            ? {
+                ...x,
+                status: state.status,
+                stage: state.stage,
+                orderId: state.orderId,
+                errorMessage: state.errorMessage,
+              }
+            : x,
+        ),
+      );
+      if (state.done) return state;
+    }
+    return null;
+  }
+
+  // Pick up any order that is mid-flight but unfollowed here — one started in
+  // another tab, or one still running when this page was opened. Without this,
+  // such a row would sit on "Submitting" until a manual refresh.
+  const submittingIds = orders
+    .filter((o) => o.status === "submitting")
+    .map((o) => o.id)
+    .join(",");
   useEffect(() => {
-    if (!processing) return;
-    const t = setInterval(() => {
-      listOrders().then((res) => {
-        if (res.success) {
-          setOrders(res.data);
-          setIsSuperAdmin(!!res.isSuperAdmin);
-        }
-      });
-    }, 4000);
-    return () => clearInterval(t);
-  }, [processing]);
+    for (const id of submittingIds ? submittingIds.split(",") : []) {
+      if (followingRef.current.has(id)) continue;
+      followingRef.current.add(id);
+      // set-state-in-effect can't see that followProgress awaits a 2s sleep
+      // before it ever calls setOrders — nothing here renders synchronously.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      void followProgress(id).finally(() => followingRef.current.delete(id));
+    }
+    // Keyed on the id list only: followProgress closes over setOrders alone, so
+    // re-running on every render would just churn.
+  }, [submittingIds]);
 
   // Core submit for one order. Returns true on success (used by both the per-row
   // button and the batch runner). Toasts show the customer name + detail.
   async function runSubmit(id: string, name: string): Promise<boolean> {
-    setOrders((o) => o.map((x) => (x.id === id ? { ...x, status: "submitting" } : x)));
-    const res = await submitOrder(id);
-    if (res.success) {
-      if (res.warning) toast.warning(name, { description: res.warning });
-      else if (res.orderId) toast.success(name, { description: `Order No. ${res.orderId}` });
-      else toast.success(name, { description: res.message ?? "Order entered." });
+    // Claim it BEFORE the row flips to "submitting" — otherwise the pick-up
+    // effect sees an unfollowed in-flight row and starts a second poll loop.
+    followingRef.current.add(id);
+    setOrders((o) =>
+      o.map((x) =>
+        x.id === id
+          ? { ...x, status: "submitting", stage: "creating_customer", errorMessage: null }
+          : x,
+      ),
+    );
+    setExpanded((prev) => new Set(prev).add(id));
+
+    const res = await startSubmit(id);
+    if (!res.success) {
+      followingRef.current.delete(id);
+      // The preflight already wrote the failure (and its stage) to the row.
+      setOrders((o) =>
+        o.map((x) =>
+          x.id === id ? { ...x, status: "failed", errorMessage: res.error ?? null } : x,
+        ),
+      );
+      toast.error(name, { description: res.error ?? "Submit failed" });
+      return false;
+    }
+
+    const final = await followProgress(id).finally(() =>
+      followingRef.current.delete(id),
+    );
+    if (!final) {
+      toast.message(name, {
+        description: "Still running — it will finish on its own; reopen the list to check.",
+      });
+      return false;
+    }
+    if (final.status === "submitted") {
+      toast.success(name, {
+        description: final.orderId ? `Order No. ${final.orderId}` : "Submitted.",
+      });
       return true;
     }
-    toast.error(name, { description: res.error ?? "Submit failed" });
+    if (final.status === "warning") {
+      toast.warning(name, { description: final.errorMessage ?? "Needs checking in the portal." });
+      return false;
+    }
+    if (final.status === "order_entered") {
+      toast.success(name, { description: "Customer profile created." });
+      return true;
+    }
+    toast.error(name, { description: final.errorMessage ?? "Submit failed" });
     return false;
   }
 
@@ -183,6 +307,28 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
       <div className="bg-white rounded-lg border border-[#E3E8EF] p-12 flex flex-col items-center gap-3">
         <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />
         <p className="text-sm text-[#697386]">Loading orders…</p>
+      </div>
+    );
+  }
+
+  // Checked BEFORE the empty state: a failed fetch also leaves `orders` empty,
+  // and "No orders yet" would be a lie that hides a broken server.
+  if (loadError) {
+    return (
+      <div className="bg-white rounded-lg border border-red-200 p-10 text-center">
+        <p className="text-sm font-medium text-red-700">Couldn&apos;t load drafts</p>
+        <p className="text-xs text-[#697386] mt-1 max-w-md mx-auto leading-snug">{loadError}</p>
+        <button
+          type="button"
+          onClick={() => {
+            setLoading(true);
+            setLoadError(null);
+            reload().finally(() => setLoading(false));
+          }}
+          className="mt-4 rounded-md bg-[#635BFF] px-4 py-2 text-[12px] font-semibold text-white hover:bg-[#0A2540] transition-colors"
+        >
+          Try again
+        </button>
       </div>
     );
   }
@@ -306,7 +452,8 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
               </tr>
             )}
             {filtered.map((o) => (
-              <tr key={o.id} className="border-b border-[#E3E8EF] last:border-0 hover:bg-[#F6F9FC]/60">
+              <Fragment key={o.id}>
+              <tr className={`border-b border-[#E3E8EF] last:border-0 hover:bg-[#F6F9FC]/60 ${expanded.has(o.id) && hasProgress(o) ? "border-b-0" : ""}`}>
                 <td className="px-4 py-3 align-middle">
                   {canSubmit(o) ? (
                     <input
@@ -367,13 +514,34 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                     )}
                     {STATUS_LABELS[o.status] ?? o.status}
                   </span>
-                  {(o.status === "failed" || o.status === "warning") && o.errorMessage && (
-                    <div
-                      className={`text-[10px] mt-1 max-w-60 leading-snug ${o.status === "warning" ? "text-amber-700" : "text-red-600"}`}
+                  {hasProgress(o) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpanded((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(o.id)) next.delete(o.id);
+                          else next.add(o.id);
+                          return next;
+                        })
+                      }
+                      aria-expanded={expanded.has(o.id)}
+                      className="mt-1 block text-[10px] font-medium text-[#635BFF] hover:underline"
                     >
-                      {o.errorMessage}
-                    </div>
+                      {expanded.has(o.id) ? "Hide steps" : "Show steps"}
+                    </button>
                   )}
+                  {/* When the checklist is open it already carries the message,
+                      so don't print it twice. */}
+                  {(o.status === "failed" || o.status === "warning") &&
+                    o.errorMessage &&
+                    !(expanded.has(o.id) && hasProgress(o)) && (
+                      <div
+                        className={`text-[10px] mt-1 max-w-60 leading-snug ${o.status === "warning" ? "text-amber-700" : "text-red-600"}`}
+                      >
+                        {o.errorMessage}
+                      </div>
+                    )}
                 </td>
                 <td className="px-4 py-3 align-middle tabular-nums text-[#0A2540]">
                   {o.orderId ? (
@@ -432,6 +600,19 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                   </div>
                 </td>
               </tr>
+              {expanded.has(o.id) && hasProgress(o) && (
+                <tr className="border-b border-[#E3E8EF] last:border-0">
+                  <td colSpan={isSuperAdmin ? 8 : 7} className="p-0">
+                    <SubmitProgress
+                      stage={o.stage}
+                      status={o.status}
+                      errorMessage={o.errorMessage}
+                      orderId={o.orderId}
+                    />
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
           </tbody>
         </table>
