@@ -127,6 +127,22 @@ export function searchKeywordFrom(input: string): string {
 }
 
 /**
+ * A comparison key for "is this the same installation address?".
+ *
+ * Punctuation and spacing differ freely between what an agent types and what
+ * the portal returns for the very same unit ("NO.12, JALAN X" vs "NO 12 JALAN
+ * X"), so both collapse to the same key. A trailing "MALAYSIA" is dropped for
+ * the same reason — it is optional in practice and carries no information.
+ *
+ * Returns "" for input with nothing comparable in it, which callers must treat
+ * as "no key" rather than as a match — otherwise every blank address would
+ * collide with every other blank one.
+ */
+export function addressKey(input: string): string {
+  return normalizeKey(normalizeAddress(input || "").replace(/\bMALAYSIA\b/g, " "));
+}
+
+/**
  * Drop the leading unit/house token ("A-07-15") from a keyword. Used as a
  * second, wider attempt when the portal returns nothing for the exact address —
  * it indexes street and building names more reliably than unit numbers.

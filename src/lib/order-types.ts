@@ -40,8 +40,14 @@ export interface OrderListItem {
   idType: string;
   idNumber: string;
   offerName: string | null;
+  street: string | null;
+  postcode: string | null;
   city: string | null;
   state: string | null;
+  // The portal's own concatAddress, written back when the address was confirmed
+  // against Unifi — its presence (with addressId) is what "verified" means here.
+  addressFull: string | null;
+  addressId: string | null;
   status: string; // draft | submitting | submitted | failed
   orderId: string | null;
   errorMessage: string | null;

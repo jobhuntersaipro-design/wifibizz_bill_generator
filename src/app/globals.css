@@ -545,6 +545,23 @@
   animation: field-flash 900ms ease-out both;
 }
 
+/* ── Drafts list: portal-verified address badge ──────────────────────────── */
+
+/* A soft green halo that breathes slowly, so a verified address reads as a live
+   portal-confirmed fact without competing with the row's Submit button. The
+   tick draws itself once on mount as the badge appears. */
+@keyframes verified-halo {
+  0%, 65%, 100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
+  32%           { box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15); }
+}
+.badge-verified {
+  animation: verified-halo 3.2s ease-in-out infinite;
+}
+.badge-verified svg path {
+  stroke-dasharray: 24;
+  animation: drawCheck 500ms ease-out 120ms both;
+}
+
 /* Respect the OS "reduce motion" setting across the whole app: keep state
    changes instant instead of animating them, but never hide content (the
    entrance animations use fill-mode both, so they must still resolve). */

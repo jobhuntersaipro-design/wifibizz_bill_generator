@@ -5,6 +5,7 @@ import {
   toPortalState,
   searchKeywordFrom,
   widenKeyword,
+  addressKey,
 } from "@/lib/malaysia-address";
 
 // The shape the portal itself returns as `concatAddress`.
@@ -181,5 +182,28 @@ describe("parseMalaysianAddress", () => {
       state: undefined,
       city: undefined,
     });
+  });
+});
+
+describe("addressKey", () => {
+  it("ignores punctuation, case and spacing differences", () => {
+    expect(addressKey("NO.12, Jalan Mawar 3,  43000 Kajang, Selangor")).toBe(
+      addressKey("no 12 jalan mawar 3 43000 kajang selangor"),
+    );
+  });
+
+  it("ignores a trailing MALAYSIA", () => {
+    expect(addressKey(REFERENCE)).toBe(addressKey(REFERENCE.replace(" MALAYSIA", "")));
+  });
+
+  it("keeps genuinely different addresses apart", () => {
+    expect(addressKey("NO 12 JALAN MAWAR 3 43000 KAJANG SELANGOR")).not.toBe(
+      addressKey("NO 13 JALAN MAWAR 3 43000 KAJANG SELANGOR"),
+    );
+  });
+
+  it("returns an empty key for nothing comparable", () => {
+    expect(addressKey("")).toBe("");
+    expect(addressKey("  ,, -- ")).toBe("");
   });
 });

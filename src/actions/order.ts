@@ -15,7 +15,7 @@ import {
 import { MALAYSIA_STATES } from "@/lib/malaysia-states";
 import { ID_TYPES } from "@/lib/dealer-offers";
 import MY_POSTCODES from "@/lib/malaysia-postcodes.json";
-import { validateMalaysianAddress } from "@/lib/malaysia-address";
+import { addressKey, validateMalaysianAddress } from "@/lib/malaysia-address";
 
 // Static MY postcode -> [CITY, State] map (~2,900 postcodes). Reliable, offline,
 // and instant — Google geocoding returns the state but rarely the city for bare
@@ -227,6 +227,51 @@ export interface OrderInput {
   documents?: OrderDocument[];
 }
 
+/**
+ * The open draft (if any) that already holds this installation address.
+ *
+ * Compared two ways: the portal's own addressId is conclusive when both sides
+ * have one, and otherwise the normalized address text — an agent may not have
+ * confirmed the address yet, and typing differences must not hide a duplicate.
+ *
+ * Scoped to the draft's OWNER and to orders with no portal order id yet, so a
+ * completed order never blocks a genuine re-order for the same premise, and an
+ * agent is never blocked by a draft they cannot see or edit.
+ */
+async function findDuplicateAddress(
+  input: z.infer<typeof orderInputSchema>,
+  sessionUserId: string,
+): Promise<{ id: string; fullName: string } | null> {
+  const existing = input.id
+    ? await prisma.order.findUnique({ where: { id: input.id }, select: { userId: true } })
+    : null;
+  const ownerId = existing?.userId ?? sessionUserId;
+
+  const keys = new Set(
+    [input.addressFull, input.street].map((a) => addressKey(a ?? "")).filter(Boolean),
+  );
+  const portalId = input.addressId?.trim();
+  if (keys.size === 0 && !portalId) return null;
+
+  const siblings = await prisma.order.findMany({
+    where: {
+      userId: ownerId,
+      orderId: null,
+      ...(input.id ? { id: { not: input.id } } : {}),
+    },
+    select: { id: true, fullName: true, street: true, addressFull: true, addressId: true },
+  });
+
+  return (
+    siblings.find((s) => {
+      if (portalId && s.addressId?.trim() === portalId) return true;
+      return [s.addressFull, s.street]
+        .map((a) => addressKey(a ?? ""))
+        .some((k) => k && keys.has(k));
+    }) ?? null
+  );
+}
+
 export async function saveOrder(rawInput: OrderInput) {
   const session = await auth();
   if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
@@ -247,6 +292,17 @@ export async function saveOrder(rawInput: OrderInput) {
   const addrCheck = validateMalaysianAddress(input.street ?? "");
   if (!addrCheck.ok) {
     return { success: false as const, error: `Installation address — ${addrCheck.reason}` };
+  }
+
+  // One installation address may only sit on one open draft: the portal treats
+  // a second order for the same premise as a duplicate, so catching it here
+  // saves a dealer-session round trip and a rejected order.
+  const dup = await findDuplicateAddress(input, session.user.id);
+  if (dup) {
+    return {
+      success: false as const,
+      error: `This installation address is already on a draft for ${dup.fullName}. Edit that draft instead of creating a second one.`,
+    };
   }
 
   const data = {
@@ -346,8 +402,12 @@ export async function listOrders(): Promise<{
       idType: o.idType,
       idNumber: o.idNumber,
       offerName: o.offerName,
+      street: o.street,
+      postcode: o.postcode,
       city: o.city,
       state: o.state,
+      addressFull: o.addressFull,
+      addressId: o.addressId,
       status: o.status,
       orderId: o.orderId,
       errorMessage: o.errorMessage,

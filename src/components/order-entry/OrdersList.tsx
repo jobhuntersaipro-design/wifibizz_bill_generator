@@ -32,6 +32,21 @@ const STATUS_FILTERS = ["all", "draft", "order_entered", "warning", "failed", "s
 const canSubmit = (o: { status: string; orderId?: string | null }) =>
   !o.orderId && o.status !== "submitting";
 
+// The full installation address. Prefer the portal's own concatAddress when the
+// address was confirmed against Unifi — that string is the record of truth —
+// and otherwise rebuild it from the fields the agent typed.
+function formatAddress(o: OrderListItem): string {
+  if (o.addressFull?.trim()) return o.addressFull.trim();
+  return [o.street, [o.postcode, o.city].filter(Boolean).join(" "), o.state]
+    .map((p) => p?.trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
+// "Verified" means the portal returned a unit for this address and we kept its
+// resourceInstId — not merely that the agent typed something well-formed.
+const isVerified = (o: OrderListItem) => !!o.addressId?.trim();
+
 export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   const [orders, setOrders] = useState<OrderListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -276,7 +291,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
               <th className="px-4 py-3 font-medium">Customer</th>
               {isSuperAdmin && <th className="px-4 py-3 font-medium">Made By</th>}
               <th className="px-4 py-3 font-medium">Package</th>
-              <th className="px-4 py-3 font-medium">Location</th>
+              <th className="px-4 py-3 font-medium">Installation Address</th>
               <th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3 font-medium">Order No.</th>
               <th className="px-4 py-3 font-medium text-right">Actions</th>
@@ -312,7 +327,39 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                   <td className="px-4 py-3 align-middle text-[#425466] text-[12px]">{o.createdByEmail ?? "—"}</td>
                 )}
                 <td className="px-4 py-3 align-middle text-[#425466] max-w-55">{o.offerName ?? "—"}</td>
-                <td className="px-4 py-3 align-middle text-[#425466]">{[o.city, o.state].filter(Boolean).join(", ") || "—"}</td>
+                <td className="px-4 py-3 align-top text-[#425466]">
+                  {(() => {
+                    const address = formatAddress(o);
+                    if (!address) return <span className="text-[#697386]">—</span>;
+                    return (
+                      <div className="max-w-72 min-w-45">
+                        <div className="leading-snug break-words" title={address}>
+                          {address}
+                        </div>
+                        {isVerified(o) && (
+                          <span
+                            className="badge-verified mt-1.5 inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-semibold text-green-700 ring-1 ring-green-600/20"
+                            title="This address was matched against the Unifi dealer portal"
+                          >
+                            <svg
+                              className="h-3 w-3 shrink-0"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="3"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden="true"
+                            >
+                              <path d="M20 6 9 17l-5-5" />
+                            </svg>
+                            Verified on Unifi
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </td>
                 <td className="px-4 py-3 align-middle">
                   <span className={`inline-flex items-center justify-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium text-center whitespace-nowrap ${STATUS_STYLES[o.status] ?? STATUS_STYLES.draft}`}>
                     {o.status === "submitting" && (
