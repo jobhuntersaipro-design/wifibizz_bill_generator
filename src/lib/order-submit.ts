@@ -11,6 +11,12 @@
  * overlap, and reconciliation can race a live poll.
  */
 import { prisma } from "@/lib/prisma";
+import { attachStageDetail, recordEvent } from "@/lib/order-history";
+import {
+  PAGE1_SCREENSHOT_STAGE,
+  type StageDetail,
+  type StageDetails,
+} from "@/lib/order-types";
 
 const SCRAPER_API_URL = process.env.SCRAPER_API_URL ?? "http://localhost:5000";
 const ORDER_TOKEN = process.env.ORDER_ENTRY_API_TOKEN ?? "";
@@ -23,11 +29,34 @@ export interface OrderJobResult {
   warning?: string;
   error?: string;
   message?: string;
+  // Set when the portal refused a device for this package. Recorded so the
+  // picker and preflight can stop offering it — the portal only tells us this
+  // AFTER the order number exists, so learning it is the only way to avoid
+  // burning another order on the same combination.
+  rejected_device_code?: string;
+  rejected_device_name?: string;
+  // The devices the portal actually listed for this package, captured from the
+  // Offer dialog. Our stored catalogue is a superset, so this is the truth.
+  available_devices?: { code: string; name: string }[];
+  // Set when the run recovered by substituting a different device.
+  substituted_device_code?: string;
+  substituted_device_name?: string;
+}
+
+/** One stage milestone from the scraper's append-only history. */
+export interface JobStage {
+  name: string;
+  detail?: StageDetail | null;
+  at?: string;
 }
 
 export interface JobSnapshot {
   status?: string; // queued | running | done | error
   stage?: string;
+  // Append-only stage history. A fast stage used to be overwritten in `stage`
+  // before a 2s poll ever saw it, so steps went green by inference; the history
+  // is what lets a poll observe every step and its resolved value.
+  stages?: JobStage[];
   result?: OrderJobResult;
   error?: string;
 }
@@ -39,6 +68,11 @@ export interface ProgressState {
   orderId: string | null;
   errorMessage: string | null;
   done: boolean; // no further polling needed
+  // Resolved values per step, so the checklist can name the address it matched
+  // rather than just that it checked one.
+  details?: StageDetails;
+  // R2 key of this attempt's page-1 screenshot, once captured.
+  screenshotKey?: string | null;
 }
 
 /**
@@ -70,6 +104,110 @@ async function fetchJob(jobId: string): Promise<JobSnapshot | null | "unreachabl
 }
 
 /**
+ * Collapse the scraper's stage history into the latest detail per step.
+ *
+ * A stage is emitted twice — bare when it starts, again once the portal answers
+ * — so the last entry carrying a detail wins. Entries the scraper sent without
+ * a detail never clear one that already arrived.
+ */
+export function collapseStageDetails(stages: JobStage[] | undefined): StageDetails {
+  const out: StageDetails = {};
+  for (const s of stages ?? []) {
+    if (!s?.name || !s.detail?.value) continue;
+    out[s.name] = s.detail;
+  }
+  return out;
+}
+
+/**
+ * Persist everything a job's stage history tells us that the DB doesn't know yet.
+ *
+ * Runs on EVERY poll, including the one that finds the job already `done` — a
+ * run can finish between two polls, and the intermediate steps would otherwise
+ * be lost with the in-memory job record.
+ *
+ * Idempotent by construction: stage rows are inserted only for stages not yet
+ * seen on this attempt, and details only fill a row whose message is still null.
+ */
+async function drainStages(
+  id: string,
+  attempt: number,
+  stages: JobStage[] | undefined,
+  currentScreenshotUrl: string | null,
+): Promise<{ details: StageDetails; screenshotKey: string | null }> {
+  const details = collapseStageDetails(stages);
+  const screenshot = details[PAGE1_SCREENSHOT_STAGE];
+  const screenshotKey =
+    screenshot?.outcome === "ok" && screenshot.value ? screenshot.value : null;
+
+  if (!stages?.length) return { details, screenshotKey: null };
+
+  // What this attempt has already recorded, so a replayed history is a no-op.
+  // `message` comes back too: a poll every 2s over a ten-minute run would
+  // otherwise re-issue the same detail writes thousands of times.
+  const seen = await prisma.orderStatusEvent.findMany({
+    where: { orderId: id, attempt },
+    select: { stage: true, message: true },
+  });
+  const recorded = new Set<string>();
+  const needsDetail = new Set<string>();
+  for (const e of seen) {
+    if (!e.stage) continue;
+    recorded.add(e.stage);
+    if (e.message === null) needsDetail.add(e.stage);
+  }
+
+  // Order matters: insert the stage row first, then fill its detail in.
+  for (const s of stages) {
+    if (!s?.name || recorded.has(s.name)) continue;
+    recorded.add(s.name);
+    needsDetail.add(s.name);
+    await recordEvent({
+      orderId: id, attempt, status: "submitting", stage: s.name,
+      // The portal's own timing, not this poll's — otherwise a ten-minute run
+      // drained in one burst shows every step taking 0s.
+      createdAt: stageTimestamp(s.at),
+    });
+  }
+  for (const [stage, detail] of Object.entries(details)) {
+    if (!needsDetail.has(stage)) continue;
+    await attachStageDetail(id, attempt, stage, detailMessage(detail));
+  }
+
+  if (screenshotKey && screenshotKey !== currentScreenshotUrl) {
+    // Latest attempt's frame, so a collapsed row can show evidence exists
+    // without loading history.
+    await prisma.order
+      .update({ where: { id }, data: { screenshotUrl: screenshotKey } })
+      .catch((err) => console.error("[drainStages] screenshot url:", err));
+  }
+  return { details, screenshotKey };
+}
+
+/**
+ * When a stage happened, as reported by the scraper.
+ *
+ * Always read as UTC. A droplet running an older build sends a bare
+ * `utcnow().isoformat()` with no offset, which `new Date()` would interpret as
+ * LOCAL time and shift every step by the server's timezone — so a missing offset
+ * is appended rather than trusted. Anything unparseable falls back to insert
+ * time, which is late but never wrong by hours.
+ */
+export function stageTimestamp(at: string | undefined): Date | undefined {
+  if (!at) return undefined;
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(at);
+  const d = new Date(hasZone ? at : `${at}Z`);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
+/** Timeline text for a resolved stage. Failures and skips say so in words. */
+function detailMessage(d: StageDetail): string {
+  if (d.outcome === "ok") return d.value;
+  const note = d.note ? ` (${d.note})` : "";
+  return `${d.value}${note}`;
+}
+
+/**
  * Turn a finished job's result into the order's final state.
  *
  * The order of these branches matters. An `error` that still carries an
@@ -81,6 +219,28 @@ async function applyResult(
   orderId: string,
   result: OrderJobResult,
 ): Promise<ProgressState> {
+  const current = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: { attempt: true, stage: true, offerName: true, deviceName: true },
+  });
+  const attempt = current?.attempt ?? 1;
+
+  // A device substitution means the order no longer matches what the agent
+  // picked — persist it so the drafts table can't lie about what was ordered.
+  if (result.substituted_device_code) {
+    await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        deviceCode: result.substituted_device_code,
+        deviceName: result.substituted_device_name ?? null,
+      },
+    });
+    await recordEvent({
+      orderId, attempt, status: "info", stage: "selecting_device",
+      message: `Device substituted: ${current?.deviceName ?? "original"} was refused, ordered ${result.substituted_device_name ?? result.substituted_device_code} instead.`,
+    });
+  }
+
   const finish = async (data: {
     status: string;
     orderId?: string | null;
@@ -94,6 +254,10 @@ async function applyResult(
         errorMessage: data.errorMessage ?? null,
         jobId: null, // the run is over — nothing left to reconcile
       },
+    });
+    await recordEvent({
+      orderId, attempt, status: data.status, stage: o.stage,
+      message: data.errorMessage ?? null,
     });
     return {
       status: o.status,
@@ -162,6 +326,10 @@ async function finalizeMissingJob(id: string): Promise<ProgressState> {
         "for this customer before submitting again — the order may already exist.",
     },
   });
+  await recordEvent({
+    orderId: id, attempt: o.attempt, status: "warning", stage: o.stage,
+    message: o.errorMessage,
+  });
   return {
     status: o.status,
     stage: o.stage,
@@ -197,6 +365,18 @@ export async function pollOrderProgress(id: string): Promise<ProgressState | nul
   if (job === "unreachable") return current;
   if (job === null) return finalizeMissingJob(id);
 
+  // Drain the history BEFORE branching on status. A run can finish between two
+  // polls, and the intermediate steps — with the values the portal resolved —
+  // exist only in the job record, which the scraper drops on restart.
+  const { details, screenshotKey } = await drainStages(
+    id, order.attempt, job.stages, order.screenshotUrl,
+  );
+  const withDetails = (s: ProgressState): ProgressState => ({
+    ...s,
+    details,
+    screenshotKey,
+  });
+
   if (job.status === "error") {
     const o = await prisma.order.update({
       where: { id },
@@ -206,26 +386,40 @@ export async function pollOrderProgress(id: string): Promise<ProgressState | nul
         errorMessage: job.error || "The portal run failed.",
       },
     });
-    return {
+    await recordEvent({
+      orderId: id, attempt: order.attempt, status: "failed", stage: o.stage,
+      message: o.errorMessage,
+    });
+    return withDetails({
       status: o.status,
       stage: o.stage,
       orderId: o.orderId,
       errorMessage: o.errorMessage,
       done: true,
-    };
+    });
   }
 
-  if (job.status === "done") return applyResult(id, job.result ?? {});
+  if (job.status === "done") return withDetails(await applyResult(id, job.result ?? {}));
 
-  // Still running — record the stage if it moved.
+  // Still running — move the order's pointer to the latest stage. The history
+  // rows behind it were already written by drainStages, which sees every stage
+  // rather than only the one a poll happened to land on.
   if (job.stage && job.stage !== order.stage) {
     const o = await prisma.order.update({
       where: { id },
       data: { stage: job.stage, stageAt: new Date() },
     });
-    return { ...current, stage: o.stage };
+    // Older scrapers send no history, so nothing wrote this row above. Keep the
+    // pre-history behaviour for them — the droplet and Vercel deploy separately
+    // and a lagging scraper must still produce a timeline.
+    if (!job.stages?.length) {
+      await recordEvent({
+        orderId: id, attempt: order.attempt, status: "submitting", stage: job.stage,
+      });
+    }
+    return withDetails({ ...current, stage: o.stage });
   }
-  return current;
+  return withDetails(current);
 }
 
 /**

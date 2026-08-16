@@ -14,6 +14,7 @@ Returns dicts, never raises for expected flow errors; InfraError only on lost
 session. dry_run=True is the safety gate — it never clicks Order (no order created).
 """
 import asyncio
+import os
 import re
 
 import dealer_web_login
@@ -36,6 +37,35 @@ from order_entry import ORDER_ENTRY_URL, _frame, ensure_on_order_entry
 # interception). Only when BOTH fail is it a real error.
 # ─────────────────────────────────────────────────────────────────────────────
 _OVERLAY_SEL = ".blockUI, .ui-widget-overlay.blocking, .modal-backdrop.in"
+
+
+def _stage_emitter(on_stage):
+    """Build the stage(name, detail=None) reporter used by every orchestrator.
+
+    `detail` is a small JSON-safe dict — {"value": str, "outcome": ..., "note": ...}
+    — carrying what the portal actually resolved, so the checklist can say *which*
+    address matched rather than just that an address step ran.
+
+    Older BizzFlow builds pass a name-only callback, and the scraper (droplet) and
+    BizzFlow (Vercel) deploy separately, so a 2-arg call must fall back to the
+    1-arg form instead of crashing a live submit. Reporting is additive: any
+    failure here is swallowed, it must never change what the portal flow does.
+    """
+    def stage(name, detail=None):
+        if not on_stage:
+            return
+        try:
+            on_stage(name, detail)
+            return
+        except TypeError:
+            pass  # name-only callback — retry below
+        except Exception:
+            return
+        try:
+            on_stage(name)
+        except Exception:
+            pass
+    return stage
 
 
 def humanize_error(e) -> str:
@@ -132,6 +162,70 @@ async def _open_address_modal(frame):
     ).first.click(timeout=8000, force=True)
 
 
+def _contact_name(row_text: str) -> str:
+    """First non-empty cell of a contact grid row — the contact's name.
+
+    jqGrid renders a row as tab/newline separated cells; the name leads. Falls
+    back to the whole row trimmed so a layout change degrades to something
+    readable rather than to an empty label.
+    """
+    parts = [p.strip() for p in re.split(r"[\t\n]+", row_text or "") if p.strip()]
+    return parts[0] if parts else (row_text or "").strip()
+
+
+def _detail(value, outcome: str = "ok", note: str = None) -> dict:
+    """A stage detail payload: what the portal resolved, for the live checklist.
+
+    Kept to a fixed, JSON-safe shape so BizzFlow can render it without knowing
+    which stage it came from. Values are truncated — a stage detail is a label,
+    and an unbounded portal string would bloat every job poll.
+    """
+    text = ("" if value is None else str(value)).strip()
+    if len(text) > 300:
+        text = text[:297] + "..."
+    d = {"value": text, "outcome": outcome}
+    if note:
+        d["note"] = str(note)[:300]
+    return d
+
+
+def _step_detail(result: dict, key: str, fallback: str = "") -> dict:
+    """Turn a page-1 step result into a stage detail payload.
+
+    A skip means two different things on page 1 and they must NOT read the same:
+
+      not_applicable — the offer has no such field at all (Business packages
+                       carry no Winback Tagging). Nothing is wrong; flagging it
+                       would put an amber warning on every Business order.
+      unset          — the field IS on the form and we left it on
+                       "---Please select---". The portal marks it mandatory, so
+                       a green tick here would claim work that never happened.
+
+    Steps declare which via `reason`; an older step function that says neither is
+    treated as unset, because under-reporting a real gap is the worse failure.
+    """
+    result = result or {}
+    status = result.get("status")
+    if status == "ok":
+        return _detail(result.get(key) or fallback or "Set")
+    if status == "skipped":
+        note = result.get("message") or result.get("note")
+        if result.get("reason") == "not_applicable":
+            return _detail("Not applicable for this package", "not_applicable", note)
+        return _detail("Not selected", "skipped", note)
+    return _detail(result.get("message") or result.get("error") or "Failed", "failed")
+
+
+def _longest_title(titles) -> str:
+    """The address column out of a result row's td titles.
+
+    The grid has no stable column id, but the concatAddress is always by far the
+    longest cell (the others are ids, states, service categories), so the longest
+    title is the address. Empty string when the row gave us nothing.
+    """
+    return max((t for t in (titles or [])), key=len, default="")
+
+
 async def _grid_rows(frame):
     """Return [(row_locator, [td titles...]), ...] for the address results grid."""
     rows = frame.locator(".js-address-grid tr.jqgrow")
@@ -178,17 +272,17 @@ async def select_address(frame, addr: dict) -> dict:
                 "stage": "select_address", "message": "No serviceable address returned."}
 
     if address_id:
-        target = rows[0][0]  # By Address Id returns exactly one row.
+        target, target_titles = rows[0]  # By Address Id returns exactly one row.
     elif addr.get("pick_first"):
         # Capture/dev only: any serviceable row is fine (exact unit doesn't matter
         # when we just need to reach the New Connection page). NEVER set in prod.
-        target = rows[0][0]
+        target, target_titles = rows[0]
     else:
         want = (addr.get("address_full") or addr.get("keywords") or "").strip().upper()
-        target = None
+        target, target_titles = None, []
         for loc, titles in rows:
             if any(t.strip().upper() == want and len(t) > 20 for t in titles):
-                target = loc
+                target, target_titles = loc, titles
                 break
         if target is None:
             return {"status": "error", "error": "address_not_matched",
@@ -200,7 +294,11 @@ async def select_address(frame, addr: dict) -> dict:
         '.ui-dialog:has(form.js-address-form) .js-ok, .js-ok'
     ).first.click(timeout=8000)
     await asyncio.sleep(3)
-    return {"status": "ok", "stage": "select_address", "candidates": len(rows)}
+    return {"status": "ok", "stage": "select_address", "candidates": len(rows),
+            # The portal's own concatAddress for the unit it actually matched —
+            # reported to the agent so a near-miss (neighbouring unit in the same
+            # block) is visible at submit time, not after installation.
+            "matched": _longest_title(target_titles)}
 
 
 async def select_plan(frame, plan: dict) -> dict:
@@ -235,10 +333,15 @@ async def select_plan(frame, plan: dict) -> dict:
             return {"status": "error", "error": "offer_not_found", "stage": "select_plan",
                     "message": f"Plan '{name}' not serviceable here. Available: {picked.get('offers')}"}
         await asyncio.sleep(1)
-        return {"status": "ok", "stage": "select_plan"}
+        # The fuzzy path can land on an offer whose name differs from what the
+        # draft asked for, so report the portal's wording, not ours.
+        offers = picked.get("offers") or []
+        i = picked["i"]
+        return {"status": "ok", "stage": "select_plan",
+                "matched": offers[i] if 0 <= i < len(offers) else name}
     await row.click()
     await asyncio.sleep(1)
-    return {"status": "ok", "stage": "select_plan"}
+    return {"status": "ok", "stage": "select_plan", "matched": name}
 
 
 async def _capture_order_id(frame) -> str | None:
@@ -328,10 +431,7 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
                           continue_to_submit: bool = False, do_pay: bool = False,
                           im_paths: list = None, id_paths: list = None,
                           on_stage=None) -> dict:
-    def stage(n):
-        if on_stage:
-            try: on_stage(n)
-            except Exception: pass
+    stage = _stage_emitter(on_stage)
 
     await ensure_on_order_entry(page)
     frame = _frame(page)
@@ -343,15 +443,23 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
 
     # Each step below is reported so a failure names the step it happened on.
     # Emission is additive — it must never change what the portal flow does.
+    # Each step is emitted twice: once bare when it starts (so the checklist
+    # shows it running), then again with the value the portal resolved. The
+    # consumer keeps the latest detail per stage, so the pair is idempotent.
     stage("checking_address")
     r = await select_address(frame, payload["address"])
     if r["status"] != "ok":
+        stage("checking_address",
+              _detail(r.get("message") or r.get("error"), "failed"))
         return r
+    stage("checking_address", _detail(r.get("matched")))
 
     stage("checking_plan")
     r = await select_plan(frame, payload["plan"])
     if r["status"] != "ok":
+        stage("checking_plan", _detail(r.get("message") or r.get("error"), "failed"))
         return r
+    stage("checking_plan", _detail(r.get("matched")))
 
     stage("placing_order")
     order_btn = frame.locator(".js-orderNow").first
@@ -366,9 +474,12 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
                               else "NOT enabled.")}
 
     if not order_ready:
+        stage("placing_order",
+              _detail("Order button not enabled by the portal", "failed"))
         return {"status": "error", "error": "order_not_ready", "stage": "click_order"}
     await order_btn.click()
     await asyncio.sleep(4)
+    stage("placing_order", _detail("Order clicked"))
 
     # Order is customer-first: attach the (already-created) customer by IC.
     cust = payload.get("customer", {})
@@ -383,7 +494,10 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
     await asyncio.sleep(3)  # let the New Connection order-detail page render
     order_id = await _capture_order_id(frame)
     if not order_id:
+        stage("capturing_order_no",
+              _detail("Portal did not show a Customer Order Number", "failed"))
         return {"status": "error", "error": "order_id_not_found", "stage": "capture_order_id"}
+    stage("capturing_order_no", _detail(order_id))
 
     if not continue_to_submit:
         # Legacy path: confirm install contact + stop at the minted order id.
@@ -506,6 +620,8 @@ async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = 
             im_paths=im_paths, id_paths=id_paths, on_stage=on_stage)
         if result.get("status") in ("submitted", "success"):
             stage("submitted")
+        elif result.get("status") == "discovered":
+            stage("submitted")
         result["customer_created"] = not customer_existed
         result["customer_existed"] = customer_existed
         return result
@@ -592,7 +708,7 @@ async def set_installation_contact(frame, page) -> dict:
     the first contact row -> OK (grid) -> OK (Add Mode)."""
     r = await _js_click_new_window(page, "installationContact")
     if r == "noinput":
-        return {"status": "skipped", "stage": "install_contact",
+        return {"status": "skipped", "stage": "install_contact", "reason": "not_applicable",
                 "message": "no installationContact field on this offer"}
     if r != "ok":
         return {"status": "error", "error": "install_contact_expand_failed",
@@ -618,6 +734,13 @@ async def set_installation_contact(frame, page) -> dict:
                         "stage": "install_contact",
                         "message": "Select Existing Contact grid did not appear."}
             await asyncio.sleep(1)
+    # Read the contact off the row BEFORE clicking — this is the name the
+    # installer will actually be given, so the agent needs to see it.
+    picked_contact = ""
+    try:
+        picked_contact = _contact_name(await grid_row.inner_text())
+    except Exception:
+        pass
     await grid_row.click()
     await asyncio.sleep(0.5)
     await frame.locator('.ui-dialog:visible .js-btn-ok').last.click(timeout=8000)
@@ -629,7 +752,7 @@ async def set_installation_contact(frame, page) -> dict:
     except Exception:
         pass
     await asyncio.sleep(1.5)
-    return {"status": "ok", "stage": "install_contact"}
+    return {"status": "ok", "stage": "install_contact", "selected": picked_contact}
 
 
 async def create_billing_account(frame, page, acct_name: str = "") -> dict:
@@ -641,7 +764,8 @@ async def create_billing_account(frame, page, acct_name: str = "") -> dict:
     the offer has no account field."""
     acct_input = frame.locator('input[name="acctId"]:not(.js-acct-combobox)').first
     if not await acct_input.count():
-        return {"status": "skipped", "stage": "account", "note": "no account field"}
+        return {"status": "skipped", "stage": "account", "reason": "not_applicable",
+                "note": "no account field"}
     addon = acct_input.locator(
         'xpath=following-sibling::span[contains(@class,"input-group-addon")]').first
     try:
@@ -751,26 +875,64 @@ async def set_winback_tagging(frame, page, value: str = "HSBA Wireless Access") 
     # Field genuinely absent (e.g. Unifi Home 100Mbps PrimePromo has no Winback) OR
     # can't open → SKIP, never block the flow (fields differ per offer; don't lock).
     if opened != "opened":
-        return {"status": "skipped", "stage": "winback", "message": f"winback not applicable ({opened})"}
+        return {"status": "skipped", "stage": "winback", "reason": "not_applicable",
+                "message": f"winback not applicable ({opened})"}
     await asyncio.sleep(1)
     try:
         await frame.locator(
             f'ul.combobox-dropdown:visible li[title="{value}"]').first.click(timeout=6000)
     except Exception as e:
-        return {"status": "skipped", "stage": "winback",
+        # The field exists and is still on "---Please select---". The portal
+        # treats it as mandatory, so this is UNSET, not not-applicable.
+        return {"status": "skipped", "stage": "winback", "reason": "unset",
                 "message": f"winback option '{value}' not found ({type(e).__name__})"}
     await asyncio.sleep(0.5)
-    return {"status": "ok", "stage": "winback"}
+    return {"status": "ok", "stage": "winback", "selected": value}
+
+
+async def capture_page1_screenshot(page, payload: dict) -> dict | None:
+    """Full-page PNG of the New Connection page -> R2. Never raises.
+
+    A screenshot is evidence, not part of the order, so every failure path here
+    is non-fatal: a broken bucket, missing credentials or a slow render must not
+    cost an order that is already minted in the portal. Returns a stage detail
+    payload (the R2 key on success, the reason on failure), or None when capture
+    is switched off or the payload has no order to file it under.
+
+    Set OE_CAPTURE_PAGE1=false to disable without a redeploy.
+    """
+    if os.environ.get("OE_CAPTURE_PAGE1", "true").strip().lower() in ("false", "0", "no"):
+        return None
+
+    ref = (payload or {}).get("order_ref") or {}
+    user_id, order_id = ref.get("user_id"), ref.get("order_id")
+    if not user_id or not order_id:
+        # An older BizzFlow that doesn't send order_ref — there is nowhere to
+        # file the image, so skip silently rather than invent a key.
+        return None
+
+    try:
+        png = await page.screenshot(full_page=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  ⚠ page-1 screenshot failed: {type(e).__name__}: {e}", flush=True)
+        return _detail("Screenshot not captured", "failed", f"{type(e).__name__}: {e}")
+
+    try:
+        from r2_upload import screenshot_key, upload_bytes
+        key = screenshot_key(user_id, order_id, ref.get("attempt", 1))
+        upload_bytes(key, png, "image/png")
+        print(f"  ✓ page-1 screenshot uploaded: {key}", flush=True)
+        return _detail(key)
+    except Exception as e:  # noqa: BLE001
+        print(f"  ⚠ page-1 screenshot upload failed: {type(e).__name__}: {e}", flush=True)
+        return _detail("Screenshot not stored", "failed", f"{type(e).__name__}: {e}")
 
 
 async def complete_new_connection(page, payload: dict = None, on_stage=None) -> dict:
     """New Connection page 1: Installation Contact + NEW billing Account + Winback.
     Stops before Next. Fields differ per offer — each step skips cleanly if its
     field is absent. Returns {status:'ok'|'error', steps:{...}}."""
-    def stage(n):
-        if on_stage:
-            try: on_stage(n)
-            except Exception: pass
+    stage = _stage_emitter(on_stage)
 
     frame = _frame(page)
     await cancel_customer_popup(page)
@@ -782,12 +944,24 @@ async def complete_new_connection(page, payload: dict = None, on_stage=None) -> 
     await cancel_customer_popup(page)
     stage("installation_contact")
     steps["install_contact"] = await set_installation_contact(frame, page)
+    stage("installation_contact", _step_detail(steps["install_contact"], "selected"))
     await cancel_customer_popup(page)
     stage("billing_account")
     steps["account"] = await create_billing_account(frame, page, acct_name)
+    stage("billing_account", _step_detail(steps["account"], "name", acct_name))
     await cancel_customer_popup(page)
     stage("winback_tagging")
     steps["winback"] = await set_winback_tagging(frame, page)
+    # A skipped winback is the portal's mandatory field left at "---Please
+    # select---". That is not a success — it is reported as such so the agent
+    # sees an amber step rather than a tick over an unset required field.
+    stage("winback_tagging", _step_detail(steps["winback"], "selected"))
+
+    # The page-1 screenshot is the audit frame: order no, address, contact,
+    # offer, account and winback in one image, as the portal rendered them.
+    shot = await capture_page1_screenshot(page, payload)
+    if shot:
+        stage("page1_captured", shot)
 
     for name, r in steps.items():
         if r.get("status") not in ("ok", "skipped"):
@@ -910,17 +1084,31 @@ async def _subproduct_tabs(frame):
     return out
 
 
+
+_DEVICE_PASSTHROUGH = ("rejected_device_code", "rejected_device_name",
+                       "substituted_device_code", "substituted_device_name",
+                       "available_devices")
+
+
+def _carry_device_info(dest: dict, dev: dict) -> dict:
+    """Copy the device diagnostics onto an outer result, dropping empties."""
+    for k in _DEVICE_PASSTHROUGH:
+        if dev.get(k):
+            dest[k] = dev[k]
+    if dev.get("warning") and not dest.get("warning"):
+        dest["warning"] = dev["warning"]
+    return dest
+
+
 async def fill_subproduct_tabs(page, payload: dict, on_stage=None) -> dict:
     """Fill Broadband / Voice / TV tabs (Bundle already done on page 1). Reveals
     the 4th (TV) tab via the pager. Returns {status, tabs:{...}}."""
-    def stage(n):
-        if on_stage:
-            try: on_stage(n)
-            except Exception: pass
+    stage = _stage_emitter(on_stage)
 
     frame = _frame(page)
     email = (payload.get("customer", {}).get("contact", {}) or {}).get("email", "") if payload else ""
     results = {}
+    device_info = None
     # Reveal all tabs by paging right if a pager exists.
     for _ in range(4):
         pager = frame.locator('.ui-tabs-paging-next:visible, .glyphicon-chevron-right:visible').first
@@ -974,11 +1162,20 @@ async def fill_subproduct_tabs(page, payload: dict, on_stage=None) -> dict:
             stage("selecting_device")
             dev = await select_device(page, payload)
             results[txt]["device"] = dev
+            if dev.get("status") == "discovered":
+                # Catalogue discovery — nothing more to fill in.
+                return {"status": "discovered", "stage": "device", "tab": txt,
+                        "offered": dev.get("offered", []),
+                        "groups": dev.get("groups", []),
+                        "available_devices": dev.get("offered", []), "tabs": results}
             if dev.get("status") not in ("ok", "skipped"):
-                return {"status": "error", "stage": "device", "tab": txt,
-                        "error": dev.get("error"), "message": dev.get("message"),
-                        "tabs": results}
-    return {"status": "ok", "stage": "subproduct_tabs", "tabs": results}
+                return _carry_device_info({
+                    "status": "error", "stage": "device", "tab": txt,
+                    "error": dev.get("error"), "message": dev.get("message"),
+                    "tabs": results}, dev)
+            device_info = dev
+    out = {"status": "ok", "stage": "subproduct_tabs", "tabs": results}
+    return _carry_device_info(out, device_info) if device_info else out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -989,6 +1186,241 @@ async def fill_subproduct_tabs(page, payload: dict, on_stage=None) -> dict:
 # matches src/lib/dealer-devices.ts.  Rejections are per-device AND per-account
 # (surface, don't retry blindly).
 # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# The Offer dialog is a GROUPED grid, and the grouping is what decides which
+# devices a package may actually carry.
+#
+# It opens with every group collapsed, listing rows like
+#     Unifi Home 500Mbps Mesh WIFI [Pick 0-2]
+#     Unifi Home 500Mbps Premium Value With Device[Pick 0-1] *
+# The red "*" marks the MANDATORY groups for this package — and only those hold
+# the devices that may be ordered. A package with no starred group needs no
+# device at all (verified: 100Mbps Premium Value has none).
+#
+# This matters because our own catalogue (src/lib/dealer-devices.ts) came from
+# the portal's VAS tree and contains entirely different offers — e.g. it lists
+# "LG 75inch TV (24mth contract)" while the starred group for that same package
+# holds "Premium Value Samsung TV 55inch 1 (RM20)". Picking from the catalogue is
+# what produced "the current offer can't be subscribed through Contactless
+# Journey": the device was never on offer for that package.
+#
+# So the dialog itself is the source of truth. We expand the starred groups, read
+# their rows, and hand them back to BizzFlow, which caches them per package so
+# the agent's picker can offer exactly these next time.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# A group header carries its pick-range, e.g. "[Pick 0-1]" / "[Pick 0-N]".
+_GROUP_RE = r"\[\s*Pick\s+\d+\s*-\s*[\dN]+\s*\]"
+
+# Reads the dialog as an ordered list of {kind: group|row, …}. Group membership
+# is positional — jqGrid renders a group header row followed by its data rows —
+# which survives markup changes that class-name matching would not.
+_OFFER_TREE_JS = r"""((groupRe) => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return [];
+  const vis=e=>e&&e.offsetParent!==null;
+  const dl=[...d.querySelectorAll('.ui-dialog, .modal.in')].filter(vis).pop(); if(!dl) return [];
+  const rx=new RegExp(groupRe, 'i');
+  const out=[]; let gi=-1;
+  for (const tr of dl.querySelectorAll('tr')) {
+    const text=(tr.innerText||'').replace(/\s+/g,' ').trim();
+    if(!text) continue;
+    if(rx.test(text)) {
+      // A group header. The asterisk may be its own element (often coloured
+      // red) or just a trailing character, so check both.
+      const starred = /\*/.test(text)
+        || !!tr.querySelector('.required, .mandatory, [style*="red"], font[color]');
+      // Expanded when any following sibling data row is visible.
+      const icon = tr.querySelector(
+        '.ui-icon-plus, .ui-icon-minus, .ui-icon-triangle-1-e, .ui-icon-triangle-1-s,' +
+        '.tree-plus, .tree-minus, .glyphicon-triangle-right, .glyphicon-triangle-bottom,' +
+        '.glyphicon-chevron-right, .glyphicon-chevron-down, .treeclick, td > span[class*="icon"]');
+      const cls=(icon && icon.className) || '';
+      const collapsed = /plus|triangle-1-e|chevron-right|triangle-right/i.test(String(cls));
+      gi=out.length;
+      out.push({ kind:'group', name:text.replace(/\*/g,'').trim().slice(0,160),
+                 starred, collapsed, index: gi });
+      continue;
+    }
+    const cb=tr.querySelector('input[type=checkbox]');
+    const codeTd=[...tr.querySelectorAll('td[title]')]
+      .find(td=>/^O-\d+-/.test(td.getAttribute('title')||''));
+    if(!cb && !codeTd) continue;   // header/filler row
+    const m=codeTd && (codeTd.getAttribute('title')||'').match(/^O-(\d+)-/);
+    out.push({ kind:'row', group: gi,
+               code: m ? m[1] : null,
+               name: text.split(' RM')[0].trim().slice(0,120),
+               text: text.slice(0,200),
+               checked: !!(cb && cb.checked),
+               selectable: !!cb,
+               visible: vis(tr),
+               isDiscount: /discount/i.test(text) });
+  }
+  return out;
+})"""
+
+
+async def read_offer_tree(page) -> list:
+    """The Offer dialog as an ordered group/row list. [] if no dialog is open."""
+    try:
+        return await page.evaluate(_OFFER_TREE_JS, _GROUP_RE) or []
+    except Exception:
+        return []
+
+
+def _norm_group(name: str) -> str:
+    """Compare group names ignoring spacing and the trailing star."""
+    return re.sub(r"\s+", " ", (name or "")).replace("*", "").strip().lower()
+
+
+async def expand_starred_groups(page, want_names: list = None) -> int:
+    """Expand the mandatory groups so their rows become readable.
+
+    The dialog opens fully collapsed, so without this the rows we need do not
+    exist in a usable state — reads come back empty and clicks land on nothing.
+
+    `want_names` are the group names an ADMIN recorded off the portal for this
+    plan. Matching on a human-confirmed name is far more reliable than detecting
+    the red "*", whose markup we can only guess at; star detection is kept as the
+    fallback for plans with nothing configured.
+    """
+    wanted = {_norm_group(n) for n in (want_names or []) if n}
+
+    def is_target(g):
+        if not g.get("collapsed"):
+            return False
+        if wanted:
+            gn = _norm_group(g.get("name", ""))
+            return any(gn.startswith(w) or w.startswith(gn) for w in wanted)
+        return bool(g.get("starred"))
+
+    expanded = 0
+    for _ in range(6):  # each expand re-renders the grid, so re-read each time
+        tree = await read_offer_tree(page)
+        target = next((g for g in tree if g.get("kind") == "group" and is_target(g)), None)
+        if not target:
+            break
+        clicked = await page.evaluate(r"""((name) => {
+          const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
+          const vis=e=>e&&e.offsetParent!==null;
+          const dl=[...d.querySelectorAll('.ui-dialog, .modal.in')].filter(vis).pop(); if(!dl) return 'nodialog';
+          const tr=[...dl.querySelectorAll('tr')].find(
+            r=>((r.innerText||'').replace(/\s+/g,' ').trim().replace(/\*/g,'').trim()).startsWith(name));
+          if(!tr) return 'notfound';
+          const icon=tr.querySelector(
+            '.ui-icon-plus, .ui-icon-triangle-1-e, .tree-plus, .glyphicon-triangle-right,' +
+            '.glyphicon-chevron-right, .treeclick, td > span[class*="icon"], td > a');
+          (icon || tr.querySelector('td') || tr).click();
+          return 'ok';
+        })""", target["name"])
+        if clicked != "ok":
+            break
+        expanded += 1
+        await asyncio.sleep(1.2)
+    return expanded
+
+
+def mandatory_group_indices(tree: list, want_names: list = None) -> set:
+    """Indices of the groups that count as mandatory for this plan.
+
+    Prefers the admin-recorded names; falls back to the portal's red "*" when a
+    plan has none configured.
+    """
+    wanted = {_norm_group(n) for n in (want_names or []) if n}
+    out = set()
+    for g in tree:
+        if g.get("kind") != "group":
+            continue
+        if wanted:
+            gn = _norm_group(g.get("name", ""))
+            if any(gn.startswith(w) or w.startswith(gn) for w in wanted):
+                out.add(g["index"])
+        elif g.get("starred"):
+            out.add(g["index"])
+    return out
+
+
+def starred_devices(tree: list, want_names: list = None) -> list:
+    """Selectable, non-discount rows inside the mandatory groups — the devices
+    this package may actually carry."""
+    starred = mandatory_group_indices(tree, want_names)
+    return [{"code": r["code"], "name": r["name"]}
+            for r in tree
+            if r.get("kind") == "row" and r.get("group") in starred
+            and r.get("code") and r.get("selectable") and not r.get("isDiscount")]
+
+
+def has_starred_group(tree: list, want_names: list = None) -> bool:
+    """False when the plan mandates nothing — no device should be ordered."""
+    return bool(mandatory_group_indices(tree, want_names))
+
+
+async def read_offer_rows(page) -> list:
+    """Flat row view, kept for callers that don't care about grouping."""
+    return [r for r in await read_offer_tree(page) if r.get("kind") == "row"]
+
+
+async def dump_offer_dialog(page, label: str = "offer") -> str | None:
+    """Write the dialog's HTML to outputs/ so its real markup can be checked.
+
+    The group/expand selectors above are written defensively against markup we
+    have only seen in screenshots; this makes the next real run self-documenting
+    instead of leaving us guessing again.
+    """
+    try:
+        html = await page.evaluate(r"""(() => {
+          const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return null;
+          const vis=e=>e&&e.offsetParent!==null;
+          const dl=[...d.querySelectorAll('.ui-dialog, .modal.in')].filter(vis).pop();
+          return dl ? dl.outerHTML : null;
+        })()""")
+        if not html:
+            return None
+        import os
+        os.makedirs("outputs", exist_ok=True)
+        path = os.path.join("outputs", f"{label}_dialog.html")
+        with open(path, "w") as fh:
+            fh.write(html)
+        return path
+    except Exception:
+        return None
+
+
+async def ensure_promo_discounts(page) -> dict:
+    """Tick the mandatory discount row when the portal hasn't pre-ticked it.
+
+    Scoped to STARRED groups: an unstarred discount is optional and not ours to
+    add. The groups are "[Pick 0-1]", so if one is already ticked we leave the
+    dialog exactly as found rather than override the portal's own choice.
+    """
+    tree = await read_offer_tree(page)
+    starred = {g["index"] for g in tree if g.get("kind") == "group" and g.get("starred")}
+    discounts = [r for r in tree
+                 if r.get("kind") == "row" and r.get("group") in starred
+                 and r.get("isDiscount") and r.get("selectable")]
+    if not discounts:
+        return {"status": "skipped", "note": "no mandatory discount row"}
+    if any(r.get("checked") for r in discounts):
+        return {"status": "ok", "note": "discount already ticked"}
+
+    target = discounts[0]
+    ticked = await page.evaluate(r"""((code) => {
+      const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
+      const vis=e=>e&&e.offsetParent!==null;
+      const dl=[...d.querySelectorAll('.ui-dialog, .modal.in')].filter(vis).pop(); if(!dl) return 'nodialog';
+      const row=[...dl.querySelectorAll('tr')].find(r =>
+        [...r.querySelectorAll('td[title]')].some(td =>
+          (td.getAttribute('title')||'').startsWith('O-'+code+'-')));
+      if(!row) return 'notfound';
+      const cb=row.querySelector('input[type=checkbox]');
+      if(!cb) return 'nocheckbox';
+      if(cb.checked) return 'already';
+      cb.click(); return cb.checked ? 'ticked' : 'clicked';
+    })""", target.get("code"))
+    await asyncio.sleep(0.8)
+    return {"status": "ok" if ticked in ("ticked", "clicked", "already") else "error",
+            "discount": target.get("name"), "result": ticked}
+
+
 async def _dismiss_popup_ok(frame, page, exclude_title_re=r"offer") -> str | None:
     """If a Warning/Error dialog is up (NOT the given one, e.g. the Offer picker),
     read its message, click its OK, and return the message. Else None."""
@@ -1047,16 +1479,17 @@ async def _dismiss_success_popups(frame, page, tries: int = 8) -> int:
     return closed
 
 
-async def select_device(page, payload: dict) -> dict:
-    """Open Select Offer -> Add -> Offer dialog, tick the device matching the
-    order's deviceCode (offer code O-<code>-...) or deviceName, dismiss any
-    per-device rejection popup (return error with the portal message), then OK.
-    No-op (status 'skipped') when the order carries no device."""
+async def _select_device_once(page, dev_code: str, dev_name: str,
+                              payload_discover: bool = False,
+                              group_names: list = None) -> dict:
+    """One attempt at picking a specific device in the Offer dialog.
+
+    Split out of select_device so a portal refusal can be retried with a
+    different device WITHOUT re-running the whole order: by the time the portal
+    reveals that a device is unorderable, the order number already exists, so
+    abandoning the run wastes a real order.
+    """
     frame = _frame(page)
-    dev_code = str(payload.get("deviceCode") or payload.get("device_code") or "").strip()
-    dev_name = (payload.get("deviceName") or payload.get("device_name") or "").strip()
-    if not dev_code and not dev_name:
-        return {"status": "skipped", "stage": "device", "message": "no device on order"}
 
     # Click the Add that belongs to "Select Offer" (there's also an Order-Comments
     # Add). Scope by walking up for a "Select Offer" label.
@@ -1075,21 +1508,63 @@ async def select_device(page, payload: dict) -> dict:
                 "stage": "device", "message": opened}
     await asyncio.sleep(2)
 
-    # Offer dialog: the jqGrid of device rows.
+    # The dialog opens with EVERY group collapsed, so wait for the grid itself
+    # rather than for a data row — the rows only exist once a group is expanded.
     dlg = frame.locator('.ui-dialog:visible').last
     try:
-        await dlg.locator('tr.jqgrow').first.wait_for(state="visible", timeout=15000)
+        await dlg.locator('tr').first.wait_for(state="visible", timeout=15000)
     except Exception:
         return {"status": "error", "error": "offer_dialog_no_rows",
                 "stage": "device", "message": "Offer dialog did not populate."}
+    await asyncio.sleep(1.0)
 
-    # Find the row by offer code (td[title^="O-<code>-"]) first, else by device name.
+    # Only the mandatory groups are orderable for this plan — expand those. The
+    # names come from what an admin recorded off the portal (Plan Details).
+    await expand_starred_groups(page, group_names)
+    tree = await read_offer_tree(page)
+
+    # No mandatory group at all: this package carries no device (verified on
+    # 100Mbps Premium Value). Ordering one anyway is what the portal refuses.
+    if not has_starred_group(tree, group_names):
+        dump = await dump_offer_dialog(page, "offer_no_starred")
+        await _close_offer_dialog(page)
+        return {"status": "skipped", "stage": "device", "offered": [],
+                "message": "This package has no mandatory offer group — no device to select.",
+                "dump": dump}
+
+    offered = starred_devices(tree, group_names)
+
+    # Catalogue discovery: we came here only to read what this package offers.
+    # Close the dialog without selecting anything and hand the list back.
+    if payload_discover:
+        await _close_offer_dialog(page)
+        return {"status": "discovered", "stage": "device", "offered": offered,
+                "groups": [g["name"] for g in tree
+                           if g.get("kind") == "group" and g.get("starred")]}
+
+    if not offered:
+        # Starred group present but unreadable — capture the markup so the
+        # expand/parse selectors can be corrected against reality.
+        dump = await dump_offer_dialog(page, "offer_unreadable")
+        return {"status": "error", "error": "offer_group_unreadable", "stage": "device",
+                "offered": [], "dump": dump,
+                "message": "Couldn't read the package's offer group. The dialog markup "
+                           "may have changed — a copy was saved for inspection."}
+    print(f"    ↳ offer group devices: {[d['name'] for d in offered]}", flush=True)
+
+    # The discount group is "[Pick 0-1]" and the portal does not always pre-tick
+    # it; the order is expected to carry it (see the Offer-dialog screenshot).
+    promo = await ensure_promo_discounts(page)
+    print(f"    ↳ promo discount: {promo}", flush=True)
+
+    # Find the row by offer code (td[title^="O-<code>-"]) first, else by name.
+    # Any row now, not just tr.jqgrow — the grouped grid renders its data rows
+    # with markup we can't rely on.
     ticked = await page.evaluate(r"""(([code, name]) => {
       const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
       const vis=e=>e&&e.offsetParent!==null;
-      const dlgs=[...d.querySelectorAll('.ui-dialog')].filter(vis);
-      const dl=dlgs[dlgs.length-1]; if(!dl) return 'nodialog';
-      const rows=[...dl.querySelectorAll('tr.jqgrow')];
+      const dl=[...d.querySelectorAll('.ui-dialog, .modal.in')].filter(vis).pop(); if(!dl) return 'nodialog';
+      const rows=[...dl.querySelectorAll('tr')].filter(r=>r.querySelector('input[type=checkbox]'));
       const norm=s=>(s||'').replace(/\s+/g,' ').trim().toLowerCase();
       let row=null;
       if(code){ row=rows.find(r=>[...r.querySelectorAll('td[title]')].some(td=>
@@ -1106,19 +1581,22 @@ async def select_device(page, payload: dict) -> dict:
       cb.click(); return 'ticked';
     })""", [dev_code, dev_name])
     if ticked == "notfound":
-        return {"status": "error", "error": "device_not_in_offer_list",
-                "stage": "device", "message": f"code={dev_code} name={dev_name!r} not in Offer list."}
+        # Name what IS on offer — this is the actionable half, and it's the case
+        # that produced the "can't be subscribed through Contactless Journey"
+        # rejections (our catalogue lists devices this package never offered).
+        names = ", ".join(d["name"] for d in offered[:6]) or "none"
+        return {"status": "error", "error": "device_not_in_offer_list", "offered": offered,
+                "stage": "device",
+                "message": f"{dev_name or dev_code} isn't offered with this package. "
+                           f"Available: {names}."}
     if ticked == "nocheckbox":
         return {"status": "error", "error": "device_not_selectable",
                 "stage": "device", "message": f"{dev_name or dev_code} has no checkbox (not orderable)."}
     if ticked == "already":
         # Already selected — just OK the dialog (don't re-click / untick).
-        try:
-            await frame.locator('.ui-dialog:visible .js-ok, '
-                                '.ui-dialog:visible button:has-text("OK")').last.click(timeout=8000)
-        except Exception:
-            pass
-        return {"status": "ok", "stage": "device", "device": dev_name or dev_code, "note": "already ticked"}
+        await _click_dialog_ok(frame, page)
+        return {"status": "ok", "stage": "device", "device": dev_name or dev_code,
+                "note": "already ticked", "offered": offered}
     if ticked != "ticked":
         return {"status": "error", "error": "device_tick_failed", "stage": "device", "message": ticked}
 
@@ -1127,7 +1605,7 @@ async def select_device(page, payload: dict) -> dict:
     rej = await _dismiss_popup_ok(frame, page, exclude_title_re=r"offer")
     if rej:
         return {"status": "error", "error": "device_rejected", "stage": "device",
-                "message": rej, "device": dev_name or dev_code}
+                "message": rej, "device": dev_name or dev_code, "offered": offered}
 
     # OK the Offer dialog. Ticking the device fires an AJAX price refresh, so the
     # busy overlay is very often still up at this exact moment — this is the click
@@ -1142,8 +1620,113 @@ async def select_device(page, payload: dict) -> dict:
     rej = await _dismiss_popup_ok(frame, page, exclude_title_re=r"offer")
     if rej:
         return {"status": "error", "error": "device_rejected", "stage": "device",
-                "message": rej, "device": dev_name or dev_code}
-    return {"status": "ok", "stage": "device", "device": dev_name or dev_code}
+                "message": rej, "device": dev_name or dev_code, "offered": offered}
+    return {"status": "ok", "stage": "device", "device": dev_name or dev_code, "offered": offered}
+
+
+# How many substitutes to try after the agent's own choice is refused. Two is
+# enough to clear the common case (one bad device in a package) without letting a
+# package whose devices are ALL refused burn the run's whole time budget.
+MAX_DEVICE_SUBSTITUTIONS = 2
+
+
+async def _close_offer_dialog(page) -> bool:
+    """Cancel any open Offer dialog so the next attempt re-opens a clean one
+    (clicking Add with one already up stacks a second dialog)."""
+    try:
+        return await page.evaluate(r"""(() => {
+          const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return false;
+          const vis=e=>e&&e.offsetParent!==null;
+          const dl=[...d.querySelectorAll('.ui-dialog')].filter(vis).pop(); if(!dl) return false;
+          const c=[...dl.querySelectorAll('button, a.btn')].find(
+            b=>/^cancel$/i.test((b.innerText||'').trim())) || dl.querySelector('.ui-dialog-titlebar-close');
+          if(!c) return false; c.click(); return true;
+        })()""")
+    except Exception:
+        return False
+
+
+async def select_device(page, payload: dict) -> dict:
+    """Pick the order's device, substituting a different one if the portal refuses.
+
+    The portal only reveals that a device is unorderable ("can't be subscribed
+    through Contactless Journey") once we are on the order's own detail page —
+    the order number already exists by then and cannot be reclaimed. Abandoning
+    the run would leave that order stranded, so on a refusal we pick another
+    device the portal itself is offering and finish the order.
+
+    Always reports `available_devices` (what the portal actually listed) and, on
+    a refusal, `rejected_device_code` — BizzFlow persists both so the picker and
+    preflight stop offering that combination.
+    """
+    dev_code = str(payload.get("deviceCode") or payload.get("device_code") or "").strip()
+    dev_name = (payload.get("deviceName") or payload.get("device_name") or "").strip()
+    # Offer group names an admin recorded for this plan (see Plan Details).
+    group_names = payload.get("offer_groups") or []
+    discover = bool(payload.get("discover_only"))
+    if not discover and not dev_code and not dev_name:
+        return {"status": "skipped", "stage": "device", "message": "no device on order"}
+
+    if discover:
+        r = await _select_device_once(page, "", "", payload_discover=True,
+                                      group_names=group_names)
+        return {**r, "available_devices": r.get("offered", [])}
+
+    tried: list = []
+    available: list = []
+    first_rejection = None
+
+    for attempt in range(MAX_DEVICE_SUBSTITUTIONS + 1):
+        r = await _select_device_once(page, dev_code, dev_name, group_names=group_names)
+        if r.get("offered"):
+            available = r["offered"]
+
+        if r.get("status") == "skipped":
+            return {**r, "available_devices": available}
+        if r.get("status") == "ok":
+            out = {**r, "available_devices": available}
+            if attempt > 0:
+                out["substituted_device_code"] = dev_code
+                out["substituted_device_name"] = dev_name
+                out["rejected_device_code"] = first_rejection["code"]
+                out["rejected_device_name"] = first_rejection["name"]
+                out["warning"] = (
+                    f"{first_rejection['name']} was refused by the portal "
+                    f"({first_rejection['message']}) — ordered {dev_name or dev_code} instead. "
+                    "Confirm the customer accepts this device."
+                )
+            return out
+
+        # Retryable: the portal refused the device, or it was never on offer for
+        # this package (our catalogue is a different list — see the offer-group
+        # notes above). A missing dialog or a failed click is not retryable.
+        if r.get("error") not in ("device_rejected", "device_not_in_offer_list"):
+            return {**r, "available_devices": available}
+
+        tried.append(dev_code or dev_name)
+        if first_rejection is None:
+            first_rejection = {"code": dev_code, "name": dev_name or dev_code,
+                               "message": r.get("message", "")}
+
+        nxt = next((d for d in available
+                    if d["code"] and d["code"] not in tried
+                    and d["name"] not in tried), None)
+        if not nxt or attempt == MAX_DEVICE_SUBSTITUTIONS:
+            return {"status": "error", "error": "device_rejected", "stage": "device",
+                    "message": r.get("message"),
+                    "device": first_rejection["name"],
+                    "rejected_device_code": first_rejection["code"],
+                    "rejected_device_name": first_rejection["name"],
+                    "available_devices": available}
+
+        print(f"  ↻ device refused ({r.get('message')}) — trying {nxt['name']}", flush=True)
+        await _close_offer_dialog(page)
+        dev_code, dev_name = nxt["code"], nxt["name"]
+        await asyncio.sleep(1.5)
+
+    return {"status": "error", "error": "device_rejected", "stage": "device",
+            "message": "No orderable device found for this package.",
+            "available_devices": available}
 
 
 async def click_next_newconn(page, expect_sel: str = None, timeout_ms: int = 20000) -> dict:
@@ -1225,10 +1808,7 @@ async def fill_customer_order_info(page, payload: dict,
     """Fill the Customer Order Information page. im_paths/id_paths are local files
     (downloaded from R2). IM Conversation goes in container 1 (locked type); each
     ID file gets its own container with Attachment Type = 'ID copy'."""
-    def stage(n):
-        if on_stage:
-            try: on_stage(n)
-            except Exception: pass
+    stage = _stage_emitter(on_stage)
 
     frame = _frame(page)
     im_paths = im_paths or []
@@ -1583,11 +2163,11 @@ async def submit_new_connection(page, payload: dict, im_paths: list = None,
     """page1 (contact/account/winback) -> device -> sub-tabs -> Next ->
     Customer Order Information -> Pay/Submit (gated). Returns the pay_and_submit
     result on success, or the first failing stage's error."""
-    def stage(n):
+    _emit = _stage_emitter(on_stage)
+
+    def stage(n, detail=None):
         print(f"  ▶ submit_new_connection stage: {n}", flush=True)
-        if on_stage:
-            try: on_stage(n)
-            except Exception: pass
+        _emit(n, detail)
 
     stage("new_connection_page1")
     r = await complete_new_connection(page, payload, on_stage=on_stage)
@@ -1600,6 +2180,13 @@ async def submit_new_connection(page, payload: dict, im_paths: list = None,
     stage("subproduct_tabs")
     r = await fill_subproduct_tabs(page, payload, on_stage=on_stage)
     print(f"    ↳ subproduct_tabs: {r}", flush=True)
+    device_info = {k: r[k] for k in _DEVICE_PASSTHROUGH if r.get(k)}
+    if r.get("warning"):
+        device_info["warning"] = r["warning"]
+    # Discovery stops here: the order exists (unavoidably), but we never fill in
+    # or pay for it. The caller flags it for voiding.
+    if r.get("status") == "discovered":
+        return r
     if r.get("status") != "ok":
         return r
 
@@ -1611,7 +2198,7 @@ async def submit_new_connection(page, payload: dict, im_paths: list = None,
     # into the attachment page (which then fails with a cryptic file-input timeout).
     if nx.get("status") != "ok":
         return {"status": "error", "stage": "customer_order_info",
-                "error": nx.get("error", "next_blocked"),
+                "error": nx.get("error", "next_blocked"), **device_info,
                 "message": nx.get("message", "Next did not advance to Customer Order Information.")}
     r = await fill_customer_order_info(page, payload, im_paths=im_paths,
                                        id_paths=id_paths, on_stage=on_stage)
@@ -1622,5 +2209,9 @@ async def submit_new_connection(page, payload: dict, im_paths: list = None,
     stage("pay")
     r = await pay_and_submit(page, do_pay=do_pay)
     print(f"    ↳ pay_and_submit: {r}", flush=True)
+    # A device substitution must survive to the very end: the order that gets
+    # paid for is not the device the agent picked, and BizzFlow has to say so.
+    for k, v in device_info.items():
+        r.setdefault(k, v)
     return r
 

@@ -5,8 +5,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { saveOrder, uploadOrderDocument, lookupPostcode, getOrder, searchDealerAddress } from "@/actions/order";
+import {
+  saveOrder,
+  uploadOrderDocument,
+  lookupPostcode,
+  getOrder,
+  searchDealerAddress,
+} from "@/actions/order";
 import { MAX_DOCS, type OrderDocument, type AddressResult } from "@/lib/order-types";
+import { getPublishedPlans, getPlanOffer, type OfferItemView } from "@/actions/plans";
 import { parseMykad, inferRace, formatMykad, isCompleteMykad, isValidEmail } from "@/lib/mykad";
 import {
   DEALER_OFFERS,
@@ -164,9 +171,33 @@ export function OrderForm({
   const [pkgQuery, setPkgQuery] = useState("");
   const [speedFilter, setSpeedFilter] = useState("");
   const [pkgOpen, setPkgOpen] = useState(false);
+  // Names of plans an admin has published. null while loading — the picker then
+  // shows the static list rather than flashing an empty dropdown.
+  const [publishedNames, setPublishedNames] = useState<Set<string> | null>(null);
   const pkgRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    let active = true;
+    getPublishedPlans()
+      .then((r) => {
+        if (!active) return;
+        if (r.success) setPublishedNames(new Set(r.plans.map((p) => p.name)));
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const [deviceCode, setDeviceCode] = useState("");
+  // What an admin recorded for the CURRENTLY selected plan. Held with the plan
+  // name so switching package can't leave the previous plan's devices applied.
+  const [planOffer, setPlanOffer] = useState<{
+    offer: string;
+    devices: OfferItemView[];
+    discounts: OfferItemView[];
+    known: boolean;
+  }>({ offer: "", devices: [], discounts: [], known: false });
   const [deviceName, setDeviceName] = useState("");
   const [devQuery, setDevQuery] = useState("");
   const [devCategory, setDevCategory] = useState("");
@@ -240,13 +271,19 @@ export function OrderForm({
   // the device itself is a separate step after the package.
   const filteredOffers = useMemo(() => {
     const q = pkgQuery.trim().toLowerCase();
-    return DEALER_OFFERS.filter((o) => {
+    // Published plans only. An unpublished plan is one whose portal offer groups
+    // no admin has confirmed, and selling it is what produced the "can't be
+    // subscribed through Contactless Journey" rejections.
+    const sellable = publishedNames === null
+      ? DEALER_OFFERS
+      : DEALER_OFFERS.filter((o) => publishedNames.has(o.name));
+    return sellable.filter((o) => {
       if (q && !o.name.toLowerCase().includes(q)) return false;
       if (!speedFilter) return true;
       if (speedFilter === "BIZ" || speedFilter === "VOF") return o.category === OFFER_CATEGORIES[speedFilter];
       return o.category === OFFER_CATEGORIES.HOME && o.bandwidth === speedFilter;
     });
-  }, [pkgQuery, speedFilter]);
+  }, [pkgQuery, speedFilter, publishedNames]);
 
   // Group the visible offers under their add-on flavour, keeping FLAVOURS order.
   const groupedOffers = useMemo(() => {
@@ -260,29 +297,84 @@ export function OrderForm({
     return FLAVOURS.filter((f) => groups.has(f)).map((f) => [f, groups.get(f)!] as const);
   }, [filteredOffers]);
 
+  const sellableCount = publishedNames === null
+    ? DEALER_OFFERS.length
+    : DEALER_OFFERS.filter((o) => publishedNames.has(o.name)).length;
+
   // Counts per speed chip, so the agent sees where the packages actually are.
+  // Counted over the SELLABLE plans, not the whole catalogue — a chip promising
+  // 13 packages that then shows none is worse than no chip at all.
   const speedCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    for (const o of DEALER_OFFERS) {
+    const sellable = publishedNames === null
+      ? DEALER_OFFERS
+      : DEALER_OFFERS.filter((o) => publishedNames.has(o.name));
+    for (const o of sellable) {
       const key =
         o.category === OFFER_CATEGORIES.BIZ ? "BIZ" : o.category === OFFER_CATEGORIES.VOF ? "VOF" : o.bandwidth;
       counts[key] = (counts[key] ?? 0) + 1;
     }
     return counts;
-  }, []);
+  }, [publishedNames]);
 
   // Device picker only applies to "with device" bundles (the portal shows the
   // device/add-on tree after such a package). Clearing the package clears it.
   const isWithDevice = /with\s*device/i.test(offerName);
+
+  // Load what an admin recorded for this plan whenever the package changes.
+  useEffect(() => {
+    if (!offerName) return;
+    let active = true;
+    getPlanOffer(offerName)
+      .then((r) => {
+        if (!active) return;
+        setPlanOffer({ offer: offerName, devices: r.devices, discounts: r.discounts, known: r.known });
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [offerName]);
+
+  // Only apply what was fetched for the package currently selected.
+  const recorded = planOffer.offer === offerName ? planOffer : null;
+  const planDevices = recorded?.known ? recorded.devices : null;
+  const planDiscounts = recorded?.discounts ?? [];
+
+  // Device type chips count the list actually on offer: with a plan's own
+  // devices recorded, the static catalogue's counts describe a different list.
+  const deviceCounts = useMemo(() => {
+    if (!planDevices) return DEVICE_CATEGORY_COUNTS as Record<string, number>;
+    const counts: Record<string, number> = {};
+    for (const d of planDevices) {
+      const c = deviceCategory(d.name);
+      counts[c] = (counts[c] ?? 0) + 1;
+    }
+    return counts;
+  }, [planDevices]);
+
+
   // Same treatment as packages: narrow by category, then collapse repeated
   // models under one header so only the varying part shows per row.
+  //
+  // When the portal's real list is known it REPLACES the catalogue: the two hold
+  // different offers, and picking a catalogue device the package never offered
+  // is what the portal refuses with "can't be subscribed through Contactless
+  // Journey". The catalogue's category chips don't apply to that list.
+  // When an admin has recorded this plan's devices, those REPLACE the static
+  // catalogue: the catalogue is a different list (the portal's VAS tree) and
+  // holds devices this plan never offered. Type/model grouping still applies —
+  // the type is derived from the name, exactly as for catalogue entries.
   const filteredDevices = useMemo(() => {
     const q = devQuery.trim().toLowerCase();
-    return DEALER_DEVICES.filter((d) => {
+    const source = planDevices
+      ? planDevices.map((d) => ({ code: d.code ?? d.id, name: d.name, monthly: d.monthly }))
+      : DEALER_DEVICES;
+    return source.filter((d) => {
       if (q && !d.name.toLowerCase().includes(q)) return false;
       return !devCategory || deviceCategory(d.name) === devCategory;
     });
-  }, [devQuery, devCategory]);
+  }, [devQuery, devCategory, planDevices]);
   const deviceGroups = useMemo(() => groupDevices(filteredDevices), [filteredDevices]);
 
   // Close the package dropdown when clicking anywhere outside it.
@@ -984,7 +1076,7 @@ export function OrderForm({
                     : "bg-white text-[#425466] border-[#E3E8EF] hover:border-[#635BFF] hover:text-[#0A2540]"
                 }`}
               >
-                All <span className="tabular-nums opacity-70">{DEALER_OFFERS.length}</span>
+                All <span className="tabular-nums opacity-70">{sellableCount}</span>
               </button>
               {SPEED_CHIPS.map((s) => (
                 <button
@@ -1080,9 +1172,9 @@ export function OrderForm({
                       : "bg-white text-[#425466] border-[#E3E8EF] hover:border-[#635BFF] hover:text-[#0A2540]"
                   }`}
                 >
-                  All <span className="tabular-nums opacity-70">{DEALER_DEVICES.length}</span>
+                  All <span className="tabular-nums opacity-70">{planDevices?.length ?? DEALER_DEVICES.length}</span>
                 </button>
-                {DEVICE_CATEGORIES.filter((c) => DEVICE_CATEGORY_COUNTS[c]).map((c) => (
+                {DEVICE_CATEGORIES.filter((c) => deviceCounts[c]).map((c) => (
                   <button
                     key={c}
                     type="button"
@@ -1094,7 +1186,7 @@ export function OrderForm({
                         : "bg-white text-[#425466] border-[#E3E8EF] hover:border-[#635BFF] hover:text-[#0A2540]"
                     }`}
                   >
-                    {c} <span className="tabular-nums opacity-70">{DEVICE_CATEGORY_COUNTS[c]}</span>
+                    {c} <span className="tabular-nums opacity-70">{deviceCounts[c]}</span>
                   </button>
                 ))}
               </div>
@@ -1102,6 +1194,28 @@ export function OrderForm({
 
             <div className="space-y-1.5">
               <Label className={labelCls}>Device / Add-on <span className="text-[#DF1B41]">*</span></Label>
+              {/* Say which list is on screen: the catalogue is a DIFFERENT set of
+                  offers from what a plan actually allows, so picking from it is a
+                  guess until an admin has recorded the plan's real devices. */}
+              {planDevices ? (
+                <p className="flex items-start gap-1.5 text-[11px] text-green-700">
+                  <svg viewBox="0 0 24 24" className="mt-0.5 h-3 w-3 shrink-0" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                  <span>
+                    Showing the {planDevices.length} device
+                    {planDevices.length === 1 ? "" : "s"} this plan offers.
+                  </span>
+                </p>
+              ) : (
+                <p className="flex items-start gap-1.5 text-[11px] text-amber-700">
+                  <WarnIcon />
+                  <span>
+                    Showing the full catalogue — no devices recorded for this plan yet, so
+                    not everything here can be ordered with it.
+                  </span>
+                </p>
+              )}
               <div className="relative" ref={devRef}>
                 <Input
                   value={devQuery || deviceName}
@@ -1167,6 +1281,24 @@ export function OrderForm({
                 </svg>
                 <span>Selected: {deviceName}{isAmbiguousDevice(deviceName) && ` (#${deviceCode})`}</span>
               </p>
+            )}
+            {/* Discounts are applied during the order, not chosen here — shown so
+                the agent can tell the customer what they get. */}
+            {planDiscounts.length > 0 && (
+              <div className="rounded-lg border border-[#E3E8EF] bg-[#F6F9FC] px-3 py-2">
+                <p className="text-[11px] font-medium text-[#425466]">Applied automatically</p>
+                <ul className="mt-1 flex flex-col gap-0.5">
+                  {planDiscounts.map((d) => (
+                    <li key={d.id} className="flex items-center gap-2 text-[11px] text-[#697386]">
+                      <span className="text-[#8792A2]">•</span>
+                      <span className="min-w-0 flex-1 truncate">{d.name}</span>
+                      {d.monthly !== null && (
+                        <span className="shrink-0 tabular-nums">RM{d.monthly}/mth</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </div>
         </div>

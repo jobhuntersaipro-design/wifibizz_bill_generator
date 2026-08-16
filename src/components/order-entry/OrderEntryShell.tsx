@@ -40,6 +40,7 @@ const SESSION_REFRESH_MIN_GAP_MS = 5 * 60 * 1000;
 const TABS = [
   { href: "/dashboard/order-entry/new-order", label: "New Order" },
   { href: "/dashboard/order-entry/drafts", label: "Drafts" },
+  { href: "/dashboard/order-entry/plan-details", label: "Plan Details" },
 ];
 
 export default function OrderEntryShell({
@@ -50,7 +51,9 @@ export default function OrderEntryShell({
   isSuperAdmin?: boolean;
 }) {
   const pathname = usePathname();
-  const isDrafts = pathname?.endsWith("/drafts");
+  // Wide tables (drafts, catalogue) get the full width; the order FORM stays
+  // narrow so its fields don't stretch into an unreadable line length.
+  const isWide = pathname?.endsWith("/drafts") || pathname?.endsWith("/plan-details");
 
   const [loading, setLoading] = useState(true);
   const [connection, setConnection] = useState<DealerConnection | null>(null);
@@ -692,7 +695,7 @@ export default function OrderEntryShell({
           segment and throws "Rendered more hooks". So gate visibility with CSS,
           never by unmounting. */}
       <div
-        className={`${canView ? (isDrafts ? "w-full" : "max-w-4xl") : "hidden"} animate-fade-in-up`}
+        className={`${canView ? (isWide ? "w-full" : "max-w-4xl") : "hidden"} animate-fade-in-up`}
         style={{ animationDelay: "300ms" }}
       >
         {viewOnly && (

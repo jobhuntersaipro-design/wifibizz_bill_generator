@@ -17,6 +17,13 @@ import { ID_TYPES } from "@/lib/dealer-offers";
 import MY_POSTCODES from "@/lib/malaysia-postcodes.json";
 import { addressKey, validateMalaysianAddress } from "@/lib/malaysia-address";
 import { reconcileStaleSubmits } from "@/lib/order-submit";
+import { mandatoryGroupsFor } from "@/actions/plans";
+import {
+  nextOrderReference,
+  recordEvent,
+  groupByAttempt,
+  type AttemptView,
+} from "@/lib/order-history";
 
 // Static MY postcode -> [CITY, State] map (~2,900 postcodes). Reliable, offline,
 // and instant — Google geocoding returns the state but rarely the city for bare
@@ -344,7 +351,14 @@ export async function saveOrder(rawInput: OrderInput) {
           data,
         })
       : await prisma.order.create({
-          data: { ...data, userId: session.user.id, status: "draft" },
+          data: {
+            ...data,
+            userId: session.user.id,
+            status: "draft",
+            // Assigned at creation, not at submit: agents quote this in chat long
+            // before the portal has issued an order number.
+            reference: await nextOrderReference(),
+          },
         });
     return { success: true as const, id: order.id };
   } catch (e) {
@@ -427,6 +441,12 @@ export async function listOrders(): Promise<{
       orderId: o.orderId,
       errorMessage: o.errorMessage,
       stage: o.stage,
+      reference: o.reference,
+      deviceName: o.deviceName,
+      deviceCode: o.deviceCode,
+      remarks: o.remarks,
+      attempt: o.attempt,
+      screenshotUrl: o.screenshotUrl,
       docCount: Array.isArray(o.documents) ? (o.documents as unknown[]).length : 0,
       createdAt: o.createdAt.toISOString(),
       createdByEmail: superAdmin ? o.user?.email ?? null : null,
@@ -471,17 +491,32 @@ export async function startSubmit(id: string) {
   });
   if (!order) return { success: false as const, error: "Order not found." };
 
+  // Each submit is its own attempt in the status history, so the timeline can
+  // show "attempt 3 failed the same way attempt 1 did".
+  const attempt = order.attempt + 1;
+  await prisma.order.update({ where: { id: order.id }, data: { attempt } });
+  const fatal = async (stage: string, msg: string) => {
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { status: "failed", stage, errorMessage: msg },
+    });
+    await recordEvent({ orderId: order.id, attempt, status: "failed", stage, message: msg });
+    return { success: false as const, error: msg };
+  };
+  await recordEvent({
+    orderId: order.id, attempt, status: "submitting", stage: "validating_draft",
+    message: "Submit started.",
+  });
+
   // ── Step 1: validating_draft ──────────────────────────────────────────────
   // Feasibility needs a serviceable address (resourceInstId) to select "By Address
   // Id". Without it the portal can't check feasibility, so block early with a
   // clear message rather than failing deep in the flow.
   if (!order.addressId) {
-    const msg = "Select a serviceable Service Address before submitting (search + pick it in the draft).";
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { status: "failed", stage: "validating_draft", errorMessage: msg },
-    });
-    return { success: false as const, error: msg };
+    return fatal(
+      "validating_draft",
+      "Select a serviceable Service Address before submitting (search + pick it in the draft).",
+    );
   }
 
   // ── Step 2: checking_session ──────────────────────────────────────────────
@@ -493,12 +528,10 @@ export async function startSubmit(id: string) {
     select: { sessionExpiresAt: true },
   });
   if (!dealer?.sessionExpiresAt || dealer.sessionExpiresAt.getTime() <= Date.now()) {
-    const msg = "Your dealer session has expired. Reconnect on the Order Entry page, then submit again.";
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { status: "failed", stage: "checking_session", errorMessage: msg },
-    });
-    return { success: false as const, error: msg };
+    return fatal(
+      "checking_session",
+      "Your dealer session has expired. Reconnect on the Order Entry page, then submit again.",
+    );
   }
 
   const headers = {
@@ -515,8 +548,13 @@ export async function startSubmit(id: string) {
     },
   });
 
+  // The mandatory offer-group names an admin recorded for this plan. The scraper
+  // expands these groups by name instead of guessing at the portal's red "*".
+  const offerGroups = await mandatoryGroupsFor(order.offerName);
+
   // Send the raw order; the Flask side maps it to a portal payload.
   const reqOrder = {
+    offerGroups,
     id: order.id,
     idType: order.idType,
     idNumber: order.idNumber,
@@ -542,6 +580,12 @@ export async function startSubmit(id: string) {
     deviceName: order.deviceName,
     remarks: order.remarks,
     documents: order.documents,
+    // Which run this is, so the scraper can file its page-1 screenshot against
+    // this order AND attempt (`id` above already identifies the order). The user
+    // id is deliberately NOT sent — the scraper takes it from the authenticated
+    // user_key, so a request body can't redirect an upload into someone else's
+    // R2 namespace.
+    attempt,
   };
 
   async function fail(message: string) {
@@ -644,3 +688,49 @@ export async function searchDealerAddress(
     return { success: false, error: "Address service unreachable.", addresses: [] };
   }
 }
+
+// ── Status history ───────────────────────────────────────────────────────────
+/**
+ * The full status trail for one order, grouped into submit attempts.
+ *
+ * The Order row only carries the latest state, so this is the only way to answer
+ * "why did it fail, and did the previous attempt fail the same way?".
+ */
+export async function getOrderHistory(id: string): Promise<{
+  success: boolean;
+  error?: string;
+  attempts: AttemptView[];
+}> {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false, error: "Unauthorized", attempts: [] };
+
+  const superAdmin = await isSuperAdmin(session.user.id);
+  const order = await prisma.order.findFirst({
+    where: superAdmin ? { id } : { id, userId: session.user.id },
+    select: { id: true },
+  });
+  if (!order) return { success: false, error: "Order not found.", attempts: [] };
+
+  const events = await prisma.orderStatusEvent.findMany({
+    where: { orderId: id },
+    orderBy: { createdAt: "asc" },
+    // Bounded: a pathological retry loop must not send an unbounded payload to
+    // the browser. Oldest are dropped first, which keeps the latest attempts.
+    take: 500,
+  });
+
+  return {
+    success: true,
+    attempts: groupByAttempt(
+      events.map((e) => ({
+        id: e.id,
+        attempt: e.attempt,
+        stage: e.stage,
+        status: e.status,
+        message: e.message,
+        createdAt: e.createdAt.toISOString(),
+      })),
+    ),
+  };
+}
+

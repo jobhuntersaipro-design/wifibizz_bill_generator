@@ -3,8 +3,13 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { toast } from "sonner";
 import { listOrders, startSubmit, deleteOrder } from "@/actions/order";
-import type { OrderListItem } from "@/lib/order-types";
+import {
+  needsVoiding,
+  type OrderListItem,
+  type StageDetails,
+} from "@/lib/order-types";
 import { SubmitProgress } from "./SubmitProgress";
+import { OrderHistoryPanel } from "./OrderHistoryPanel";
 
 const STATUS_STYLES: Record<string, string> = {
   draft: "bg-[#E3E8EF] text-[#425466]",
@@ -55,6 +60,8 @@ interface ProgressState {
   orderId: string | null;
   errorMessage: string | null;
   done: boolean;
+  details?: StageDetails;
+  screenshotKey?: string | null;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -77,6 +84,12 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   const [batchRunning, setBatchRunning] = useState(false);
   // Rows whose submit checklist is open. Opens itself when a submit starts.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // What the portal resolved per step, per order, for the live checklist. Kept
+  // out of `orders` because it belongs to the RUN, not the draft: a refetched
+  // list has no details, and merging them in would blank the checklist mid-run.
+  const [stageDetails, setStageDetails] = useState<Record<string, StageDetails>>({});
+  // The order whose full status history panel is open, if any.
+  const [historyId, setHistoryId] = useState<string | null>(null);
   // Superadmins see everyone's drafts + a "Made By" column.
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
 
@@ -156,10 +169,17 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                 stage: state.stage,
                 orderId: state.orderId,
                 errorMessage: state.errorMessage,
+                screenshotUrl: state.screenshotKey ?? x.screenshotUrl,
               }
             : x,
         ),
       );
+      // Merge rather than replace: a poll that raced a stage still holds the
+      // earlier steps' values, and dropping them would make resolved lines
+      // flicker away mid-run.
+      if (state.details) {
+        setStageDetails((d) => ({ ...d, [id]: { ...d[id], ...state.details } }));
+      }
       if (state.done) return state;
     }
     return null;
@@ -342,6 +362,9 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     );
   }
 
+  // Read live from `orders` so the panel updates as the run progresses.
+  const historyOrder = orders.find((o) => o.id === historyId) ?? null;
+
   const q = query.trim().toLowerCase();
   const filtered = orders.filter((o) => {
     if (statusFilter !== "all" && o.status !== statusFilter) return false;
@@ -434,9 +457,10 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                   className="h-4 w-4 rounded border-[#CBD2DC] accent-[#635BFF] cursor-pointer disabled:opacity-40"
                 />
               </th>
+              <th className="px-4 py-3 font-medium">Ref</th>
               <th className="px-4 py-3 font-medium">Customer</th>
               {isSuperAdmin && <th className="px-4 py-3 font-medium">Made By</th>}
-              <th className="px-4 py-3 font-medium">Package</th>
+              <th className="px-4 py-3 font-medium">Package &amp; device</th>
               <th className="px-4 py-3 font-medium">Installation Address</th>
               <th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3 font-medium">Order No.</th>
@@ -446,14 +470,14 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
           <tbody>
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={isSuperAdmin ? 8 : 7} className="px-4 py-8 text-center text-sm text-[#697386]">
+                <td colSpan={isSuperAdmin ? 9 : 8} className="px-4 py-8 text-center text-sm text-[#697386]">
                   No orders match your search.
                 </td>
               </tr>
             )}
             {filtered.map((o) => (
               <Fragment key={o.id}>
-              <tr className={`border-b border-[#E3E8EF] last:border-0 hover:bg-[#F6F9FC]/60 ${expanded.has(o.id) && hasProgress(o) ? "border-b-0" : ""}`}>
+              <tr className={`border-b border-[#E3E8EF] last:border-0 hover:bg-[#F6F9FC]/60 ${expanded.has(o.id) && o.status === "submitting" ? "border-b-0" : ""}`}>
                 <td className="px-4 py-3 align-middle">
                   {canSubmit(o) ? (
                     <input
@@ -467,13 +491,37 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                   ) : null}
                 </td>
                 <td className="px-4 py-3 align-middle">
+                  <span className="text-[11px] font-medium text-[#635BFF] tabular-nums whitespace-nowrap">
+                    {o.reference ?? "—"}
+                  </span>
+                </td>
+                <td className="px-4 py-3 align-middle">
                   <div className="font-medium text-[#0A2540]">{o.fullName}</div>
                   <div className="text-[11px] text-[#697386] tabular-nums">{o.idType} · {o.idNumber}</div>
                 </td>
                 {isSuperAdmin && (
                   <td className="px-4 py-3 align-middle text-[#425466] text-[12px]">{o.createdByEmail ?? "—"}</td>
                 )}
-                <td className="px-4 py-3 align-middle text-[#425466] max-w-55">{o.offerName ?? "—"}</td>
+                <td className="px-4 py-3 align-top text-[#425466] max-w-64">
+                  <div className="leading-snug">{o.offerName ?? "—"}</div>
+                  {o.deviceName && (
+                    <div className="mt-1 flex items-start gap-1 text-[11px] text-[#697386]">
+                      <svg className="mt-0.5 h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <rect x="2" y="3" width="20" height="14" rx="2" />
+                        <path d="M8 21h8M12 17v4" />
+                      </svg>
+                      <span className="leading-snug break-words">{o.deviceName}</span>
+                    </div>
+                  )}
+                  {o.remarks?.trim() && (
+                    <div className="mt-1 flex items-start gap-1 text-[11px] text-[#8792A2]" title={o.remarks}>
+                      <svg className="mt-0.5 h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                      </svg>
+                      <span className="leading-snug break-words line-clamp-2">{o.remarks}</span>
+                    </div>
+                  )}
+                </td>
                 <td className="px-4 py-3 align-top text-[#425466]">
                   {(() => {
                     const address = formatAddress(o);
@@ -514,21 +562,23 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                     )}
                     {STATUS_LABELS[o.status] ?? o.status}
                   </span>
-                  {hasProgress(o) && (
+                  {needsVoiding(o) && (
+                    <span
+                      className="mt-1 block text-[10px] font-medium text-amber-700"
+                      title="This order exists in the portal but never completed — void it there"
+                    >
+                      Needs voiding
+                    </span>
+                  )}
+                  {/* One link to the full picture, rather than a checklist
+                      squeezed into a table cell. */}
+                  {(hasProgress(o) || o.attempt > 0) && (
                     <button
                       type="button"
-                      onClick={() =>
-                        setExpanded((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(o.id)) next.delete(o.id);
-                          else next.add(o.id);
-                          return next;
-                        })
-                      }
-                      aria-expanded={expanded.has(o.id)}
-                      className="mt-1 block text-[10px] font-medium text-[#635BFF] hover:underline"
+                      onClick={() => setHistoryId(o.id)}
+                      className="mt-1 block text-[10px] font-medium text-[#635BFF] hover:underline cursor-pointer"
                     >
-                      {expanded.has(o.id) ? "Hide steps" : "Show steps"}
+                      View status{o.attempt > 1 ? ` (${o.attempt} attempts)` : ""}
                     </button>
                   )}
                   {/* When the checklist is open it already carries the message,
@@ -600,14 +650,15 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                   </div>
                 </td>
               </tr>
-              {expanded.has(o.id) && hasProgress(o) && (
+              {expanded.has(o.id) && o.status === "submitting" && (
                 <tr className="border-b border-[#E3E8EF] last:border-0">
-                  <td colSpan={isSuperAdmin ? 8 : 7} className="p-0">
+                  <td colSpan={isSuperAdmin ? 9 : 8} className="p-0">
                     <SubmitProgress
                       stage={o.stage}
                       status={o.status}
                       errorMessage={o.errorMessage}
                       orderId={o.orderId}
+                      details={stageDetails[o.id]}
                     />
                   </td>
                 </tr>
@@ -618,6 +669,19 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
         </table>
       </div>
       </div>
+
+      {historyOrder && (
+        <>
+          {/* Above the sidebar's z-50 — at z-30 the scrim only dimmed the table
+              area and the nav stayed live next to an open dialog. */}
+          <div
+            className="fixed inset-0 z-[60] bg-[#0A2540]/20 animate-fade-in"
+            onClick={() => setHistoryId(null)}
+            aria-hidden="true"
+          />
+          <OrderHistoryPanel order={historyOrder} onClose={() => setHistoryId(null)} />
+        </>
+      )}
     </div>
   );
 }

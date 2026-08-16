@@ -155,8 +155,21 @@ def order_to_payload(order: dict) -> dict:
         # Broadband tab by matching the offer code O-<deviceCode>-<group>.
         "deviceCode": _get(order, "deviceCode", "device_code"),
         "deviceName": _get(order, "deviceName", "device_name"),
+        # Mandatory Offer-dialog group names an admin recorded for this plan
+        # (BizzFlow Admin -> Plan Details). The scraper expands THESE groups
+        # rather than trying to detect the portal's red "*" from markup.
+        "offer_groups": _get(order, "offerGroups", "offer_groups") or [],
         "remarks": _get(order, "remarks", default=""),
         "_order_id": _get(order, "id"),
+        # Where run artefacts (the page-1 screenshot) get filed. `user_id` is
+        # filled in by the API server from the authenticated user_key, never from
+        # the request body — a caller must not be able to write into another
+        # user's R2 namespace.
+        "order_ref": {
+            "order_id": _get(order, "id"),
+            "attempt": _get(order, "attempt", default=1),
+            "user_id": None,
+        },
     }
 
 

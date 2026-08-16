@@ -70,6 +70,51 @@ export const SUBMIT_STEPS: SubmitStep[] = [
 // step is NOT retryable, it needs verifying in the portal by hand.
 export const POINT_OF_NO_RETURN = "capturing_order_no";
 
+/**
+ * What the portal actually resolved at a step.
+ *
+ * A bare step name says an address was checked; this says WHICH address matched.
+ * The portal's ranked search can resolve a typed address to a neighbouring unit,
+ * so the agent needs the resolved value while the submit is still running.
+ */
+export interface StageDetail {
+  value: string;
+  // `skipped` and `not_applicable` are deliberately separate. A Business package
+  // has no Winback Tagging field at all (not_applicable, unremarkable), which is
+  // a different thing from the field being on the form and left on
+  // "---Please select---" (skipped, worth an amber flag). Collapsing them puts a
+  // false warning on every Business order.
+  outcome: "ok" | "failed" | "skipped" | "not_applicable";
+  note?: string;
+}
+
+/** Resolved values by step key, as far as the run has got. */
+export type StageDetails = Record<string, StageDetail>;
+
+/**
+ * The stage that reports the page-1 screenshot's R2 key.
+ *
+ * Not a step in SUBMIT_STEPS — it is an artefact of the run, not a milestone the
+ * checklist ticks, and it is emitted once Winback Tagging resolves.
+ */
+export const PAGE1_SCREENSHOT_STAGE = "page1_captured";
+
+/** A step whose portal field was left unset reads as a warning, never a tick. */
+export const isUnsetStep = (d: StageDetail | undefined): boolean =>
+  d?.outcome === "skipped";
+
+/**
+ * An order that exists in the portal but never completed.
+ *
+ * The portal mints the order number before the device is even selectable, so a
+ * mid-flow failure always strands a real order. These need voiding by hand —
+ * flagging them is what stops them being quietly forgotten.
+ */
+export const needsVoiding = (o: {
+  status: string;
+  orderId?: string | null;
+}): boolean => !!o.orderId && (o.status === "warning" || o.status === "failed");
+
 // Coarse stage keys older scraper builds emit, mapped onto the step they begin.
 // Vercel and the droplet deploy separately, so a BizzFlow that is ahead of the
 // scraper must still show sensible progress instead of falling off the list.
@@ -112,6 +157,14 @@ export interface OrderListItem {
   orderId: string | null;
   errorMessage: string | null;
   stage: string | null; // last submit stage key seen — drives the step checklist
+  reference: string | null; // ORD-0042 — quotable before the portal issues a number
+  deviceName: string | null;
+  deviceCode: string | null;
+  remarks: string | null;
+  attempt: number; // how many submit runs this draft has had
+  // R2 key of the latest attempt's page-1 screenshot — presence means evidence
+  // exists; the per-attempt frames are read from the status trail.
+  screenshotUrl: string | null;
   docCount: number;
   createdAt: string;
   createdByEmail?: string | null; // only populated for superadmins (all-drafts view)

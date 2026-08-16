@@ -86,11 +86,46 @@ model Order {
   stage          String?                        // last stage key seen (e.g. checking_address)
   stageAt        DateTime? @map("stage_at")     // when `stage` last changed — staleness check
 
+  // R2 key of the LATEST attempt's page-1 screenshot, so a collapsed row can
+  // show that evidence exists without loading history. The per-attempt keys live
+  // on OrderStatusEvent (stage `page1_captured`) — that is what the detail panel
+  // reads, since a retried order has one frame per attempt.
+  screenshotUrl  String?   @map("screenshot_url")
+
+  // Short human reference (ORD-0042), assigned at creation. The portal's own
+  // order number only exists after a successful run, and not at all for a draft,
+  // so agents need something quotable before then.
+  reference      String?   @unique
+
+  // Which submit run the events below belong to. Bumped by each startSubmit so
+  // the history can show attempt 1 vs attempt 3 rather than one flat stream.
+  attempt        Int       @default(0)
+
+  statusEvents   OrderStatusEvent[]
+
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
   @@index([userId, status])
   @@map("orders")
+}
+
+// Append-only history of what a submit did, one row per stage transition and
+// per outcome. The Order row only ever holds the LATEST state; answering "why
+// did it fail, and did it fail the same way last time?" needs the trail.
+model OrderStatusEvent {
+  id        String   @id @default(cuid())
+  orderId   String   @map("order_id")
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  attempt   Int      @default(1) // groups events into submit runs
+  stage     String?              // stage key, null for run-level events
+  status    String               // submitting | order_entered | submitted | warning | failed | info
+  message   String?              // portal text or our own explanation
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([orderId, createdAt])
+  @@map("order_status_events")
 }
 
 // A sellable plan and the portal offer groups it requires.

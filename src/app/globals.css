@@ -562,6 +562,51 @@
   animation: drawCheck 500ms ease-out 120ms both;
 }
 
+/* ── Order Entry: submit timeline ────────────────────────────────────────── */
+
+/* The rail segment above a step draws downward the moment that step completes,
+   so progress reads as movement along one line rather than 16 ticks flipping
+   independently. The class is only present on completed segments, so adding it
+   is what starts the animation — it plays once per step, not on every poll. */
+@keyframes rail-draw {
+  from { transform: scaleY(0); }
+  to   { transform: scaleY(1); }
+}
+.rail-draw {
+  animation: rail-draw 400ms ease-out both;
+  transform-origin: top center;
+}
+
+/* The step being worked on: a slow halo that breathes outward. Deliberately
+   softer than a spinner — the run can sit on one step for minutes and a
+   spinning element that long reads as "stuck". */
+@keyframes step-halo {
+  0%   { box-shadow: 0 0 0 0 rgba(99, 91, 255, 0.4); }
+  70%  { box-shadow: 0 0 0 5px rgba(99, 91, 255, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(99, 91, 255, 0); }
+}
+.step-live {
+  animation: step-halo 2s ease-in-out infinite;
+}
+
+/* Completed / stopped markers pop in once as their state lands. */
+.step-mark {
+  animation: scaleIn 260ms ease-out both;
+}
+.step-mark-check path {
+  stroke-dasharray: 24;
+  animation: drawCheck 420ms ease-out 80ms both;
+}
+
+/* Rows arrive top-down on first paint so the list assembles as a sequence. */
+@keyframes step-row-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: none; }
+}
+.step-row-in {
+  animation: step-row-in 300ms ease-out both;
+}
+
 /* Respect the OS "reduce motion" setting across the whole app: keep state
    changes instant instead of animating them, but never hide content (the
    entrance animations use fill-mode both, so they must still resolve). */
@@ -577,5 +622,12 @@
   .progress-indeterminate {
     animation: none;
     transform: scaleX(1);
+  }
+  .step-live {
+    animation: none;
+  }
+  .rail-draw {
+    animation: none;
+    transform: scaleY(1);
   }
 }
