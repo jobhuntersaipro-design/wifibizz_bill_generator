@@ -93,6 +93,71 @@ model Order {
   @@map("orders")
 }
 
+// A sellable plan and the portal offer groups it requires.
+//
+// The portal's Offer dialog marks its mandatory groups with a red "*", and that
+// dialog only exists on an order's own detail page — so an admin reads the group
+// names off the portal once and records them here, rather than the system
+// minting a real order per package to discover them.
+model Plan {
+  id          String           @id @default(cuid())
+  // EXACT portal offer name — matched verbatim against the Subscription Plan
+  // List, so it must not be reformatted.
+  name        String           @unique
+  category    String
+  bandwidth   String?
+  // Only published plans are sellable: unpublished means no admin has confirmed
+  // its offer groups yet.
+  published   Boolean          @default(false)
+  notes       String?
+  offerGroups PlanOfferGroup[]
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  @@index([category])
+  @@map("plans")
+}
+
+model PlanOfferGroup {
+  id        String  @id @default(cuid())
+  planId    String  @map("plan_id")
+  plan      Plan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  // Verbatim from the dialog, pick-range included:
+  //   "Unifi Home 500Mbps Premium Value With Device[Pick 0-1]"
+  name      String
+  // The red "*" — the group the portal REQUIRES for this plan.
+  mandatory Boolean @default(true)
+  sortOrder Int     @default(0) @map("sort_order")
+  items     PlanOfferItem[]
+
+  @@unique([planId, name])
+  @@map("plan_offer_groups")
+}
+
+// A selectable row inside an offer group — a device the agent picks, or a
+// discount the order carries automatically.
+//
+// Which of the two it is comes from the GROUP name (the portal names its
+// discount groups "… Discount[Pick 0-1]"), the same rule the scraper uses to
+// tell discount rows from device rows.
+model PlanOfferItem {
+  id        String         @id @default(cuid())
+  groupId   String         @map("group_id")
+  group     PlanOfferGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  // Verbatim from the dialog, e.g. "Premium Value Samsung TV 55inch 1 (RM20)"
+  // or "Promo Discount RM10 (Perpetual) - 36 Months".
+  name      String
+  // The portal's numeric offer code, when known. Optional: the scraper matches
+  // on code first and falls back to the name, which is unique within a group.
+  code      String?
+  // Rental charge in RM/month, shown to the agent. Negative for a discount.
+  monthly   Float?
+  sortOrder Int            @default(0) @map("sort_order")
+
+  @@unique([groupId, name])
+  @@map("plan_offer_items")
+}
+
 // Per-user connection state for the Unifi eSales dealer portal. Tracks only the
 // staff code and session lifetime — never the dealer password (Option A: we
 // persist the captured session, not credentials). The actual session cookies

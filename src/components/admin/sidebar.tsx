@@ -8,6 +8,7 @@ import { adminLogout } from "@/actions/admin-auth";
 
 const navItems = [
   { label: "Users", href: "/admin", icon: UsersIcon },
+  { label: "Plan Details", href: "/admin/plans", icon: PlanIcon },
 ];
 
 export function AdminSidebar({ open, onClose }: { open?: boolean; onClose?: () => void }) {
@@ -95,6 +96,15 @@ function ShieldIcon({ className }: { className?: string }) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
       <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+    </svg>
+  );
+}
+
+function PlanIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 6h16M4 12h16M4 18h10" />
+      <circle cx="19" cy="18" r="2.5" />
     </svg>
   );
 }
