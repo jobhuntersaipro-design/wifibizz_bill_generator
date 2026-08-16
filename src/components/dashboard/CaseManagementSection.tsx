@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { initialsFor } from "@/lib/order-types";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import {
@@ -20,20 +22,17 @@ import { syncCasesToSheet } from "@/actions/settings";
 // ── Case Detail Panel ──
 
 function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatLoading }: { caseData: CaseRow; onClose: () => void; cacheBuster: number; onGenerateChat: (c: CaseRow) => void; chatLoading: boolean }) {
-  const [isVisible, setIsVisible] = useState(false);
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => { requestAnimationFrame(() => setIsVisible(true)); }, []);
-
-  const handleClose = useCallback(() => { setIsVisible(false); setTimeout(onClose, 300); }, [onClose]);
-
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) { if (e.key === "Escape") handleClose(); }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [handleClose]);
-
-  function handleBackdropClick(e: React.MouseEvent) { if (e.target === e.currentTarget) handleClose(); }
+  // The Sheet owns Escape, outside-click, the focus trap and scroll lock, all of
+  // which the old hand-rolled panel declared via markup and never implemented.
+  // It also owns the enter/exit transitions — but the parent mounts this panel
+  // conditionally, so we close the Sheet first and only tell the parent to drop
+  // us once the exit has played out.
+  const [open, setOpen] = useState(true);
+  const CLOSE_MS = 300; // must match data-[side=right]:duration-300 below
+  const requestClose = useCallback(() => {
+    setOpen(false);
+    setTimeout(onClose, CLOSE_MS);
+  }, [onClose]);
 
   const sections = [
     { title: "Case Information", fields: [
@@ -63,15 +62,31 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
   ];
 
   return (
-    <div className={`fixed inset-0 z-50 transition-colors duration-300 ${isVisible ? "bg-black/20" : "bg-transparent"}`} onClick={handleBackdropClick}>
-      <div ref={panelRef} className="absolute top-0 right-0 h-full w-full sm:max-w-md bg-white shadow-2xl flex flex-col max-h-screen" style={{ transform: isVisible ? "translateX(0)" : "translateX(100%)", transition: "transform 350ms cubic-bezier(0.16, 1, 0.3, 1)" }}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#E3E8EF]" style={{ opacity: isVisible ? 1 : 0, transform: isVisible ? "translateY(0)" : "translateY(-8px)", transition: "opacity 400ms ease-out 150ms, transform 400ms ease-out 150ms" }}>
-          <div>
-            <h2 className="text-lg font-semibold text-[#0A2540]">Case Details</h2>
-            <p className="text-xs text-[#697386] mt-0.5 font-mono tabular-nums">{caseData.case_no}</p>
+    <Sheet open={open} onOpenChange={(next) => !next && requestClose()}>
+      <SheetContent
+        side="right"
+        showCloseButton={false}
+        className="flex w-full flex-col gap-0 border-l border-[#E3E8EF] bg-white p-0 sm:max-w-md data-[side=right]:data-ending-style:translate-x-full data-[side=right]:data-starting-style:translate-x-full data-[side=right]:duration-300"
+      >
+        <SheetTitle className="sr-only">Case details for {caseData.case_no}</SheetTitle>
+        <SheetDescription className="sr-only">Customer, package, agent and bill details for this case.</SheetDescription>
+        <div className="flex items-start gap-3 px-6 py-4 border-b border-[#E3E8EF]">
+          <span className="panel-item-in flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#EDEBFF] text-[13px] font-semibold text-[#635BFF]" aria-hidden="true">
+            {initialsFor(caseData.full_name ?? "")}
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 className="panel-item-in truncate text-[15px] font-semibold leading-tight text-[#0A2540]" style={{ animationDelay: "40ms" }}>
+              {caseData.full_name || "Case details"}
+            </h2>
+            <div className="panel-item-in mt-1 flex flex-wrap items-center gap-1.5" style={{ animationDelay: "80ms" }}>
+              <span className="rounded-md bg-[#EDEBFF] px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-[#635BFF] transition-colors duration-150 hover:bg-[#DEDAFF]">{caseData.case_no}</span>
+              {caseData.status && (
+                <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset ${getStatusStyle(caseData.status)}`}>{caseData.status}</span>
+              )}
+            </div>
           </div>
-          <button onClick={handleClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#F6F9FC] text-[#697386] hover:text-[#0A2540] transition-colors duration-200">
-            <CloseIcon className="w-4 h-4" />
+          <button onClick={requestClose} aria-label="Close case details" className="group -mr-2.5 -mt-1.5 flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-md text-[#697386] transition-colors duration-150 hover:bg-[#F6F9FC] hover:text-[#0A2540] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#635BFF]">
+            <CloseIcon className="w-4 h-4 transition-transform duration-200 group-hover:rotate-90" />
           </button>
         </div>
         <div className="flex-1 overflow-y-auto px-6 py-5">
@@ -81,12 +96,12 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
             const delay = 200 + sectionIndex * 80;
             return (
               <div key={section.title}>
-                {sectionIndex > 0 && (<div className="border-t border-[#E3E8EF] my-5" style={{ opacity: isVisible ? 1 : 0, transition: `opacity 500ms ease-out ${delay}ms` }} />)}
-                <div style={{ opacity: isVisible ? 1 : 0, transform: isVisible ? "translateY(0)" : "translateY(12px)", transition: `opacity 400ms ease-out ${delay}ms, transform 400ms ease-out ${delay}ms` }}>
+                {sectionIndex > 0 && (<div className="border-t border-[#E3E8EF] my-5 panel-item-in"  style={{ animationDelay: `${delay}ms` }} />)}
+                <div className="panel-item-in" style={{ animationDelay: `${delay}ms` }}>
                   <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">{section.title}</h3>
                   <div className="space-y-3">
                     {visibleFields.map((field, fieldIndex) => (
-                      <div key={field.label} style={{ opacity: isVisible ? 1 : 0, transform: isVisible ? "translateY(0)" : "translateY(8px)", transition: `opacity 350ms ease-out ${delay + 40 + fieldIndex * 40}ms, transform 350ms ease-out ${delay + 40 + fieldIndex * 40}ms` }}>
+                      <div key={field.label} className="panel-item-in" style={{ animationDelay: `${delay + 40 + fieldIndex * 40}ms` }}>
                         <dt className="text-xs text-[#697386] mb-0.5">{field.label}</dt>
                         <dd className="text-sm text-[#0A2540]">
                           {field.isStatus ? (<span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${getStatusStyle(field.value ?? null)}`}>{field.value}</span>) : (<span className="wrap-break-word">{field.value}</span>)}
@@ -100,8 +115,8 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
           })}
 
           {/* Internet Bill Preview */}
-          <div className="border-t border-[#E3E8EF] my-5" style={{ opacity: isVisible ? 1 : 0, transition: "opacity 500ms ease-out 600ms" }} />
-          <div style={{ opacity: isVisible ? 1 : 0, transform: isVisible ? "translateY(0)" : "translateY(12px)", transition: "opacity 400ms ease-out 650ms, transform 400ms ease-out 650ms" }}>
+          <div className="border-t border-[#E3E8EF] my-5 panel-item-in"  style={{ animationDelay: "600ms" }} />
+          <div className="panel-item-in" style={{ animationDelay: "650ms" }}>
             <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">Internet Bill</h3>
             {caseData.internet_bill_url ? (
               <div className="space-y-3">
@@ -118,8 +133,8 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
           </div>
 
           {/* Utility Bill Preview */}
-          <div className="border-t border-[#E3E8EF] my-5" style={{ opacity: isVisible ? 1 : 0, transition: "opacity 500ms ease-out 700ms" }} />
-          <div style={{ opacity: isVisible ? 1 : 0, transform: isVisible ? "translateY(0)" : "translateY(12px)", transition: "opacity 400ms ease-out 750ms, transform 400ms ease-out 750ms" }}>
+          <div className="border-t border-[#E3E8EF] my-5 panel-item-in"  style={{ animationDelay: "700ms" }} />
+          <div className="panel-item-in" style={{ animationDelay: "750ms" }}>
             <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">Utility Bill</h3>
             {caseData.utility_bill_url ? (
               <div className="space-y-3">
@@ -136,8 +151,8 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
           </div>
 
           {/* Generate Chat */}
-          <div className="border-t border-[#E3E8EF] my-5" style={{ opacity: isVisible ? 1 : 0, transition: "opacity 500ms ease-out 800ms" }} />
-          <div style={{ opacity: isVisible ? 1 : 0, transform: isVisible ? "translateY(0)" : "translateY(12px)", transition: "opacity 400ms ease-out 850ms, transform 400ms ease-out 850ms" }}>
+          <div className="border-t border-[#E3E8EF] my-5 panel-item-in"  style={{ animationDelay: "800ms" }} />
+          <div className="panel-item-in" style={{ animationDelay: "850ms" }}>
             <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">Closing Script</h3>
             <button
               onClick={() => onGenerateChat(caseData)}
@@ -158,15 +173,15 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
           </div>
         </div>
         {caseData.case_url && (
-          <div className="px-6 py-4 border-t border-[#E3E8EF]" style={{ opacity: isVisible ? 1 : 0, transform: isVisible ? "translateY(0)" : "translateY(8px)", transition: "opacity 400ms ease-out 700ms, transform 400ms ease-out 700ms" }}>
+          <div className="px-6 py-4 border-t border-[#E3E8EF] panel-item-in"  style={{ animationDelay: "700ms" }}>
             <a href={caseData.case_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-[#635BFF] hover:text-[#0A2540] transition-colors duration-200">
               Open in WifiBizz
               <ExternalLinkIcon className="w-3.5 h-3.5" />
             </a>
           </div>
         )}
-      </div>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 

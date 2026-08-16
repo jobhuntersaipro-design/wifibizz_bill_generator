@@ -42,7 +42,7 @@ function Marker({ state }: { state: StepState }) {
   if (state === "done") {
     return (
       <svg
-        className="step-mark step-mark-check h-3.5 w-3.5 shrink-0 text-green-600"
+        className="step-mark step-mark-check marker-pop h-3.5 w-3.5 shrink-0 text-[#0E9F6E]"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -63,7 +63,7 @@ function Marker({ state }: { state: StepState }) {
   if (state === "warning") {
     return (
       <svg
-        className="step-mark h-3.5 w-3.5 shrink-0 text-amber-600"
+        className="step-mark marker-pop h-3.5 w-3.5 shrink-0 text-amber-600"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -78,7 +78,7 @@ function Marker({ state }: { state: StepState }) {
   if (state === "failed") {
     return (
       <svg
-        className="step-mark h-3.5 w-3.5 shrink-0 text-red-600"
+        className="step-mark marker-pop h-3.5 w-3.5 shrink-0 text-red-600"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -115,10 +115,35 @@ export function SubmitProgress({
     status === "submitted" ? SUBMIT_STEPS.length : Math.max(current, 0);
   const pct = Math.round((done / SUBMIT_STEPS.length) * 100);
 
+  // Which step the run is ON, 1-based. While it is moving that is the step it is
+  // working; once it stops that is the step it stopped on. "Step 11 of 16" tells
+  // an agent how far in they are in a way a bare percentage never does.
+  const stepNo = Math.min(Math.max(current, 0) + 1, SUBMIT_STEPS.length);
+  const heading =
+    status === "submitted"
+      ? `All ${SUBMIT_STEPS.length} steps complete`
+      : `Step ${stepNo} of ${SUBMIT_STEPS.length}`;
+
   return (
     <div className="px-4 py-3 bg-[#F6F9FC] border-t border-[#E3E8EF]">
       {/* One glanceable line of progress above the detail — the timeline says
           which step, this says how far. */}
+      <div className="mb-1.5 flex items-baseline gap-2">
+        <span
+          className={`text-[11px] font-semibold ${
+            status === "failed"
+              ? "text-red-700"
+              : status === "warning"
+                ? "text-amber-700"
+                : status === "submitted"
+                  ? "text-[#0E9F6E]"
+                  : "text-[#0A2540]"
+          }`}
+        >
+          {heading}
+        </span>
+        <span className="ml-auto text-[10px] tabular-nums text-[#8792A2]">{pct}%</span>
+      </div>
       <div className="mb-3 flex items-center gap-3">
         <div className="h-1 flex-1 overflow-hidden rounded-full bg-[#E3E8EF]">
           <div
@@ -128,7 +153,7 @@ export function SubmitProgress({
                 : status === "warning"
                   ? "bg-amber-500"
                   : status === "submitted"
-                    ? "bg-green-500"
+                    ? "bg-[#0E9F6E]"
                     : "bg-[#635BFF]"
             }`}
             style={{ width: `${pct}%` }}
@@ -178,21 +203,33 @@ export function SubmitProgress({
               </div>
 
               <div className="min-w-0 flex-1 pb-2">
-                <span
-                  className={`text-[11px] transition-colors duration-300 ${
-                    state === "failed"
-                      ? "text-red-700 font-medium"
-                      : state === "warning"
-                        ? "text-amber-700 font-medium"
-                        : state === "running"
-                          ? "text-[#0A2540] font-medium"
-                          : state === "done"
-                            ? "text-[#425466]"
-                            : "text-[#8792A2]"
-                  }`}
-                >
-                  {step.label}
-                  {state === "running" && "…"}
+                <span className="flex items-baseline gap-1.5">
+                  {/* Fixed-width so the labels stay in one optical column, and
+                      zero-padded so 4 and 14 occupy the same space. */}
+                  <span
+                    className={`w-4 shrink-0 text-[10px] tabular-nums ${
+                      state === "pending" ? "text-[#C1C9D2]" : "text-[#8792A2]"
+                    }`}
+                    aria-hidden="true"
+                  >
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <span
+                    className={`text-[12px] transition-colors duration-300 ${
+                      state === "failed"
+                        ? "text-red-700 font-medium"
+                        : state === "warning"
+                          ? "text-amber-700 font-medium"
+                          : state === "running"
+                            ? "text-[#0A2540] font-medium"
+                            : state === "done"
+                              ? "text-[#425466]"
+                              : "text-[#8792A2]"
+                    }`}
+                  >
+                    {step.label}
+                    {state === "running" && "…"}
+                  </span>
                 </span>
 
                 {/* What the portal actually resolved. This is the point of the
@@ -202,7 +239,7 @@ export function SubmitProgress({
                     differs at the end. */}
                 {detail?.value && (
                   <p
-                    className={`mt-0.5 break-words text-[10px] leading-snug ${
+                    className={`detail-in mt-0.5 ml-5.5 break-words text-[11px] leading-snug ${
                       detail.outcome === "failed"
                         ? "text-red-600"
                         : detail.outcome === "skipped"

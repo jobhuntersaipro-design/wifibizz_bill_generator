@@ -457,20 +457,26 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                   className="h-4 w-4 rounded border-[#CBD2DC] accent-[#635BFF] cursor-pointer disabled:opacity-40"
                 />
               </th>
-              <th className="px-4 py-3 font-medium">Ref</th>
+              <th className="px-4 py-3 font-medium whitespace-nowrap">BizzFlow Order ID</th>
               <th className="px-4 py-3 font-medium">Customer</th>
               {isSuperAdmin && <th className="px-4 py-3 font-medium">Made By</th>}
-              <th className="px-4 py-3 font-medium">Package &amp; device</th>
-              <th className="px-4 py-3 font-medium">Installation Address</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 font-medium">Order No.</th>
+              <th className="px-4 py-3 font-medium min-w-32">Package</th>
+              <th className="px-4 py-3 font-medium min-w-32">Device</th>
+              <th className="px-4 py-3 font-medium min-w-44">Installation Address</th>
+              <th className="px-4 py-3 font-medium min-w-24">Status</th>
+              {/* Named for its source: this number is the portal's, not ours,
+                  and only exists once Unifi has actually minted the order. */}
+              <th className="px-4 py-3 font-medium whitespace-nowrap">
+                Order No.
+                <span className="ml-1 font-normal normal-case text-[10px] text-[#8792A2]">Unifi</span>
+              </th>
               <th className="px-4 py-3 font-medium text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={isSuperAdmin ? 9 : 8} className="px-4 py-8 text-center text-sm text-[#697386]">
+                <td colSpan={isSuperAdmin ? 10 : 9} className="px-4 py-8 text-center text-sm text-[#697386]">
                   No orders match your search.
                 </td>
               </tr>
@@ -502,17 +508,8 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                 {isSuperAdmin && (
                   <td className="px-4 py-3 align-middle text-[#425466] text-[12px]">{o.createdByEmail ?? "—"}</td>
                 )}
-                <td className="px-4 py-3 align-top text-[#425466] max-w-64">
+                <td className="px-4 py-3 align-top text-[#425466]">
                   <div className="leading-snug">{o.offerName ?? "—"}</div>
-                  {o.deviceName && (
-                    <div className="mt-1 flex items-start gap-1 text-[11px] text-[#697386]">
-                      <svg className="mt-0.5 h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <rect x="2" y="3" width="20" height="14" rx="2" />
-                        <path d="M8 21h8M12 17v4" />
-                      </svg>
-                      <span className="leading-snug break-words">{o.deviceName}</span>
-                    </div>
-                  )}
                   {o.remarks?.trim() && (
                     <div className="mt-1 flex items-start gap-1 text-[11px] text-[#8792A2]" title={o.remarks}>
                       <svg className="mt-0.5 h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -523,25 +520,37 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                   )}
                 </td>
                 <td className="px-4 py-3 align-top text-[#425466]">
+                  {o.deviceName ? (
+                    <span className="leading-snug break-words">{o.deviceName}</span>
+                  ) : (
+                    <span className="text-[#8792A2]">—</span>
+                  )}
+                </td>
+                <td className="px-4 py-3 align-top text-[#425466]">
                   {(() => {
                     const address = formatAddress(o);
                     if (!address) return <span className="text-[#697386]">—</span>;
                     return (
-                      <div className="max-w-72 min-w-45">
-                        <div className="leading-snug break-words" title={address}>
+                      <div className="max-w-72">
+                        <div className="leading-snug break-words line-clamp-2" title={address}>
                           {address}
                         </div>
+                        {/* Verification is the NORMAL state for a confirmed
+                            address, so it whispers. A filled pill on nearly
+                            every row trains the eye to ignore it — and then the
+                            rows that lack it stop standing out, which is the
+                            only thing this mark is for. */}
                         {isVerified(o) && (
                           <span
-                            className="badge-verified mt-1.5 inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-semibold text-green-700 ring-1 ring-green-600/20"
+                            className="badge-verified mt-1 inline-flex items-center gap-1 text-[10px] font-medium text-green-700"
                             title="This address was matched against the Unifi dealer portal"
                           >
                             <svg
-                              className="h-3 w-3 shrink-0"
+                              className="h-2.5 w-2.5 shrink-0"
                               viewBox="0 0 24 24"
                               fill="none"
                               stroke="currentColor"
-                              strokeWidth="3"
+                              strokeWidth="3.5"
                               strokeLinecap="round"
                               strokeLinejoin="round"
                               aria-hidden="true"
@@ -564,34 +573,27 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                   </span>
                   {needsVoiding(o) && (
                     <span
-                      className="mt-1 block text-[10px] font-medium text-amber-700"
+                      className="mt-1 block whitespace-nowrap text-[10px] font-medium text-amber-700"
                       title="This order exists in the portal but never completed — void it there"
                     >
                       Needs voiding
                     </span>
                   )}
-                  {/* One link to the full picture, rather than a checklist
-                      squeezed into a table cell. */}
-                  {(hasProgress(o) || o.attempt > 0) && (
+                  {/* The portal's own failure text is long and wraps, which
+                      shoves every other row out of alignment. It lives in the
+                      panel now; this is the way in. */}
+                  {(hasProgress(o) || o.attempt > 0 || o.errorMessage) && (
                     <button
                       type="button"
                       onClick={() => setHistoryId(o.id)}
-                      className="mt-1 block text-[10px] font-medium text-[#635BFF] hover:underline cursor-pointer"
+                      className="mt-1.5 inline-flex cursor-pointer items-center gap-1 whitespace-nowrap rounded-md border border-[#E3E8EF] px-2 py-1 text-[11px] font-medium text-[#425466] transition-colors duration-150 hover:border-[#635BFF] hover:text-[#635BFF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
                     >
-                      View status{o.attempt > 1 ? ` (${o.attempt} attempts)` : ""}
+                      Details
+                      {o.attempt > 1 && (
+                        <span className="tabular-nums text-[#8792A2]">· {o.attempt}</span>
+                      )}
                     </button>
                   )}
-                  {/* When the checklist is open it already carries the message,
-                      so don't print it twice. */}
-                  {(o.status === "failed" || o.status === "warning") &&
-                    o.errorMessage &&
-                    !(expanded.has(o.id) && hasProgress(o)) && (
-                      <div
-                        className={`text-[10px] mt-1 max-w-60 leading-snug ${o.status === "warning" ? "text-amber-700" : "text-red-600"}`}
-                      >
-                        {o.errorMessage}
-                      </div>
-                    )}
                 </td>
                 <td className="px-4 py-3 align-middle tabular-nums text-[#0A2540]">
                   {o.orderId ? (
@@ -599,23 +601,28 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                       href={`https://dealer.unifi.com.my/esales/h5/onBoarding/OrderDetails?custOrderId=${o.orderId}&custOrderNbr=${o.orderId}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-[#635BFF] hover:underline"
-                      title="Open the order on the dealer portal (may take a moment to appear after creation)"
+                      className="group inline-flex items-center gap-1 whitespace-nowrap font-medium text-[#635BFF] hover:underline"
+                      title="Open the order on the Unifi dealer portal (may take a moment to appear after creation)"
                     >
                       {o.orderId}
+                      <svg className="h-3 w-3 shrink-0 opacity-60 transition-opacity group-hover:opacity-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M15 3h6v6M10 14 21 3M18 13v8H3V6h8" />
+                      </svg>
                     </a>
                   ) : (
-                    "—"
+                    /* Absence is meaningful: the portal has not minted a number
+                       for this draft yet, which is not the same as "unknown". */
+                    <span className="text-[11px] text-[#8792A2]">Not yet issued</span>
                   )}
                 </td>
                 <td className="px-4 py-3 align-middle">
-                  <div className="flex items-center justify-end gap-2">
+                  <div className="flex items-center justify-end gap-1.5">
                     {o.status !== "submitted" && (
                       <button
                         type="button"
                         disabled={busyId === o.id}
                         onClick={() => onEdit(o.id)}
-                        className="rounded-md border border-[#E3E8EF] px-3 py-1.5 text-[12px] font-medium text-[#425466] hover:border-[#635BFF] hover:text-[#635BFF] disabled:opacity-50 transition-colors"
+                        className="cursor-pointer rounded-md border border-[#E3E8EF] px-2.5 py-1.5 text-[12px] font-medium text-[#425466] transition-colors hover:border-[#635BFF] hover:text-[#635BFF] disabled:opacity-50"
                       >
                         Edit
                       </button>
@@ -625,7 +632,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                         type="button"
                         disabled={busyId === o.id}
                         onClick={() => handleSubmit(o.id, o.fullName)}
-                        className="inline-flex items-center gap-1.5 rounded-md bg-[#635BFF] px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-[#0A2540] disabled:opacity-50 transition-colors"
+                        className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md bg-[#635BFF] px-2.5 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-[#0A2540] disabled:opacity-50"
                       >
                         {busyId === o.id ? (
                           <>
@@ -642,7 +649,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                         type="button"
                         disabled={busyId === o.id}
                         onClick={() => handleDelete(o.id)}
-                        className="rounded-md border border-[#E3E8EF] px-3 py-1.5 text-[12px] text-[#DF1B41] hover:border-[#DF1B41] disabled:opacity-50 transition-colors"
+                        className="cursor-pointer rounded-md border border-[#E3E8EF] px-2.5 py-1.5 text-[12px] text-[#DF1B41] transition-colors hover:border-[#DF1B41] disabled:opacity-50"
                       >
                         Delete
                       </button>
@@ -652,7 +659,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
               </tr>
               {expanded.has(o.id) && o.status === "submitting" && (
                 <tr className="border-b border-[#E3E8EF] last:border-0">
-                  <td colSpan={isSuperAdmin ? 9 : 8} className="p-0">
+                  <td colSpan={isSuperAdmin ? 10 : 9} className="p-0">
                     <SubmitProgress
                       stage={o.stage}
                       status={o.status}
@@ -670,17 +677,10 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
       </div>
       </div>
 
+      {/* No scrim here any more: the Sheet portals its own backdrop above
+          everything, which is also what closes on outside-click and Escape. */}
       {historyOrder && (
-        <>
-          {/* Above the sidebar's z-50 — at z-30 the scrim only dimmed the table
-              area and the nav stayed live next to an open dialog. */}
-          <div
-            className="fixed inset-0 z-[60] bg-[#0A2540]/20 animate-fade-in"
-            onClick={() => setHistoryId(null)}
-            aria-hidden="true"
-          />
-          <OrderHistoryPanel order={historyOrder} onClose={() => setHistoryId(null)} />
-        </>
+        <OrderHistoryPanel order={historyOrder} onClose={() => setHistoryId(null)} />
       )}
     </div>
   );

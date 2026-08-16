@@ -139,6 +139,125 @@ export function stepIndexForStage(stage: string | null | undefined): number {
   return SUBMIT_STEPS.findIndex((s) => s.key === key);
 }
 
+/**
+ * Human label for any stage key the scraper might emit.
+ *
+ * A raw `customer_order_info` in the timeline is a leak, not information. Coarse
+ * aliases resolve to the step they begin, and a key this build has never seen is
+ * humanised rather than printed verbatim — the scraper deploys separately and
+ * WILL be ahead of us sometimes.
+ */
+export function labelForStage(stage: string | null | undefined): string {
+  if (!stage) return "";
+  const key = STAGE_ALIASES[stage] ?? stage;
+  const step = SUBMIT_STEPS.find((s) => s.key === key);
+  if (step) return step.label;
+  const words = key.replace(/[_-]+/g, " ").trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : "";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Detail panel derivations.
+//
+// These live here rather than in order-history.ts because that module imports
+// Prisma — pulling it into a client component would drag the server client into
+// the browser bundle. Everything below takes plain values for the same reason.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The run's colour family, driving the hero tint and every status accent. */
+export type RunTone = "running" | "submitted" | "warning" | "failed" | "draft";
+
+export function toneForStatus(status: string): RunTone {
+  if (status === "submitting") return "running";
+  if (status === "submitted" || status === "order_entered") return "submitted";
+  if (status === "warning") return "warning";
+  if (status === "failed") return "failed";
+  return "draft";
+}
+
+/**
+ * Up to two initials for the avatar.
+ *
+ * First and LAST token, not the first two: Malaysian names here run long
+ * ("MUHAMMAD SAHINU BIN INSANU"), and the first two words are frequently a
+ * given-name pair that collides across different customers.
+ */
+export function initialsFor(name: string): string {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/** What the hero card leads with. */
+export interface HeroContent {
+  value: string;
+  /** True when `value` is a portal order number — renders tabular + copyable. */
+  isOrderNumber: boolean;
+  tone: RunTone;
+}
+
+/**
+ * The hero shows the Customer Order Number, because that is the value an agent
+ * copies out of this panel and pastes into the portal or a chat.
+ *
+ * Before the portal mints one there is nothing to copy, so it falls back to the
+ * status word rather than showing an empty card or a placeholder dash.
+ */
+export function heroFor(order: {
+  status: string;
+  orderId?: string | null;
+}): HeroContent {
+  const tone = toneForStatus(order.status);
+  const id = order.orderId?.trim();
+  if (id) return { value: id, isOrderNumber: true, tone };
+  const words: Record<RunTone, string> = {
+    running: "Submitting",
+    submitted: "Submitted",
+    warning: "Needs checking",
+    failed: "Failed",
+    draft: "Draft",
+  };
+  return { value: words[tone], isOrderNumber: false, tone };
+}
+
+/**
+ * How many of the 16 steps a run actually reached.
+ *
+ * Counts DISTINCT known step keys: a stage is reported twice (bare, then with
+ * its resolved detail) and coarse aliases collapse onto the step they begin, so
+ * a naive length would over-count and could exceed the total.
+ */
+export function stepsCompleted(stages: (string | null | undefined)[]): number {
+  const seen = new Set<number>();
+  for (const s of stages) {
+    const i = stepIndexForStage(s);
+    if (i >= 0) seen.add(i);
+  }
+  return seen.size;
+}
+
+/**
+ * Compact elapsed label ("4m 12s", "38s", "1h 2m").
+ *
+ * `null` when the run has no end yet — the caller shows a live ticker instead of
+ * a frozen number, which would otherwise read as a finished run.
+ */
+export function elapsedLabel(from: string, to: string | null): string | null {
+  if (!to) return null;
+  const ms = new Date(to).getTime() - new Date(from).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  return formatDuration(ms);
+}
+
+export function formatDuration(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
 export interface OrderListItem {
   id: string;
   fullName: string;
