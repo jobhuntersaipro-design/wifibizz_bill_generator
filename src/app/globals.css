@@ -550,16 +550,126 @@
 /* A soft green halo that breathes slowly, so a verified address reads as a live
    portal-confirmed fact without competing with the row's Submit button. The
    tick draws itself once on mount as the badge appears. */
-@keyframes verified-halo {
-  0%, 65%, 100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
-  32%           { box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15); }
-}
-.badge-verified {
-  animation: verified-halo 3.2s ease-in-out infinite;
-}
+/* No halo, no loop. Verification is the normal state for a confirmed address,
+   so a pulsing ring on nearly every row is permanent visual noise — and it
+   trains the eye to skip exactly the mark whose absence is the signal. The
+   check still draws itself once, which is enough. */
 .badge-verified svg path {
   stroke-dasharray: 24;
   animation: drawCheck 500ms ease-out 120ms both;
+}
+
+/* ── Order Entry: submit timeline ────────────────────────────────────────── */
+
+/* The rail segment above a step draws downward the moment that step completes,
+   so progress reads as movement along one line rather than 16 ticks flipping
+   independently. The class is only present on completed segments, so adding it
+   is what starts the animation — it plays once per step, not on every poll. */
+@keyframes rail-draw {
+  from { transform: scaleY(0); }
+  to   { transform: scaleY(1); }
+}
+.rail-draw {
+  animation: rail-draw 400ms ease-out both;
+  transform-origin: top center;
+}
+
+/* The step being worked on: a slow halo that breathes outward. Deliberately
+   softer than a spinner — the run can sit on one step for minutes and a
+   spinning element that long reads as "stuck". */
+@keyframes step-halo {
+  0%   { box-shadow: 0 0 0 0 rgba(99, 91, 255, 0.4); }
+  70%  { box-shadow: 0 0 0 5px rgba(99, 91, 255, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(99, 91, 255, 0); }
+}
+.step-live {
+  animation: step-halo 2s ease-in-out infinite;
+}
+
+/* Completed / stopped markers pop in once as their state lands. */
+.step-mark {
+  animation: scaleIn 260ms ease-out both;
+}
+.step-mark-check path {
+  stroke-dasharray: 24;
+  animation: drawCheck 420ms ease-out 80ms both;
+}
+
+/* Rows arrive top-down on first paint so the list assembles as a sequence. */
+@keyframes step-row-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: none; }
+}
+.step-row-in {
+  animation: step-row-in 300ms ease-out both;
+}
+
+/* ── Detail panel motion ─────────────────────────────────────────────────────
+   Every entrance below uses animation-fill-mode: BACKWARDS, never `both`.
+   `both` holds the to-state after the animation ends, and a resolved
+   `transform: none` is still an identity matrix — which makes the element a
+   stacking context forever and lets it paint over an open dropdown. That bug
+   cost a day on the address-confirm work; `backwards` applies the from-state
+   during the stagger delay and then leaves NO transform behind at all.       */
+
+@keyframes panel-item-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+.panel-item-in {
+  animation: panel-item-in 320ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+/* Stat cards rise a little further than text, so the grid reads as one object
+   arriving rather than three independent lines. */
+@keyframes panel-card-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
+.panel-card-in {
+  animation: panel-card-in 380ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+/* A step marker earns a pop only at the moment it resolves. */
+@keyframes marker-pop {
+  0%   { transform: scale(0.5); opacity: 0; }
+  60%  { transform: scale(1.12); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.marker-pop {
+  animation: marker-pop 220ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+
+/* The resolved value APPEARING is the event worth animating, not the row. */
+@keyframes detail-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: none; }
+}
+.detail-in {
+  animation: detail-in 240ms ease-out backwards;
+}
+
+/* Attempt bodies expand to their measured height. This is the ONE place the
+   panel animates a layout property — Base UI measures the panel and exposes it
+   as --collapsible-panel-height, which is the only way to transition to "auto".
+   It is confined to a collapsed region no other element depends on. */
+.collapse-panel {
+  overflow: hidden;
+  height: var(--collapsible-panel-height);
+  transition: height 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.collapse-panel[data-starting-style],
+.collapse-panel[data-ending-style] {
+  height: 0;
+}
+
+/* Tab bodies cross-fade; sliding them would fight the sheet's own entrance. */
+@keyframes tab-panel-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+.tab-panel-in {
+  animation: tab-panel-in 180ms ease-out backwards;
 }
 
 /* Respect the OS "reduce motion" setting across the whole app: keep state
@@ -577,5 +687,27 @@
   .progress-indeterminate {
     animation: none;
     transform: scaleX(1);
+  }
+  .step-live {
+    animation: none;
+  }
+  .rail-draw {
+    animation: none;
+    transform: scaleY(1);
+  }
+  /* The panel entrances are `backwards`, so killing the animation outright
+     leaves the element in its natural state — visible, unmoved. The duration
+     override above would already do this; naming them keeps it explicit that
+     the whole panel choreography is covered. */
+  .panel-item-in,
+  .panel-card-in,
+  .marker-pop,
+  .detail-in,
+  .tab-panel-in {
+    animation: none;
+  }
+  /* Snap open/closed instead of sliding the height. */
+  .collapse-panel {
+    transition: none;
   }
 }

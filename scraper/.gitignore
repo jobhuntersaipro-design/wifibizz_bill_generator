@@ -9,6 +9,7 @@ sessions/
 *.session
 .env
 .env.*
+!.env.example
 service_account.json
 gmail_credentials.json
 gmail_token.json
@@ -19,6 +20,8 @@ logs/
 jobs/
 outputs/
 inspect_dumps/
+# Written by deploy.sh on the droplet: which ref is live, and what preceded it
+.last-deploy
 
 # ── Python ──
 __pycache__/
@@ -29,3 +32,8 @@ venv/
 
 # ── OS ──
 .DS_Store
+
+# NOTE: on the droplet these paths sit *inside* the git working tree and hold
+# the API token, every dealer session and the Gmail OTP credentials. They must
+# stay ignored so a checkout walks past them and `git status` stays clean —
+# deploy.sh's drift check depends on that. See SOP_DROPLET_UPDATE.md.

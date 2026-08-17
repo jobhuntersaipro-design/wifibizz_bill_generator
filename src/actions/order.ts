@@ -16,6 +16,14 @@ import { MALAYSIA_STATES } from "@/lib/malaysia-states";
 import { ID_TYPES } from "@/lib/dealer-offers";
 import MY_POSTCODES from "@/lib/malaysia-postcodes.json";
 import { addressKey, validateMalaysianAddress } from "@/lib/malaysia-address";
+import { reconcileStaleSubmits } from "@/lib/order-submit";
+import { mandatoryGroupsFor } from "@/actions/plans";
+import {
+  nextOrderReference,
+  recordEvent,
+  groupByAttempt,
+  type AttemptView,
+} from "@/lib/order-history";
 
 // Static MY postcode -> [CITY, State] map (~2,900 postcodes). Reliable, offline,
 // and instant — Google geocoding returns the state but rarely the city for bare
@@ -343,7 +351,14 @@ export async function saveOrder(rawInput: OrderInput) {
           data,
         })
       : await prisma.order.create({
-          data: { ...data, userId: session.user.id, status: "draft" },
+          data: {
+            ...data,
+            userId: session.user.id,
+            status: "draft",
+            // Assigned at creation, not at submit: agents quote this in chat long
+            // before the portal has issued an order number.
+            reference: await nextOrderReference(),
+          },
         });
     return { success: true as const, id: order.id };
   } catch (e) {
@@ -386,6 +401,20 @@ export async function listOrders(): Promise<{
   if (!session?.user?.id) return { success: false, error: "Unauthorized", data: [] };
 
   const superAdmin = await isSuperAdmin(session.user.id);
+
+  // Repair anything left mid-flight by a browser that went away, so an order
+  // whose submitting tab was closed resolves the moment someone opens the list
+  // instead of sitting in `submitting` forever.
+  //
+  // Strictly best-effort: reconciling is a side task, and listing the drafts is
+  // the job. Letting it throw here once took the whole list down (a stale Prisma
+  // client that didn't know `jobId`), so it can never be allowed to again.
+  try {
+    await reconcileStaleSubmits(superAdmin ? null : session.user.id);
+  } catch (e) {
+    console.error("[listOrders] reconcile failed (listing anyway):", e);
+  }
+
   const orders = await prisma.order.findMany({
     // Superadmins see ALL drafts; everyone else only their own.
     where: superAdmin ? {} : { userId: session.user.id },
@@ -411,6 +440,13 @@ export async function listOrders(): Promise<{
       status: o.status,
       orderId: o.orderId,
       errorMessage: o.errorMessage,
+      stage: o.stage,
+      reference: o.reference,
+      deviceName: o.deviceName,
+      deviceCode: o.deviceCode,
+      remarks: o.remarks,
+      attempt: o.attempt,
+      screenshotUrl: o.screenshotUrl,
       docCount: Array.isArray(o.documents) ? (o.documents as unknown[]).length : 0,
       createdAt: o.createdAt.toISOString(),
       createdByEmail: superAdmin ? o.user?.email ?? null : null,
@@ -433,21 +469,14 @@ export async function deleteOrder(id: string) {
 const SCRAPER_API_URL = process.env.SCRAPER_API_URL ?? "http://localhost:5000";
 const ORDER_TOKEN = process.env.ORDER_ENTRY_API_TOKEN ?? "";
 
-interface OrderJobResult {
-  status?: string;
-  order_id?: string;
-  order_url?: string;
-  advance_payment?: string;
-  warning?: string;
-  error?: string;
-  message?: string;
-}
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-export async function submitOrder(id: string) {
+/**
+ * Start a submit and return immediately with the scraper's job id.
+ *
+ * The run itself takes minutes; the browser follows it via
+ * GET /api/orders/[id]/progress. Nothing here waits on the portal, so no server
+ * action ever outlives a request timeout.
+ */
+export async function startSubmit(id: string) {
   const session = await auth();
   if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
   if (!ORDER_TOKEN) {
@@ -462,16 +491,47 @@ export async function submitOrder(id: string) {
   });
   if (!order) return { success: false as const, error: "Order not found." };
 
+  // Each submit is its own attempt in the status history, so the timeline can
+  // show "attempt 3 failed the same way attempt 1 did".
+  const attempt = order.attempt + 1;
+  await prisma.order.update({ where: { id: order.id }, data: { attempt } });
+  const fatal = async (stage: string, msg: string) => {
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { status: "failed", stage, errorMessage: msg },
+    });
+    await recordEvent({ orderId: order.id, attempt, status: "failed", stage, message: msg });
+    return { success: false as const, error: msg };
+  };
+  await recordEvent({
+    orderId: order.id, attempt, status: "submitting", stage: "validating_draft",
+    message: "Submit started.",
+  });
+
+  // ── Step 1: validating_draft ──────────────────────────────────────────────
   // Feasibility needs a serviceable address (resourceInstId) to select "By Address
   // Id". Without it the portal can't check feasibility, so block early with a
   // clear message rather than failing deep in the flow.
   if (!order.addressId) {
-    const msg = "Select a serviceable Service Address before submitting (search + pick it in the draft).";
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { status: "failed", errorMessage: msg },
-    });
-    return { success: false as const, error: msg };
+    return fatal(
+      "validating_draft",
+      "Select a serviceable Service Address before submitting (search + pick it in the draft).",
+    );
+  }
+
+  // ── Step 2: checking_session ──────────────────────────────────────────────
+  // Read the stored expiry rather than calling the portal: it costs nothing and
+  // catches the common case (an agent who never reconnected today). A session
+  // that dies mid-run is still handled by the run itself.
+  const dealer = await prisma.dealerAccount.findUnique({
+    where: { userId: session.user.id },
+    select: { sessionExpiresAt: true },
+  });
+  if (!dealer?.sessionExpiresAt || dealer.sessionExpiresAt.getTime() <= Date.now()) {
+    return fatal(
+      "checking_session",
+      "Your dealer session has expired. Reconnect on the Order Entry page, then submit again.",
+    );
   }
 
   const headers = {
@@ -480,11 +540,21 @@ export async function submitOrder(id: string) {
   };
   await prisma.order.update({
     where: { id: order.id },
-    data: { status: "submitting", errorMessage: null },
+    data: {
+      status: "submitting",
+      errorMessage: null,
+      stage: "creating_customer",
+      stageAt: new Date(),
+    },
   });
+
+  // The mandatory offer-group names an admin recorded for this plan. The scraper
+  // expands these groups by name instead of guessing at the portal's red "*".
+  const offerGroups = await mandatoryGroupsFor(order.offerName);
 
   // Send the raw order; the Flask side maps it to a portal payload.
   const reqOrder = {
+    offerGroups,
     id: order.id,
     idType: order.idType,
     idNumber: order.idNumber,
@@ -510,6 +580,12 @@ export async function submitOrder(id: string) {
     deviceName: order.deviceName,
     remarks: order.remarks,
     documents: order.documents,
+    // Which run this is, so the scraper can file its page-1 screenshot against
+    // this order AND attempt (`id` above already identifies the order). The user
+    // id is deliberately NOT sent — the scraper takes it from the authenticated
+    // user_key, so a request body can't redirect an upload into someone else's
+    // R2 namespace.
+    attempt,
   };
 
   async function fail(message: string) {
@@ -548,97 +624,14 @@ export async function submitOrder(id: string) {
       return fail(start.message || "Couldn't start the order job.");
     }
 
-    // Poll for completion. The full flow runs longer (customer create ~1-2 min +
-    // feasibility/attach), so poll past the scraper's 360s per-order cap.
-    let result: OrderJobResult | null = null;
-    let enteredMarked = false;
-    // Full flow through Pay runs long; poll past the scraper's 600s per-order cap.
-    for (let i = 0; i < 310; i++) {
-      await sleep(2000);
-      const jr = await fetch(`${SCRAPER_API_URL}/jobs/${start.job_id}`, {
-        headers,
-        cache: "no-store",
-      });
-      const j = (await jr.json().catch(() => ({}))) as {
-        status?: string;
-        stage?: string;
-        result?: OrderJobResult;
-        error?: string;
-      };
-      // Live intermediate: "Order Entered" = the customer profile is created, which
-      // is true from the order_entered stage onward (feasibility → … → pay). That
-      // stage flashes by in <1s, so mark on ANY post-create stage, not just the exact
-      // "order_entered". No order id here — it's minted during feasibility and saved
-      // with the final "submitted" status.
-      const POST_CREATE_STAGES = new Set([
-        "order_entered", "feasibility", "new_connection_page1",
-        "subproduct_tabs", "customer_order_info", "pay", "submitted",
-      ]);
-      if (!enteredMarked && j.stage && POST_CREATE_STAGES.has(j.stage)) {
-        enteredMarked = true;
-        await prisma.order.update({
-          where: { id: order.id },
-          data: { status: "order_entered", errorMessage: null },
-        });
-      }
-      if (j.status === "done") {
-        result = j.result ?? {};
-        break;
-      }
-      if (j.status === "error") {
-        return fail(j.error || "The portal run failed.");
-      }
-    }
-    if (!result) return fail("Timed out waiting for the portal.");
-
-    // Interpret the result → order status.
-    // "submitted" = full flow through Pay done; "success" = legacy order-id-only.
-    if ((result.status === "submitted" || result.status === "success") && result.order_id) {
-      const ap = result.advance_payment
-        ? `Advance Payment RM${result.advance_payment} was required.`
-        : null;
-      const note = [result.warning, ap].filter(Boolean).join(" ") || null;
-      await prisma.order.update({
-        where: { id: order.id },
-        data: { status: "submitted", orderId: result.order_id, errorMessage: note },
-      });
-      return { success: true as const, orderId: result.order_id, warning: note ?? undefined };
-    }
-    if (result.status === "error") {
-      // If the order id was already minted (Order clicked before the failure), the
-      // order EXISTS in the portal — persist the id so a retry can't create a
-      // DUPLICATE (canSubmit gates on orderId). Surface it as a warning to verify/
-      // complete manually rather than a plain "failed" (which would re-enable submit).
-      if (result.order_id) {
-        const msg = `Order ${result.order_id} was created but the flow didn't finish: ${result.message || result.error || "error"}. Verify in the portal before retrying.`;
-        await prisma.order.update({
-          where: { id: order.id },
-          data: { status: "warning", orderId: result.order_id, errorMessage: msg },
-        });
-        return { success: false as const, error: msg, orderId: result.order_id };
-      }
-      return fail(result.message || result.error || "The portal returned an error.");
-    }
-    // Surface any warning (e.g. duplicate customer records). Keep the order id if the
-    // scraper returned one, so a partially-placed order can't be re-submitted.
-    if (result.warning) {
-      await prisma.order.update({
-        where: { id: order.id },
-        data: {
-          status: "warning",
-          ...(result.order_id ? { orderId: result.order_id } : {}),
-          errorMessage: result.warning,
-        },
-      });
-      return { success: true as const, warning: result.warning, orderId: result.order_id };
-    }
-    // Customer profile created (order entry, pages 1-16). The order id comes
-    // later from the separate feasibility step.
+    // Hand the job id back and stop. The browser polls
+    // GET /api/orders/[id]/progress from here; `listOrders` reconciles the run
+    // if that browser goes away.
     await prisma.order.update({
       where: { id: order.id },
-      data: { status: "order_entered", errorMessage: null },
+      data: { jobId: start.job_id },
     });
-    return { success: true as const, message: result.message || "Customer profile created." };
+    return { success: true as const, jobId: start.job_id };
   } catch (e) {
     return fail(e instanceof Error ? e.message : "Order service unreachable.");
   }
@@ -695,3 +688,49 @@ export async function searchDealerAddress(
     return { success: false, error: "Address service unreachable.", addresses: [] };
   }
 }
+
+// ── Status history ───────────────────────────────────────────────────────────
+/**
+ * The full status trail for one order, grouped into submit attempts.
+ *
+ * The Order row only carries the latest state, so this is the only way to answer
+ * "why did it fail, and did the previous attempt fail the same way?".
+ */
+export async function getOrderHistory(id: string): Promise<{
+  success: boolean;
+  error?: string;
+  attempts: AttemptView[];
+}> {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false, error: "Unauthorized", attempts: [] };
+
+  const superAdmin = await isSuperAdmin(session.user.id);
+  const order = await prisma.order.findFirst({
+    where: superAdmin ? { id } : { id, userId: session.user.id },
+    select: { id: true },
+  });
+  if (!order) return { success: false, error: "Order not found.", attempts: [] };
+
+  const events = await prisma.orderStatusEvent.findMany({
+    where: { orderId: id },
+    orderBy: { createdAt: "asc" },
+    // Bounded: a pathological retry loop must not send an unbounded payload to
+    // the browser. Oldest are dropped first, which keeps the latest attempts.
+    take: 500,
+  });
+
+  return {
+    success: true,
+    attempts: groupByAttempt(
+      events.map((e) => ({
+        id: e.id,
+        attempt: e.attempt,
+        stage: e.stage,
+        status: e.status,
+        message: e.message,
+        createdAt: e.createdAt.toISOString(),
+      })),
+    ),
+  };
+}
+

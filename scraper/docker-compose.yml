@@ -1,5 +1,13 @@
 # BizzFlow scraper / order-entry service for a DigitalOcean droplet.
 # Caddy fronts the Flask app with automatic HTTPS (needs a domain -> droplet IP).
+
+# Pinned explicitly. Compose otherwise names the project after its directory,
+# and the git deploy moves that directory from /opt/bizzflow-scraper to
+# .../repo/scraper — which would orphan the running containers and, worse,
+# create a fresh caddy_data volume, throwing away the Let's Encrypt account and
+# certificate. Do not change this name.
+name: bizzflow-scraper
+
 services:
   scraper:
     build: .

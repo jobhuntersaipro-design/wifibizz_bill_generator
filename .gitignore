@@ -55,3 +55,8 @@ next-env.d.ts
 
 *.html
 *.pdf
+
+# …except the scraper's test fixtures. They are stand-ins for portal pages, and
+# the scroll/capture tests are meaningless without them — the blanket *.html
+# above would drop them from a fresh clone and leave the suite failing.
+!scraper/tests/fixture_*.html

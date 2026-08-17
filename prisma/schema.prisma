@@ -78,11 +78,121 @@ model Order {
   orderId        String?   @map("order_id")   // dealer portal order number
   errorMessage   String?   @map("error_message")
 
+  // Live submit progress. The scraper reports a stage key per portal milestone;
+  // the browser polls for it rather than holding a long request open.
+  // jobId is what lets a poll AFTER the submitting tab is gone still reconcile
+  // the run — without it, a closed tab strands the order in `submitting`.
+  jobId          String?   @map("job_id")      // Flask job id for the in-flight run
+  stage          String?                        // last stage key seen (e.g. checking_address)
+  stageAt        DateTime? @map("stage_at")     // when `stage` last changed — staleness check
+
+  // R2 key of the LATEST attempt's page-1 screenshot, so a collapsed row can
+  // show that evidence exists without loading history. A submit captures one
+  // frame per detail screen; every key lives on OrderStatusEvent (stages
+  // `capture_<slot>`) — that is what the detail panel reads, since a retried
+  // order has its own set of frames per attempt. Page 1 is the one kept here
+  // because it is the most representative single image of a submit.
+  screenshotUrl  String?   @map("screenshot_url")
+
+  // Short human reference (ORD-0042), assigned at creation. The portal's own
+  // order number only exists after a successful run, and not at all for a draft,
+  // so agents need something quotable before then.
+  reference      String?   @unique
+
+  // Which submit run the events below belong to. Bumped by each startSubmit so
+  // the history can show attempt 1 vs attempt 3 rather than one flat stream.
+  attempt        Int       @default(0)
+
+  statusEvents   OrderStatusEvent[]
+
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
   @@index([userId, status])
   @@map("orders")
+}
+
+// Append-only history of what a submit did, one row per stage transition and
+// per outcome. The Order row only ever holds the LATEST state; answering "why
+// did it fail, and did it fail the same way last time?" needs the trail.
+model OrderStatusEvent {
+  id        String   @id @default(cuid())
+  orderId   String   @map("order_id")
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  attempt   Int      @default(1) // groups events into submit runs
+  stage     String?              // stage key, null for run-level events
+  status    String               // submitting | order_entered | submitted | warning | failed | info
+  message   String?              // portal text or our own explanation
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([orderId, createdAt])
+  @@map("order_status_events")
+}
+
+// A sellable plan and the portal offer groups it requires.
+//
+// The portal's Offer dialog marks its mandatory groups with a red "*", and that
+// dialog only exists on an order's own detail page — so an admin reads the group
+// names off the portal once and records them here, rather than the system
+// minting a real order per package to discover them.
+model Plan {
+  id          String           @id @default(cuid())
+  // EXACT portal offer name — matched verbatim against the Subscription Plan
+  // List, so it must not be reformatted.
+  name        String           @unique
+  category    String
+  bandwidth   String?
+  // Only published plans are sellable: unpublished means no admin has confirmed
+  // its offer groups yet.
+  published   Boolean          @default(false)
+  notes       String?
+  offerGroups PlanOfferGroup[]
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  @@index([category])
+  @@map("plans")
+}
+
+model PlanOfferGroup {
+  id        String  @id @default(cuid())
+  planId    String  @map("plan_id")
+  plan      Plan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  // Verbatim from the dialog, pick-range included:
+  //   "Unifi Home 500Mbps Premium Value With Device[Pick 0-1]"
+  name      String
+  // The red "*" — the group the portal REQUIRES for this plan.
+  mandatory Boolean @default(true)
+  sortOrder Int     @default(0) @map("sort_order")
+  items     PlanOfferItem[]
+
+  @@unique([planId, name])
+  @@map("plan_offer_groups")
+}
+
+// A selectable row inside an offer group — a device the agent picks, or a
+// discount the order carries automatically.
+//
+// Which of the two it is comes from the GROUP name (the portal names its
+// discount groups "… Discount[Pick 0-1]"), the same rule the scraper uses to
+// tell discount rows from device rows.
+model PlanOfferItem {
+  id        String         @id @default(cuid())
+  groupId   String         @map("group_id")
+  group     PlanOfferGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  // Verbatim from the dialog, e.g. "Premium Value Samsung TV 55inch 1 (RM20)"
+  // or "Promo Discount RM10 (Perpetual) - 36 Months".
+  name      String
+  // The portal's numeric offer code, when known. Optional: the scraper matches
+  // on code first and falls back to the name, which is unique within a group.
+  code      String?
+  // Rental charge in RM/month, shown to the agent. Negative for a discount.
+  monthly   Float?
+  sortOrder Int            @default(0) @map("sort_order")
+
+  @@unique([groupId, name])
+  @@map("plan_offer_items")
 }
 
 // Per-user connection state for the Unifi eSales dealer portal. Tracks only the

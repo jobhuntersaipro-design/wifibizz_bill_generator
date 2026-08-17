@@ -1,0 +1,11 @@
+-- Page-1 screenshot of the New Connection page, captured once Winback Tagging
+-- resolves and stored in R2 under its own prefix
+-- (order-screenshots/<userId>/<orderId>/submit-<attempt>-page1.png).
+--
+-- This column holds the LATEST attempt's key only, so a collapsed order row can
+-- show that evidence exists without loading history. The per-attempt keys are
+-- recorded as `page1_captured` rows in order_status_events, which is what the
+-- detail panel reads — a retried order has one frame per attempt.
+--
+-- See context/features/order-submit-progress-phase1.md.
+ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "screenshot_url" TEXT;

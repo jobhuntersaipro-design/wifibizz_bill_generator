@@ -1,0 +1,88 @@
+<!doctype html>
+<!--
+  Stand-in for the Customer Order Information page reached by clicking Next.
+
+  It is one long scroll: only Basic Information and Attachments sit above the
+  fold, and everything describing what the customer actually receives — the
+  devices, their delivery methods, the charges and the ordered items — is below
+  it. Section order and headings follow the live page.
+
+  Traps reproduced from the live portal:
+    * headings carry sibling controls and bar decorations, never bare text;
+    * "Order Item List" also appears in the right-hand nav, ABOVE the section it
+      links to — so a naive first-match would scroll to the nav entry instead.
+-->
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; font: 14px/1.4 system-ui, sans-serif; }
+  .layout-right-wrapper { height: 586px; overflow-y: auto; padding: 0 16px; }
+  section { padding: 10px 0; }
+  .h { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 600; }
+  .h::before { content: ''; width: 4px; height: 18px; background: #2f6fed; }
+  .h2 { font-size: 15px; font-weight: 600; }
+  .field { height: 44px; display: flex; align-items: center; gap: 12px; }
+  .row { height: 52px; display: flex; align-items: center; gap: 16px; border-top: 1px solid #eee; }
+  .nav { position: absolute; right: 8px; top: 8px; font-size: 12px; color: #666; }
+  .tall { height: 260px; }
+</style>
+
+<div class="layout-right-wrapper">
+  <!-- The right-hand section nav: contains the same phrases, placed EARLIER in
+       the document than the sections themselves. -->
+  <div class="nav">
+    <div>Basic Information</div><div>Attachments</div><div>Install Information</div>
+    <div>Bonuses Informa…</div><div>Fee Information …</div><div>Order Item List</div>
+  </div>
+
+  <section>
+    <div class="h2">Basic Information</div>
+    <div class="field">Customer Name: WOJAK LANG</div>
+    <div class="field">Contact Number: 60163445434</div>
+    <div class="tall"></div>
+  </section>
+
+  <section>
+    <div class="h">Attachment <span>+ Add</span></div>
+    <div class="row">IM Conversation — 900505065434_im</div>
+    <div class="row">ID copy — 900505065434_my</div>
+  </section>
+
+  <section id="install-information">
+    <div class="h2">Install Information</div>
+    <div class="field">Unifi Home 500Mbps Premium Value With Device (36M)</div>
+    <div class="field">Installation Type: Appointment</div>
+  </section>
+
+  <section id="device-list">
+    <div class="h2">Device List</div>
+    <div class="h">Custom Delivery Method</div>
+    <div class="row">456asd@unifi — Post-Bundle Courier — Smart Device — SAMSUNG TV 65"</div>
+    <div class="row">HSTB11365087 — Engineer Door-to-d… — BTU — COMBO BOX UONU RG</div>
+    <div class="h">Delivery Information</div>
+    <div class="field">Delivery Address / Contact Name</div>
+  </section>
+
+  <section>
+    <div class="h2">Bonuses</div>
+    <div class="field">No record to view</div>
+  </section>
+
+  <section id="fee-information-preview">
+    <div class="h2">Fee Information Preview</div>
+    <div class="h">Charge Item List</div>
+    <div class="row">Residential Voice Basic — New Connection — 60322018984</div>
+    <div class="row">Unifi Home 500Mbps — RM 159.00</div>
+    <div class="row">Promo Discount RM10 (Perpetual) — RM -10.00</div>
+    <div class="row">Premium Value Samsung TV 65inc — RM 40.00</div>
+    <div class="field">Total OTC RM 100.00 · Total Recurring RM 189.00</div>
+  </section>
+
+  <section id="order-item-list">
+    <div class="h2">Order Item List</div>
+    <div class="row">Unifi Home 500Mbps Premium Value With Device (36M)</div>
+    <div class="field">Service Number BUNDLE37516343 · Account Number 7041790515</div>
+    <div class="row">Residential Voice Basic</div>
+    <div class="row">NEW UNIFI TV</div>
+    <div class="row">BitStream</div>
+  </section>
+</div>

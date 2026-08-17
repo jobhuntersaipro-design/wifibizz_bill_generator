@@ -62,10 +62,26 @@ cred_manager = CredentialManager()
 
 @app.route("/health", methods=["GET"])
 def health():
-    """Health check endpoint"""
+    """Health check endpoint.
+
+    `active_jobs` exists for deploy.sh: a rebuild restarts this process and
+    destroys the JOBS registry along with every in-flight submit, so the deploy
+    has to be able to ask whether anything is running. Deliberately a bare count
+    — no ids, params or customer data — because Caddy serves /health publicly
+    with no token check.
+
+    JOBS/JOBS_LOCK are defined below this function; that's fine, they resolve at
+    call time, long after the module has finished importing.
+    """
+    with JOBS_LOCK:
+        active = sum(
+            1 for job in JOBS.values() if job.get("status") in ("queued", "running")
+        )
+
     return jsonify(
         {
             "status": "healthy",
+            "active_jobs": active,
             "timestamp": datetime.now().isoformat(),
             "service": "Unifi Scraper API (Open Access)",
         }
@@ -211,7 +227,10 @@ def job_status(job_id):
     # scrape jobs that share this registry.
     if _is_order_job(job) and not _order_entry_authorized(request):
         return jsonify({"error": "unauthorized"}), 401
-    # Don't dump large results; return a summary
+    # Don't dump large results; return a summary.
+    # NOTE: this passes through `stages`, whose details carry customer name and
+    # address. That is safe only because order jobs are auth-gated above — the
+    # same reason `result` is redacted. Keep both facts together.
     resp = {k: v for k, v in job.items() if k not in {"result"}}
     # Include success shorthand if available
     if (
@@ -272,7 +291,16 @@ def _redact_order_result(result):
     if not isinstance(result, dict):
         return result
     safe_keys = {"status", "error", "stage", "order_id", "screenshot",
-                 "ap_amount", "deposit_amount", "message", "warning"}
+                 # `advance_payment` is what pay_and_submit actually returns;
+                 # `ap_amount` was the old name and never matched, so the
+                 # "Advance Payment RM…" note could never reach the UI.
+                 "ap_amount", "advance_payment", "deposit_amount", "message", "warning",
+                 # Device diagnostics — codes/names of hardware offers, not PII.
+                 # BizzFlow persists these to stop offering a device this package
+                 # refuses, so they MUST survive redaction.
+                 "rejected_device_code", "rejected_device_name",
+                 "substituted_device_code", "substituted_device_name",
+                 "available_devices", "offered", "groups"}
     return {k: v for k, v in result.items() if k in safe_keys}
 
 
@@ -297,12 +325,35 @@ def _run_order_job(job_id: str, payload: dict, dry_run: bool, user_key: str = No
     # run needs headroom so it doesn't get killed while you pick the slot / it pays).
     OVERALL_ORDER_TIMEOUT = int(os.environ.get("OE_ORDER_TIMEOUT", "600" if full_order else "210"))
 
-    def _set_stage(name):
+    def _set_stage(name, detail=None):
+        """Record a stage milestone on the job.
+
+        Keeps BOTH the current stage (unchanged, older BizzFlow reads it) and an
+        append-only history. The history is what lets the UI show a value per
+        step: a fast stage used to be overwritten before a 2s poll ever saw it,
+        so steps went green by inference rather than observation.
+
+        A stage is emitted twice — bare when it starts, again with the resolved
+        detail — so the list is capped to keep a wedged loop from growing the
+        in-memory job record without bound.
+        """
         with JOBS_LOCK:
             job = JOBS.get(job_id)
-            if job is not None:
-                job["stage"] = name
-                JOBS[job_id] = job
+            if job is None:
+                return
+            job["stage"] = name
+            stages = job.setdefault("stages", [])
+            if len(stages) < 200:
+                stages.append({
+                    "name": name,
+                    "detail": detail,
+                    # Explicitly UTC. utcnow().isoformat() alone has no offset,
+                    # and JS Date() reads a bare timestamp as LOCAL time — which
+                    # would shift every step in the timeline by the viewer's
+                    # timezone.
+                    "at": datetime.utcnow().isoformat() + "Z",
+                })
+            JOBS[job_id] = job
 
     async def _run_bounded():
         if full_order:
@@ -419,6 +470,12 @@ def create_order():
     # shared identity.
     user_key = data.get("user_key") or None
 
+    # Stamp the authenticated user onto the artefact reference. Done HERE, after
+    # the payload is built, so the R2 prefix a screenshot lands under always comes
+    # from the caller's identity rather than anything in the request body.
+    if user_key and isinstance(payload.get("order_ref"), dict):
+        payload["order_ref"]["user_id"] = user_key
+
     # Safety: dry_run is the default; a real submission needs explicit false.
     dry_run = data.get("dry_run", True)
     if not isinstance(dry_run, bool):
@@ -432,6 +489,12 @@ def create_order():
     # Real, billable Pay/Submit at the end of the full flow (default False = stop
     # at the Pay gate). BizzFlow's submitOrder sends do_pay=true for real orders.
     do_pay = bool(data.get("do_pay", False))
+    # Catalogue discovery: drive the flow only as far as the device Offer dialog,
+    # read the package's mandatory groups, and stop. It still MINTS AN ORDER —
+    # the dialog does not exist before Order is clicked — so the caller is
+    # responsible for flagging that order for voiding.
+    if bool(data.get("discover_only", False)):
+        payload["discover_only"] = True
 
     # Single-browser global lock — reject if any job (scrape or order) is active.
     with JOBS_LOCK:

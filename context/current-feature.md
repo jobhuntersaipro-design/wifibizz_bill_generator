@@ -1,16 +1,46 @@
 # Current Feature
 
+## Order Entry — Submit Progress Phase 4: Capture Carousel + Drafts Table Redesign
+
 ## Status
 
-Not Started
+In Progress — branch `feature/order-submit-progress-phase4` (off
+`feature/order-submit-progress-phase3`, which is itself not yet merged to main).
+
+Full spec: [context/features/order-submit-progress-phase4.md](features/order-submit-progress-phase4.md)
 
 ## Goals
 
-<!-- Bullet points of what success looks like -->
+- A capture opens in a carousel over the panel, not as a bare JPEG in a new
+  browser tab — nine frames should be one navigable sequence, not eight round
+  trips.
+- An order the portal stranded (order number minted, run then failed) can be run
+  again, behind a confirmation that names the existing order number.
+- The `Customer` column becomes `Full Name` and holds only the name; the ID
+  number gets its own column.
+- The Drafts table is redesigned for scanning: one primary action per row, Edit
+  and Delete behind a `⋯` menu, hairline separators, and a stacked card list
+  below 768px.
 
 ## Notes
 
-<!-- Additional context, constraints, or details from spec -->
+Decisions taken (2026-08-17): resubmit is offered **only** on failed/warning rows
+that already carry an `orderId` (what `needsVoiding` flags) — never on
+fully-submitted rows, and never in batch; the carousel spans one attempt's
+frames, not all attempts; the ID number gets its own column rather than being
+dropped or merged; the redesign takes Apple's spacing and hierarchy but keeps the
+Stripe palette, so the table doesn't read as a different product from the rest of
+the dashboard.
+
+Resubmit is the one action in the app that can create a real, chargeable
+duplicate order in a third-party system — hence the per-click confirmation and
+the deliberate exclusion from batch.
+
+`OrdersList.tsx` (687 lines) is split into six files as part of this. No
+behaviour moves in the split; the polling loops stay put.
+
+Open question in the spec: whether the `⋯` menu should also carry "Open in
+portal", duplicating the link already on the Order No. cell. Leaning no.
 
 ## History
 
@@ -48,3 +78,4 @@ Not Started
 - **Fetch Installation Address Before Generating WhatsApp Chat** (2026-08-12): "Generate Chat" now resolves the case's installation address from the WifiBizz portal before rendering the closing script — the same lazy fill the internet bill generator already did — so scripts stop showing a blank address for cases the crawler stored list-only. That fill was extracted out of `POST /api/bills/generate` into `fillMissingAddresses()` in [src/lib/crawler/lazy-address.ts](src/lib/crawler/lazy-address.ts) (resolve via `fetchAddressesForCases` → persist to `wifibizz_cases` → push to the user's Google Sheet if configured) and both callers now share it. New `POST /api/cases/address` (`{ caseNos }` → `{ addresses }`, auth-scoped to the caller's WifiBizz user, max 20/batch) returns known plus newly-resolved addresses. In `CaseManagementSection`, `handleGenerateChat()` replaces the direct `setChatCase()` on both the row icon and the detail-panel button: cases that already have an address (or lack a `case_url` to look up) open instantly, otherwise the button spins while resolving and the result is written back into the table row and the open detail panel. Resolution failure is non-blocking — a toast warns and the chat generates without the address. Also separated the Installation Address label from its value with `" : "` in both script variants. **Verified by build + lint only** — not yet exercised in the browser against a real address-less case. Known cosmetic gap: the portal's own blank address segments still render as `- -` inside the address string.
 - **Order Entry — Full Address + Confirm** (2026-08-14): The Installation Address card on `/dashboard/order-entry` now takes **one complete address** the agent pastes from the Unifi portal and presses **Confirm**; Postcode / State / City became outputs of that confirmation instead of inputs. New [src/lib/malaysia-address.ts](../src/lib/malaysia-address.ts) validates the string before any portal call (one 5-digit postcode, recognised state, **postcode↔state agreement** against `malaysia-postcodes.json`, street/unit token) — mirrored in `saveOrder` so a malformed address can't be persisted. Deliberately did **not** reuse `extractState()`: its `segment.includes(alias)` scan lets two-letter aliases (`ns`/`kl`/`jb`) match inside unrelated words and beat the real trailing state, so `findState()` does a whole-token scan backwards from the end. `toPortalState()` maps the federal territories to the portal's own combobox names (`W.P. KUALA LUMPUR`), **fixing a pre-existing bug where address search always failed for KL / Putrajaya / Labuan** with "Select a valid state". Confirm shows an indeterminate progress bar + stage label, then the portal's ranked units — **no auto-select, submit is not gated on `addressId`** (both decided explicitly). Also in this branch: package picker reorganised to speed chips → add-on-flavour groups (60 flat rows before); device picker to type chips → repeated models collapsed under one header, cheapest first, with `#code` shown on the 17 entries whose names duplicate verbatim; email required + validated; MyKad masked `XXXXXX-XX-XXXX` (stored raw — `order_to_payload.py:53` strips it anyway) and enforced at 12 digits; a global `prefers-reduced-motion` block, which **the app had never had**. **Three real bugs found by live testing:** (1) after picking a unit then typing a different address, the ✓ Serviceable strip and its `addressId` survived, so an order could carry an id for an address the agent had typed away from — `handleStreetChange()` now invalidates it; (2) the card entrance animation left every card with a retained transform (`fill-mode: both` resolves even `transform: none` to an identity matrix), making each a stacking context that painted over the open dropdown — ending the keyframes at `none` was **not** sufficient, fixed with explicit `z-30`/`z-20` on the Package/Device cards; (3) 10 "Value TV Pack" bundles were misfiling as Plain broadband. **Verified live end-to-end against the real Unifi dealer portal** (all 6 acceptance criteria, plus progress bar, flash, masks and both pickers), 53 unit tests, build + lint clean. **Known gaps:** editing Postcode/State/City after Confirm does not invalidate `addressId` (deliberate — those feed the customer profile, the portal record stays truth); email validation is client-side only, `saveOrder`'s zod schema still has email optional; `saveOrder` now rejects malformed addresses, so **an old draft with a short street can't re-save until its address is completed**; and **which portal code is correct for a duplicated device name is still unknown** — the portal filters that list per package and we hold the superset. Spec: [context/features/order-entry-full-address-confirm.md](features/order-entry-full-address-confirm.md).
 - **Fix — Internet Bill Address Invisible in macOS Preview** (2026-08-14): The name/address overlay on every internet bill was invisible in macOS Preview/Quicklook (and Apple Mail, iOS Files) while rendering fine in Chrome. Root cause: `registerStandardFont` was called with the content-stream form of the name (`'/FHB'`), and `PDFName.of()` adds its own slash — so the leading one was escaped and the fonts landed in the page's resource dict as `/#2FFHB` and `/#2FFH`, which the stream's `/FHB ... Tf` can never resolve. Chrome's PDFium silently substitutes a default font when a `Tf` names a missing resource; macOS Quartz draws nothing — that difference, not the data or a stale file, is the whole browser-vs-Mac split (the white knock-out box still paints, so the area reads as blank rather than showing the template's original address). Confirmed the preview iframe and Download link share one URL, so both serve identical bytes. Fixed by stripping a leading slash in `registerStandardFont` ([src/lib/bill-generator/pdf-utils.ts](../src/lib/bill-generator/pdf-utils.ts)). **Verified by rendering the user's own failing PDF and the regenerated one through `qlmanage`** (same CoreGraphics engine as Preview): before = blank, after = name + address present; resource keys now `/FHB` / `/FH`. Build passes, 64 unit tests pass, lint error count identical to baseline. Utility bills were never affected — they draw with the template's own `/F0201` / `/F0301`. **Two open items:** (1) the fix only applies to newly generated PDFs and the R2 key is fixed per case (`bills/{userId}/{caseNo}/internet_bill.pdf`), so **every internet bill already delivered still has an invisible address** until a backfill regenerates them; (2) separate latent defect — overlay text is encoded `latin1` in `appendOverlayToPage`, truncating non-Latin-1 characters to their low byte (reproduced: `–` → raw `\x13`), and a character whose low byte hits `(`, `)` or `\` would unbalance the string literal and drop the entire overlay.
+- **Order Entry — Submit Progress Phase 3: Full Capture Trail — CODE COMPLETE, LIVE-UNVERIFIED (displaced 2026-08-17)**: A submit now photographs every detail screen, not just New Connection page 1 — the device, voice number and appointment slot are the disputed fields and none of them appear on page 1. Nine capture slots at JPEG quality 80 (nine PNGs per attempt would be ~4.5MB), each landing on the submit timeline as a `ShotRow` at its own chronological position so every picture sits next to the step it documents, with a `CapturesStrip` thumbnail index above once there is more than one frame. A frame shows how long it has left, but only when something actually deletes it — the countdown stays hidden behind `NEXT_PUBLIC_CAPTURE_RETENTION_DAYS` until the R2 lifecycle rule exists. A failed capture never costs an order. Committed as `12fa534` (scraper capture points) and `2abb7ca` (timeline rendering) on branch `feature/order-submit-progress-phase3`, which is **off `feature/order-submit-progress` and not yet merged to main**. **Three acceptance criteria remain outstanding and are the user's to do**: (1) applying the R2 lifecycle rule by hand, without which the retention countdown stays dark; (2) deploying the scraper to the droplet and running one real submit — **the Phase 1 scraper half has still never executed**, Phase 2 having verified the UI against data written by the pre-Phase-1 droplet build; (3) settling two selector-shaped assumptions that only a live run can decide — `_longest_title` picking the address column and `_contact_name` picking the leading cell, both of which **fail silently rather than throwing**, displaying the wrong value where a crash would at least be visible. Spec: [context/features/order-submit-progress-phase3.md](features/order-submit-progress-phase3.md). Phase 4 builds directly on this branch.
