@@ -1,21 +1,39 @@
-# Droplet / local state. None of this is tracked today — this file makes that
-# deliberate rather than accidental. Under the git deploy these directories sit
-# *inside* the working tree on the droplet and hold the API token, every dealer
-# session and the Gmail OTP credentials. A stray `git add -A` must never take
-# them, and `git status` must stay clean so deploy.sh's drift check is meaningful.
+# ── Secrets & credentials — NEVER commit ──
+# Encrypted dealer credentials + the Fernet key that decrypts them
+config/
+# Live auth state, Google service-account key, env, OTP session
+sessions/
+# Catch-all secret patterns (in case files land elsewhere)
+*.enc
+*.key
+*.session
 .env
 .env.*
 !.env.example
-.last-deploy
+service_account.json
+gmail_credentials.json
+gmail_token.json
+authorized_users.json
 
-sessions/
-config/
+# ── Runtime / generated artifacts ──
 logs/
 jobs/
 outputs/
+inspect_dumps/
+# Written by deploy.sh on the droplet: which ref is live, and what preceded it
+.last-deploy
 
-# Local tooling
-venv/
+# ── Python ──
 __pycache__/
 *.pyc
 .pytest_cache/
+.venv/
+venv/
+
+# ── OS ──
+.DS_Store
+
+# NOTE: on the droplet these paths sit *inside* the git working tree and hold
+# the API token, every dealer session and the Gmail OTP credentials. They must
+# stay ignored so a checkout walks past them and `git status` stays clean —
+# deploy.sh's drift check depends on that. See SOP_DROPLET_UPDATE.md.

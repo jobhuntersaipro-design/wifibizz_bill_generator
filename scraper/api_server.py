@@ -62,10 +62,26 @@ cred_manager = CredentialManager()
 
 @app.route("/health", methods=["GET"])
 def health():
-    """Health check endpoint"""
+    """Health check endpoint.
+
+    `active_jobs` exists for deploy.sh: a rebuild restarts this process and
+    destroys the JOBS registry along with every in-flight submit, so the deploy
+    has to be able to ask whether anything is running. Deliberately a bare count
+    — no ids, params or customer data — because Caddy serves /health publicly
+    with no token check.
+
+    JOBS/JOBS_LOCK are defined below this function; that's fine, they resolve at
+    call time, long after the module has finished importing.
+    """
+    with JOBS_LOCK:
+        active = sum(
+            1 for job in JOBS.values() if job.get("status") in ("queued", "running")
+        )
+
     return jsonify(
         {
             "status": "healthy",
+            "active_jobs": active,
             "timestamp": datetime.now().isoformat(),
             "service": "Unifi Scraper API (Open Access)",
         }
