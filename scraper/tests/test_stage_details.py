@@ -143,10 +143,10 @@ def test_screenshot_key_is_per_user_order_and_attempt():
     # the 90-day R2 lifecycle rule matches the same prefix. Both break if this
     # shape drifts.
     key = screenshot_key("user-1", "order-9", 3)
-    assert key == "order-screenshots/user-1/order-9/submit-3-page1.png"
+    assert key == "order-screenshots/user-1/order-9/submit-3-page1.jpg"
     assert key.startswith("order-screenshots/user-1/")
-    assert key.endswith(".png")
+    assert key.endswith(".jpg")
 
 
-def test_screenshot_key_defaults_to_the_first_attempt():
-    assert screenshot_key("u", "o").endswith("submit-1-page1.png")
+def test_screenshot_key_defaults_to_the_first_attempt_and_page1():
+    assert screenshot_key("u", "o").endswith("submit-1-page1.jpg")

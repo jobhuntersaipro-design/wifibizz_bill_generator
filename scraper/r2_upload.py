@@ -5,14 +5,15 @@ The mirror of r2_download.py: that pulls customer documents down so Playwright
 can attach them to the portal, this pushes what the portal showed back up so
 BizzFlow can display it.
 
-Currently one artefact: the page-1 screenshot of the New Connection page, taken
-once Winback Tagging resolves. It is the audit frame for a submit — Customer
-Order Number, installation address, installation contact, main offer, account
-and winback tagging, in one image, as the portal rendered them.
+The artefacts are the detail screens of a submit — one frame per slot: the
+New Connection page 1, each sub-product tab, the Customer Order Information
+page, the appointment, the delivery terms and the Pay screen. Together they are
+the evidence for what was actually ordered; page 1 alone proves the order
+exists, not which device or appointment slot it carries.
 
 Keys live under their own top-level prefix:
 
-    order-screenshots/<userId>/<orderId>/submit-<attempt>-page1.png
+    order-screenshots/<userId>/<orderId>/submit-<attempt>-<slot>.jpg
 
 separate from `orders/<userId>/...` (customer ID copies, utility bills) on
 purpose: R2 lifecycle rules filter by prefix only, so screenshots need their own
@@ -23,6 +24,7 @@ Uses the same R2 credentials as r2_download.py, loaded from the project .env.
 """
 
 import os
+import re
 
 import boto3
 from botocore.config import Config
@@ -45,13 +47,32 @@ def _r2():
     return _client
 
 
-def screenshot_key(user_id: str, order_id: str, attempt: int = 1) -> str:
-    """The R2 key for one submit attempt's page-1 screenshot.
+def slot_slug(slot: str) -> str:
+    """A filesystem/URL-safe slot name.
 
-    Per attempt, not per order: a retried order has one frame per attempt and
-    the detail panel shows each one against its own timeline.
+    Sub-product slots are derived from the tab text the PORTAL reports, which we
+    do not control — it can carry spaces, brackets, slashes or non-ASCII. Those
+    would land in an R2 key and in a URL query string, so anything outside
+    [a-z0-9_] collapses to a single underscore and the result is bounded. An
+    empty result falls back to `screen` rather than producing `submit-1-.jpg`.
     """
-    return f"order-screenshots/{user_id}/{order_id}/submit-{int(attempt)}-page1.png"
+    s = re.sub(r"[^a-z0-9]+", "_", (slot or "").strip().lower()).strip("_")
+    return (s[:32].rstrip("_") or "screen")
+
+
+def screenshot_key(user_id: str, order_id: str, attempt: int = 1,
+                   slot: str = "page1") -> str:
+    """The R2 key for one screen captured during one submit attempt.
+
+    Per attempt AND per slot: a retried order has its own set of frames, and
+    within an attempt each detail screen is filed under the slot it documents so
+    the panel can put every picture next to the step it belongs to.
+
+    JPEG, not PNG: the portal UI is flat colour and nine PNGs per attempt run to
+    ~4.5MB against ~1.4MB as JPEG, with no loss that matters on screen text.
+    """
+    return (f"order-screenshots/{user_id}/{order_id}/"
+            f"submit-{int(attempt)}-{slot_slug(slot)}.jpg")
 
 
 def upload_bytes(key: str, data: bytes, content_type: str) -> str:
@@ -60,7 +81,7 @@ def upload_bytes(key: str, data: bytes, content_type: str) -> str:
     Returns the key, not a public URL — the bucket is private and reads go
     through BizzFlow's auth-gated route, which scopes them to the owning user.
     Raises on missing key / credentials; the caller decides whether that matters
-    (for screenshots it never does — see capture_page1_screenshot).
+    (for screenshots it never does — see capture_screen).
     """
     _r2().put_object(
         Bucket=os.environ["R2_BUCKET_NAME"],

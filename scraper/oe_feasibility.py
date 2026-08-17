@@ -890,18 +890,108 @@ async def set_winback_tagging(frame, page, value: str = "HSBA Wireless Access") 
     return {"status": "ok", "stage": "winback", "selected": value}
 
 
-async def capture_page1_screenshot(page, payload: dict) -> dict | None:
-    """Full-page PNG of the New Connection page -> R2. Never raises.
+# ─────────────────────────────────────────────────────────────────────────────
+# Capture — one frame per detail screen of a submit.
+#
+# A single page-1 frame proves the order exists; it proves nothing about the
+# device that was picked, the voice number the portal assigned or the
+# appointment slot that was taken, which are the fields disputes are actually
+# about. So every detail screen gets its own frame, filed under its own slot and
+# reported as its own stage, and each one lands on the timeline next to the step
+# it documents.
+#
+# Every failure path is non-fatal, PER capture: evidence must never cost an
+# order that is already minted in the portal. That rule does not weaken because
+# there are now nine chances to break it instead of one.
+# ─────────────────────────────────────────────────────────────────────────────
+def capture_stage_name(slot: str) -> str:
+    """The stage key a slot reports under (`capture_broadband`, …).
 
-    A screenshot is evidence, not part of the order, so every failure path here
-    is non-fatal: a broken bucket, missing credentials or a slow render must not
-    cost an order that is already minted in the portal. Returns a stage detail
-    payload (the R2 key on success, the reason on failure), or None when capture
-    is switched off or the payload has no order to file it under.
-
-    Set OE_CAPTURE_PAGE1=false to disable without a redeploy.
+    A prefix rather than one overloaded key, so BizzFlow can partition captures
+    out of the step checklist without knowing which slots exist — the scraper
+    deploys separately and WILL emit slots a given BizzFlow build has never seen.
     """
-    if os.environ.get("OE_CAPTURE_PAGE1", "true").strip().lower() in ("false", "0", "no"):
+    from r2_upload import slot_slug
+    return f"capture_{slot_slug(slot)}"
+
+
+def _capture_enabled(slot: str) -> bool:
+    """Whether this slot should be shot, per the rollback env switches.
+
+    OE_CAPTURE=false kills all capture without a redeploy. OE_CAPTURE_SLOTS, when
+    set, is an allowlist (`page1,broadband`) for narrowing to the frames worth
+    the wall-clock. OE_CAPTURE_PAGE1 is honoured for the page-1 slot only, so a
+    droplet still carrying the Phase-1 switch keeps behaving as configured.
+    """
+    from r2_upload import slot_slug
+    off = ("false", "0", "no")
+    if os.environ.get("OE_CAPTURE", "true").strip().lower() in off:
+        return False
+    slug = slot_slug(slot)
+    if slug == "page1" and os.environ.get("OE_CAPTURE_PAGE1", "true").strip().lower() in off:
+        return False
+    allow = os.environ.get("OE_CAPTURE_SLOTS", "").strip()
+    if allow:
+        return slug in {slot_slug(s) for s in allow.split(",") if s.strip()}
+    return True
+
+
+async def _shoot(page) -> bytes:
+    """JPEG of the PORTAL page — the whole of it, not the part that fits.
+
+    The portal renders inside #myIframe, and `page.screenshot(full_page=True)`
+    expands the OUTER document only: an iframe is a fixed-size box, so a full
+    page shot of the shell contains just the slice of the portal visible in that
+    box and silently cuts everything below it. Measured on a 3000px document in
+    a 600px iframe: the outer full-page shot came back 740px tall, the frame's
+    own body 3000px.
+
+    That is the difference between evidence and a picture of a header, because
+    the fields worth photographing — the selected device, the appointment slot,
+    the delivery contact — all sit low on their pages.
+
+    Falls back to the outer shot if the frame can't be shot at all (a capture is
+    never worth failing a submit over); the geometry is logged either way, so the
+    first live run says whether the frame really held the whole page rather than
+    leaving us to assume it.
+    """
+    try:
+        geom = await page.evaluate(r"""(() => {
+          const f=document.querySelector('#myIframe'), d=f&&f.contentDocument;
+          if(!d) return null;
+          return {box: Math.round(f.getBoundingClientRect().height),
+                  doc: d.documentElement.scrollHeight,
+                  body: d.body ? d.body.scrollHeight : 0};
+        })()""")
+    except Exception:  # noqa: BLE001
+        geom = None
+
+    if geom:
+        # The portal's own layout decides whether the height lives on <body> or
+        # on <html>; shoot whichever actually carries the content.
+        target = "body" if geom.get("body", 0) >= geom.get("doc", 0) else "html"
+        try:
+            img = await _frame(page).locator(target).first.screenshot(
+                type="jpeg", quality=80, timeout=20000)
+            print(f"    portal frame {geom['doc']}px in a {geom['box']}px box "
+                  f"— shot <{target}>", flush=True)
+            return img
+        except Exception as e:  # noqa: BLE001
+            print(f"    ⚠ frame shot failed ({type(e).__name__}), "
+                  f"falling back to the outer page", flush=True)
+
+    return await page.screenshot(full_page=True, type="jpeg", quality=80)
+
+
+async def capture_screen(page, payload: dict, slot: str = "page1") -> dict | None:
+    """JPEG of the portal page -> R2. Never raises.
+
+    Returns a stage detail payload (the R2 key on success, the reason on
+    failure), or None when capture is switched off for this slot or the payload
+    has no order to file the frame under. The caller reports it under
+    `capture_stage_name(slot)`.
+    """
+    if not _capture_enabled(slot):
         return None
 
     ref = (payload or {}).get("order_ref") or {}
@@ -912,20 +1002,39 @@ async def capture_page1_screenshot(page, payload: dict) -> dict | None:
         return None
 
     try:
-        png = await page.screenshot(full_page=True)
+        img = await _shoot(page)
     except Exception as e:  # noqa: BLE001
-        print(f"  ⚠ page-1 screenshot failed: {type(e).__name__}: {e}", flush=True)
+        print(f"  ⚠ {slot} screenshot failed: {type(e).__name__}: {e}", flush=True)
         return _detail("Screenshot not captured", "failed", f"{type(e).__name__}: {e}")
 
     try:
         from r2_upload import screenshot_key, upload_bytes
-        key = screenshot_key(user_id, order_id, ref.get("attempt", 1))
-        upload_bytes(key, png, "image/png")
-        print(f"  ✓ page-1 screenshot uploaded: {key}", flush=True)
+        key = screenshot_key(user_id, order_id, ref.get("attempt", 1), slot)
+        upload_bytes(key, img, "image/jpeg")
+        print(f"  ✓ {slot} screenshot uploaded: {key}", flush=True)
         return _detail(key)
     except Exception as e:  # noqa: BLE001
-        print(f"  ⚠ page-1 screenshot upload failed: {type(e).__name__}: {e}", flush=True)
+        print(f"  ⚠ {slot} screenshot upload failed: {type(e).__name__}: {e}", flush=True)
         return _detail("Screenshot not stored", "failed", f"{type(e).__name__}: {e}")
+
+
+async def capture_and_report(page, payload: dict, slot: str, stage) -> dict | None:
+    """capture_screen + report it on the timeline, in one call.
+
+    Every call site does exactly this, and doing it in one place is what keeps
+    the "a capture never fails a submit" rule from being re-implemented (and
+    eventually got wrong) nine times.
+    """
+    try:
+        shot = await capture_screen(page, payload, slot)
+    except Exception as e:  # noqa: BLE001
+        # capture_screen swallows its own failures; this is the belt to that
+        # braces — an unexpected raise here must not take the order down.
+        print(f"  ⚠ {slot} capture raised: {type(e).__name__}: {e}", flush=True)
+        return None
+    if shot:
+        stage(capture_stage_name(slot), shot)
+    return shot
 
 
 async def complete_new_connection(page, payload: dict = None, on_stage=None) -> dict:
@@ -957,11 +1066,10 @@ async def complete_new_connection(page, payload: dict = None, on_stage=None) -> 
     # sees an amber step rather than a tick over an unset required field.
     stage("winback_tagging", _step_detail(steps["winback"], "selected"))
 
-    # The page-1 screenshot is the audit frame: order no, address, contact,
-    # offer, account and winback in one image, as the portal rendered them.
-    shot = await capture_page1_screenshot(page, payload)
-    if shot:
-        stage("page1_captured", shot)
+    # The page-1 frame: order no, address, contact, offer, account and winback in
+    # one image, as the portal rendered them. Still the most representative single
+    # image of a submit, which is why the order row points at this slot.
+    await capture_and_report(page, payload, "page1", stage)
 
     for name, r in steps.items():
         if r.get("status") not in ("ok", "skipped"):
@@ -1085,6 +1193,23 @@ async def _subproduct_tabs(frame):
 
 
 
+def _tab_slot(tab_text: str) -> str:
+    """The capture slot for a sub-product tab, from the text the PORTAL reports.
+
+    The tab is labelled with the offer, not the product ("Unifi Home 500Mbps
+    (Broadband)"), so the three known kinds are matched by keyword and anything
+    else falls back to a slug of the tab text. An offer that carries no Voice or
+    TV component simply produces no tab, and therefore no frame — the same way a
+    missing field produces no stage detail.
+    """
+    from r2_upload import slot_slug
+    t = tab_text or ""
+    for keyword, slot in (("Broadband", "broadband"), ("Voice", "voice"), ("TV", "tv")):
+        if keyword in t:
+            return slot
+    return slot_slug(t)
+
+
 _DEVICE_PASSTHROUGH = ("rejected_device_code", "rejected_device_name",
                        "substituted_device_code", "substituted_device_name",
                        "available_devices")
@@ -1174,6 +1299,11 @@ async def fill_subproduct_tabs(page, payload: dict, on_stage=None) -> dict:
                     "error": dev.get("error"), "message": dev.get("message"),
                     "tabs": results}, dev)
             device_info = dev
+        # This tab is filled — capture it. The Broadband frame is the only
+        # evidence of WHICH device the portal accepted (our catalogue is a
+        # superset of what it actually offers), and the Voice frame is the only
+        # record of the number it assigned; neither value is echoed anywhere else.
+        await capture_and_report(page, payload, _tab_slot(txt), stage)
     out = {"status": "ok", "stage": "subproduct_tabs", "tabs": results}
     return _carry_device_info(out, device_info) if device_info else out
 
@@ -1880,6 +2010,10 @@ async def fill_customer_order_info(page, payload: dict,
             return {"status": "error", "error": "id_attach_failed",
                     "stage": "attachments", "message": f"id#{i}: {e}"}
 
+    # Which files the portal actually accepted — the upload widget shows the
+    # accepted filenames, and nothing else records them.
+    await capture_and_report(page, payload, "attachments", stage)
+
     # ── Appointment (earliest available slot > 12h) ──────────────────────────
     stage("appointment")
     appt = await _set_appointment(page)
@@ -1887,6 +2021,9 @@ async def fill_customer_order_info(page, payload: dict,
     if appt.get("status") not in ("ok", "skipped"):
         return {"status": "error", "error": "appointment_failed",
                 "stage": "appointment", "message": appt.get("message"), "steps": steps}
+    # The installation date and time that was taken. The slot is picked from the
+    # portal's own calendar, so the frame is the only proof of which one stuck.
+    await capture_and_report(page, payload, "appointment", stage)
 
     # ── Delivery details + order confirmation ────────────────────────────────
     stage("delivery_terms")
@@ -1938,6 +2075,10 @@ async def fill_customer_order_info(page, payload: dict,
       const wrap=s.closest('div[class*=icheckbox]'); const helper=wrap&&wrap.querySelector('.iCheck-helper');
       (helper||wrap||s).click(); return s.checked ? 'ok' : 'clicked';
     })()""")
+
+    # The whole Customer Order Information page as submitted: delivery contact
+    # number, email, the confirmed-with-customer flag and any remarks.
+    await capture_and_report(page, payload, "order_info", stage)
 
     return {"status": "ok", "stage": "customer_order_info", "steps": steps}
 
@@ -2076,18 +2217,24 @@ async def _find_submit_result(frame) -> dict | None:
             "order_url": _order_detail_url(oid) if oid else None}
 
 
-async def _ensure_bypass_acknowledge(page):
+async def _ensure_bypass_acknowledge(page) -> bool:
     """On the Terms & Conditions page, make sure 'Bypass Acknowledge' is checked
-    (it's default-checked; this is defensive). iCheck-safe. No-op elsewhere."""
-    await page.evaluate(r"""(() => {
-      const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return;
+    (it's default-checked; this is defensive). iCheck-safe. No-op elsewhere.
+
+    Returns True when the control was found — i.e. when we are actually ON the
+    T&C page. That is what tells the caller this screen is worth capturing; the
+    pay tail otherwise has no way to name the page it is looking at.
+    """
+    return bool(await page.evaluate(r"""(() => {
+      const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return false;
       const lbl=[...d.querySelectorAll('label, span')].find(e=>/bypass\s*acknowledge/i.test(e.innerText||''));
-      if(!lbl) return;
+      if(!lbl) return false;
       const grp=lbl.closest('.form-group, .checkbox, div') || lbl.parentElement;
       const cb=grp && grp.querySelector('input[type=checkbox]');
       if(cb && !cb.checked){ const wrap=cb.closest('div[class*=icheckbox]');
         const helper=wrap&&wrap.querySelector('.iCheck-helper'); (helper||wrap||cb).click(); }
-    })()""")
+      return true;
+    })()"""))
 
 
 async def _read_advance_payment(frame) -> str | None:
@@ -2098,21 +2245,32 @@ async def _read_advance_payment(frame) -> str | None:
     return m.group(1) if m else None
 
 
-async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4) -> dict:
+async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
+                         payload: dict = None, on_stage=None) -> dict:
     """From the Customer Order Information page: Next through Terms & Conditions
     (Bypass Acknowledge is default-checked) to the Pay page; then (if do_pay) Pay
     and Next to the 'Submit Successfully' page. Returns {status:'ready_to_pay',
     advance_payment} when gated, or {status:'submitted', order_id, order_url,
-    advance_payment} after a real submit."""
+    advance_payment} after a real submit.
+
+    `payload`/`on_stage` are only used to capture the two screens on this tail —
+    the terms the order was placed under, and the Pay screen before the click."""
+    stage = _stage_emitter(on_stage)
     frame = _frame(page)
 
     # Advance until a Pay button is visible (Customer Order Info -> T&C -> Pay).
     pay_loc = frame.locator(
         '.js-btn-pay:visible, .js-pay:visible, button:has-text("Pay"):visible')
+    captured_terms = False
     for step in range(max_next):
         if await pay_loc.count():
             break
-        await _ensure_bypass_acknowledge(page)  # no-op unless on the T&C page
+        on_terms = await _ensure_bypass_acknowledge(page)  # False unless on T&C
+        if on_terms and not captured_terms:
+            # The terms the order was placed under. Captured BEFORE Next, since
+            # this page is gone the moment we advance.
+            captured_terms = True
+            await capture_and_report(page, payload, "delivery", stage)
         nx = await click_next_newconn(page)
         if nx.get("status") == "error":
             return {"status": "error", "stage": "pay_tail",
@@ -2123,6 +2281,10 @@ async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4) -> dict:
                 "message": f"No Pay button after {max_next} Next clicks."}
 
     advance_payment = await _read_advance_payment(frame)
+    # The amount, and any advance payment, exactly as the portal presented it —
+    # taken BEFORE the billable click, so it is evidence either way: with
+    # do_pay=False this is the last frame of the run.
+    await capture_and_report(page, payload, "pay", stage)
 
     if not do_pay:
         # SAFETY GATE — stop before the billable click.
@@ -2207,7 +2369,7 @@ async def submit_new_connection(page, payload: dict, im_paths: list = None,
         return r
 
     stage("pay")
-    r = await pay_and_submit(page, do_pay=do_pay)
+    r = await pay_and_submit(page, do_pay=do_pay, payload=payload, on_stage=on_stage)
     print(f"    ↳ pay_and_submit: {r}", flush=True)
     # A device substitution must survive to the very end: the order that gets
     # paid for is not the device the agent picked, and BizzFlow has to say so.
