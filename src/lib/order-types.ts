@@ -134,16 +134,53 @@ const CAPTURE_SLOTS: Record<string, { label: string; caption: string }> = {
   },
   broadband: {
     label: "Broadband tab",
-    caption: "Service number and the device the portal actually accepted.",
+    caption: "Service number, service profile and bandwidth, as the tab opens.",
+  },
+  // Each sub-product tab is photographed twice: the portal scrolls its content
+  // in an inner container, so one frame only ever holds the top. The bottom is
+  // where the commercial detail lives, and where the disputes are.
+  broadband_bottom: {
+    label: "Broadband — Select Offer",
+    caption:
+      "Which discount and which device the portal actually attached, with their charges, plus Order Information.",
   },
   voice: {
     label: "Voice tab",
     caption: "The voice number the portal assigned.",
   },
+  voice_bottom: {
+    label: "Voice — Select Offer",
+    caption: "The voice offer attached and its charges, plus Order Information.",
+  },
   tv: { label: "TV tab", caption: "TV service number." },
+  tv_bottom: {
+    label: "TV — Select Offer",
+    caption: "The TV offer attached and its charges, plus Order Information.",
+  },
   order_info: {
     label: "Customer Order Information",
     caption: "Delivery contact number, email, the confirmed-with-customer flag and remarks.",
+  },
+  // The rest of that page. It is one long scroll and only its top was ever
+  // photographed, so everything describing what the customer actually gets —
+  // the devices, the delivery methods and the charges — went unrecorded.
+  install_info: {
+    label: "Install Information",
+    caption: "The installation details as the portal recorded them.",
+  },
+  device_list: {
+    label: "Device List",
+    caption:
+      "Every device on the order with its SKU and delivery method, plus the delivery address and contact.",
+  },
+  fee_preview: {
+    label: "Fee Information Preview",
+    caption:
+      "The charge item list — price, tax, charge and discount per offer — with the OTC and recurring totals.",
+  },
+  order_items: {
+    label: "Order Item List",
+    caption: "Each ordered product with its service number, main offer and account number.",
   },
   attachments: {
     label: "Attachments",
@@ -226,6 +263,78 @@ export function expiryLabel(daysLeft: number): string {
   if (daysLeft === 1) return "Expires tomorrow";
   return `Expires in ${daysLeft} days`;
 }
+
+/**
+ * The stage key the scraper emits when Next advanced the portal to a new page.
+ *
+ * Not a step: it marks a BOUNDARY between steps. The timeline renders it as a
+ * divider naming the page reached, so a sixteen-step run reads as the sequence
+ * of portal pages an agent would have clicked through by hand rather than as one
+ * flat list.
+ */
+export const PAGE_BREAK_STAGE = "page_break";
+
+export const isPageBreakStage = (stage: string | null | undefined): boolean =>
+  stage === PAGE_BREAK_STAGE;
+
+/** What a caller needs to know to render one frame's retention state. */
+export interface CaptureExpiry {
+  days: number;
+  label: string;
+  /** The object is gone from R2 — render a note, never an `<img>`. */
+  expired: boolean;
+  /** Close enough to gone to be worth saving now. */
+  soon: boolean;
+}
+
+/**
+ * How long this frame has left, or null when nothing is known to delete it.
+ *
+ * Shared by the timeline row and the carousel so both agree on the boundary —
+ * two independent copies of "is this expired?" is exactly how one of them ends
+ * up rendering a 404'd `<img>` while the other says it's gone.
+ */
+export function captureExpiry(
+  capturedAt: string,
+  now: number = Date.now(),
+): CaptureExpiry | null {
+  if (CAPTURE_RETENTION_DAYS === null) return null;
+  const days = daysUntilExpiry(capturedAt, CAPTURE_RETENTION_DAYS, now);
+  return {
+    days,
+    label: expiryLabel(days),
+    expired: days <= 0,
+    soon: days > 0 && days < CAPTURE_EXPIRY_WARN_DAYS,
+  };
+}
+
+/**
+ * How each order status is named in the UI, and which of them are worth
+ * filtering by.
+ *
+ * Domain vocabulary, so it lives here rather than in whichever component
+ * happened to need it first — the row and the filter must never disagree about
+ * what "order_entered" is called. `submitting` is deliberately absent from the
+ * filter list: it is a transient state, and a filter that empties itself a
+ * minute after you pick it is a worse experience than not offering it.
+ */
+export const STATUS_LABELS: Record<string, string> = {
+  draft: "Draft",
+  submitting: "Submitting",
+  order_entered: "Order Entered",
+  submitted: "Submitted",
+  warning: "Warning",
+  failed: "Failed",
+};
+
+export const STATUS_FILTERS = [
+  "all",
+  "draft",
+  "order_entered",
+  "warning",
+  "failed",
+  "submitted",
+];
 
 /** One screen a submit attempt photographed. */
 export interface CaptureFrame {
@@ -315,6 +424,34 @@ export const needsVoiding = (o: {
   status: string;
   orderId?: string | null;
 }): boolean => !!o.orderId && (o.status === "warning" || o.status === "failed");
+
+/**
+ * A draft that has never reached the portal, and so is safe to submit outright.
+ *
+ * Submittable until we actually have a portal order id — a customer profile may
+ * be "entered" without the order id yet, so it must stay submittable. Only an
+ * in-flight run or one that already has an order id is locked.
+ */
+export const canSubmit = (o: {
+  status: string;
+  orderId?: string | null;
+}): boolean => !o.orderId && o.status !== "submitting";
+
+/**
+ * A stranded order: the portal minted a number, then the run failed.
+ *
+ * Running it again is legitimate — the agent voids the old order by hand first —
+ * but it is NOT the same act as submitting a fresh draft, because a second run
+ * against an un-voided order creates a genuine duplicate in the live portal.
+ * That is why this is a separate predicate rather than a loosening of
+ * `canSubmit`, and why its caller must confirm every time.
+ *
+ * A fully `submitted` order never qualifies: `needsVoiding` is false for it.
+ */
+export const canResubmit = (o: {
+  status: string;
+  orderId?: string | null;
+}): boolean => needsVoiding(o) && o.status !== "submitting";
 
 // Coarse stage keys older scraper builds emit, mapped onto the step they begin.
 // Vercel and the droplet deploy separately, so a BizzFlow that is ahead of the

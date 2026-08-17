@@ -1,59 +1,21 @@
 "use client";
 
-import { useState, useEffect, useRef, Fragment } from "react";
+import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { listOrders, startSubmit, deleteOrder } from "@/actions/order";
 import {
-  needsVoiding,
+  canResubmit,
+  canSubmit,
   type OrderListItem,
   type StageDetails,
 } from "@/lib/order-types";
-import { SubmitProgress } from "./SubmitProgress";
 import { OrderHistoryPanel } from "./OrderHistoryPanel";
+import type { RowActions } from "./OrderRow";
+import { OrdersTable } from "./OrdersTable";
+import { OrdersToolbar } from "./OrdersToolbar";
+import { ResubmitDialog } from "./ResubmitDialog";
 
-const STATUS_STYLES: Record<string, string> = {
-  draft: "bg-[#E3E8EF] text-[#425466]",
-  submitting: "bg-amber-100 text-amber-700",
-  order_entered: "bg-green-100 text-green-700",
-  submitted: "bg-green-100 text-green-700",
-  warning: "bg-amber-100 text-amber-800",
-  failed: "bg-red-100 text-red-700",
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  draft: "Draft",
-  submitting: "Submitting",
-  order_entered: "Order Entered",
-  submitted: "Submitted",
-  warning: "Warning",
-  failed: "Failed",
-};
-
-const STATUS_FILTERS = ["all", "draft", "order_entered", "warning", "failed", "submitted"];
-
-// A draft is submittable (and so batch-selectable) in these states.
-// Submittable until we actually have a portal order id — a customer profile may
-// be "entered" without the order id yet, so it must stay re-submittable. Only an
-// in-flight ("submitting") row or one that already has an order id is locked.
-const canSubmit = (o: { status: string; orderId?: string | null }) =>
-  !o.orderId && o.status !== "submitting";
-
-// The full installation address. Prefer the portal's own concatAddress when the
-// address was confirmed against Unifi — that string is the record of truth —
-// and otherwise rebuild it from the fields the agent typed.
-function formatAddress(o: OrderListItem): string {
-  if (o.addressFull?.trim()) return o.addressFull.trim();
-  return [o.street, [o.postcode, o.city].filter(Boolean).join(" "), o.state]
-    .map((p) => p?.trim())
-    .filter(Boolean)
-    .join(", ");
-}
-
-// "Verified" means the portal returned a unit for this address and we kept its
-// resourceInstId — not merely that the agent typed something well-formed.
-const isVerified = (o: OrderListItem) => !!o.addressId?.trim();
-
-// One poll's view of an in-flight submit, as returned by the progress route.
+/** One poll's view of an in-flight submit, as returned by the progress route. */
 interface ProgressState {
   status: string;
   stage: string | null;
@@ -65,11 +27,6 @@ interface ProgressState {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-// A row shows its step checklist while it runs, and keeps it after a failure so
-// the agent can see which step stopped it.
-const hasProgress = (o: OrderListItem) =>
-  o.status === "submitting" || ((o.status === "failed" || o.status === "warning") && !!o.stage);
 
 export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   const [orders, setOrders] = useState<OrderListItem[]>([]);
@@ -90,6 +47,8 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   const [stageDetails, setStageDetails] = useState<Record<string, StageDetails>>({});
   // The order whose full status history panel is open, if any.
   const [historyId, setHistoryId] = useState<string | null>(null);
+  // The order awaiting a resubmit confirmation, if any.
+  const [resubmitId, setResubmitId] = useState<string | null>(null);
   // Superadmins see everyone's drafts + a "Made By" column.
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
 
@@ -270,6 +229,9 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   // Batch: submit the selected drafts ONE AT A TIME. A single dealer session
   // can't safely run concurrent order flows, so we process sequentially and
   // stop early if the session dies.
+  //
+  // Only `canSubmit` rows are ever selectable, so this can never sweep up a
+  // stranded order — those need their own confirmation, one at a time.
   async function handleSubmitSelected() {
     const targets = filtered.filter((o) => selected.has(o.id) && canSubmit(o));
     if (targets.length === 0) return;
@@ -324,7 +286,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg border border-[#E3E8EF] p-12 flex flex-col items-center gap-3">
+      <div className="flex flex-col items-center gap-3 rounded-xl border border-[#E3E8EF] bg-white p-12">
         <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />
         <p className="text-sm text-[#697386]">Loading orders…</p>
       </div>
@@ -335,9 +297,9 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   // and "No orders yet" would be a lie that hides a broken server.
   if (loadError) {
     return (
-      <div className="bg-white rounded-lg border border-red-200 p-10 text-center">
+      <div className="rounded-xl border border-red-200 bg-white p-10 text-center">
         <p className="text-sm font-medium text-red-700">Couldn&apos;t load drafts</p>
-        <p className="text-xs text-[#697386] mt-1 max-w-md mx-auto leading-snug">{loadError}</p>
+        <p className="mx-auto mt-1 max-w-md text-xs leading-snug text-[#697386]">{loadError}</p>
         <button
           type="button"
           onClick={() => {
@@ -345,7 +307,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
             setLoadError(null);
             reload().finally(() => setLoading(false));
           }}
-          className="mt-4 rounded-md bg-[#635BFF] px-4 py-2 text-[12px] font-semibold text-white hover:bg-[#0A2540] transition-colors"
+          className="mt-4 cursor-pointer rounded-lg bg-[#635BFF] px-4 py-2 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-[#0A2540]"
         >
           Try again
         </button>
@@ -355,15 +317,18 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
 
   if (orders.length === 0) {
     return (
-      <div className="bg-white rounded-lg border border-dashed border-[#E3E8EF] p-10 text-center">
+      <div className="rounded-xl border border-dashed border-[#E3E8EF] bg-white p-10 text-center">
         <p className="text-sm font-medium text-[#425466]">No orders yet</p>
-        <p className="text-xs text-[#697386] mt-1">Fill in the New Order tab to create a draft.</p>
+        <p className="mt-1 text-xs text-[#697386]">Fill in the New Order tab to create a draft.</p>
       </div>
     );
   }
 
   // Read live from `orders` so the panel updates as the run progresses.
   const historyOrder = orders.find((o) => o.id === historyId) ?? null;
+  // Re-read the same way: a row that finished mid-dialog must not be resubmitted
+  // against a stale snapshot of itself.
+  const resubmitOrder = orders.find((o) => o.id === resubmitId) ?? null;
 
   const q = query.trim().toLowerCase();
   const filtered = orders.filter((o) => {
@@ -380,307 +345,61 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   const selectedCount = selectableIds.filter((id) => selected.has(id)).length;
   const allSelected = selectableIds.length > 0 && selectedCount === selectableIds.length;
 
+  const actionsFor = (o: OrderListItem): RowActions => ({
+    busy: busyId === o.id,
+    batchRunning,
+    selected: selected.has(o.id),
+    onToggleSelect: () => toggleOne(o.id),
+    onSubmit: () => handleSubmit(o.id, o.fullName),
+    onResubmit: () => setResubmitId(o.id),
+    onEdit: () => onEdit(o.id),
+    onDelete: () => handleDelete(o.id),
+    onShowHistory: () => setHistoryId(o.id),
+  });
+
   return (
     <div className="space-y-3">
-      {/* Search + status filter */}
-      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-        <div className="relative flex-1">
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by name or ID number here"
-            className="w-full h-10 rounded-lg border border-[#E3E8EF] bg-white pl-9 pr-3 text-sm text-[#0A2540] hover:border-[#635BFF]/60 focus:border-[#635BFF] focus:outline-none transition-colors"
-          />
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#697386]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
-          </svg>
-        </div>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="select-chevron h-10 rounded-lg border border-[#CBD2DC] bg-white pl-3 pr-9 text-sm text-[#0A2540] hover:border-[#635BFF] focus:border-[#635BFF] focus:outline-none cursor-pointer transition-colors"
-        >
-          {STATUS_FILTERS.map((s) => (
-            <option key={s} value={s}>
-              {s === "all" ? "All statuses" : STATUS_LABELS[s] ?? s}
-            </option>
-          ))}
-        </select>
-      </div>
+      <OrdersToolbar
+        query={query}
+        onQueryChange={setQuery}
+        statusFilter={statusFilter}
+        onStatusChange={setStatusFilter}
+        selectedCount={selectedCount}
+        batchRunning={batchRunning}
+        onClearSelection={() => setSelected(new Set())}
+        onSubmitSelected={handleSubmitSelected}
+      />
 
-      {/* Bulk action bar — appears once submittable drafts are selected. */}
-      {selectedCount > 0 && (
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-[#635BFF]/30 bg-[#635BFF]/5 px-4 py-2.5">
-          <span className="text-[13px] font-medium text-[#0A2540]">
-            {selectedCount} selected
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setSelected(new Set())}
-              disabled={batchRunning}
-              className="rounded-md border border-[#E3E8EF] bg-white px-3 py-1.5 text-[12px] text-[#425466] hover:border-[#635BFF] disabled:opacity-50 transition-colors"
-            >
-              Clear
-            </button>
-            <button
-              type="button"
-              onClick={handleSubmitSelected}
-              disabled={batchRunning}
-              className="inline-flex items-center gap-1.5 rounded-md bg-[#635BFF] px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-[#0A2540] disabled:opacity-50 transition-colors"
-            >
-              {batchRunning ? (
-                <>
-                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent inline-block" />
-                  Submitting…
-                </>
-              ) : (
-                `Submit Selected (${selectedCount})`
-              )}
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-[13px]">
-          <thead>
-            <tr className="border-b border-[#E3E8EF] bg-[#F6F9FC] text-left text-[11px] uppercase tracking-wide text-[#697386]">
-              <th className="px-4 py-3 w-10">
-                <input
-                  type="checkbox"
-                  aria-label="Select all submittable drafts"
-                  checked={allSelected}
-                  disabled={selectableIds.length === 0 || batchRunning}
-                  onChange={(e) => toggleAll(selectableIds, e.target.checked)}
-                  className="h-4 w-4 rounded border-[#CBD2DC] accent-[#635BFF] cursor-pointer disabled:opacity-40"
-                />
-              </th>
-              <th className="px-4 py-3 font-medium whitespace-nowrap">BizzFlow Order ID</th>
-              <th className="px-4 py-3 font-medium">Customer</th>
-              {isSuperAdmin && <th className="px-4 py-3 font-medium">Made By</th>}
-              <th className="px-4 py-3 font-medium min-w-32">Package</th>
-              <th className="px-4 py-3 font-medium min-w-32">Device</th>
-              <th className="px-4 py-3 font-medium min-w-44">Installation Address</th>
-              <th className="px-4 py-3 font-medium min-w-24">Status</th>
-              {/* Named for its source: this number is the portal's, not ours,
-                  and only exists once Unifi has actually minted the order. */}
-              <th className="px-4 py-3 font-medium whitespace-nowrap">
-                Order No.
-                <span className="ml-1 font-normal normal-case text-[10px] text-[#8792A2]">Unifi</span>
-              </th>
-              <th className="px-4 py-3 font-medium text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 && (
-              <tr>
-                <td colSpan={isSuperAdmin ? 10 : 9} className="px-4 py-8 text-center text-sm text-[#697386]">
-                  No orders match your search.
-                </td>
-              </tr>
-            )}
-            {filtered.map((o) => (
-              <Fragment key={o.id}>
-              <tr className={`border-b border-[#E3E8EF] last:border-0 hover:bg-[#F6F9FC]/60 ${expanded.has(o.id) && o.status === "submitting" ? "border-b-0" : ""}`}>
-                <td className="px-4 py-3 align-middle">
-                  {canSubmit(o) ? (
-                    <input
-                      type="checkbox"
-                      aria-label={`Select ${o.fullName}`}
-                      checked={selected.has(o.id)}
-                      disabled={batchRunning}
-                      onChange={() => toggleOne(o.id)}
-                      className="h-4 w-4 rounded border-[#CBD2DC] accent-[#635BFF] cursor-pointer disabled:opacity-40"
-                    />
-                  ) : null}
-                </td>
-                <td className="px-4 py-3 align-middle">
-                  <span className="text-[11px] font-medium text-[#635BFF] tabular-nums whitespace-nowrap">
-                    {o.reference ?? "—"}
-                  </span>
-                </td>
-                <td className="px-4 py-3 align-middle">
-                  <div className="font-medium text-[#0A2540]">{o.fullName}</div>
-                  <div className="text-[11px] text-[#697386] tabular-nums">{o.idType} · {o.idNumber}</div>
-                </td>
-                {isSuperAdmin && (
-                  <td className="px-4 py-3 align-middle text-[#425466] text-[12px]">{o.createdByEmail ?? "—"}</td>
-                )}
-                <td className="px-4 py-3 align-top text-[#425466]">
-                  <div className="leading-snug">{o.offerName ?? "—"}</div>
-                  {o.remarks?.trim() && (
-                    <div className="mt-1 flex items-start gap-1 text-[11px] text-[#8792A2]" title={o.remarks}>
-                      <svg className="mt-0.5 h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                      </svg>
-                      <span className="leading-snug break-words line-clamp-2">{o.remarks}</span>
-                    </div>
-                  )}
-                </td>
-                <td className="px-4 py-3 align-top text-[#425466]">
-                  {o.deviceName ? (
-                    <span className="leading-snug break-words">{o.deviceName}</span>
-                  ) : (
-                    <span className="text-[#8792A2]">—</span>
-                  )}
-                </td>
-                <td className="px-4 py-3 align-top text-[#425466]">
-                  {(() => {
-                    const address = formatAddress(o);
-                    if (!address) return <span className="text-[#697386]">—</span>;
-                    return (
-                      <div className="max-w-72">
-                        <div className="leading-snug break-words line-clamp-2" title={address}>
-                          {address}
-                        </div>
-                        {/* Verification is the NORMAL state for a confirmed
-                            address, so it whispers. A filled pill on nearly
-                            every row trains the eye to ignore it — and then the
-                            rows that lack it stop standing out, which is the
-                            only thing this mark is for. */}
-                        {isVerified(o) && (
-                          <span
-                            className="badge-verified mt-1 inline-flex items-center gap-1 text-[10px] font-medium text-green-700"
-                            title="This address was matched against the Unifi dealer portal"
-                          >
-                            <svg
-                              className="h-2.5 w-2.5 shrink-0"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="3.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              aria-hidden="true"
-                            >
-                              <path d="M20 6 9 17l-5-5" />
-                            </svg>
-                            Verified on Unifi
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </td>
-                <td className="px-4 py-3 align-middle">
-                  <span className={`inline-flex items-center justify-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium text-center whitespace-nowrap ${STATUS_STYLES[o.status] ?? STATUS_STYLES.draft}`}>
-                    {o.status === "submitting" && (
-                      <span className="h-2.5 w-2.5 animate-spin rounded-full border-2 border-amber-600 border-t-transparent inline-block" />
-                    )}
-                    {STATUS_LABELS[o.status] ?? o.status}
-                  </span>
-                  {needsVoiding(o) && (
-                    <span
-                      className="mt-1 block whitespace-nowrap text-[10px] font-medium text-amber-700"
-                      title="This order exists in the portal but never completed — void it there"
-                    >
-                      Needs voiding
-                    </span>
-                  )}
-                  {/* The portal's own failure text is long and wraps, which
-                      shoves every other row out of alignment. It lives in the
-                      panel now; this is the way in. */}
-                  {(hasProgress(o) || o.attempt > 0 || o.errorMessage) && (
-                    <button
-                      type="button"
-                      onClick={() => setHistoryId(o.id)}
-                      className="mt-1.5 inline-flex cursor-pointer items-center gap-1 whitespace-nowrap rounded-md border border-[#E3E8EF] px-2 py-1 text-[11px] font-medium text-[#425466] transition-colors duration-150 hover:border-[#635BFF] hover:text-[#635BFF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
-                    >
-                      Details
-                      {o.attempt > 1 && (
-                        <span className="tabular-nums text-[#8792A2]">· {o.attempt}</span>
-                      )}
-                    </button>
-                  )}
-                </td>
-                <td className="px-4 py-3 align-middle tabular-nums text-[#0A2540]">
-                  {o.orderId ? (
-                    <a
-                      href={`https://dealer.unifi.com.my/esales/h5/onBoarding/OrderDetails?custOrderId=${o.orderId}&custOrderNbr=${o.orderId}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="group inline-flex items-center gap-1 whitespace-nowrap font-medium text-[#635BFF] hover:underline"
-                      title="Open the order on the Unifi dealer portal (may take a moment to appear after creation)"
-                    >
-                      {o.orderId}
-                      <svg className="h-3 w-3 shrink-0 opacity-60 transition-opacity group-hover:opacity-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M15 3h6v6M10 14 21 3M18 13v8H3V6h8" />
-                      </svg>
-                    </a>
-                  ) : (
-                    /* Absence is meaningful: the portal has not minted a number
-                       for this draft yet, which is not the same as "unknown". */
-                    <span className="text-[11px] text-[#8792A2]">Not yet issued</span>
-                  )}
-                </td>
-                <td className="px-4 py-3 align-middle">
-                  <div className="flex items-center justify-end gap-1.5">
-                    {o.status !== "submitted" && (
-                      <button
-                        type="button"
-                        disabled={busyId === o.id}
-                        onClick={() => onEdit(o.id)}
-                        className="cursor-pointer rounded-md border border-[#E3E8EF] px-2.5 py-1.5 text-[12px] font-medium text-[#425466] transition-colors hover:border-[#635BFF] hover:text-[#635BFF] disabled:opacity-50"
-                      >
-                        Edit
-                      </button>
-                    )}
-                    {canSubmit(o) && (
-                      <button
-                        type="button"
-                        disabled={busyId === o.id}
-                        onClick={() => handleSubmit(o.id, o.fullName)}
-                        className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md bg-[#635BFF] px-2.5 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-[#0A2540] disabled:opacity-50"
-                      >
-                        {busyId === o.id ? (
-                          <>
-                            <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent inline-block" />
-                            Submitting…
-                          </>
-                        ) : (
-                          "Submit"
-                        )}
-                      </button>
-                    )}
-                    {o.status !== "submitted" && (
-                      <button
-                        type="button"
-                        disabled={busyId === o.id}
-                        onClick={() => handleDelete(o.id)}
-                        className="cursor-pointer rounded-md border border-[#E3E8EF] px-2.5 py-1.5 text-[12px] text-[#DF1B41] transition-colors hover:border-[#DF1B41] disabled:opacity-50"
-                      >
-                        Delete
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-              {expanded.has(o.id) && o.status === "submitting" && (
-                <tr className="border-b border-[#E3E8EF] last:border-0">
-                  <td colSpan={isSuperAdmin ? 10 : 9} className="p-0">
-                    <SubmitProgress
-                      stage={o.stage}
-                      status={o.status}
-                      errorMessage={o.errorMessage}
-                      orderId={o.orderId}
-                      details={stageDetails[o.id]}
-                    />
-                  </td>
-                </tr>
-              )}
-              </Fragment>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      </div>
+      <OrdersTable
+        orders={filtered}
+        isSuperAdmin={isSuperAdmin}
+        selectableIds={selectableIds}
+        allSelected={allSelected}
+        someSelected={selectedCount > 0}
+        batchRunning={batchRunning}
+        expanded={expanded}
+        stageDetails={stageDetails}
+        actionsFor={actionsFor}
+        onToggleAll={toggleAll}
+      />
 
       {/* No scrim here any more: the Sheet portals its own backdrop above
           everything, which is also what closes on outside-click and Escape. */}
       {historyOrder && (
         <OrderHistoryPanel order={historyOrder} onClose={() => setHistoryId(null)} />
+      )}
+
+      {/* Re-checked at confirm time, not just at open time: the row may have
+          been picked up by another tab's poll while the dialog sat open. */}
+      {resubmitOrder && canResubmit(resubmitOrder) && (
+        <ResubmitDialog
+          order={resubmitOrder}
+          onCancel={() => setResubmitId(null)}
+          onConfirm={() => {
+            setResubmitId(null);
+            handleSubmit(resubmitOrder.id, resubmitOrder.fullName);
+          }}
+        />
       )}
     </div>
   );

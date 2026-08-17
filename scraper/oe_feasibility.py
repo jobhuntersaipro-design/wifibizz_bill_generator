@@ -1037,6 +1037,227 @@ async def capture_and_report(page, payload: dict, slot: str, stage) -> dict | No
     return shot
 
 
+# The suffix a bottom-of-page frame carries. Kept as a constant because BizzFlow
+# derives its label from the same string.
+BOTTOM_SUFFIX = "_bottom"
+
+
+async def _scroll_to_offers(page) -> dict | None:
+    """Scroll the portal's INNER scroller so Select Offer sits at the top.
+
+    NOT to the absolute end, which was the first attempt and measurably wrong:
+    scrolling to `scrollHeight` framed Order Information perfectly but pushed
+    Select Offer off the top, leaving only the tail of its last row visible
+    ("20.00/Month, Instant, Permanent"). Select Offer is the more important of
+    the two — it is the only record of which device and discount the portal
+    actually attached, and at what charge.
+
+    So the scroll is anchored on the heading rather than computed from pixels:
+    put "Select Offer" just below the top edge and the frame runs from there
+    through Order Information. Content-anchored, so it survives the portal
+    changing its section heights; falls back to the end of the scroller if the
+    heading isn't found, which is still better than the top-only frame.
+
+    The frames come back 1192x716 for every slot — exactly the iframe box —
+    because the portal scrolls its content in a div inside the iframe, not on
+    the iframe's own body. Shooting <body> therefore photographs the box, and
+    everything below the fold (Select Offer, Order Information, Order Comments)
+    is silently cut. That is most of the commercial detail on a tab.
+
+    Deliberately scroll-only. Expanding the scroller (height:auto) would give a
+    single full-height image, but it mutates the CSS of a live order form
+    mid-submit, and if the restore ever lost a race the form would carry on in
+    an altered state. A capture must never cost an order; scrolling a container
+    cannot change a field, so this is the version that honours that rule.
+
+    Returns None when nothing scrollable was found, so the caller can skip the
+    second frame rather than upload a duplicate of the first.
+    """
+    return await _scroll_to_heading(page, r"select\s*offer")
+
+
+async def _scroll_to_heading(page, pattern: str) -> dict | None:
+    """Scroll the portal's INNER scroller so `pattern`'s heading sits at the top.
+
+    `pattern` is a JS regex SOURCE (case-insensitive), matched against element
+    text. See SCROLL_TO_HEADING_JS for why the matching is shaped as it is.
+    """
+    try:
+        return await page.evaluate(SCROLL_TO_HEADING_JS, pattern)
+    except Exception as e:  # noqa: BLE001
+        print(f"    ⚠ scroll to {pattern!r} failed: {type(e).__name__}", flush=True)
+        return None
+
+
+# Kept as a module-level constant so tests can exercise THIS string against a
+# fixture rather than a hand-copied paraphrase of it. Two live bugs got through
+# because the behaviour was only ever observable via a production submit:
+# an exact-text anchor match that the portal's markup never satisfies, and a
+# match on a hidden node whose zero rect reads as "already in view".
+SCROLL_TO_HEADING_JS = r"""((patternSource) => {
+          const re = new RegExp(patternSource, 'i');
+          const f=document.querySelector('#myIframe'), d=f&&f.contentDocument;
+          if(!d) return null;
+          // The scroller is whichever element actually overflows. Take the
+          // tallest candidate: nested wrappers can each overflow slightly, and
+          // the outermost one is what carries the whole form.
+          let best=null;
+          for (const el of d.querySelectorAll('div,section,main')) {
+            const over = el.scrollHeight - el.clientHeight;
+            if (over > 40 && el.clientHeight > 200) {
+              if (!best || el.scrollHeight > best.scrollHeight) best = el;
+            }
+          }
+          const target = best || d.scrollingElement || d.body;
+          if (!target) return null;
+          const before = target.scrollTop;
+
+          // Anchor: the section heading matching `pattern`.
+          //
+          // An exact-text match was tried first and failed live — a heading sits
+          // in a row with controls like "+ Add" and a bar decoration, so its
+          // text is never exactly the section name. Match on CONTAINS instead,
+          // bounded by length, and take the SHORTEST match: every ancestor up
+          // to <body> also contains the phrase, and the shortest is the heading
+          // itself rather than the wrapper holding the whole form.
+          // Among the matches, take the one DEEPEST in the content. The page
+          // repeats every section name in a right-hand nav, verbatim and at
+          // equal length, so a shortest-text or first-match rule picks the nav
+          // link instead of the section it points at — measured, that left
+          // Install Information pinned to the bottom edge of its own frame.
+          // The nav sits at the top of the content; real sections do not.
+          const tRect0 = target.getBoundingClientRect();
+          let anchor = null, anchorText = '', anchorAt = -1;
+          for (const el of target.querySelectorAll('*')) {
+            const txt = (el.textContent || '').trim();
+            if (txt.length > 60 || !re.test(txt)) continue;
+            // Must be VISIBLE. A hidden node reports an all-zero rect, which
+            // computes a negative scroll, clamps to 0, and reads as "already in
+            // view" — live, that silently produced no bottom frame at all.
+            if (!el.getClientRects().length || el.offsetParent === null) continue;
+            const at = before + (el.getBoundingClientRect().top - tRect0.top);
+            if (at > anchorAt) { anchor = el; anchorText = txt; anchorAt = at; }
+          }
+
+          let how = 'bottom';
+          if (anchor) {
+            const a = anchor.getBoundingClientRect(), t = target.getBoundingClientRect();
+            // 12px of breathing room so the heading is not flush with the edge.
+            const want = before + (a.top - t.top) - 12;
+            if (want > before + 20) { target.scrollTop = want; how = 'anchor'; }
+          }
+          // Anchor missing, or it would not actually move us down: the end of
+          // the scroller still beats a duplicate of the top frame.
+          if (how !== 'anchor') target.scrollTop = target.scrollHeight;
+          return {scrolled: Math.round(target.scrollTop - before),
+                  height: Math.round(target.scrollHeight),
+                  box: Math.round(target.clientHeight),
+                  how: how,
+                  anchor: anchorText,
+                  tag: target.tagName.toLowerCase(),
+                  cls: (target.className||'').toString().slice(0,60)};
+        })"""
+
+
+# The sections of the post-Next Customer Order Information page that are worth
+# their own frame. It is one long scroll — Basic Information and Attachments sit
+# at the top (already captured), and everything that describes what the customer
+# is actually getting is below the fold.
+ORDER_INFO_SECTIONS = (
+    (r"install\s*information", "install_info"),
+    (r"device\s*list", "device_list"),
+    (r"fee\s*information\s*preview", "fee_preview"),
+    (r"order\s*item\s*list", "order_items"),
+)
+
+
+# Finds the same scroller SCROLL_TO_HEADING_JS does, then either reads its
+# position (top === null) or sets it. Kept as one expression so the two can never
+# disagree about which element they mean.
+SCROLLER_POSITION_JS = r"""((top) => {
+          const f=document.querySelector('#myIframe'), d=f&&f.contentDocument;
+          if(!d) return null;
+          let best=null;
+          for (const el of d.querySelectorAll('div,section,main')) {
+            const over = el.scrollHeight - el.clientHeight;
+            if (over > 40 && el.clientHeight > 200) {
+              if (!best || el.scrollHeight > best.scrollHeight) best = el;
+            }
+          }
+          const t = best || d.scrollingElement || d.body;
+          if (!t) return null;
+          if (top !== null) t.scrollTop = top;
+          return Math.round(t.scrollTop);
+        })"""
+
+
+async def _scroll_position(page, top=None):
+    """Read the inner scroller's position, or set it when `top` is given."""
+    try:
+        return await page.evaluate(SCROLLER_POSITION_JS, top)
+    except Exception:  # noqa: BLE001
+        return None  # cosmetic only — never worth failing a submit over
+
+
+async def capture_sections(page, payload: dict, sections, stage) -> None:
+    """Scroll to each named section in turn and photograph it.
+
+    Sections that aren't on the page are skipped silently — the portal renders
+    different ones per offer (no device means no Device List), and a missing
+    section is not a failure any more than a missing field is.
+
+    Leaves the scroller where it found it. The steps that follow this one were
+    written against a page at its original position, and quietly moving it
+    underneath them is the kind of side effect that turns evidence-gathering
+    into the cause of a failure.
+    """
+    origin = await _scroll_position(page)
+    for pattern, slot in sections:
+        # Back to the top before each one. The anchor only engages when it would
+        # move DOWN (that guard is what stops a hidden match scrolling us
+        # backwards), so a section sitting above the current position would
+        # silently fall back and be skipped — which, after the first capture
+        # scrolled us down, is every section that isn't in strict page order.
+        await _scroll_position(page, 0)
+        geom = await _scroll_to_heading(page, pattern)
+        if not geom or geom.get("how") != "anchor":
+            print(f"    {slot}: no '{pattern}' heading on this page — skipped",
+                  flush=True)
+            continue
+        print(f"    {slot}: scrolled {geom['scrolled']}px of {geom['height']}px "
+              f"anchor={geom.get('anchor')!r}", flush=True)
+        await page.wait_for_timeout(400)
+        await capture_and_report(page, payload, slot, stage)
+    if origin is not None:
+        await _scroll_position(page, origin)
+
+
+async def capture_top_and_bottom(page, payload: dict, slot: str, stage) -> None:
+    """Photograph a tab twice: as it opens, and again scrolled to its end.
+
+    One frame cannot hold a sub-product tab. The top carries Service Number and
+    ServiceProfile; the bottom carries Select Offer (which discount and which
+    device actually got attached, with their charges) and Order Information —
+    and the bottom is the half that gets disputed.
+    """
+    await capture_and_report(page, payload, slot, stage)
+
+    geom = await _scroll_to_offers(page)
+    if not geom:
+        print(f"    {slot}: no inner scroller found — no bottom frame", flush=True)
+        return
+    if geom.get("scrolled", 0) < 40:
+        # Already showing the whole tab; a second frame would duplicate the first.
+        print(f"    {slot}: fits in {geom['box']}px — no bottom frame needed", flush=True)
+        return
+    print(f"    {slot}: scrolled {geom['scrolled']}px of {geom['height']}px "
+          f"via {geom.get('how')} anchor={geom.get('anchor')!r} "
+          f"(<{geom['tag']} class={geom['cls']!r}>)", flush=True)
+    # Let the portal settle any lazy/sticky rendering the scroll triggered.
+    await page.wait_for_timeout(400)
+    await capture_and_report(page, payload, f"{slot}{BOTTOM_SUFFIX}", stage)
+
+
 async def complete_new_connection(page, payload: dict = None, on_stage=None) -> dict:
     """New Connection page 1: Installation Contact + NEW billing Account + Winback.
     Stops before Next. Fields differ per offer — each step skips cleanly if its
@@ -1299,11 +1520,14 @@ async def fill_subproduct_tabs(page, payload: dict, on_stage=None) -> dict:
                     "error": dev.get("error"), "message": dev.get("message"),
                     "tabs": results}, dev)
             device_info = dev
-        # This tab is filled — capture it. The Broadband frame is the only
-        # evidence of WHICH device the portal accepted (our catalogue is a
-        # superset of what it actually offers), and the Voice frame is the only
-        # record of the number it assigned; neither value is echoed anywhere else.
-        await capture_and_report(page, payload, _tab_slot(txt), stage)
+        # This tab is filled — capture it, top and bottom. The Broadband frames
+        # are the only evidence of WHICH device the portal accepted (our
+        # catalogue is a superset of what it actually offers) and at what
+        # charge, and the Voice frame is the only record of the number it
+        # assigned; none of those values is echoed anywhere else. The device and
+        # its price sit in Select Offer, below the fold — which is why one frame
+        # per tab was never enough.
+        await capture_top_and_bottom(page, payload, _tab_slot(txt), stage)
     out = {"status": "ok", "stage": "subproduct_tabs", "tabs": results}
     return _carry_device_info(out, device_info) if device_info else out
 
@@ -1859,7 +2083,19 @@ async def select_device(page, payload: dict) -> dict:
             "available_devices": available}
 
 
-async def click_next_newconn(page, expect_sel: str = None, timeout_ms: int = 20000) -> dict:
+# A page transition, not a step. BizzFlow renders these as a divider on the
+# timeline rather than a numbered step, so a 16-step run reads as the sequence of
+# portal PAGES an agent would have clicked through by hand.
+PAGE_BREAK_STAGE = "page_break"
+
+
+def page_break(stage, page_name: str) -> None:
+    """Mark that Next advanced the portal to a new page."""
+    stage(PAGE_BREAK_STAGE, _detail(page_name))
+
+
+async def click_next_newconn(page, expect_sel: str = None, timeout_ms: int = 20000,
+                             stage=None, page_name: str = None) -> dict:
     """Click the New Connection Next (.js-btn-next). A "Subscription … incomplete"
     Warning may pop — dismiss it and report. Optionally wait for expect_sel to
     appear (the next page's landmark)."""
@@ -1884,6 +2120,11 @@ async def click_next_newconn(page, expect_sel: str = None, timeout_ms: int = 200
         except Exception:
             return {"status": "error", "error": "next_page_not_reached",
                     "stage": "next", "message": f"expected {expect_sel}"}
+    # Only on a clean advance: a Next that popped a warning or never reached the
+    # next page has not crossed a boundary, and a divider there would claim
+    # progress the portal did not make.
+    if stage and page_name:
+        page_break(stage, page_name)
     return {"status": "ok", "stage": "next"}
 
 
@@ -2013,6 +2254,16 @@ async def fill_customer_order_info(page, payload: dict,
     # Which files the portal actually accepted — the upload widget shows the
     # accepted filenames, and nothing else records them.
     await capture_and_report(page, payload, "attachments", stage)
+
+    # …then the rest of this page, BEFORE the appointment step.
+    #
+    # Ordering is the whole point: these sections are already fully rendered
+    # here, and the steps that follow can fail (a real run died on "no available
+    # slots found in the calendar"). Capturing after them meant an order that
+    # got far enough to exist in the portal produced no record of the devices,
+    # the delivery methods or the charges — exactly the run where the evidence
+    # matters most. Photograph first, then proceed.
+    await capture_sections(page, payload, ORDER_INFO_SECTIONS, stage)
 
     # ── Appointment (earliest available slot > 12h) ──────────────────────────
     stage("appointment")
@@ -2271,7 +2522,12 @@ async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
             # this page is gone the moment we advance.
             captured_terms = True
             await capture_and_report(page, payload, "delivery", stage)
-        nx = await click_next_newconn(page)
+        # The tail is a loop of unnamed intermediate pages (terms, delivery,
+        # confirmations) whose count varies per offer, so each divider is
+        # numbered rather than named — claiming a page name we haven't checked
+        # for would be worse than admitting we only know it advanced.
+        nx = await click_next_newconn(page, stage=stage,
+                                      page_name=f"Next page ({step + 1})")
         if nx.get("status") == "error":
             return {"status": "error", "stage": "pay_tail",
                     "message": f"Next#{step}: {nx.get('message')}"}
@@ -2353,7 +2609,8 @@ async def submit_new_connection(page, payload: dict, im_paths: list = None,
         return r
 
     stage("customer_order_info")
-    nx = await click_next_newconn(page)
+    nx = await click_next_newconn(page, stage=stage,
+                                  page_name="Customer Order Information")
     print(f"    ↳ next->order_info: {nx}", flush=True)
     # A warning here (e.g. "Please select one offer in … Smart Device group") means
     # Next did NOT advance — surface it as the error instead of blindly proceeding

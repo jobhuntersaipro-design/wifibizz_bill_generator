@@ -10,24 +10,25 @@ import {
   Copy,
   ExternalLink,
   History,
+  CornerDownRight,
   ListChecks,
+  Maximize2,
   RotateCcw,
   X,
 } from "lucide-react";
 import { getOrderHistory } from "@/actions/order";
 import type { AttemptView } from "@/lib/order-history";
 import {
-  CAPTURE_EXPIRY_WARN_DAYS,
   CAPTURE_RETENTION_DAYS,
   SUBMIT_STEPS,
   captureCaption,
+  captureExpiry,
   captureLabel,
-  daysUntilExpiry,
   elapsedLabel,
-  expiryLabel,
   formatDuration,
   heroFor,
   initialsFor,
+  isPageBreakStage,
   labelForStage,
   mergeTimeline,
   partitionCaptures,
@@ -48,6 +49,7 @@ import { Progress, ProgressIndicator, ProgressTrack } from "@/components/ui/prog
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CaptureCarousel, captureSrc } from "./CaptureCarousel";
 import { SubmitProgress } from "./SubmitProgress";
 
 /**
@@ -166,19 +168,6 @@ function StatCard({
   );
 }
 
-/** Where a capture's timeline row lives, so a thumbnail can scroll to it. */
-const captureRowId = (c: CaptureFrame) => `capture-row-${c.id}`;
-
-const captureSrc = (key: string) =>
-  `/api/orders/screenshot?key=${encodeURIComponent(key)}`;
-
-/** How long this frame has left, or null when nothing is known to delete it. */
-function expiryFor(at: string): { days: number; label: string } | null {
-  if (CAPTURE_RETENTION_DAYS === null) return null;
-  const days = daysUntilExpiry(at, CAPTURE_RETENTION_DAYS);
-  return { days, label: expiryLabel(days) };
-}
-
 /**
  * The strip of thumbnails at the top of an expanded attempt.
  *
@@ -187,13 +176,13 @@ function expiryFor(at: string): { days: number; label: string } | null {
  * scrolling the whole timeline to find the device shot is real friction, so this
  * is the index into it. Only worth showing once there is more than one frame.
  */
-function CapturesStrip({ captures }: { captures: CaptureFrame[] }) {
-  const jump = (c: CaptureFrame) => {
-    const el = document.getElementById(captureRowId(c));
-    if (!el) return;
-    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    el.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "center" });
-  };
+function CapturesStrip({
+  captures,
+  onOpen,
+}: {
+  captures: CaptureFrame[];
+  onOpen: (index: number) => void;
+}) {
   return (
     <div className="border-t border-[#E3E8EF] bg-white px-4 py-2.5">
       <div className="flex items-center gap-1.5">
@@ -203,11 +192,12 @@ function CapturesStrip({ captures }: { captures: CaptureFrame[] }) {
         </h4>
       </div>
       <ul className="mt-2 flex gap-2 overflow-x-auto pb-1">
-        {captures.map((c) => (
+        {captures.map((c, n) => (
           <li key={c.id} className="shrink-0">
             <button
               type="button"
-              onClick={() => jump(c)}
+              onClick={() => onOpen(n)}
+              aria-label={`Open ${captureLabel(c.slot)} in the capture viewer`}
               title={captureLabel(c.slot)}
               className="group block w-20 cursor-pointer rounded-md text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
             >
@@ -239,17 +229,25 @@ function CapturesStrip({ captures }: { captures: CaptureFrame[] }) {
  * wall: each one sits next to the step it documents, so it reads as "…and here
  * is what the screen looked like at that point".
  */
-function ShotRow({ capture, last }: { capture: CaptureFrame; last: boolean }) {
+function ShotRow({
+  capture,
+  last,
+  onOpen,
+}: {
+  capture: CaptureFrame;
+  last: boolean;
+  onOpen: () => void;
+}) {
   const [loaded, setLoaded] = useState(false);
   const src = captureSrc(capture.key);
-  const expiry = expiryFor(capture.at);
+  const expiry = captureExpiry(capture.at);
   // Past retention the object is GONE from R2, so the <img> would 404 into a
   // broken frame. Say so in words instead.
-  const expired = !!expiry && expiry.days <= 0;
-  const soon = !!expiry && expiry.days > 0 && expiry.days < CAPTURE_EXPIRY_WARN_DAYS;
+  const expired = !!expiry?.expired;
+  const soon = !!expiry?.soon;
 
   return (
-    <li id={captureRowId(capture)} className="step-row-in flex scroll-mt-4 items-start gap-3">
+    <li className="step-row-in flex items-start gap-3">
       <div className="flex w-3.5 shrink-0 flex-col items-center self-stretch">
         <span className="flex h-4 w-3.5 items-center justify-center">
           <Camera className="h-3 w-3 shrink-0 text-[#635BFF]" aria-hidden="true" />
@@ -272,14 +270,13 @@ function ShotRow({ capture, last }: { capture: CaptureFrame; last: boolean }) {
             </span>
           )}
           {!expired && (
-            <a
-              href={src}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={onOpen}
               className="ml-auto inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-[#635BFF] transition-colors duration-150 hover:bg-[#EDEBFF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
             >
-              Full size <ExternalLink className="h-3 w-3" aria-hidden="true" />
-            </a>
+              Full size <Maximize2 className="h-3 w-3" aria-hidden="true" />
+            </button>
           )}
         </div>
         {expired ? (
@@ -288,11 +285,11 @@ function ShotRow({ capture, last }: { capture: CaptureFrame; last: boolean }) {
             deleted.
           </p>
         ) : (
-          <a
-            href={src}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="group mt-1.5 block cursor-pointer rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
+          <button
+            type="button"
+            onClick={onOpen}
+            aria-label={`Open ${captureLabel(capture.slot)} in the capture viewer`}
+            className="group mt-1.5 block w-full cursor-pointer rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
           >
             <div className="relative overflow-hidden rounded-lg border border-[#E3E8EF] bg-white">
               {!loaded && <Skeleton className="h-40 w-full rounded-none" />}
@@ -309,7 +306,7 @@ function ShotRow({ capture, last }: { capture: CaptureFrame; last: boolean }) {
                 }`}
               />
             </div>
-          </a>
+          </button>
         )}
         <p className="mt-1 text-[10px] leading-snug text-[#8792A2]">
           {captureCaption(capture.slot)}
@@ -356,6 +353,9 @@ function foldSteps(events: AttemptView["events"]): AttemptView["events"] {
  */
 function Attempt({ a, defaultOpen, delay }: { a: AttemptView; defaultOpen: boolean; delay: number }) {
   const [open, setOpen] = useState(defaultOpen);
+  // Which frame of THIS attempt the carousel is showing, or null when closed.
+  // Owned here because the carousel's sequence is exactly this attempt's frames.
+  const [viewing, setViewing] = useState<number | null>(null);
   const failure = [...a.events].reverse().find(
     (e) => (e.status === "failed" || e.status === "warning") && e.message,
   );
@@ -420,14 +420,42 @@ function Attempt({ a, defaultOpen, delay }: { a: AttemptView; defaultOpen: boole
       <CollapsibleContent className="collapse-panel" keepMounted>
         {/* An index into the timeline below — only earns its space once there is
             more than one frame to hunt through. */}
-        {captures.length > 1 && <CapturesStrip captures={captures} />}
+        {captures.length > 1 && (
+          <CapturesStrip captures={captures} onOpen={setViewing} />
+        )}
         <ol className="flex flex-col border-t border-[#E3E8EF] bg-[#F6F9FC] px-4 py-3">
           {rows.map((row, i) => {
             const last = i === rows.length - 1;
             if (row.kind === "shot") {
-              return <ShotRow key={row.capture.id} capture={row.capture} last={last} />;
+              // Index within `captures`, not within `rows` — the carousel's
+              // sequence is the frames alone, with the step rows removed.
+              const at = captures.findIndex((c) => c.id === row.capture.id);
+              return (
+                <ShotRow
+                  key={row.capture.id}
+                  capture={row.capture}
+                  last={last}
+                  onOpen={() => setViewing(at)}
+                />
+              );
             }
             const e = row.event;
+            // A page boundary, not a step. Rendered as a rule across the
+            // timeline so the run reads as the sequence of portal pages an
+            // agent would have clicked through, instead of one flat list of
+            // sixteen steps with no sense of where they happened.
+            if (isPageBreakStage(e.stage)) {
+              return (
+                <li key={e.id} className="step-row-in flex items-center gap-2 py-1.5">
+                  <span className="h-px flex-1 bg-[#CBD2DC]" aria-hidden="true" />
+                  <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-[#697386] ring-1 ring-[#E3E8EF]">
+                    <CornerDownRight className="h-3 w-3 shrink-0" aria-hidden="true" />
+                    {e.message || "Next page"}
+                  </span>
+                  <span className="h-px flex-1 bg-[#CBD2DC]" aria-hidden="true" />
+                </li>
+              );
+            }
             const prev = rows[i - 1];
             const took = prev ? gap(prev.at, e.createdAt) : "";
             const bad = e.status === "failed";
@@ -476,6 +504,15 @@ function Attempt({ a, defaultOpen, delay }: { a: AttemptView; defaultOpen: boole
           })}
         </ol>
       </CollapsibleContent>
+
+      {/* Portals itself above the history Sheet that opened it. */}
+      {viewing !== null && (
+        <CaptureCarousel
+          captures={captures}
+          startIndex={viewing}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </Collapsible>
   );
 }

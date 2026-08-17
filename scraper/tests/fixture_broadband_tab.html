@@ -1,0 +1,76 @@
+<!doctype html>
+<!--
+  Stand-in for the portal's Broadband tab, built to the geometry the live run
+  actually reported: a div.layout-right-wrapper scroller, clientHeight 586,
+  scrollHeight ~1432, with Select Offer sitting below the fold.
+
+  It deliberately reproduces the two things that broke the anchor live:
+    1. the heading is NOT its own text node — it sits in a row with a bar
+       decoration and a "+ Add" control, so an exact-text match never fires;
+    2. a HIDDEN element also contains the phrase "Select Offer", whose zero
+       rect computes a negative scroll and reads as "already in view".
+  A fix that passes here has answered both.
+-->
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; font: 14px/1.4 system-ui, sans-serif; }
+  .layout-right-wrapper {
+    height: 586px;          /* the box the live run reported */
+    overflow-y: auto;
+    padding: 0 16px;
+  }
+  section { padding: 8px 0; }
+  .h { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 600; }
+  .h::before { content: ''; width: 4px; height: 18px; background: #2f6fed; }
+  .add { color: #2f6fed; font-weight: 400; font-size: 14px; }
+  .field { height: 44px; display: flex; align-items: center; gap: 12px; }
+  .row { height: 66px; display: flex; align-items: center; gap: 16px; border-top: 1px solid #eee; }
+  .hidden { display: none; }
+  .tall { height: 300px; }
+</style>
+
+<div class="layout-right-wrapper">
+  <!-- A hidden node carrying the phrase: the trap that produced "fits in 586px"
+       and no bottom frame at all on submit-8. -->
+  <div class="hidden"><span>Select Offer</span></div>
+
+  <section>
+    <div class="h">Subscription Information</div>
+    <div class="field">Service Number: asd123123@unifi</div>
+    <div class="field">ServiceProfile: 500M</div>
+    <div class="field">Internet Uplink Rate: 112640 Kbps</div>
+    <div class="field">QOSProfile: Basic</div>
+    <div class="tall"></div>
+  </section>
+
+  <section>
+    <div class="h">Agreement</div>
+    <div class="field">Agreement: unifi Home</div>
+  </section>
+
+  <section id="select-offer">
+    <!-- The heading as the portal renders it: never bare text. -->
+    <div class="h">Select Offer <span class="add">+ Add</span></div>
+    <div class="row">Unifi Home 500Mbps Premium Value With Device Discount[Pick 0-1]</div>
+    <div class="row">Promo Discount RM10 (Perpetual) - 36 Mo… RM 0.00 RM -10.00/Month</div>
+    <div class="row">Unifi Home 500Mbps Premium Value With Device[Pick 0-1]</div>
+    <div class="row">Premium Value Samsung TV 55inch 1 (RM2… RM 0.00 RM 20.00/Month</div>
+  </section>
+
+  <section id="order-information">
+    <div class="h">Order Information</div>
+    <div class="field">Comments</div>
+  </section>
+
+  <section>
+    <div class="h">Order Comments <span class="add">+ Add</span></div>
+    <div class="field">No record found</div>
+  </section>
+
+  <section>
+    <div class="h">Customer Order Information</div>
+    <div class="field">Contact Number: 60163445434</div>
+    <div class="field">Contact Email: wojaklang@gmail.com</div>
+    <div class="field">Remarks</div>
+  </section>
+</div>
