@@ -1,31 +1,21 @@
-# ── Secrets & credentials — NEVER commit ──
-# Encrypted dealer credentials + the Fernet key that decrypts them
-config/
-# Live auth state, Google service-account key, env, OTP session
-sessions/
-# Catch-all secret patterns (in case files land elsewhere)
-*.enc
-*.key
-*.session
+# Droplet / local state. None of this is tracked today — this file makes that
+# deliberate rather than accidental. Under the git deploy these directories sit
+# *inside* the working tree on the droplet and hold the API token, every dealer
+# session and the Gmail OTP credentials. A stray `git add -A` must never take
+# them, and `git status` must stay clean so deploy.sh's drift check is meaningful.
 .env
 .env.*
-service_account.json
-gmail_credentials.json
-gmail_token.json
-authorized_users.json
+!.env.example
+.last-deploy
 
-# ── Runtime / generated artifacts ──
+sessions/
+config/
 logs/
 jobs/
 outputs/
-inspect_dumps/
 
-# ── Python ──
+# Local tooling
+venv/
 __pycache__/
 *.pyc
 .pytest_cache/
-.venv/
-venv/
-
-# ── OS ──
-.DS_Store
