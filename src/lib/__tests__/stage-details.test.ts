@@ -5,7 +5,7 @@ import {
   type JobStage,
 } from "@/lib/order-submit";
 import {
-  PAGE1_SCREENSHOT_STAGE,
+  LEGACY_PAGE1_CAPTURE_STAGE,
   isUnsetStep,
   type StageDetail,
 } from "@/lib/order-types";
@@ -66,10 +66,16 @@ describe("collapseStageDetails", () => {
     expect(out.checking_address.note).toBe("address_not_found");
   });
 
-  it("surfaces the screenshot key under its own stage", () => {
+  it("surfaces a capture's key under its own stage", () => {
+    const key = "order-screenshots/u1/o1/submit-2-broadband.jpg";
+    const out = collapseStageDetails([s("capture_broadband", d(key))]);
+    expect(out.capture_broadband.value).toBe(key);
+  });
+
+  it("still surfaces a Phase-1 capture, which older rows are recorded under", () => {
     const key = "order-screenshots/u1/o1/submit-2-page1.png";
-    const out = collapseStageDetails([s(PAGE1_SCREENSHOT_STAGE, d(key))]);
-    expect(out[PAGE1_SCREENSHOT_STAGE].value).toBe(key);
+    const out = collapseStageDetails([s(LEGACY_PAGE1_CAPTURE_STAGE, d(key))]);
+    expect(out[LEGACY_PAGE1_CAPTURE_STAGE].value).toBe(key);
   });
 });
 

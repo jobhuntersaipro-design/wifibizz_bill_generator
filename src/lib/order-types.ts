@@ -91,13 +91,214 @@ export interface StageDetail {
 /** Resolved values by step key, as far as the run has got. */
 export type StageDetails = Record<string, StageDetail>;
 
+// ── Captures ─────────────────────────────────────────────────────────────────
+// A submit photographs each of its detail screens and reports the R2 key of each
+// as its own stage. None of them are steps in SUBMIT_STEPS: they are artefacts
+// of the run, not milestones the checklist ticks.
+//
+// The stage key is `capture_<slot>`, matched by PREFIX rather than against a
+// fixed list — sub-product slots come from the tab text the portal reports, and
+// the scraper (droplet) deploys separately from BizzFlow (Vercel), so this build
+// must render a slot it has never heard of rather than dropping the frame.
+
+export const CAPTURE_STAGE_PREFIX = "capture_";
+
+/** Phase 1 emitted exactly one capture, under its own name. Old rows persist. */
+export const LEGACY_PAGE1_CAPTURE_STAGE = "page1_captured";
+
+/** The slot whose frame stands in for the whole attempt on a collapsed row. */
+export const PAGE1_CAPTURE_SLOT = "page1";
+
+export const isCaptureStage = (stage: string | null | undefined): boolean =>
+  !!stage &&
+  (stage.startsWith(CAPTURE_STAGE_PREFIX) || stage === LEGACY_PAGE1_CAPTURE_STAGE);
+
+/** The slot a capture stage documents, or null when it isn't a capture. */
+export function captureSlot(stage: string | null | undefined): string | null {
+  if (!stage) return null;
+  if (stage === LEGACY_PAGE1_CAPTURE_STAGE) return PAGE1_CAPTURE_SLOT;
+  if (!stage.startsWith(CAPTURE_STAGE_PREFIX)) return null;
+  return stage.slice(CAPTURE_STAGE_PREFIX.length) || null;
+}
+
 /**
- * The stage that reports the page-1 screenshot's R2 key.
+ * What each frame is worth looking at for.
  *
- * Not a step in SUBMIT_STEPS — it is an artefact of the run, not a milestone the
- * checklist ticks, and it is emitted once Winback Tagging resolves.
+ * An unknown slot is humanised rather than dropped — see the prefix note above.
  */
-export const PAGE1_SCREENSHOT_STAGE = "page1_captured";
+const CAPTURE_SLOTS: Record<string, { label: string; caption: string }> = {
+  page1: {
+    label: "New Connection page 1",
+    caption:
+      "Order number, installation address, contact, main offer, account and winback tagging.",
+  },
+  broadband: {
+    label: "Broadband tab",
+    caption: "Service number and the device the portal actually accepted.",
+  },
+  voice: {
+    label: "Voice tab",
+    caption: "The voice number the portal assigned.",
+  },
+  tv: { label: "TV tab", caption: "TV service number." },
+  order_info: {
+    label: "Customer Order Information",
+    caption: "Delivery contact number, email, the confirmed-with-customer flag and remarks.",
+  },
+  attachments: {
+    label: "Attachments",
+    caption: "The documents the portal accepted.",
+  },
+  appointment: {
+    label: "Appointment",
+    caption: "The installation date and time that was taken.",
+  },
+  delivery: {
+    label: "Delivery terms",
+    caption: "The terms and conditions the order was placed under.",
+  },
+  pay: {
+    label: "Pay screen",
+    caption: "The amount due and any advance payment, before the Pay click.",
+  },
+};
+
+export function captureLabel(slot: string): string {
+  const known = CAPTURE_SLOTS[slot];
+  if (known) return known.label;
+  const words = slot.replace(/[_-]+/g, " ").trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : "Portal screenshot";
+}
+
+export function captureCaption(slot: string): string {
+  return CAPTURE_SLOTS[slot]?.caption ?? "As the portal rendered it.";
+}
+
+/**
+ * Whether a capture stage's message is a real R2 key rather than a failure note.
+ *
+ * A failed capture records its REASON in the same field, so this is what stops
+ * "Screenshot not stored" becoming a broken `<img>`. `.png` stays accepted:
+ * every frame captured before Phase 3 is a PNG and those objects still exist.
+ */
+export const isScreenshotKey = (value: string | null | undefined): boolean =>
+  !!value &&
+  value.startsWith("order-screenshots/") &&
+  /\.(png|jpe?g)$/i.test(value);
+
+/**
+ * How long a capture survives in R2, or null when nothing is known to delete.
+ *
+ * Deliberately opt-in. The countdown describes an R2 lifecycle rule that is
+ * applied by hand on the bucket; until someone has applied it, nothing expires
+ * and a rendered countdown would be asserting a policy that does not exist.
+ * Silence is better than that. Set it to 90 once the rule is live.
+ */
+export const CAPTURE_RETENTION_DAYS: number | null = (() => {
+  const n = Number(process.env.NEXT_PUBLIC_CAPTURE_RETENTION_DAYS);
+  return Number.isFinite(n) && n > 0 ? n : null;
+})();
+
+/** Amber below this — the frame is close enough to gone to save it now. */
+export const CAPTURE_EXPIRY_WARN_DAYS = 14;
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Whole days a frame has left, counting the part-day it is in as one.
+ *
+ * Zero or negative means the object is gone from R2 — the caller must render a
+ * note instead of the thumbnail, since the `<img>` would 404.
+ */
+export function daysUntilExpiry(
+  capturedAt: string,
+  retentionDays: number,
+  now: number = Date.now(),
+): number {
+  const t = new Date(capturedAt).getTime();
+  if (!Number.isFinite(t)) return retentionDays;
+  return Math.ceil((t + retentionDays * DAY_MS - now) / DAY_MS);
+}
+
+/** "Expires in 87 days" / "Expires tomorrow" / "Expired". */
+export function expiryLabel(daysLeft: number): string {
+  if (daysLeft <= 0) return "Expired";
+  if (daysLeft === 1) return "Expires tomorrow";
+  return `Expires in ${daysLeft} days`;
+}
+
+/** One screen a submit attempt photographed. */
+export interface CaptureFrame {
+  id: string;
+  slot: string;
+  key: string;
+  at: string;
+}
+
+/** The bit of a status event these derivations need. */
+export interface TimelineEvent {
+  id: string;
+  stage: string | null;
+  message: string | null;
+  createdAt: string;
+}
+
+/**
+ * Split an attempt's events into the steps it passed and the screens it shot.
+ *
+ * Captures must never render as timeline rows reading out an R2 key — they come
+ * back as pictures instead, at the same position. A capture whose message is a
+ * failure reason rather than a key is dropped from the frames but LEFT in the
+ * steps, so the slot still says why it has no picture.
+ */
+export function partitionCaptures<T extends TimelineEvent>(
+  events: T[],
+): { steps: T[]; captures: CaptureFrame[] } {
+  const steps: T[] = [];
+  const captures: CaptureFrame[] = [];
+  for (const e of events) {
+    const slot = isCaptureStage(e.stage) ? captureSlot(e.stage) : null;
+    if (slot && isScreenshotKey(e.message)) {
+      captures.push({ id: e.id, slot, key: e.message!.trim(), at: e.createdAt });
+    } else if (slot) {
+      steps.push(e); // a failed capture — its reason is worth a row
+    } else {
+      steps.push(e);
+    }
+  }
+  return { steps, captures };
+}
+
+/** A timeline entry: a step the run passed, or a screen it photographed. */
+export type TimelineRow<T> =
+  | { kind: "step"; at: string; event: T }
+  | { kind: "shot"; at: string; capture: CaptureFrame };
+
+/**
+ * Interleave steps and captures into one chronological timeline.
+ *
+ * Both inputs are already in order, so this is a merge rather than a sort — and
+ * on an equal timestamp the STEP wins, because a capture is always taken after
+ * the step it documents even when the two land in the same second.
+ */
+export function mergeTimeline<T extends { createdAt: string }>(
+  steps: T[],
+  captures: CaptureFrame[],
+): TimelineRow<T>[] {
+  const out: TimelineRow<T>[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < steps.length || j < captures.length) {
+    const step = steps[i];
+    const shot = captures[j];
+    if (!shot) out.push({ kind: "step", at: step.createdAt, event: steps[i++] });
+    else if (!step) out.push({ kind: "shot", at: shot.at, capture: captures[j++] });
+    else if (step.createdAt <= shot.at)
+      out.push({ kind: "step", at: step.createdAt, event: steps[i++] });
+    else out.push({ kind: "shot", at: shot.at, capture: captures[j++] });
+  }
+  return out;
+}
 
 /** A step whose portal field was left unset reads as a warning, never a tick. */
 export const isUnsetStep = (d: StageDetail | undefined): boolean =>
@@ -149,6 +350,12 @@ export function stepIndexForStage(stage: string | null | undefined): number {
  */
 export function labelForStage(stage: string | null | undefined): string {
   if (!stage) return "";
+  // A capture only reaches this path when it FAILED — the successful ones are
+  // partitioned out and rendered as pictures. It still deserves the screen's
+  // name rather than "Capture voice", so the row reads as the frame that is
+  // missing rather than as machinery.
+  const slot = captureSlot(stage);
+  if (slot) return captureLabel(slot);
   const key = STAGE_ALIASES[stage] ?? stage;
   const step = SUBMIT_STEPS.find((s) => s.key === key);
   if (step) return step.label;
@@ -282,7 +489,7 @@ export interface OrderListItem {
   remarks: string | null;
   attempt: number; // how many submit runs this draft has had
   // R2 key of the latest attempt's page-1 screenshot — presence means evidence
-  // exists; the per-attempt frames are read from the status trail.
+  // exists; every other frame is read per attempt from the status trail.
   screenshotUrl: string | null;
   docCount: number;
   createdAt: string;

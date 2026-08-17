@@ -13,7 +13,10 @@
 import { prisma } from "@/lib/prisma";
 import { attachStageDetail, recordEvent } from "@/lib/order-history";
 import {
-  PAGE1_SCREENSHOT_STAGE,
+  CAPTURE_STAGE_PREFIX,
+  LEGACY_PAGE1_CAPTURE_STAGE,
+  PAGE1_CAPTURE_SLOT,
+  isScreenshotKey,
   type StageDetail,
   type StageDetails,
 } from "@/lib/order-types";
@@ -120,6 +123,28 @@ export function collapseStageDetails(stages: JobStage[] | undefined): StageDetai
 }
 
 /**
+ * The page-1 frame's R2 key out of a run's collapsed details.
+ *
+ * A run reports one capture stage per detail screen, but `Order.screenshotUrl`
+ * holds exactly one key — what a collapsed row shows to say evidence exists. It
+ * is page 1 because that frame is the most representative single image of a
+ * submit; the other slots are read per attempt from the status trail.
+ *
+ * Only a real key qualifies: a failed capture records its reason in the same
+ * field, and storing that would put a broken image on the row.
+ */
+function page1CaptureKey(details: StageDetails): string | null {
+  for (const stage of [
+    `${CAPTURE_STAGE_PREFIX}${PAGE1_CAPTURE_SLOT}`,
+    LEGACY_PAGE1_CAPTURE_STAGE,
+  ]) {
+    const d = details[stage];
+    if (d?.outcome === "ok" && isScreenshotKey(d.value)) return d.value;
+  }
+  return null;
+}
+
+/**
  * Persist everything a job's stage history tells us that the DB doesn't know yet.
  *
  * Runs on EVERY poll, including the one that finds the job already `done` — a
@@ -136,9 +161,7 @@ async function drainStages(
   currentScreenshotUrl: string | null,
 ): Promise<{ details: StageDetails; screenshotKey: string | null }> {
   const details = collapseStageDetails(stages);
-  const screenshot = details[PAGE1_SCREENSHOT_STAGE];
-  const screenshotKey =
-    screenshot?.outcome === "ok" && screenshot.value ? screenshot.value : null;
+  const screenshotKey = page1CaptureKey(details);
 
   if (!stages?.length) return { details, screenshotKey: null };
 

@@ -17,16 +17,24 @@ import {
 import { getOrderHistory } from "@/actions/order";
 import type { AttemptView } from "@/lib/order-history";
 import {
-  PAGE1_SCREENSHOT_STAGE,
+  CAPTURE_EXPIRY_WARN_DAYS,
+  CAPTURE_RETENTION_DAYS,
   SUBMIT_STEPS,
+  captureCaption,
+  captureLabel,
+  daysUntilExpiry,
   elapsedLabel,
+  expiryLabel,
   formatDuration,
   heroFor,
   initialsFor,
   labelForStage,
+  mergeTimeline,
+  partitionCaptures,
   stepIndexForStage,
   needsVoiding,
   stepsCompleted,
+  type CaptureFrame,
   type OrderListItem,
   type RunTone,
 } from "@/lib/order-types";
@@ -158,80 +166,153 @@ function StatCard({
   );
 }
 
-/**
- * The R2 key of this attempt's page-1 screenshot, if it captured one.
- *
- * Read per attempt rather than off the order: a retried order has one frame per
- * attempt, and the order row only ever holds the latest.
- */
-function screenshotFor(a: AttemptView): { key: string; at: string } | null {
-  const e = [...a.events]
-    .reverse()
-    .find((x) => x.stage === PAGE1_SCREENSHOT_STAGE && x.message);
-  const key = e?.message?.trim() ?? "";
-  // A failed capture records its reason in the same field. Only a real key is a
-  // screenshot — anything else must not become a broken <img>.
-  const ok = key.startsWith("order-screenshots/") && key.endsWith(".png");
-  return ok && e ? { key, at: e.createdAt } : null;
+/** Where a capture's timeline row lives, so a thumbnail can scroll to it. */
+const captureRowId = (c: CaptureFrame) => `capture-row-${c.id}`;
+
+const captureSrc = (key: string) =>
+  `/api/orders/screenshot?key=${encodeURIComponent(key)}`;
+
+/** How long this frame has left, or null when nothing is known to delete it. */
+function expiryFor(at: string): { days: number; label: string } | null {
+  if (CAPTURE_RETENTION_DAYS === null) return null;
+  const days = daysUntilExpiry(at, CAPTURE_RETENTION_DAYS);
+  return { days, label: expiryLabel(days) };
 }
 
 /**
- * The portal frame this attempt captured, shown as the LAST entry in its
- * timeline.
+ * The strip of thumbnails at the top of an expanded attempt.
  *
- * It belongs to the attempt, and chronologically it happens right after Winback
- * Tagging — so it reads as "…and here is what the screen looked like at that
- * point", rather than as a separate gallery the agent has to correlate back to a
- * run by attempt number.
+ * Each frame stays a timeline row at its own chronological position, which is
+ * what keeps every picture next to the step it documents — but with nine of them
+ * scrolling the whole timeline to find the device shot is real friction, so this
+ * is the index into it. Only worth showing once there is more than one frame.
  */
-function ShotRow({ orderKey, at }: { orderKey: string; at: string }) {
-  const [loaded, setLoaded] = useState(false);
-  const src = `/api/orders/screenshot?key=${encodeURIComponent(orderKey)}`;
+function CapturesStrip({ captures }: { captures: CaptureFrame[] }) {
+  const jump = (c: CaptureFrame) => {
+    const el = document.getElementById(captureRowId(c));
+    if (!el) return;
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "center" });
+  };
   return (
-    <li className="step-row-in flex items-start gap-3">
+    <div className="border-t border-[#E3E8EF] bg-white px-4 py-2.5">
+      <div className="flex items-center gap-1.5">
+        <Camera className="h-3 w-3 shrink-0 text-[#8792A2]" aria-hidden="true" />
+        <h4 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8792A2]">
+          Captures · {captures.length}
+        </h4>
+      </div>
+      <ul className="mt-2 flex gap-2 overflow-x-auto pb-1">
+        {captures.map((c) => (
+          <li key={c.id} className="shrink-0">
+            <button
+              type="button"
+              onClick={() => jump(c)}
+              title={captureLabel(c.slot)}
+              className="group block w-20 cursor-pointer rounded-md text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
+            >
+              <span className="block overflow-hidden rounded-md border border-[#E3E8EF] bg-[#F6F9FC]">
+                {/* eslint-disable-next-line @next/next/no-img-element -- an
+                    auth-gated private stream, not an optimisable static asset */}
+                <img
+                  src={captureSrc(c.key)}
+                  alt=""
+                  loading="lazy"
+                  className="h-12 w-full object-cover object-top transition-transform duration-200 ease-out group-hover:scale-[1.04]"
+                />
+              </span>
+              <span className="mt-1 block truncate text-[9px] leading-tight text-[#697386]">
+                {captureLabel(c.slot)}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * One captured screen, as a timeline row at the moment it was taken.
+ *
+ * Chronological placement is what makes nine pictures readable rather than a
+ * wall: each one sits next to the step it documents, so it reads as "…and here
+ * is what the screen looked like at that point".
+ */
+function ShotRow({ capture, last }: { capture: CaptureFrame; last: boolean }) {
+  const [loaded, setLoaded] = useState(false);
+  const src = captureSrc(capture.key);
+  const expiry = expiryFor(capture.at);
+  // Past retention the object is GONE from R2, so the <img> would 404 into a
+  // broken frame. Say so in words instead.
+  const expired = !!expiry && expiry.days <= 0;
+  const soon = !!expiry && expiry.days > 0 && expiry.days < CAPTURE_EXPIRY_WARN_DAYS;
+
+  return (
+    <li id={captureRowId(capture)} className="step-row-in flex scroll-mt-4 items-start gap-3">
       <div className="flex w-3.5 shrink-0 flex-col items-center self-stretch">
         <span className="flex h-4 w-3.5 items-center justify-center">
           <Camera className="h-3 w-3 shrink-0 text-[#635BFF]" aria-hidden="true" />
         </span>
+        {!last && <span className="w-px flex-1 bg-[#B9B5FF]" />}
       </div>
-      <div className="min-w-0 flex-1 pb-1">
+      <div className="min-w-0 flex-1 pb-3">
         <div className="flex flex-wrap items-baseline gap-2">
-          <span className="text-[12px] font-medium text-[#0A2540]">Portal screenshot</span>
-          <span className="text-[10px] tabular-nums text-[#8792A2]">{time(at)}</span>
+          <span className="text-[12px] font-medium text-[#0A2540]">
+            {captureLabel(capture.slot)}
+          </span>
+          <span className="text-[10px] tabular-nums text-[#8792A2]">{time(capture.at)}</span>
+          {expiry && (
+            <span
+              className={`text-[10px] tabular-nums ${
+                expired ? "text-[#8792A2]" : soon ? "text-amber-700" : "text-[#8792A2]"
+              }`}
+            >
+              {expiry.label}
+            </span>
+          )}
+          {!expired && (
+            <a
+              href={src}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ml-auto inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-[#635BFF] transition-colors duration-150 hover:bg-[#EDEBFF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
+            >
+              Full size <ExternalLink className="h-3 w-3" aria-hidden="true" />
+            </a>
+          )}
+        </div>
+        {expired ? (
+          <p className="mt-1.5 rounded-lg border border-dashed border-[#E3E8EF] px-3 py-4 text-center text-[10px] leading-snug text-[#8792A2]">
+            This frame passed its {CAPTURE_RETENTION_DAYS}-day retention and has been
+            deleted.
+          </p>
+        ) : (
           <a
             href={src}
             target="_blank"
             rel="noopener noreferrer"
-            className="ml-auto inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-[#635BFF] transition-colors duration-150 hover:bg-[#EDEBFF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
+            className="group mt-1.5 block cursor-pointer rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
           >
-            Full size <ExternalLink className="h-3 w-3" aria-hidden="true" />
+            <div className="relative overflow-hidden rounded-lg border border-[#E3E8EF] bg-white">
+              {!loaded && <Skeleton className="h-40 w-full rounded-none" />}
+              {/* eslint-disable-next-line @next/next/no-img-element -- an auth-gated
+                  private stream, not an optimisable static asset */}
+              <img
+                src={src}
+                alt={`${captureLabel(capture.slot)} as the portal rendered it`}
+                loading="lazy"
+                onLoad={() => setLoaded(true)}
+                onError={() => setLoaded(true)}
+                className={`h-40 w-full object-cover object-top transition-transform duration-300 ease-out group-hover:scale-[1.015] ${
+                  loaded ? "opacity-100" : "absolute inset-0 opacity-0"
+                }`}
+              />
+            </div>
           </a>
-        </div>
-        <a
-          href={src}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="group mt-1.5 block cursor-pointer rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
-        >
-          <div className="relative overflow-hidden rounded-lg border border-[#E3E8EF] bg-white">
-            {!loaded && <Skeleton className="h-40 w-full rounded-none" />}
-            {/* eslint-disable-next-line @next/next/no-img-element -- an auth-gated
-                private stream, not an optimisable static asset */}
-            <img
-              src={src}
-              alt="New Connection page as the portal rendered it"
-              loading="lazy"
-              onLoad={() => setLoaded(true)}
-              onError={() => setLoaded(true)}
-              className={`h-40 w-full object-cover object-top transition-transform duration-300 ease-out group-hover:scale-[1.015] ${
-                loaded ? "opacity-100" : "absolute inset-0 opacity-0"
-              }`}
-            />
-          </div>
-        </a>
+        )}
         <p className="mt-1 text-[10px] leading-snug text-[#8792A2]">
-          Order number, installation address, contact, main offer, account and
-          winback tagging, as the portal rendered them.
+          {captureCaption(capture.slot)}
         </p>
       </div>
     </li>
@@ -278,11 +359,12 @@ function Attempt({ a, defaultOpen, delay }: { a: AttemptView; defaultOpen: boole
   const failure = [...a.events].reverse().find(
     (e) => (e.status === "failed" || e.status === "warning") && e.message,
   );
-  // The capture is an artefact of the run, not a step it passed through, so it
-  // never appears as a timeline row reading out an R2 key.
-  const events = foldSteps(a.events.filter((e) => e.stage !== PAGE1_SCREENSHOT_STAGE));
+  // Captures are artefacts of the run, not steps it passed through, so they
+  // never appear as timeline rows reading out an R2 key — they come back below
+  // as pictures, at the same position.
+  const { steps, captures } = partitionCaptures(a.events);
   const took = elapsedLabel(a.startedAt, a.endedAt);
-  const shot = screenshotFor(a);
+  const rows = mergeTimeline(foldSteps(steps), captures);
 
   return (
     <Collapsible
@@ -302,13 +384,13 @@ function Attempt({ a, defaultOpen, delay }: { a: AttemptView; defaultOpen: boole
           {OUTCOME_LABEL[a.outcome] ?? a.outcome}
         </Badge>
         <span className="ml-auto flex items-center gap-2 text-[10px] tabular-nums text-[#697386]">
-          {shot && (
+          {captures.length > 0 && (
             <span
               className="inline-flex items-center gap-1 rounded-md bg-[#EDEBFF] px-1.5 py-0.5 font-medium text-[#635BFF]"
-              title="This attempt captured a portal screenshot"
+              title={`This attempt captured ${captures.length} portal screen${captures.length === 1 ? "" : "s"}`}
             >
               <Camera className="h-3 w-3" aria-hidden="true" />
-              Capture
+              Capture · {captures.length}
             </span>
           )}
           {took && <span>{took}</span>}
@@ -336,10 +418,18 @@ function Attempt({ a, defaultOpen, delay }: { a: AttemptView; defaultOpen: boole
       )}
 
       <CollapsibleContent className="collapse-panel" keepMounted>
+        {/* An index into the timeline below — only earns its space once there is
+            more than one frame to hunt through. */}
+        {captures.length > 1 && <CapturesStrip captures={captures} />}
         <ol className="flex flex-col border-t border-[#E3E8EF] bg-[#F6F9FC] px-4 py-3">
-          {events.map((e, i) => {
-            const prev = events[i - 1];
-            const took = prev ? gap(prev.createdAt, e.createdAt) : "";
+          {rows.map((row, i) => {
+            const last = i === rows.length - 1;
+            if (row.kind === "shot") {
+              return <ShotRow key={row.capture.id} capture={row.capture} last={last} />;
+            }
+            const e = row.event;
+            const prev = rows[i - 1];
+            const took = prev ? gap(prev.at, e.createdAt) : "";
             const bad = e.status === "failed";
             const warn = e.status === "warning";
             return (
@@ -357,7 +447,7 @@ function Attempt({ a, defaultOpen, delay }: { a: AttemptView; defaultOpen: boole
                       }`}
                     />
                   </span>
-                  {i < events.length - 1 && <span className="w-px flex-1 bg-[#B9B5FF]" />}
+                  {!last && <span className="w-px flex-1 bg-[#B9B5FF]" />}
                 </div>
                 <div className="min-w-0 flex-1 pb-3">
                   <div className="flex flex-wrap items-baseline gap-2">
@@ -384,7 +474,6 @@ function Attempt({ a, defaultOpen, delay }: { a: AttemptView; defaultOpen: boole
               </li>
             );
           })}
-          {shot && <ShotRow orderKey={shot.key} at={shot.at} />}
         </ol>
       </CollapsibleContent>
     </Collapsible>

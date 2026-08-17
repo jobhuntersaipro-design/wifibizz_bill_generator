@@ -87,9 +87,11 @@ model Order {
   stageAt        DateTime? @map("stage_at")     // when `stage` last changed — staleness check
 
   // R2 key of the LATEST attempt's page-1 screenshot, so a collapsed row can
-  // show that evidence exists without loading history. The per-attempt keys live
-  // on OrderStatusEvent (stage `page1_captured`) — that is what the detail panel
-  // reads, since a retried order has one frame per attempt.
+  // show that evidence exists without loading history. A submit captures one
+  // frame per detail screen; every key lives on OrderStatusEvent (stages
+  // `capture_<slot>`) — that is what the detail panel reads, since a retried
+  // order has its own set of frames per attempt. Page 1 is the one kept here
+  // because it is the most representative single image of a submit.
   screenshotUrl  String?   @map("screenshot_url")
 
   // Short human reference (ORD-0042), assigned at creation. The portal's own

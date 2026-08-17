@@ -1,35 +1,40 @@
 # Current Feature
 
-## Order Entry — Step-by-Step Submit Progress
+## Order Entry — Submit Progress Phase 3: Full Capture Trail + Live Verification
 
 ## Status
 
-In Progress — branch `feature/order-submit-progress`
+In Progress — branch `feature/order-submit-progress-phase3` (off
+`feature/order-submit-progress`, which carries Phases 1–2 and is not yet merged
+to main).
 
-Full spec: [context/features/order-submit-progress.md](features/order-submit-progress.md)
+Full spec: [context/features/order-submit-progress-phase3.md](features/order-submit-progress-phase3.md)
 
 ## Goals
 
-- The agent watches a submit advance through ~14 named steps in real time, inline in the order row.
-- A failure names the step it happened on, with the portal's own message.
-- Closing the tab mid-submit cannot strand an order in `submitting` forever.
-- No long-running server action (today's `submitOrder` blocks up to ~620s, over Vercel's 300s cap).
+- Every detail screen of a submit is photographed, not just New Connection page 1
+  — the device, voice number and appointment slot are the disputed fields and
+  none of them appear on page 1.
+- Each frame lands on the timeline next to the step it documents, with a
+  thumbnail strip to jump between them.
+- A frame shows how long it has left, and only when something actually deletes.
+- A failed capture never costs an order.
+- The Phase 1 scraper change finally runs against the live portal.
 
 ## Notes
 
-The stage stream already exists end-to-end — the scraper fires `on_stage` at 8
-milestones and `GET /jobs/<id>` returns it — but `submitOrder` collapses it to two
-DB statuses and the browser never sees it. The work is: emit the missing
-fine-grained stages (feasibility is one opaque stage covering five real steps),
-split `submitOrder` into `startSubmit` + a polled progress route that finalizes
-idempotently, and render the checklist.
+Phase 1's scraper half has **never executed** — Phase 2 verified the UI against
+data written by the pre-Phase-1 droplet build. Two selector-shaped assumptions
+(`_longest_title` picks the address column, `_contact_name` picks the leading
+cell) fail silently rather than throwing, so only a live run settles them.
 
-Decisions taken: job-id + client polling (not SSE, not a DB stage column); flat
-14-step list (not collapsed phases); inline in the row (not a modal); no
-address re-check at submit — trust the confirmed `addressId`.
+Decisions taken: all 9 slots; JPEG quality 80 (nine PNGs per attempt would be
+~4.5MB); R2 lifecycle rule applied by hand, and the countdown stays hidden
+behind `NEXT_PUBLIC_CAPTURE_RETENTION_DAYS` until it exists.
 
-Point of no return is step 8 (`capturing_order_no`) — after it the order exists in
-the portal and resubmission must stay locked.
+Two acceptance criteria are outside the code and are the user's to do: applying
+the R2 lifecycle rule, and deploying the scraper to the droplet for one real
+submit.
 
 ## History
 
