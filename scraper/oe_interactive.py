@@ -94,7 +94,74 @@ FUNCS = {
     "create_billing_account": lambda page, frame: create_billing_account(frame, page),
     "set_winback_tagging":     lambda page, frame: set_winback_tagging(frame, page),
     "cancel_customer_popup":   lambda page, frame: cancel_customer_popup(page),
+    # Phase 5 diagnosis: open the Appointment calendar and report what is really
+    # in it. Read-only — clicks Add (which opens a dialog and books nothing),
+    # never fills firstPreferredDatetime and never clicks OK.
+    "dump_calendar":           lambda page, frame: dump_calendar(page),
 }
+
+
+async def dump_calendar(page):
+    """Click "+ Add", wait for the calendar, and return both the raw markup and
+    what the production reader makes of it.
+
+    This is the one question a fixture cannot answer: which day-cell and event
+    selectors the live FullCalendar emits. Doing it here rather than in a submit
+    is the point — the order already exists, so this can be repeated as often as
+    needed without costing another one.
+    """
+    from appointment_policy import choose_slot, describe_read_failure
+    from oe_feasibility import _APPT_READ_JS, _read_calendar
+
+    clicked = await page.evaluate(r"""(() => {
+      const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
+      const vis=e=>e&&e.offsetParent!==null;
+      const b=[...d.querySelectorAll('.js-add-date')].filter(vis)[0];
+      if(!b) return 'noadd'; b.click(); return 'ok';
+    })()""")
+    if clicked != "ok":
+        return {"add_click": clicked, "note": "no visible .js-add-date on this page"}
+
+    # Same polling read the submit flow now uses, so this reproduces the real
+    # behaviour rather than a friendlier version of it.
+    diag = await _read_calendar(page)
+
+    markup = await page.evaluate(r"""(() => {
+      const out={};
+      const f=document.querySelector('#myIframe'), d=f&&f.contentDocument;
+      if(!d) return {err:'nodoc'};
+      const vis=e=>e&&e.offsetParent!==null;
+      const desc=e=>'<'+e.tagName.toLowerCase()+(e.id?'#'+e.id:'')+
+        (e.className?' .'+String(e.className).trim().split(/\s+/).join('.'):'')+'>';
+      out.dialogs=[...d.querySelectorAll('.ui-dialog,.modal,[role=dialog],.ant-modal,.el-dialog')]
+        .filter(vis).map(n=>({node:desc(n),
+          title:((n.querySelector('.modal-title,.ui-dialog-title,.ant-modal-title')||{}).innerText||'').trim().slice(0,60),
+          text:(n.innerText||'').trim().replace(/\n+/g,' | ').slice(0,150)}));
+      const dated=[...d.querySelectorAll('[data-date]')];
+      out.datedCount=dated.length;
+      out.datedVisible=dated.filter(vis).length;
+      out.datedKinds={};
+      dated.forEach(e=>{const k=e.tagName.toLowerCase()+'.'+String(e.className||'').trim();
+        out.datedKinds[k]=(out.datedKinds[k]||0)+1;});
+      const fc=new Set();
+      d.querySelectorAll('[class*="fc-"]').forEach(e=>String(e.className).split(/\s+/)
+        .filter(c=>c.startsWith('fc-')).forEach(c=>fc.add(c)));
+      out.fcClasses=[...fc].sort();
+      const timeRe=/\d{2}:\d{2}/;
+      out.timeLeaves=[...d.querySelectorAll('a,div,span,td,li')]
+        .filter(e=>timeRe.test(e.textContent||'')
+          && ![...e.children].some(c=>timeRe.test(c.textContent||'')))
+        .slice(0,10).map(e=>({vis:vis(e), node:desc(e),
+          text:(e.innerText||e.textContent||'').trim().slice(0,40),
+          parent:desc(e.parentElement||e)}));
+      const inp=d.querySelector('input[name="firstPreferredDatetime"]');
+      out.slotInput=inp?{node:desc(inp),visible:vis(inp),value:inp.value}:'ABSENT';
+      return out;
+    })()""")
+
+    verdict = (f"would book {choose_slot(diag['slots'])}" if diag.get("slots")
+               else f"would fail: {describe_read_failure(diag)}")
+    return {"reader": diag, "markup": markup, "verdict": verdict}
 
 
 async def do(cmd, page):
@@ -148,9 +215,27 @@ async def reach(page):
     """Search address -> By Address Id (first orderable) -> Order -> attach -> land."""
     state = os.environ.get("FEAS_STATE", "SELANGOR").upper()
     street = os.environ.get("FEAS_ADDRESS_FULL", "PERSIARAN SAUJANA PUTRA UTAMA 7")
-    print(f"→ resolve address ids for {street!r}")
-    sr = await das.search_address(os.environ["OE_SESSION"], state=state, value=street, query_by="keyword")
-    ids = [str(a["addressId"]) for a in (sr.get("addresses") or []) if a.get("addressId")][:15]
+    # FEAS_ADDRESS_ID skips the search entirely and uses the portal's own
+    # resourceInstId — the exact unit, no keyword matching involved. Use it when
+    # reproducing a specific stored order, where "the same building" is not the
+    # same thing as "the same unit".
+    fixed_id = os.environ.get("FEAS_ADDRESS_ID", "").strip()
+    if fixed_id:
+        print(f"→ using address id {fixed_id} directly (no keyword search)")
+        ids = [fixed_id]
+    else:
+        query_by = os.environ.get("FEAS_QUERY_BY", "keyword")
+        print(f"→ resolve address ids for {street!r} (query_by={query_by})")
+        sr = await das.search_address(os.environ["OE_SESSION"], state=state, value=street,
+                                      query_by=query_by)
+        ids = [str(a["addressId"]) for a in (sr.get("addresses") or []) if a.get("addressId")][:15]
+        print(f"   portal returned {len(ids)} address id(s)")
+        if not ids:
+            # Fails BEFORE .js-orderNow, so a bad keyword costs no order.
+            raise RuntimeError(
+                f"address search returned nothing for {street!r}. The portal's keyword "
+                "search matches street/building tokens, not a whole concatenated "
+                "address — pass FEAS_ADDRESS_ID=<resourceInstId> instead.")
     await ensure_on_order_entry(page)
     frame = _frame(page)
     await open_feasibility(frame); await asyncio.sleep(2)

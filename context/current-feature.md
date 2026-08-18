@@ -1,16 +1,49 @@
-# Current Feature
+# Current Feature: Order Entry — Submit Progress Phase 5: Appointment Booking
 
 ## Status
 
-Not Started
+In Progress
 
 ## Goals
 
-<!-- Bullet points of what success looks like -->
+- Record the live Appointment dialog's real day-cell/event selectors in the spec (blocking, first task — hypothesis only today).
+- Rewrite `_APPT_SLOTS_JS` to return a diagnostic object (`slots`, `dayCells`, `events`, `unmatched`, `daySelector`, `dialog`) instead of a bare list; prefer structural containment, fall back to geometry.
+- `_set_appointment` names which of five causes produced "no slots" instead of collapsing them into one message.
+- New `app_settings` singleton table + admin Settings page: `appointmentStrategy` (`first_available` | `fixed_date`), `appointmentLeadHours` (default 12), `appointmentFixedDate`; past fixed date refused inline at save.
+- Policy reaches the scraper via the job payload — no scraper config surface, no droplet redeploy to change a date.
+- New `appointment_booked` capture anchored on the Appointment section, showing Appointment No. + date/times.
+- With `fixed_date` = 2026-08-31 a submit books 31 Aug 09:30–12:00; with `first_available`/12h it books the earliest slot ≥12h out; a fixed date with no slots fails naming that date rather than booking another day.
+- The submit gets **past** the appointment step — the point of the phase.
+- `npm run build`, `npm run lint`, unit tests and the scraper fixture test all pass.
 
 ## Notes
 
-<!-- Additional context, constraints, or details from spec -->
+Spec: [context/features/order-submit-progress-phase5.md](features/order-submit-progress-phase5.md). Follows Phase 4 (merged to main as `9a722bc` / `9583c9a`).
+
+- **Submits currently cannot finish.** Every run dies at the appointment step, so nothing reaches Pay. The order is minted *before* this point, so each failure strands a real order needing manual voiding — two outstanding already.
+- The calendar is not empty: opened by hand it offers 18–31 Aug, four slots most days (09:30–12:00, 12:00–14:30, 14:30–17:00, 17:00–19:30). The reader returns nothing from a calendar that visibly has plenty.
+- Suspected cause (**hypothesis, not diagnosis**): `_APPT_SLOTS_JS` hit-tests geometry — if `.fc-day[data-date]` no longer matches (e.g. FullCalendar now emits `.fc-daygrid-day`), every event's day lookup misses, all become `null`, and `[]` reads as "no slots". Could equally be a scrolled container or off-screen dialog. Phase 4's lesson: confident guesses cost real production submits.
+- Lead time is hard-coded inline (`Date.now() + 12*3600*1000`) — needs a deploy to change and makes testing awkward.
+- Migration hand-authored + `migrate deploy`; `prisma migrate dev` fails here on a pre-existing unrelated migration's shadow DB.
+- Live verification only **after** the fixture test passes.
+- Out of scope: per-order agent choice of appointment, reschedule/cancel, time-of-day window, voiding stranded orders, anything about Pay (`do_pay` stays FALSE).
+- Open question: whether `fixed_date` auto-expires to `first_available` once past — **decided: keep failing**, since a self-changing booking policy is how a test setting reaches production unnoticed. The admin form says so on screen.
+
+### Progress (2026-08-17) — code complete, live-unverified
+
+Built on branch `feature/order-submit-progress-phase5`:
+
+- `_APPT_SLOTS_JS` → `_APPT_READ_JS`: tries day/event selectors in order and **reports which matched**, matches events to days structurally (`cell.contains`) with the geometric hit-test as fallback, counts unmatched events, and samples the real markup so one live run answers the "what is the markup?" question.
+- New pure `scraper/appointment_policy.py` — `choose_slot` (policy) and `describe_read_failure` (five distinct causes). The 12h lead time moved out of the browser, which is what makes it testable and settable.
+- `app_settings` singleton table (hand-authored migration `20260817120000_app_settings`, applied via `migrate deploy`), `src/lib/appointment-settings.ts` validator, `src/actions/admin-settings.ts`, and `/admin/settings` with a sidebar link.
+- Policy travels `getAppointmentPolicy()` → `reqOrder.appointment` → `order_to_payload` → `_set_appointment(page, policy)`. Verified end-to-end on the payload, not the portal.
+- New `appointment_booked` capture anchored on the Appointment section, plus its label/caption.
+
+Passing: `npm run build`, lint (new files clean), 15 new Vitest cases (158 total), `tests/test_appointment_policy.py` (22 checks), `tests/test_appointment_reader.py` (22 checks, both FullCalendar shapes), and the existing scraper suites.
+
+**Still needs the live portal** (criteria 1, 2, 5–9): record the real selectors from the run log; then `fixed_date` on a day with slots → earliest slot booked and the flow gets *past* appointment; a day without slots → fails naming it; flip to `first_available`/12h. Also unverified: `appointment_booked` anchors on the pattern `appointment`, which like every anchor here **fails by framing the wrong thing, not by throwing**.
+
+Deviation: slot selection is tested in Python rather than Vitest (the slots are read by the scraper); Vitest covers the admin validator.
 
 ## History
 

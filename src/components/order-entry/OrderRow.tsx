@@ -49,6 +49,11 @@ const isVerified = (o: OrderListItem) => !!o.addressId?.trim();
 export const hasHistory = (o: OrderListItem) =>
   o.status === "submitting" ||
   ((o.status === "failed" || o.status === "warning") && !!o.stage) ||
+  // Order Entered is listed on its own rather than left to `attempt > 0`: it is
+  // now the ONLY route to the portal number for such a row, since the Order No.
+  // column shows completed orders only. A row that reached the portal must never
+  // depend on an attempt counter to offer a way in.
+  o.status === "order_entered" ||
   o.attempt > 0 ||
   !!o.errorMessage;
 
@@ -86,9 +91,20 @@ function StatusBadge({ o }: { o: OrderListItem }) {
 }
 
 function OrderNumber({ o }: { o: OrderListItem }) {
+  // The column carries COMPLETED orders only. A run that stopped part-way can
+  // still have a number — the portal mints it early — but showing it here reads
+  // as "this order went through", which is the opposite of true. Those rows
+  // keep their "Needs voiding" flag and reach the number through Details.
+  if (o.status !== "submitted") {
+    return o.orderId ? (
+      <span className="text-[12px] text-[#8792A2]">—</span>
+    ) : (
+      // Absence is meaningful: the portal has not minted a number for this draft
+      // yet, which is not the same as "unknown".
+      <span className="text-[12px] text-[#8792A2]">Not yet issued</span>
+    );
+  }
   if (!o.orderId) {
-    // Absence is meaningful: the portal has not minted a number for this draft
-    // yet, which is not the same as "unknown".
     return <span className="text-[12px] text-[#8792A2]">Not yet issued</span>;
   }
   return (

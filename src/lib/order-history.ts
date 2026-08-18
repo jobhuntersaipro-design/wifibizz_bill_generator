@@ -27,6 +27,10 @@ export interface StatusEventInput {
   status: string;
   stage?: string | null;
   message?: string | null;
+  // oe_errors classification, on failure events. Stored per event as well as on
+  // the order so the trail can answer "did it fail this same way last time?" —
+  // which is the question that turns one refusal into a pattern worth acting on.
+  errorCode?: string | null;
   // When the step actually happened, if known. Stage rows are drained from the
   // scraper's history in a burst, so insert time would compress a ten-minute run
   // into one instant and make every per-step timing read as 0s.
@@ -48,6 +52,7 @@ export async function recordEvent(e: StatusEventInput): Promise<void> {
         status: e.status,
         stage: e.stage ?? null,
         message: e.message ?? null,
+        errorCode: e.errorCode ?? null,
         ...(e.createdAt ? { createdAt: e.createdAt } : {}),
       },
     });
@@ -96,6 +101,7 @@ export interface StatusEventView {
   stage: string | null;
   status: string;
   message: string | null;
+  errorCode: string | null;
   createdAt: string;
 }
 

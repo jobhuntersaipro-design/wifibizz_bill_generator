@@ -8,7 +8,9 @@ const ev = (
   createdAt: string,
   stage: string | null = null,
   message: string | null = null,
-): StatusEventView => ({ id: `${attempt}-${createdAt}`, attempt, status, stage, message, createdAt });
+): StatusEventView => ({
+  id: `${attempt}-${createdAt}`, attempt, status, stage, message, errorCode: null, createdAt,
+});
 
 describe("groupByAttempt", () => {
   it("returns newest attempt first", () => {

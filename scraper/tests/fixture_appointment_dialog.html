@@ -1,0 +1,62 @@
+<!doctype html>
+<!--
+  The Appointment dialog as a MODERN FullCalendar renders it: day cells are
+  `td.fc-daygrid-day[data-date]` and each event is nested INSIDE its own day.
+
+  Reproduces, deliberately:
+    * a day with no events at all (2026-08-29) — an empty day is normal, and
+      must not be read as a broken calendar;
+    * an event whose text carries HH:MM only rather than HH:MM:SS;
+    * a hidden event (display:none) that the portal leaves in the DOM — it is
+      not bookable and must not be counted;
+    * a second `.ui-dialog` (a leftover warning) so the reader has to find the
+      Appointment one by title rather than taking the first.
+-->
+<meta charset="utf-8">
+<style>
+  body { margin: 0; font: 12px system-ui; }
+  .ui-dialog { border: 1px solid #ccc; margin: 8px; }
+  .ui-dialog-title { font-weight: 600; padding: 6px; background: #eee; }
+  table { border-collapse: collapse; }
+  td { border: 1px solid #ddd; width: 120px; height: 90px; vertical-align: top; }
+  .fc-daygrid-event { display: block; background: #cfe; margin: 1px; padding: 1px 3px; }
+</style>
+
+<div class="ui-dialog">
+  <div class="ui-dialog-title">Warning</div>
+  <div>Please complete the required fields.</div>
+</div>
+
+<div class="ui-dialog">
+  <div class="ui-dialog-title">Appointment Calendar</div>
+  <div class="fc fc-media-screen">
+    <table class="fc-scrollgrid">
+      <tbody>
+        <tr>
+          <td class="fc-daygrid-day fc-day fc-day-sat" data-date="2026-08-29">
+            <div class="fc-daygrid-day-top">29</div>
+            <div class="fc-daygrid-day-events"></div>
+          </td>
+          <td class="fc-daygrid-day fc-day fc-day-sun" data-date="2026-08-30">
+            <div class="fc-daygrid-day-top">30</div>
+            <div class="fc-daygrid-day-events">
+              <a class="fc-daygrid-event fc-event">09:30:00 - 12:00:00</a>
+              <a class="fc-daygrid-event fc-event">14:30:00 - 17:00:00</a>
+            </div>
+          </td>
+          <td class="fc-daygrid-day fc-day fc-day-mon" data-date="2026-08-31">
+            <div class="fc-daygrid-day-top">31</div>
+            <div class="fc-daygrid-day-events">
+              <a class="fc-daygrid-event fc-event">09:30 - 12:00</a>
+              <a class="fc-daygrid-event fc-event">12:00:00 - 14:30:00</a>
+              <a class="fc-daygrid-event fc-event">14:30:00 - 17:00:00</a>
+              <a class="fc-daygrid-event fc-event">17:00:00 - 19:30:00</a>
+              <a class="fc-daygrid-event fc-event" style="display:none">21:00:00 - 23:00:00</a>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <input name="firstPreferredDatetime" value="">
+</div>

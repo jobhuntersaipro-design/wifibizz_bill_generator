@@ -1,5 +1,6 @@
 "use client";
 
+import { SubmitErrorBlock } from "@/components/order-entry/SubmitErrorBlock";
 import {
   SUBMIT_STEPS,
   POINT_OF_NO_RETURN,
@@ -13,6 +14,9 @@ interface Props {
   stage: string | null;
   status: string;
   errorMessage: string | null;
+  // Classified failure, when the scraper recognised one. Drives the explained
+  // error block; null falls back to the raw portal message.
+  errorCode?: string | null;
   orderId: string | null;
   // What the portal resolved at each step, keyed by stage. A step without an
   // entry simply shows no second line — details arrive as the run reaches them.
@@ -106,6 +110,7 @@ export function SubmitProgress({
   stage,
   status,
   errorMessage,
+  errorCode,
   orderId,
   details,
 }: Props) {
@@ -290,15 +295,13 @@ export function SubmitProgress({
           Order No. <span className="font-medium tabular-nums">{orderId}</span>
         </p>
       )}
-      {errorMessage && (
-        <p
-          className={`mt-2 text-[11px] leading-snug ${
-            status === "warning" ? "text-amber-700" : "text-red-600"
-          }`}
-        >
-          {errorMessage}
-        </p>
-      )}
+      <SubmitErrorBlock
+        className="mt-2"
+        errorMessage={errorMessage}
+        errorCode={errorCode}
+        orderId={orderId}
+        status={status}
+      />
     </div>
   );
 }
