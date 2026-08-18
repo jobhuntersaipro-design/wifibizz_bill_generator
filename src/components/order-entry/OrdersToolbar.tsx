@@ -1,45 +1,102 @@
 "use client";
 
-import { Search } from "lucide-react";
-import { STATUS_FILTERS, STATUS_LABELS } from "@/lib/order-types";
+import { Search, X } from "lucide-react";
+import {
+  STATUS_FILTERS,
+  STATUS_LABELS,
+  activeFilterCount,
+  type OrderFilters,
+} from "@/lib/order-types";
+import { DateRangeFilter } from "./DateRangeFilter";
 
 /**
- * Search, status filter, and the bulk bar that appears once rows are selected.
+ * Search, the filter bar, and the bulk bar that appears once rows are selected.
  *
  * Purely presentational — every piece of state lives in OrdersList, which owns
  * the filtering and the batch runner.
  */
+
+/** One labelled `<select>`. Four of these is the filter bar. */
+function FilterSelect({
+  id,
+  label,
+  value,
+  onChange,
+  options,
+  allLabel,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  allLabel?: string;
+}) {
+  const active = value !== "all";
+  return (
+    <div className="min-w-0">
+      <label htmlFor={id} className="sr-only">
+        {label}
+      </label>
+      <select
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        /* An engaged filter is outlined in brand colour. Without it a narrowed
+           table and an empty one look identical, and the usual explanation for
+           "my draft disappeared" is a filter nobody remembers setting. */
+        className={`select-chevron h-10 w-full max-w-[220px] cursor-pointer truncate rounded-lg border bg-white pl-3 pr-9 text-[13px] transition-colors duration-150 focus:border-[#635BFF] focus:outline-none ${
+          active
+            ? "border-[#635BFF] text-[#0A2540]"
+            : "border-[#E3E8EF] text-[#425466] hover:border-[#CBD2DC]"
+        }`}
+      >
+        <option value="all">{allLabel ?? `All ${label.toLowerCase()}`}</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 export function OrdersToolbar({
-  query,
-  onQueryChange,
-  statusFilter,
-  onStatusChange,
+  filters,
+  onChange,
+  offers,
+  devices,
   selectedCount,
   batchRunning,
   onClearSelection,
   onSubmitSelected,
 }: {
-  query: string;
-  onQueryChange: (v: string) => void;
-  statusFilter: string;
-  onStatusChange: (v: string) => void;
+  filters: OrderFilters;
+  onChange: (next: OrderFilters) => void;
+  offers: string[];
+  devices: string[];
   selectedCount: number;
   batchRunning: boolean;
   onClearSelection: () => void;
   onSubmitSelected: () => void;
 }) {
+  const set = <K extends keyof OrderFilters>(key: K, value: OrderFilters[K]) =>
+    onChange({ ...filters, [key]: value });
+  const active = activeFilterCount(filters);
+
   return (
     <div className="space-y-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="relative flex-1">
           <label htmlFor="drafts-search" className="sr-only">
-            Search drafts by name or ID number
+            Search drafts by name, ID number, phone or reference
           </label>
           <input
             id="drafts-search"
-            value={query}
-            onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="Search by name or ID number"
+            value={filters.query}
+            onChange={(e) => set("query", e.target.value)}
+            placeholder="Search by name, ID, phone or ORD-…"
             className="h-11 w-full rounded-lg border border-[#E3E8EF] bg-white pl-9 pr-3 text-[14px] text-[#0A2540] transition-colors duration-150 placeholder:text-[#8792A2] hover:border-[#CBD2DC] focus:border-[#635BFF] focus:outline-none"
           />
           <Search
@@ -47,21 +104,65 @@ export function OrdersToolbar({
             aria-hidden="true"
           />
         </div>
-        <label htmlFor="drafts-status" className="sr-only">
-          Filter by status
-        </label>
-        <select
+      </div>
+
+      {/* Wraps rather than scrolls: a filter you cannot see is one you cannot
+          clear, and this row exists to make the table less cramped, not more. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <DateRangeFilter
+          dateFrom={filters.dateFrom}
+          dateTo={filters.dateTo}
+          onChange={(dateFrom, dateTo) =>
+            onChange({ ...filters, dateFrom, dateTo })
+          }
+        />
+        <FilterSelect
           id="drafts-status"
-          value={statusFilter}
-          onChange={(e) => onStatusChange(e.target.value)}
-          className="select-chevron h-11 cursor-pointer rounded-lg border border-[#E3E8EF] bg-white pl-3 pr-9 text-[14px] text-[#0A2540] transition-colors duration-150 hover:border-[#CBD2DC] focus:border-[#635BFF] focus:outline-none"
-        >
-          {STATUS_FILTERS.map((s) => (
-            <option key={s} value={s}>
-              {s === "all" ? "All statuses" : STATUS_LABELS[s] ?? s}
-            </option>
-          ))}
-        </select>
+          label="Status"
+          value={filters.status}
+          onChange={(v) => set("status", v)}
+          allLabel="All statuses"
+          options={STATUS_FILTERS.filter((s) => s !== "all").map((s) => ({
+            value: s,
+            label: STATUS_LABELS[s] ?? s,
+          }))}
+        />
+        <FilterSelect
+          id="drafts-package"
+          label="Packages"
+          value={filters.offerName}
+          onChange={(v) => set("offerName", v)}
+          allLabel="All packages"
+          options={offers.map((o) => ({ value: o, label: o }))}
+        />
+        <FilterSelect
+          id="drafts-device"
+          label="Devices"
+          value={filters.deviceName}
+          onChange={(v) => set("deviceName", v)}
+          allLabel="All devices"
+          options={devices.map((d) => ({ value: d, label: d }))}
+        />
+
+        {active > 0 && (
+          <button
+            type="button"
+            onClick={() =>
+              onChange({
+                query: "",
+                status: "all",
+                dateFrom: null,
+                dateTo: null,
+                offerName: "all",
+                deviceName: "all",
+              })
+            }
+            className="inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium text-[#635BFF] transition-colors duration-150 hover:bg-[#EDEBFF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
+          >
+            <X className="h-3.5 w-3.5" aria-hidden="true" />
+            Clear {active} filter{active > 1 ? "s" : ""}
+          </button>
+        )}
       </div>
 
       {/* Bulk action bar — only submittable drafts are ever selectable, so this

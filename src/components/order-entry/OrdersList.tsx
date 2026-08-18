@@ -4,9 +4,13 @@ import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { listOrders, startSubmit, deleteOrder } from "@/actions/order";
 import {
+  EMPTY_FILTERS,
   canResubmit,
   canSubmit,
+  filterOptions,
+  filterOrders,
   submitErrorCopy,
+  type OrderFilters,
   type OrderListItem,
   type StageDetails,
 } from "@/lib/order-types";
@@ -37,8 +41,10 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   // table, so a server-side failure never masquerades as "no drafts".
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  // Search + the four filter dropdowns, as one value. One object rather than
+  // five useStates so `filterOrders` takes exactly what the toolbar edits, and
+  // adding a filter later cannot forget to wire itself into the predicate.
+  const [filters, setFilters] = useState<OrderFilters>(EMPTY_FILTERS);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [batchRunning, setBatchRunning] = useState(false);
   // Rows whose submit checklist is open. Opens itself when a submit starts.
@@ -342,15 +348,11 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   // against a stale snapshot of itself.
   const resubmitOrder = orders.find((o) => o.id === resubmitId) ?? null;
 
-  const q = query.trim().toLowerCase();
-  const filtered = orders.filter((o) => {
-    if (statusFilter !== "all" && o.status !== statusFilter) return false;
-    if (!q) return true;
-    return (
-      (o.fullName ?? "").toLowerCase().includes(q) ||
-      (o.idNumber ?? "").toLowerCase().includes(q)
-    );
-  });
+  const filtered = filterOrders(orders, filters);
+  // Options come from ALL loaded rows, not the filtered ones — deriving them
+  // from `filtered` would make each choice erase the others, so picking a
+  // package would empty the device list and strand the user.
+  const { offers, devices } = filterOptions(orders);
 
   // Batch selection is scoped to the currently-filtered, submittable rows.
   const selectableIds = filtered.filter((o) => canSubmit(o)).map((o) => o.id);
@@ -372,10 +374,10 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   return (
     <div className="space-y-3">
       <OrdersToolbar
-        query={query}
-        onQueryChange={setQuery}
-        statusFilter={statusFilter}
-        onStatusChange={setStatusFilter}
+        filters={filters}
+        onChange={setFilters}
+        offers={offers}
+        devices={devices}
         selectedCount={selectedCount}
         batchRunning={batchRunning}
         onClearSelection={() => setSelected(new Set())}
