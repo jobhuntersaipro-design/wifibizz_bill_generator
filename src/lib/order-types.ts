@@ -663,6 +663,11 @@ export interface OrderListItem {
   fullName: string;
   idType: string;
   idNumber: string;
+  // Display-ready "+60 13-708 9093", assembled in the loader from
+  // mobilePrefix + mobile. Kept pre-formatted rather than as two raw columns:
+  // every consumer wants the same one string, and formatting in the row would
+  // put the same logic in the table and the card.
+  phone: string | null;
   offerName: string | null;
   street: string | null;
   postcode: string | null;
@@ -690,4 +695,226 @@ export interface OrderListItem {
   docCount: number;
   createdAt: string;
   createdByEmail?: string | null; // only populated for superadmins (all-drafts view)
+}
+
+/* ── Drafts-table display helpers ─────────────────────────────────────────── */
+
+/**
+ * "+60 13-708 9093" from the stored prefix and number.
+ *
+ * Malaysian mobiles are grouped 2-3-4 after the leading 0-less operator digits,
+ * which is how agents read them back to a customer. The grouping is cosmetic and
+ * deliberately never changes the digits: an unrecognised length falls through
+ * ungrouped rather than being reshaped into something that looks authoritative
+ * and is wrong.
+ */
+export function formatPhone(
+  prefix: string | null | undefined,
+  mobile: string | null | undefined,
+): string | null {
+  const digits = (mobile ?? "").replace(/\D/g, "");
+  if (!digits) return null;
+  const cc = (prefix ?? "").replace(/\D/g, "");
+  // 137089093 → 13-708 9093 ; 1112345678 → 11-1234 5678
+  const grouped =
+    digits.length === 9 || digits.length === 10
+      ? `${digits.slice(0, 2)}-${digits.slice(2, digits.length - 4)} ${digits.slice(-4)}`
+      : digits;
+  return cc ? `+${cc} ${grouped}` : grouped;
+}
+
+/**
+ * "17-08-2026 17:47" — day-first, zero-padded, 24-hour.
+ *
+ * Built from the date parts by hand rather than via `toLocaleString`: the
+ * locale-formatted output follows the VIEWER's locale, so the same draft reads
+ * `17/08/2026` for one agent and `8/17/2026` for another, and 08-09 is then
+ * genuinely ambiguous between August and September. A fixed DD-MM-YYYY is the
+ * point of asking for one.
+ *
+ * Rendered in local time, matching every other timestamp in this app.
+ */
+export function formatCreated(iso: string | null | undefined): string {
+  const parts = createdParts(iso);
+  return parts ? `${parts.date} ${parts.time}` : "—";
+}
+
+/**
+ * The date and the time separately, so a cell can stack them on two lines.
+ *
+ * Split here rather than in the row: the same two strings feed the table cell,
+ * the mobile card and the tooltip, and re-deriving them per view is how the
+ * three drift apart.
+ */
+export function createdParts(
+  iso: string | null | undefined,
+): { date: string; time: string } | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return {
+    date: `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()}`,
+    time: `${p(d.getHours())}:${p(d.getMinutes())}`,
+  };
+}
+
+/**
+ * The same timestamp to the second, for the Created At tooltip.
+ *
+ * Same fixed DD-MM-YYYY shape as `formatCreated` rather than `toLocaleString`:
+ * a hover that reformats the date it is explaining, into an order the cell does
+ * not use, is worse than showing nothing.
+ */
+export function formatCreatedFull(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const p = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()} ` +
+    `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  );
+}
+
+/**
+ * Quick spans offered inside the date-range picker.
+ *
+ * They set the same `dateFrom`/`dateTo` the calendar sets — they are shortcuts,
+ * not a second filter with its own state. Two representations of "which dates"
+ * is how a preset and a calendar end up disagreeing on screen.
+ */
+export const DATE_PRESETS: { label: string; days: number }[] = [
+  { label: "Last 7 days", days: 7 },
+  { label: "Last 30 days", days: 30 },
+  { label: "Last 90 days", days: 90 },
+];
+
+/** `YYYY-MM-DD` in LOCAL time — `toISOString()` would shift the day in +08. */
+export function toDateInput(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** Parse `YYYY-MM-DD` as a LOCAL midnight, for the same reason. */
+export function fromDateInput(v: string | null | undefined): Date | null {
+  if (!v) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  if (!m) return null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** The preset's span as a concrete from/to pair, inclusive of today. */
+export function presetRange(days: number, now: Date = new Date()): {
+  dateFrom: string;
+  dateTo: string;
+} {
+  const from = new Date(now);
+  from.setDate(from.getDate() - (days - 1));
+  return { dateFrom: toDateInput(from), dateTo: toDateInput(now) };
+}
+
+/** "05-08-2026", matching how every other date in this table reads. */
+export function formatDateInput(v: string | null | undefined): string | null {
+  const d = fromDateInput(v);
+  if (!d) return null;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()}`;
+}
+
+export interface OrderFilters {
+  query: string;
+  status: string;
+  /** `YYYY-MM-DD`, inclusive on both ends. Null means unbounded on that side. */
+  dateFrom: string | null;
+  dateTo: string | null;
+  offerName: string;
+  deviceName: string;
+}
+
+export const EMPTY_FILTERS: OrderFilters = {
+  query: "",
+  status: "all",
+  dateFrom: null,
+  dateTo: null,
+  offerName: "all",
+  deviceName: "all",
+};
+
+/** How many filters are actually narrowing the list, for the "Clear" affordance. */
+export function activeFilterCount(f: OrderFilters): number {
+  return (
+    (f.query.trim() ? 1 : 0) +
+    (f.status !== "all" ? 1 : 0) +
+    // From and To are ONE filter however many ends are set — "Clear 2 filters"
+    // for a single date range would be counting inputs, not filters.
+    (f.dateFrom || f.dateTo ? 1 : 0) +
+    (f.offerName !== "all" ? 1 : 0) +
+    (f.deviceName !== "all" ? 1 : 0)
+  );
+}
+
+/**
+ * The distinct Package and Device values present in the loaded rows.
+ *
+ * Derived from the rows rather than from the package/device catalogue on
+ * purpose: a filter offering a package no draft uses is noise, and worse, an
+ * option that always yields an empty table reads as a broken filter.
+ */
+export function filterOptions(orders: OrderListItem[]): {
+  offers: string[];
+  devices: string[];
+} {
+  const offers = new Set<string>();
+  const devices = new Set<string>();
+  for (const o of orders) {
+    if (o.offerName?.trim()) offers.add(o.offerName.trim());
+    if (o.deviceName?.trim()) devices.add(o.deviceName.trim());
+  }
+  const sort = (s: Set<string>) => [...s].sort((a, b) => a.localeCompare(b));
+  return { offers: sort(offers), devices: sort(devices) };
+}
+
+/**
+ * Apply every filter at once. Pure, and therefore testable — which is the point:
+ * filters that silently over-narrow look identical to "no matching drafts", and
+ * this is exactly the shape of logic that fails invisibly in the browser.
+ */
+export function filterOrders(
+  orders: OrderListItem[],
+  f: OrderFilters,
+): OrderListItem[] {
+  const q = f.query.trim().toLowerCase();
+  // Both ends are INCLUSIVE of the whole day: a To of the 18th must keep an
+  // order created at 17:47 on the 18th. Comparing against midnight would drop
+  // almost everything created on the last day of the range — the kind of
+  // off-by-a-day that reads as "my draft vanished".
+  const fromDay = fromDateInput(f.dateFrom);
+  const from = fromDay ? fromDay.getTime() : null;
+  const toDay = fromDateInput(f.dateTo);
+  const to = toDay ? toDay.getTime() + 24 * 60 * 60 * 1000 - 1 : null;
+
+  return orders.filter((o) => {
+    if (f.status !== "all" && o.status !== f.status) return false;
+    if (f.offerName !== "all" && (o.offerName ?? "").trim() !== f.offerName) return false;
+    if (f.deviceName !== "all" && (o.deviceName ?? "").trim() !== f.deviceName) return false;
+    if (from !== null || to !== null) {
+      const t = new Date(o.createdAt).getTime();
+      // An unparseable timestamp is KEPT. Dropping it would hide a real draft
+      // to satisfy a filter about time, and a row you cannot see is a row you
+      // cannot fix.
+      if (Number.isFinite(t)) {
+        if (from !== null && t < from) return false;
+        if (to !== null && t > to) return false;
+      }
+    }
+    if (!q) return true;
+    return (
+      (o.fullName ?? "").toLowerCase().includes(q) ||
+      (o.idNumber ?? "").toLowerCase().includes(q) ||
+      (o.phone ?? "").toLowerCase().includes(q) ||
+      (o.reference ?? "").toLowerCase().includes(q)
+    );
+  });
 }

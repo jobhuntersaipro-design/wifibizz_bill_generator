@@ -9,6 +9,7 @@ import {
   MAX_DOCS,
   ADDRESS_SEARCH_STATES,
   type OrderDocument,
+  formatPhone,
   type OrderListItem,
   type AddressResult,
 } from "@/lib/order-types";
@@ -431,6 +432,7 @@ export async function listOrders(): Promise<{
       fullName: o.fullName,
       idType: o.idType,
       idNumber: o.idNumber,
+      phone: formatPhone(o.mobilePrefix, o.mobile),
       offerName: o.offerName,
       street: o.street,
       postcode: o.postcode,

@@ -1,16 +1,62 @@
-# Current Feature
+# Current Feature: Order Entry — Drafts Table Phase 6: Less Cramped, More Legible
 
 ## Status
 
-Not Started
+In Progress
 
 ## Goals
 
-<!-- What does success look like? -->
+- An **Order Entered** row offers Delete (and Details) but **no "Edit draft"** —
+  the portal has already minted a real order against it.
+- **Details moves into the `⋯` menu**, off the Status cell.
+- **Installation Address visible** at widths people actually use, not only `2xl`.
+- **Every long value is one line**, ellipsised, full text on hover. Nothing wraps.
+  This is the headline ask: the table should stop looking cramped.
+- **Phone Number and Order Created** columns added.
+- **Filter buttons** for date/time range, Package, Device and Status, combining.
+- Order No. **unchanged** — see the note below; ask 7 was withdrawn after
+  investigation and is not delivered by this phase.
+- `npm run build`, `npm run lint`, unit tests pass; checked in the browser at
+  768 / 1024 / 1280 / 1440 / 1920 with no horizontal page scroll and Full Name
+  never leaving the viewport.
 
 ## Notes
 
-<!-- Constraints, context, decisions -->
+Spec: [context/features/drafts-table-phase6.md](features/drafts-table-phase6.md).
+Follows Phase 5 (merged to main as `b723bab` / `5aec71e`). Branch
+`feature/drafts-table-phase6`.
+
+- **Ask 7 was withdrawn — decided, not forgotten.** The data was never wrong:
+  ORD-0012 already stores `orderId: 2608000121429283` with `status:
+  order_entered`. `OrderNumber` renders a dash unless `status === "submitted"`,
+  and attempt 11 reached the Pay *stage* (`… → pay → capture_pay → page_break →
+  order_entered`) but stopped at the `do_pay = FALSE` gate. **User's call: the
+  column keeps meaning "Pay was actually clicked"** — getting close is not
+  paying. So ORD-0012 stays dashed until `do_pay` is TRUE and a real payment
+  happens, at which point it corrects itself with no code change. Until then
+  `order_entered` rows reach their number through **Details**, which is exactly
+  why ask 2 must not break that route.
+- **Moving Details into `⋯` collides with an existing rule.** `RowMenu` returns
+  `null` for `submitted` rows on purpose. But such a row has history, and Details
+  is its only route to the capture carousel — so the menu must render for them
+  carrying **Details alone**, Edit and Delete still withheld.
+- **Ask 4 pulls against asks 5 and 6.** Ten columns become thirteen. "Less
+  cramped" cannot mean "more columns at every width" — truncation buys the room,
+  and the new columns must earn their breakpoints rather than all appear at once.
+- **Widening the address caused the Phase 4 regression** — breakpoints measure the
+  viewport, not the ~236px left after the sidebar. Safe only because truncation
+  caps the column's demand; the sticky name/checkbox pins stay regardless.
+- Hover text uses native `title`, as `Remarks` and `Address` already do. It is
+  **keyboard-inaccessible** — recorded as a known gap, not silently accepted.
+- Phone is `mobilePrefix` + `mobile` on `Order` but is **not** on
+  `OrderListItem`; the loader needs both it and a formatter. `createdAt` is
+  already carried.
+- Filters are client-side over loaded rows, matching today's `statusFilter`.
+  Package/Device options derive from the rows present, not a catalogue.
+- The **card layout below 768px stays wrapping** — a card has vertical room a row
+  does not.
+- Out of scope: sorting, column-visibility preferences, a real tooltip
+  primitive, server-side filtering/pagination, and any change to `do_pay`.
 
 ## History
 
