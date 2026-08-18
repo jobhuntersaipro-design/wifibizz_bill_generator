@@ -14,10 +14,13 @@ Returns dicts, never raises for expected flow errors; InfraError only on lost
 session. dry_run=True is the safety gate — it never clicks Order (no order created).
 """
 import asyncio
+import json
 import os
 import re
 
 import dealer_web_login
+from appointment_policy import choose_slot, describe_read_failure
+from oe_errors import DEVICE_OUT_OF_STOCK, UNKNOWN_ERROR, map_error, portal_code
 from oe_helpers import set_combobox
 from order_entry import ORDER_ENTRY_URL, _frame, ensure_on_order_entry
 
@@ -1308,12 +1311,45 @@ async def complete_new_connection(page, payload: dict = None, on_stage=None) -> 
 import random as _random
 
 
-def _service_username(email: str) -> str:
+# The portal's wording when a broadband/TV service login is already reserved.
+# Captured live 2026-08-17 on the sub-product Next:
+#   "[40330205]: Operate resource error, RESERVELOGIN error. [1]:LOGIN_ID
+#    [tklee812@iptv] provided in input is already in use by other customer..."
+# Kept deliberately tight — a false positive re-rolls the service number in
+# response to an unrelated warning and buries the real cause.
+_LOGIN_TAKEN_RE = re.compile(
+    r"reservelogin|login_id\b[^.]*already\s+in\s+use|already\s+(?:in\s+use|taken)", re.I)
+_LOGIN_ID_RE = re.compile(r"LOGIN_ID\s*\[([^\]]+)\]", re.I)
+
+
+def is_login_taken(message: str | None) -> bool:
+    """True when a portal popup is rejecting a service username as already used."""
+    return bool(message) and bool(_LOGIN_TAKEN_RE.search(message))
+
+
+def taken_login_id(message: str | None) -> str | None:
+    """The rejected LOGIN_ID (e.g. 'tklee812@iptv') named in the popup, if any."""
+    m = _LOGIN_ID_RE.search(message or "")
+    return m.group(1) if m else None
+
+
+def _service_username(email: str, exclude: set | None = None) -> str:
     """email-local-part (before @, uppercased) + 3 random digits — a unique-ish
-    broadband/TV service username (random digits dodge 'already taken')."""
+    broadband/TV service username (random digits dodge 'already taken').
+
+    `exclude` holds the names already burned in this run. The pool is only 900
+    wide per customer and every attempt RESERVES one, so a resubmitted customer
+    collides with its own earlier orders; re-offering a name we just saw
+    rejected would waste the retry.
+    """
     local = (email or "user").split("@")[0]
     local = "".join(ch for ch in local if ch.isalnum()).upper() or "USER"
-    return f"{local}{_random.randint(100, 999)}"
+    exclude = exclude or set()
+    for _ in range(40):
+        name = f"{local}{_random.randint(100, 999)}"
+        if name not in exclude:
+            return name
+    return f"{local}{_random.randint(100, 999)}"  # pool exhausted — let the portal decide
 
 
 async def _active_subproduct_panel(frame):
@@ -1321,24 +1357,57 @@ async def _active_subproduct_panel(frame):
     return frame.locator('.ui-tabs-panel:visible, .tab-pane.active:visible').last
 
 
-async def _set_service_number_username(frame, page, email: str) -> dict:
+async def _set_service_number_username(frame, page, email: str,
+                                       attempts: int = 4, tried: set = None) -> dict:
     """Broadband/TV: type the username into the active tab's Service Number
-    (input[name=accNbr]) then click its Check button (.js-search-number)."""
-    uname = _service_username(email)
-    fld = frame.locator('input[name="accNbr"]:visible:not([readonly])').last
-    try:
-        await fld.click(timeout=6000)
-        await fld.fill(uname, timeout=6000)
-    except Exception as e:
-        return {"status": "error", "error": "service_number_fill_failed",
-                "stage": "service_number", "message": f"{uname}: {e}"}
-    try:
-        await frame.locator('button.js-search-number:visible').last.click(timeout=6000)
-    except Exception as e:
-        return {"status": "error", "error": "service_check_failed",
-                "stage": "service_number", "message": str(e)}
-    await asyncio.sleep(2)
-    return {"status": "ok", "stage": "service_number", "username": uname}
+    (input[name=accNbr]) then click its Check button (.js-search-number).
+
+    Retries with a fresh username when the portal rejects the name as already in
+    use. The Check click used to be fire-and-forget — a 2s sleep and an
+    unconditional "ok" — so a collision stayed invisible until the sub-product
+    Next blew up with a RESERVELOGIN error and stranded the order.
+    """
+    tried = tried if tried is not None else set()
+    last_msg = None
+    for attempt in range(attempts):
+        uname = _service_username(email, exclude=tried)
+        tried.add(uname)
+        fld = frame.locator('input[name="accNbr"]:visible:not([readonly])').last
+        try:
+            await fld.click(timeout=6000)
+            await fld.fill(uname, timeout=6000)
+        except Exception as e:
+            return {"status": "error", "error": "service_number_fill_failed",
+                    "stage": "service_number", "message": f"{uname}: {e}"}
+        try:
+            await frame.locator('button.js-search-number:visible').last.click(timeout=6000)
+        except Exception as e:
+            return {"status": "error", "error": "service_check_failed",
+                    "stage": "service_number", "message": str(e)}
+        await asyncio.sleep(2)
+
+        # Read what Check said instead of assuming it passed.
+        msg = await _dismiss_popup_ok(frame, page, exclude_title_re=r"offer")
+        if msg is None:
+            return {"status": "ok", "stage": "service_number", "username": uname,
+                    "attempts": attempt + 1}
+        last_msg = msg
+        if not is_login_taken(msg):
+            # Some other popup. The order id is already minted by this point, so
+            # failing here strands it — and before this change the Check result
+            # was ignored entirely. Record it and carry on; whatever actually
+            # blocks will resurface at the Next, which does check.
+            print(f"  ↳ service-number Check popup (not a collision): {msg!r}", flush=True)
+            return {"status": "ok", "stage": "service_number", "username": uname,
+                    "attempts": attempt + 1, "note": msg}
+        print(f"  ↳ service username {uname} already in use — retrying "
+              f"({attempt + 1}/{attempts})", flush=True)
+
+    return {"status": "error", "error": "service_number_all_taken",
+            "stage": "service_number",
+            "message": (f"The portal rejected {attempts} service usernames as already "
+                        f"in use (tried {sorted(tried)}). Last message: {last_msg!r}"),
+            "tried": sorted(tried)}
 
 
 async def _pick_voice_number(frame, page) -> dict:
@@ -1444,6 +1513,53 @@ def _carry_device_info(dest: dict, dev: dict) -> dict:
     if dev.get("warning") and not dest.get("warning"):
         dest["warning"] = dev["warning"]
     return dest
+
+
+async def _reassign_service_numbers(page, email: str, tried: set,
+                                    only_prefix: str = None) -> dict:
+    """Re-roll the service username on every broadband/TV sub-product tab.
+
+    Used when the collision only surfaces at the sub-product Next (the portal
+    reserves the login there, not at Check). The error names the rejected
+    LOGIN_ID, so `only_prefix` restricts the re-roll to the tab actually holding
+    it — re-rolling a name the portal already accepted would risk trading a good
+    reservation for a fresh collision.
+    """
+    frame = _frame(page)
+    touched, errors = {}, {}
+    for _, txt, _loc in await _subproduct_tabs(frame):
+        if "Bundle" in txt or "Voice" in txt:
+            continue  # Bundle is page 1; Voice numbers come from a picker, not a name
+        switched = await page.evaluate(r"""((txt) => {
+          const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
+          const anchors=[...d.querySelectorAll('.ui-tabs-nav .ui-tabs-anchor')];
+          const a=anchors.find(x=>(x.innerText||'').trim()===txt)
+               || anchors.find(x=>(x.innerText||'').includes(txt));
+          if(!a) return 'notab'; a.click(); return 'ok';
+        })""", txt)
+        if switched != "ok":
+            errors[txt] = f"tab switch: {switched}"
+            continue
+        await asyncio.sleep(1.5)
+        if only_prefix:
+            try:
+                cur = await frame.locator(
+                    'input[name="accNbr"]:visible:not([readonly])').last.input_value()
+            except Exception:
+                cur = ""
+            if cur and cur.strip().lower() != only_prefix.lower():
+                continue  # not the tab the portal complained about
+        sn = await _set_service_number_username(page=page, frame=frame, email=email,
+                                                tried=tried)
+        touched[txt] = sn.get("username") or sn.get("error")
+        if sn.get("status") != "ok":
+            errors[txt] = sn.get("message")
+    # The filter matched no tab (the field had been cleared, or the name lives
+    # somewhere we didn't look). Re-rolling nothing and clicking Next again would
+    # just repeat the same rejection, so fall back to re-rolling every tab.
+    if only_prefix and not touched and not errors:
+        return await _reassign_service_numbers(page, email, tried, only_prefix=None)
+    return {"reassigned": touched, "errors": errors}
 
 
 async def fill_subproduct_tabs(page, payload: dict, on_stage=None) -> dict:
@@ -1775,27 +1891,133 @@ async def ensure_promo_discounts(page) -> dict:
             "discount": target.get("name"), "result": ticked}
 
 
+# Read-and-dismiss the portal's Warning/Error dialog.
+#
+# A module constant rather than an inline string so `tests/test_error_dialog.py`
+# can exercise it against fixtures. The out-of-stock refusal was the third
+# selector-shaped bug in this flow to be discovered only by burning a real
+# production submit, and the shape it actually renders in is STILL unconfirmed —
+# hence two deliberate widenings over the original `.ui-dialog`-in-`#myIframe`
+# scan:
+#   * the container list covers the jQuery-UI dialogs we know about AND the
+#     Bootstrap/Ant shapes (`.modal.in`, `.ant-modal`, `[role=dialog]`) the
+#     outer shell uses, because a dialog we cannot see reads as "no dialog"
+#     and the run dies with a cryptic downstream timeout instead;
+#   * it scans the top document as well as the iframe, since the shell's own
+#     modals live outside `#myIframe` entirely.
+# It returns `selector` and `container` so ONE live run tells us which shape the
+# portal really used, instead of another round of guessing.
+READ_ERROR_DIALOG_JS = r"""((excl) => {
+  const rx=new RegExp(excl,'i');
+  const vis=e=>{ if(!e) return false;
+    const r=e.getBoundingClientRect();
+    return (e.offsetParent!==null || getComputedStyle(e).position==='fixed')
+           && r.width>0 && r.height>0; };
+  const SELECTORS=['.ui-dialog','.modal.in','.modal.show','.ant-modal','[role=dialog]'];
+  const f=document.querySelector('#myIframe'), fd=f&&f.contentDocument;
+  const docs=[['iframe',fd],['top',document]];
+  for(const [container,d] of docs){
+    if(!d) continue;
+    for(const sel of SELECTORS){
+      const dlgs=[...d.querySelectorAll(sel)].filter(vis);
+      for(const dl of dlgs.reverse()){
+        const t=((dl.querySelector('.ui-dialog-title,.modal-title,.ant-modal-title')||{})
+                  .innerText||'').trim();
+        if(rx.test(t)) continue;
+        const looksBad=/warn|error|danger|prompt|confirm/i.test(dl.className)
+                     ||/warn|error/i.test(t);
+        // The stock dialog titles itself plainly "Error" but carries no
+        // error-ish class, and the body is the only place the code lives — so
+        // the body text is a third way in, not just a fallback.
+        const body=((dl.querySelector('.modal-message,.modal-body,.ant-modal-body')||dl)
+                     .innerText||'').replace(/\s+/g,' ').trim();
+        if(!looksBad && !/^\s*\[\d{4,}\]/.test(body)) continue;
+        const ok=[...dl.querySelectorAll('button,a.btn')]
+                   .find(b=>/^ok$/i.test((b.innerText||'').trim()))
+               ||dl.querySelector('.btn-danger,.btn-primary,.ant-btn-primary');
+        if(ok){
+          ok.click();
+          return {message: body.slice(0,300)||'(dismissed)', title: t,
+                  selector: sel, container: container};
+        }
+      }
+    }
+  }
+  return null;
+})"""
+
+
+async def read_error_dialog(page, exclude_title_re=r"offer") -> dict | None:
+    """Read + OK the visible Warning/Error dialog. Returns a diagnostic dict
+    ({message, title, selector, container}) or None when nothing is up."""
+    return await page.evaluate(READ_ERROR_DIALOG_JS, exclude_title_re)
+
+
+def classify_dialog(dlg: dict | None) -> dict:
+    """Turn a read_error_dialog() result into the keys a failure dict carries."""
+    if not dlg:
+        return {}
+    msg = dlg.get("message") or ""
+    out = {"message": msg, "dialog": dlg}
+    # Deliberately omit `error` when nothing matched: callers fall back to their
+    # own stage-specific code ("next_blocked", "device_rejected"), which says
+    # more about where we are than a blanket "unknown_error" would.
+    mapped = map_error(msg)
+    if mapped != UNKNOWN_ERROR:
+        out["error"] = mapped
+    code = portal_code(msg)
+    if code:
+        out["portal_code"] = code
+    return out
+
+
+def blocked_next_error(nx: dict, step: int, state: dict, shot: str | None) -> dict:
+    """A pay-tail Next that did not advance, as a failure dict.
+
+    Pure, and separate from the loop, because getting this wrong is invisible:
+    the device stock refusal lands HERE (the portal validates stock on the way to
+    Pay, not when the device is ticked), and the first version of this branch
+    hardcoded `pay_tail_next_blocked` — throwing away the classification and
+    leaving the agent with a page-state dump instead of "change the device".
+
+    Classified: keep the portal's own sentence as the message and pass the code
+    up, so BizzFlow can explain it. Unclassified: the old debug-heavy message,
+    because then the dump IS the most useful thing we have.
+    """
+    if nx.get("error"):
+        return {"status": "error", "error": nx["error"], "stage": "pay_tail",
+                "message": nx.get("message") or "The portal refused the order.",
+                **({"portal_code": nx["portal_code"]} if nx.get("portal_code") else {}),
+                "portal_message": nx.get("message")}
+    return {"status": "error", "error": "pay_tail_next_blocked", "stage": "pay_tail",
+            "message": (f"Next #{step} on the way to Pay did not advance — "
+                        f"the portal said: {nx.get('message')!r}. "
+                        f"Page state: {json.dumps(state, ensure_ascii=False)}"
+                        + (f" Screenshot: {shot}" if shot else "")),
+            "portal_message": nx.get("message")}
+
+
+def _device_dialog_error(dlg: dict, device: str, offered: list) -> dict:
+    """A device-step refusal, classified.
+
+    Out-of-stock keeps its own code so it does NOT fall into the
+    `device_rejected` bucket that `select_device` auto-substitutes for: stock is
+    the agent's call, not ours — a silent substitution ships a customer the
+    wrong hardware.
+    """
+    info = classify_dialog(dlg)
+    code = info.get("error")
+    return {"status": "error", "stage": "device",
+            "error": code if code == DEVICE_OUT_OF_STOCK else "device_rejected",
+            "device": device, "offered": offered,
+            **{k: v for k, v in info.items() if k != "error"}}
+
+
 async def _dismiss_popup_ok(frame, page, exclude_title_re=r"offer") -> str | None:
     """If a Warning/Error dialog is up (NOT the given one, e.g. the Offer picker),
     read its message, click its OK, and return the message. Else None."""
-    msg = await page.evaluate(r"""((excl) => {
-      const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return null;
-      const vis=e=>e&&e.offsetParent!==null;
-      const rx=new RegExp(excl,'i');
-      const dlgs=[...d.querySelectorAll('.ui-dialog')].filter(vis);
-      for(const dl of dlgs.reverse()){
-        const t=((dl.querySelector('.ui-dialog-title,.modal-title')||{}).innerText||'').trim();
-        if(rx.test(t)) continue;
-        if(/warn|error|danger|prompt|confirm/i.test(dl.className)||/warn|error/i.test(t)){
-          const m=((dl.querySelector('.modal-message,.modal-body')||dl).innerText||'').replace(/\s+/g,' ').trim();
-          const ok=[...dl.querySelectorAll('button,a.btn')].find(b=>/^ok$/i.test((b.innerText||'').trim()))
-                 ||dl.querySelector('.btn-danger,.btn-primary');
-          if(ok){ok.click(); return m.slice(0,200)||'(dismissed)';}
-        }
-      }
-      return null;
-    })""", exclude_title_re)
-    return msg
+    dlg = await read_error_dialog(page, exclude_title_re)
+    return dlg.get("message") if dlg else None
 
 
 async def _dismiss_success_popups(frame, page, tries: int = 8) -> int:
@@ -1956,10 +2178,9 @@ async def _select_device_once(page, dev_code: str, dev_name: str,
 
     # A rejection popup can appear immediately or after a beat.
     await asyncio.sleep(1.5)
-    rej = await _dismiss_popup_ok(frame, page, exclude_title_re=r"offer")
+    rej = await read_error_dialog(page, exclude_title_re=r"offer")
     if rej:
-        return {"status": "error", "error": "device_rejected", "stage": "device",
-                "message": rej, "device": dev_name or dev_code, "offered": offered}
+        return _device_dialog_error(rej, dev_name or dev_code, offered)
 
     # OK the Offer dialog. Ticking the device fires an AJAX price refresh, so the
     # busy overlay is very often still up at this exact moment — this is the click
@@ -1971,10 +2192,9 @@ async def _select_device_once(page, dev_code: str, dev_name: str,
                 "device": dev_name or dev_code}
     await asyncio.sleep(2)
     # A rejection can also surface only after OK.
-    rej = await _dismiss_popup_ok(frame, page, exclude_title_re=r"offer")
+    rej = await read_error_dialog(page, exclude_title_re=r"offer")
     if rej:
-        return {"status": "error", "error": "device_rejected", "stage": "device",
-                "message": rej, "device": dev_name or dev_code, "offered": offered}
+        return _device_dialog_error(rej, dev_name or dev_code, offered)
     return {"status": "ok", "stage": "device", "device": dev_name or dev_code, "offered": offered}
 
 
@@ -2111,9 +2331,11 @@ async def click_next_newconn(page, expect_sel: str = None, timeout_ms: int = 200
     if clicked != "ok":
         return {"status": "error", "error": "next_click_failed", "message": clicked}
     await asyncio.sleep(3)
-    warn = await _dismiss_popup_ok(frame, page, exclude_title_re=r"$^")
+    warn = await read_error_dialog(page, exclude_title_re=r"$^")
     if warn:
-        return {"status": "warning", "stage": "next", "message": warn}
+        # classify_dialog supplies message/error/portal_code/dialog. The login-ID
+        # re-roll loop downstream reads `message`, so its shape is unchanged.
+        return {"status": "warning", "stage": "next", **classify_dialog(warn)}
     if expect_sel:
         try:
             await frame.locator(expect_sel).first.wait_for(state="visible", timeout=timeout_ms)
@@ -2135,22 +2357,78 @@ async def click_next_newconn(page, expect_sel: str = None, timeout_ms: int = 200
 # mapped live 2026-08-04; the ID-copy option value + appointment dialog are
 # finalized on the first watched run (marked TODO-VERIFY).
 # ─────────────────────────────────────────────────────────────────────────────
+async def _attachment_page_state(page) -> dict:
+    """What the order page actually holds right now — the attachment containers,
+    file inputs, headings and any open dialog. Purely diagnostic: an attachment
+    step that fails should say what WAS there, not just which selector missed."""
+    try:
+        return await page.evaluate(r"""(() => {
+          const f=document.querySelector('#myIframe'), d=f&&f.contentDocument;
+          if(!d) return {err:'no iframe document'};
+          const vis=e=>e&&e.offsetParent!==null;
+          const T=e=>((e&&e.innerText)||'').trim();
+          return {
+            containers:[...d.querySelectorAll('.js-attchment-container')]
+              .map(c=>({key:c.getAttribute('key'), visible:vis(c),
+                        fileInputs:c.querySelectorAll('input[type=file]').length})),
+            fileInputsTotal:d.querySelectorAll('input[type=file]').length,
+            jsFileUpload:d.querySelectorAll('input[type=file].js-file-upload').length,
+            headings:[...d.querySelectorAll('.oe-order-preview-title,h1,h2,h3,legend')]
+              .filter(vis).map(e=>T(e).slice(0,40)).filter(Boolean).slice(0,12),
+            dialogs:[...d.querySelectorAll('.ui-dialog,.modal.in')].filter(vis)
+              .map(dl=>(T(dl.querySelector('.ui-dialog-title,.modal-title')).slice(0,40)
+                        +' :: '+T(dl.querySelector('.modal-message,.modal-body')).slice(0,120))
+                        .replace(/\n/g,' | ')),
+            blockingOverlays:[...d.querySelectorAll('.blockUI,.modal-backdrop')].filter(vis).length,
+            nextVisible:[...d.querySelectorAll('.js-btn-next')].filter(vis).length,
+          };
+        })()""")
+    except Exception as e:  # noqa: BLE001
+        return {"err": f"{type(e).__name__}: {e}"}
+
+
+async def _debug_screenshot(page, tag: str) -> str | None:
+    """Local full-page screenshot for a failure the capture slots don't cover.
+    Best-effort — a diagnostic must never be the thing that breaks the run."""
+    try:
+        os.makedirs("logs", exist_ok=True)
+        path = f"logs/debug_{tag}.png"
+        await page.screenshot(path=path, full_page=True)
+        return path
+    except Exception:
+        return None
+
+
 async def _set_attach_file(page, container_key: str, local_path) -> str:
     """Set files on the hidden <input type=file> inside the attachment container
     with the given key (Playwright set_input_files — the upload icon only triggers
     the same input). Dismisses the 'Succeed in uploading attachment' Success popup
     that fires after each upload."""
     frame = _frame(page)
-    inp = frame.locator(
-        f'.js-attchment-container[key="{container_key}"] input[type=file].js-file-upload').first
-    if not await inp.count():
-        inp = frame.locator('input[type=file].js-file-upload').last
-    # The container/input can still be rendering — wait for it to attach before
-    # setting the file, and give set_input_files a longer grace window.
-    try:
-        await inp.wait_for(state="attached", timeout=30000)
-    except Exception:
-        pass
+    scoped = frame.locator(
+        f'.js-attchment-container[key="{container_key}"] input[type=file].js-file-upload')
+    generic = frame.locator('input[type=file].js-file-upload')
+
+    # Wait for EITHER to exist before choosing, then re-query. The old code read
+    # scoped.count() once and, on a page still rendering, bound permanently to
+    # `generic.last` — a locator matching nothing — then spent 60s waiting on it
+    # and reported the file input as the fault. Decide only once something exists.
+    inp = None
+    for _ in range(60):  # ~30s, re-querying rather than holding a stale choice
+        if await scoped.count():
+            inp = scoped.first
+            break
+        if await generic.count():
+            inp = generic.last
+            break
+        await asyncio.sleep(0.5)
+    if inp is None:
+        state = await _attachment_page_state(page)
+        shot = await _debug_screenshot(page, f"attach_no_input_key{container_key}")
+        raise RuntimeError(
+            f"no attachment file input rendered for container key={container_key} "
+            f"after 30s. Page state: {json.dumps(state, ensure_ascii=False)}"
+            + (f" Screenshot: {shot}" if shot else ""))
     await inp.set_input_files(local_path, timeout=30000)
     await asyncio.sleep(2)
     await _dismiss_success_popups(frame, page)  # close the upload "Success" popup(s)
@@ -2190,12 +2468,25 @@ async def fill_customer_order_info(page, payload: dict,
     # when we arrive from Next — grabbing the file input too early fails the upload.
     # Wait for the attachments block (container 1 = the always-present locked IM
     # Conversation slot, or its hidden file input) to actually render, then settle.
+    #
+    # This wait used to swallow its own timeout. When the block never rendered the
+    # run carried on and burned another 60s inside _set_attach_file, surfacing as
+    # "set_input_files: Timeout" — which names the file input rather than the page
+    # that never arrived. Order 2608000121393253 was stranded exactly that way.
     try:
         await frame.locator(
             '.js-attchment-container[key="1"], input[type=file].js-file-upload'
         ).first.wait_for(state="attached", timeout=45000)
     except Exception:
-        pass
+        state = await _attachment_page_state(page)
+        shot = await _debug_screenshot(page, "order_info_no_attachments")
+        return {"status": "error", "error": "order_info_not_rendered",
+                "stage": "attachments",
+                "message": ("The Customer Order Information page never rendered its "
+                            "attachment section, so no document could be uploaded. "
+                            f"Page state: {json.dumps(state, ensure_ascii=False)}"
+                            + (f" Screenshot: {shot}" if shot else "")),
+                "page_state": state}
     await asyncio.sleep(2.5)  # let the page finish laying out before we touch fields
 
     # ── Attachments ──────────────────────────────────────────────────────────
@@ -2265,16 +2556,16 @@ async def fill_customer_order_info(page, payload: dict,
     # matters most. Photograph first, then proceed.
     await capture_sections(page, payload, ORDER_INFO_SECTIONS, stage)
 
-    # ── Appointment (earliest available slot > 12h) ──────────────────────────
+    # ── Appointment (slot chosen by the admin's booking policy) ──────────────
     stage("appointment")
-    appt = await _set_appointment(page)
+    appt = await _set_appointment(page, payload.get("appointment"))
     steps["appointment"] = appt.get("status")
     if appt.get("status") not in ("ok", "skipped"):
         return {"status": "error", "error": "appointment_failed",
                 "stage": "appointment", "message": appt.get("message"), "steps": steps}
-    # The installation date and time that was taken. The slot is picked from the
-    # portal's own calendar, so the frame is the only proof of which one stuck.
-    await capture_and_report(page, payload, "appointment", stage)
+    # No capture here. The booked slot is already recorded in the run's own
+    # result (appointment policy picked …) and the order_info frame below covers
+    # the page; two more JPEGs per attempt bought nothing the log didn't say.
 
     # ── Delivery details + order confirmation ────────────────────────────────
     stage("delivery_terms")
@@ -2306,16 +2597,30 @@ async def fill_customer_order_info(page, payload: dict,
     area = contact.get("mobile_prefix", "60") or "60"
     number = re.sub(r"\D", "", contact.get("mobile", "") or "")
     email = contact.get("email", "")
-    steps["contacts"] = await page.evaluate(r"""(([area, number, email]) => {
+    # Contact Name carries no red asterisk, but a blank delivery contact on a
+    # courier-delivered device is how a delivery fails. Same name as the
+    # installation contact. Everything else in the block (Office/Fax Number,
+    # Gender, Delivery Comments, Expected Delivery Date, Post PickUp
+    # Organization) is left alone: none is required, and every field the
+    # automation types is another selector that can break with a wrong value.
+    name = (payload.get("customer", {}) or {}).get("name", "") or contact.get("name", "")
+    steps["contacts"] = await page.evaluate(r"""(([area, number, email, name]) => {
       const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
-      const set=(name,val)=>{const el=d.querySelector('input[name='+name+']');
+      const set=(sel,val)=>{const el=d.querySelector(sel);
         if(!el) return false; if(val){el.removeAttribute('disabled'); el.disabled=false; el.value=val;
           el.dispatchEvent(new Event('input',{bubbles:true}));
           el.dispatchEvent(new Event('change',{bubbles:true}));
           el.dispatchEvent(new Event('blur',{bubbles:true}));} return true;};
-      const a=set('mobileAreaCode',area), p=set('mobilePhone',number), e=set('email',email);
-      return (a||p||e) ? 'ok' : 'skipped';
-    })""", [area, number, email])
+      const a=set('input[name=mobileAreaCode]',area), p=set('input[name=mobilePhone]',number),
+            e=set('input[name=email]',email);
+      // The portal's own name for this field is unconfirmed, so try the likely
+      // ones rather than betting on one. Skip-if-absent, like every other field
+      // here — a missing optional field must never fail an order.
+      const n=['input[name=contactName]','input[name=deliveryContactName]',
+               'input[name=receiverName]','input[name=linkman]']
+              .some(s=>set(s,name));
+      return (a||p||e) ? (n ? 'ok' : 'ok (no contact-name field found)') : 'skipped';
+    })""", [area, number, email, name])
 
     # ── Has confirmed the order with customer (iCheck widget — click the WRAPPER;
     # the hidden input is off-viewport for a normal click). Skip-if-absent. ──
@@ -2334,36 +2639,240 @@ async def fill_customer_order_info(page, payload: dict,
     return {"status": "ok", "stage": "customer_order_info", "steps": steps}
 
 
-# JS that reads the Appointment FullCalendar's REAL available slots. Events are
-# absolutely positioned by pixel (not nested in day cells), so each event's
-# (left,top) is matched to the day cell that contains it to recover its date.
-# Returns ascending "YYYY-MM-DD HH:MM:SS" slots strictly more than 12h from now.
-_APPT_SLOTS_JS = r"""(() => {
-  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return [];
+# Reads the Appointment FullCalendar and reports WHAT IT SAW, not just what it
+# found. The previous version returned a bare list, so a selector that stopped
+# matching was indistinguishable from a portal with no slots — and live, that is
+# exactly what happened: every run died on "no available slots found in the
+# calendar" while the same calendar, opened by hand, offered four slots a day.
+#
+# Two changes make that impossible to repeat:
+#
+#   1. Selectors are TRIED IN ORDER and the one that matched is reported, so a
+#      FullCalendar upgrade (`.fc-day` -> `.fc-daygrid-day`) shows up as a
+#      different `daySelector` rather than as silence.
+#   2. Events are matched to their day STRUCTURALLY first (`cell.contains(ev)`),
+#      falling back to the geometric hit-test only when the events really are
+#      positioned outside their cells — the case the original code was written
+#      for. Events that match neither are COUNTED (`unmatched`) instead of
+#      being dropped.
+#
+# Lead time is deliberately NOT applied here: which slot to take is policy, set
+# in admin, and applying it in the browser is what made it a hard-coded constant
+# that needed a deploy to change. This returns every slot the portal offers,
+# ascending; `choose_slot` decides.
+_APPT_READ_JS = r"""(() => {
+  const out = {dialog:false, dayCells:0, events:0, unmatched:0, matchedBy:null,
+               daySelector:null, eventSelector:null, slots:[], samples:[]};
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument;
+  if(!d) { out.error='nodoc'; return out; }
   const vis=e=>e&&e.offsetParent!==null;
   const dl=[...d.querySelectorAll('.ui-dialog')].filter(vis)
     .find(x=>/Appointment/i.test(((x.querySelector('.modal-title,.ui-dialog-title')||{}).innerText)||''));
-  if(!dl) return [];
-  const days=[...dl.querySelectorAll('.fc-day[data-date]')].map(c=>{const r=c.getBoundingClientRect();
-    return {date:c.getAttribute('data-date'), l:r.left, r:r.right, t:r.top, b:r.bottom};});
-  const slots=[...dl.querySelectorAll('.fc-event')].filter(vis).map(ev=>{
-    const r=ev.getBoundingClientRect(); const cx=r.left+2, cy=r.top+2;
-    const day=days.find(dd=>cx>=dd.l-2 && cx<dd.r && cy>=dd.t-2 && cy<dd.b+30);
-    const tm=(ev.innerText||'').match(/(\d{2}:\d{2}:\d{2})/);
-    return (day && tm) ? (day.date+' '+tm[1]) : null;
-  }).filter(Boolean);
-  const cutoff=Date.now()+12*3600*1000;  // earliest appointment = 12h from submission
-  return [...new Set(slots)].filter(s=>{const dt=new Date(s.replace(' ','T')); return dt.getTime()>cutoff;}).sort();
+  if(!dl) return out;
+  out.dialog = true;
+
+  // Whichever of these the portal's FullCalendar build actually emits.
+  const DAY_SEL = ['.fc-daygrid-day[data-date]', '.fc-day[data-date]',
+                   'td[data-date]', '[data-date]'];
+  const EV_SEL  = ['.fc-daygrid-event', '.fc-event', '[class*="fc-event"]',
+                   '.fc-daygrid-day-events a'];
+
+  let dayEls = [];
+  for (const sel of DAY_SEL) {
+    const els = [...dl.querySelectorAll(sel)];
+    if (els.length) { dayEls = els; out.daySelector = sel; break; }
+  }
+  let evEls = [];
+  for (const sel of EV_SEL) {
+    const els = [...dl.querySelectorAll(sel)].filter(vis);
+    if (els.length) { evEls = els; out.eventSelector = sel; break; }
+  }
+  out.dayCells = dayEls.length;
+  out.events   = evEls.length;
+
+  // Recorded so a live run ANSWERS the "what is the markup really?" question
+  // instead of only proving the guess wrong again.
+  out.samples = evEls.slice(0,3).map(e => ({
+    cls: (e.className||'').toString().slice(0,80),
+    text: (e.innerText||'').trim().slice(0,60),
+  }));
+  if (dayEls.length) out.dayClass = (dayEls[0].className||'').toString().slice(0,80);
+
+  const days = dayEls.map(c => {
+    const r = c.getBoundingClientRect();
+    return {el:c, date:c.getAttribute('data-date'),
+            l:r.left, r:r.right, t:r.top, b:r.bottom};
+  });
+
+  // Structural containment first — it is exact where geometry is a guess, and
+  // it survives a scrolled or off-screen dialog (zero rects) that would defeat
+  // the hit-test entirely.
+  //
+  // The geometric fallback picks the day cell the event OVERLAPS MOST, not the
+  // first cell whose box contains the event's top-left corner. That corner test
+  // (with 30px of slop below the cell) is what the original code did, and it
+  // was measurably wrong live: an event sitting near the top of one week's row
+  // also falls inside the row ABOVE's box + 30px, and that row is earlier in
+  // the DOM, so it won. Every slot came back dated exactly seven days early —
+  // the reader reported 11-17 August for a calendar offering 18-31, and a
+  // click on the event it called "18 Aug" booked 25 Aug in the portal.
+  //
+  // Overlap has no such tie: an event lies in one row's band and nowhere else.
+  const findDay = (ev, geometric) => {
+    if (!geometric) return days.find(dd => dd.el.contains(ev));
+    const r = ev.getBoundingClientRect();
+    let best = null, bestArea = 0;
+    for (const dd of days) {
+      const w = Math.min(r.right, dd.r) - Math.max(r.left, dd.l);
+      const h = Math.min(r.bottom, dd.b) - Math.max(r.top, dd.t);
+      if (w <= 0 || h <= 0) continue;
+      const area = w * h;
+      if (area > bestArea) { bestArea = area; best = dd; }
+    }
+    return best;
+  };
+
+  const read = (geometric) => {
+    const slots = []; let unmatched = 0;
+    for (const ev of evEls) {
+      const day = findDay(ev, geometric);
+      const tm = (ev.innerText||'').match(/(\d{2}:\d{2}(?::\d{2})?)/);
+      if (day && day.date && tm) {
+        const t = tm[1].length === 5 ? tm[1] + ':00' : tm[1];
+        slots.push(day.date + ' ' + t);
+      } else { unmatched++; }
+    }
+    return {slots, unmatched};
+  };
+
+  let r = read(false);
+  out.matchedBy = 'contains';
+  if (!r.slots.length && evEls.length) {   // events positioned outside their cells
+    r = read(true);
+    out.matchedBy = 'geometry';
+  }
+  out.unmatched = r.unmatched;
+  out.slots = [...new Set(r.slots)].sort();
+  return out;
 })()"""
 
 
-async def _set_appointment(page) -> dict:
+# How long to keep re-reading the calendar before calling it empty, and how
+# often. The dialog is opened by a click and fills itself from an AJAX call, so
+# a single read taken a fixed 3s later cannot tell "the portal offered nothing"
+# from "the portal had not answered yet" — and both used to print the same
+# sentence. Polling costs nothing when the slots are already there (it returns on
+# the first read) and is the difference between a false failure and a booking
+# when they are not.
+_APPT_READ_TIMEOUT_S = 25
+_APPT_READ_INTERVAL_S = 1.0
+
+
+async def _read_calendar(page, timeout_s: int = _APPT_READ_TIMEOUT_S) -> dict:
+    """Read the calendar until it has slots, or until `timeout_s` runs out.
+
+    Returns the LAST diagnostic either way, with `waitedMs` added, so a caller
+    that finds nothing can still say what it saw and for how long it looked.
+    Progress is printed whenever the counts change — a calendar that goes
+    0 -> 96 events at t=8s is a very different bug report from one that sits at
+    0 for the full 25 seconds.
+    """
+    import time as _time
+    started = _time.monotonic()
+    diag: dict = {}
+    last_shape = None
+    while True:
+        try:
+            got = await page.evaluate(_APPT_READ_JS)
+            diag = got if isinstance(got, dict) else {}
+        except Exception as e:  # noqa: BLE001
+            diag = {"error": f"read_failed: {type(e).__name__}"}
+        elapsed = _time.monotonic() - started
+        shape = (diag.get("dialog"), diag.get("dayCells"), diag.get("events"))
+        if shape != last_shape:
+            print(f"    calendar @{elapsed:4.1f}s: dialog={shape[0]} days={shape[1]} "
+                  f"events={shape[2]}", flush=True)
+            last_shape = shape
+        if diag.get("slots"):
+            break
+        if elapsed >= timeout_s:
+            break
+        await asyncio.sleep(_APPT_READ_INTERVAL_S)
+    diag["waitedMs"] = int((_time.monotonic() - started) * 1000)
+    return diag
+
+
+# Marks the one calendar event we intend to click, so Playwright can address it
+# with a locator. The alternative — clicking by coordinates — has to add the
+# iframe's own offset and re-measure after every re-render; a marker attribute
+# survives both and names exactly one node.
+_APPT_TAG = "data-oe-appt"
+
+# Finds the event for "YYYY-MM-DD HH:MM:SS" using the SAME day matching the
+# reader uses (max overlap), and marks it. Any previous mark is cleared first so
+# a retry can never click the slot the last attempt aimed at.
+_TAG_SLOT_JS = r"""((want) => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return false;
+  const vis=e=>e&&e.offsetParent!==null;
+  d.querySelectorAll('[TAGATTR]').forEach(e=>e.removeAttribute('TAGATTR'));
+  const dl=[...d.querySelectorAll('.ui-dialog')].filter(vis)
+    .find(x=>/Appointment/i.test(((x.querySelector('.modal-title,.ui-dialog-title')||{}).innerText)||''));
+  if(!dl) return false;
+  const DAY_SEL=['.fc-daygrid-day[data-date]','.fc-day[data-date]','td[data-date]','[data-date]'];
+  let dayEls=[];
+  for (const sel of DAY_SEL) { const els=[...dl.querySelectorAll(sel)];
+    if (els.length) { dayEls=els; break; } }
+  const days=dayEls.map(c=>{const r=c.getBoundingClientRect();
+    return {el:c, date:c.getAttribute('data-date'), l:r.left, r:r.right, t:r.top, b:r.bottom};});
+  const EV_SEL=['.fc-daygrid-event','.fc-event','[class*="fc-event"]','.fc-daygrid-day-events a'];
+  let evEls=[];
+  for (const sel of EV_SEL) { const els=[...dl.querySelectorAll(sel)].filter(vis);
+    if (els.length) { evEls=els; break; } }
+  const wantDate=want.slice(0,10), wantTime=want.slice(11);
+  for (const ev of evEls) {
+    const tm=(ev.innerText||'').match(/(\d{2}:\d{2}(?::\d{2})?)/);
+    if (!tm) continue;
+    const t = tm[1].length===5 ? tm[1]+':00' : tm[1];
+    if (t !== wantTime) continue;
+    let day = days.find(dd => dd.el.contains(ev));
+    if (!day) {
+      const r=ev.getBoundingClientRect(); let best=null, bestArea=0;
+      for (const dd of days) {
+        const w=Math.min(r.right,dd.r)-Math.max(r.left,dd.l);
+        const h=Math.min(r.bottom,dd.b)-Math.max(r.top,dd.t);
+        if (w<=0||h<=0) continue;
+        const a=w*h; if (a>bestArea) { bestArea=a; best=dd; }
+      }
+      day = best;
+    }
+    if (day && day.date === wantDate) { ev.setAttribute('TAGATTR','1'); return true; }
+  }
+  return false;
+})""".replace("TAGATTR", _APPT_TAG)
+
+
+async def _tag_slot_event(page, slot: str) -> bool:
+    """Mark the calendar event for `slot` so it can be clicked. False if gone."""
+    try:
+        return bool(await page.evaluate(_TAG_SLOT_JS, slot))
+    except Exception as e:  # noqa: BLE001
+        print(f"    ⚠ could not tag slot {slot}: {type(e).__name__}", flush=True)
+        return False
+
+
+async def _set_appointment(page, policy=None) -> dict:
     """Appointment: Add (`.js-add-date`) -> Appointment dialog (a FullCalendar).
-    Read the REAL available slots off the calendar, then for each (earliest first)
+    Read the REAL available slots off the calendar, apply the admin's booking
+    policy (`policy`: strategy / lead_hours / fixed_date — see
+    appointment_policy), then for each acceptable slot in turn
     **Playwright-fill** `firstPreferredDatetime` — a JS `.value=` does NOT register
     with the datetimepicker widget; a Playwright fill does — and click OK. If the
     portal warns "Please select at least appointment" (the slot wasn't accepted),
     try the next. Skips cleanly if already booked or no appointment control.
+
+    Every way of ending up with nothing to book gets its OWN message. They used
+    to share one ("no available slots found in the calendar"), which is why a
+    calendar that visibly offered four slots a day read as empty for weeks.
 
     NB: do NOT gate on `input[name=appointment]` — that's the Installation-Type
     flag ('B' = By-appointment), NOT a booked slot; the real "already booked"
@@ -2413,18 +2922,46 @@ async def _set_appointment(page) -> dict:
     if warn and re.search(r"already", warn, re.I):
         return {"status": "skipped", "stage": "appointment", "note": warn}
 
-    slots = await page.evaluate(_APPT_SLOTS_JS)
+    diag = await _read_calendar(page)
+    print(f"  calendar: dialog={diag.get('dialog')} days={diag.get('dayCells')} "
+          f"events={diag.get('events')} unmatched={diag.get('unmatched')} "
+          f"via {diag.get('daySelector')!r}/{diag.get('eventSelector')!r} "
+          f"matched-by={diag.get('matchedBy')} -> {len(diag.get('slots') or [])} slots",
+          flush=True)
+    if diag.get("samples"):
+        print(f"  calendar sample events: {diag['samples']}", flush=True)
+
+    slots = diag.get("slots") or []
     if not slots:
         return {"status": "error", "stage": "appointment",
-                "message": "no available slots found in the calendar"}
+                "message": describe_read_failure(diag), "calendar": diag}
 
-    fdt = frame.locator('.ui-dialog:visible input[name="firstPreferredDatetime"]').first
-    for cand in slots[:10]:
+    picked = choose_slot(slots, policy)
+    if "slot" not in picked:
+        # The calendar was read fine; the POLICY excluded everything. Says which.
+        return {"status": "error", "stage": "appointment",
+                "message": picked["message"], "calendar": diag}
+    candidates = picked["candidates"]
+    print(f"  appointment policy picked {picked['slot']} "
+          f"({len(candidates)} acceptable of {len(slots)} offered)", flush=True)
+
+    for cand in candidates[:10]:
+        tagged = await _tag_slot_event(page, cand)
+        if not tagged:
+            continue  # that slot's event is no longer on screen — try the next
         try:
-            await fdt.fill(cand, timeout=5000)  # Playwright fill registers with the picker
+            # A REAL click. Filling firstPreferredDatetime and pressing OK does
+            # nothing: the value lands in the box, the portal answers "Please
+            # select at least appointment", and every slot fails identically —
+            # which is what the old retry loop then reported as "no calendar
+            # slot accepted". A synthetic el.click() is no better; this
+            # FullCalendar binds jQuery handlers that only a trusted event
+            # sequence satisfies. Verified live: fill+OK rejected, el.click()+OK
+            # rejected, Playwright click + OK booked.
+            await frame.locator(f'[{_APPT_TAG}]').first.click(timeout=6000)
         except Exception:
             continue
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(1.0)
         try:
             await frame.locator('.ui-dialog:visible .js-ok, '
                                 '.ui-dialog:visible button:has-text("OK")').last.click(timeout=6000)
@@ -2438,7 +2975,8 @@ async def _set_appointment(page) -> dict:
                 '.ui-dialog:visible:has(input[name="firstPreferredDatetime"])').count() == 0:
             return {"status": "ok", "stage": "appointment", "slot": cand}
     return {"status": "error", "stage": "appointment",
-            "message": f"no calendar slot accepted (tried {len(slots[:10])})"}
+            "message": f"no calendar slot accepted (tried {len(candidates[:10])} of "
+                       f"{len(slots)} offered)", "calendar": diag}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2528,13 +3066,34 @@ async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
         # for would be worse than admitting we only know it advanced.
         nx = await click_next_newconn(page, stage=stage,
                                       page_name=f"Next page ({step + 1})")
-        if nx.get("status") == "error":
-            return {"status": "error", "stage": "pay_tail",
-                    "message": f"Next#{step}: {nx.get('message')}"}
+        # Any non-ok means Next did NOT cross a page boundary. This used to abort
+        # only on "error" and fall through on "warning" — so a portal Warning
+        # ("please tick …", "incomplete …") was dismissed, its text discarded, and
+        # the loop clicked a Next that could never advance four times over. The
+        # run then blamed a missing Pay button. The order-info Next above already
+        # checks != "ok"; this is the same check, and the portal's own wording is
+        # the whole answer, so it goes in the message.
+        if nx.get("status") != "ok":
+            state = await _attachment_page_state(page)
+            shot = await _debug_screenshot(page, f"pay_tail_next{step + 1}")
+            # This is where the device stock refusal actually lands — the portal
+            # validates stock on the way to Pay, not when the device is ticked.
+            # A classified failure keeps the portal's OWN sentence as the message
+            # and hands the code up: BizzFlow renders an explanation and names
+            # the field to change, which the page-state dump below cannot do.
+            # The dump still goes to the run log, where debugging wants it.
+            print(f"    ↳ pay tail blocked at Next #{step + 1}: "
+                  f"state={json.dumps(state, ensure_ascii=False)} shot={shot}", flush=True)
+            return blocked_next_error(nx, step + 1, state, shot)
         await asyncio.sleep(2)
     if not await pay_loc.count():
+        state = await _attachment_page_state(page)
+        shot = await _debug_screenshot(page, "pay_button_not_found")
         return {"status": "error", "error": "pay_button_not_found", "stage": "pay_tail",
-                "message": f"No Pay button after {max_next} Next clicks."}
+                "message": (f"No Pay button after {max_next} Next clicks that each "
+                            f"advanced cleanly. Page state: "
+                            f"{json.dumps(state, ensure_ascii=False)}"
+                            + (f" Screenshot: {shot}" if shot else ""))}
 
     advance_payment = await _read_advance_payment(frame)
     # The amount, and any advance payment, exactly as the portal presented it —
@@ -2612,12 +3171,47 @@ async def submit_new_connection(page, payload: dict, im_paths: list = None,
     nx = await click_next_newconn(page, stage=stage,
                                   page_name="Customer Order Information")
     print(f"    ↳ next->order_info: {nx}", flush=True)
+
+    # The service login is reserved HERE, not at the per-tab Check, so a name
+    # that looked free can still be rejected on this Next:
+    #   "RESERVELOGIN error. [1]:LOGIN_ID [tklee812@iptv] … already in use by
+    #    other customer"
+    # The order is already minted at this point, so failing out strands it over a
+    # name collision that a re-roll fixes. Re-roll the offending tab and retry.
+    email = (payload.get("customer", {}).get("contact", {}) or {}).get("email", "")
+    tried_logins = set()
+    for retry in range(3):
+        if not is_login_taken(nx.get("message")):
+            break
+        rejected = taken_login_id(nx.get("message"))
+        # LOGIN_ID comes back as 'tklee812@iptv'; the field holds only 'TKLEE812'.
+        prefix = (rejected or "").split("@")[0] or None
+        if prefix:
+            tried_logins.add(prefix.upper())
+        print(f"    ↳ login {rejected!r} already in use — re-rolling and retrying Next "
+              f"({retry + 1}/3)", flush=True)
+        ra = await _reassign_service_numbers(page, email, tried_logins, only_prefix=prefix)
+        print(f"    ↳ reassigned: {ra}", flush=True)
+        if ra.get("errors"):
+            return {"status": "error", "stage": "customer_order_info",
+                    "error": "service_number_reassign_failed", **device_info,
+                    "message": f"Could not re-roll the service username: {ra['errors']}"}
+        nx = await click_next_newconn(page, stage=stage,
+                                      page_name="Customer Order Information")
+        print(f"    ↳ next->order_info (after re-roll): {nx}", flush=True)
+
     # A warning here (e.g. "Please select one offer in … Smart Device group") means
     # Next did NOT advance — surface it as the error instead of blindly proceeding
     # into the attachment page (which then fails with a cryptic file-input timeout).
     if nx.get("status") != "ok":
+        # The stage stays where the run actually stopped, even for a classified
+        # failure: rewriting it to the step whose field needs changing would make
+        # the checklist show the run going backwards. Naming the field is the
+        # error copy's job, not the stage's.
         return {"status": "error", "stage": "customer_order_info",
                 "error": nx.get("error", "next_blocked"), **device_info,
+                **({"portal_code": nx["portal_code"]} if nx.get("portal_code") else {}),
+                **({"dialog": nx["dialog"]} if nx.get("dialog") else {}),
                 "message": nx.get("message", "Next did not advance to Customer Order Information.")}
     r = await fill_customer_order_info(page, payload, im_paths=im_paths,
                                        id_paths=id_paths, on_stage=on_stage)

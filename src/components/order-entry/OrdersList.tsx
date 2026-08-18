@@ -6,6 +6,7 @@ import { listOrders, startSubmit, deleteOrder } from "@/actions/order";
 import {
   canResubmit,
   canSubmit,
+  submitErrorCopy,
   type OrderListItem,
   type StageDetails,
 } from "@/lib/order-types";
@@ -21,6 +22,7 @@ interface ProgressState {
   stage: string | null;
   orderId: string | null;
   errorMessage: string | null;
+  errorCode?: string | null;
   done: boolean;
   details?: StageDetails;
   screenshotKey?: string | null;
@@ -128,6 +130,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                 stage: state.stage,
                 orderId: state.orderId,
                 errorMessage: state.errorMessage,
+                errorCode: state.errorCode ?? null,
                 screenshotUrl: state.screenshotKey ?? x.screenshotUrl,
               }
             : x,
@@ -208,14 +211,23 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
       return true;
     }
     if (final.status === "warning") {
-      toast.warning(name, { description: final.errorMessage ?? "Needs checking in the portal." });
+      // A classified failure leads with what to DO. The toast is the only part of
+      // this an agent mid-batch reliably reads, so the remedy goes in it rather
+      // than only in the panel they would have to open.
+      const copy = submitErrorCopy(final.errorCode);
+      toast.warning(copy ? `${name} — ${copy.title}` : name, {
+        description: copy ? copy.fix : final.errorMessage ?? "Needs checking in the portal.",
+      });
       return false;
     }
     if (final.status === "order_entered") {
       toast.success(name, { description: "Customer profile created." });
       return true;
     }
-    toast.error(name, { description: final.errorMessage ?? "Submit failed" });
+    const failCopy = submitErrorCopy(final.errorCode);
+    toast.error(failCopy ? `${name} — ${failCopy.title}` : name, {
+      description: failCopy ? failCopy.fix : final.errorMessage ?? "Submit failed",
+    });
     return false;
   }
 

@@ -1,0 +1,33 @@
+<!doctype html>
+<meta charset="utf-8">
+<!-- The shape in the screenshot the agent sent: a shell modal OUTSIDE #myIframe,
+     titled plainly "Error", with a warning glyph, a "Detail" link and a blue OK.
+     Two traps reproduced deliberately:
+       1. it is NOT a .ui-dialog and carries no warn/error/danger class, so the
+          old class-based test would skip it entirely;
+       2. it lives in the top document, so the old #myIframe-only scan could
+          never have seen it at all.
+     The only reliable tell is the body's own "[40300338]:" code prefix. -->
+<style>
+  body { margin: 0; font: 14px sans-serif; }
+  .modal { position: fixed; top: 40px; left: 40px; width: 560px; background: #fff;
+           border: 1px solid #d9d9d9; box-shadow: 0 4px 16px rgba(0,0,0,.2); }
+  .modal-title { font-size: 20px; font-weight: 600; padding: 16px 20px 0 60px; }
+  .modal-body { padding: 8px 20px 20px 60px; }
+  .modal-footer { padding: 0 20px 20px; text-align: right; }
+  .btn-primary { background: #4c7cf3; color: #fff; border: 0; padding: 10px 28px; }
+  a.detail { color: #4c7cf3; float: left; }
+</style>
+
+<div class="page">Order Entry shell</div>
+<iframe id="myIframe" srcdoc="&lt;div&gt;Customer Order Information&lt;/div&gt;"></iframe>
+
+<div class="modal in" id="stock" role="dialog">
+  <div class="modal-title">Error</div>
+  <div class="modal-body">[40300338]: Sorry, the SAMSUNG TV 55&rdquo; is currently out of stock.</div>
+  <div class="modal-footer">
+    <a class="detail" href="#">Detail</a>
+    <button class="btn btn-primary"
+            onclick="document.getElementById('stock').style.display='none'">OK</button>
+  </div>
+</div>

@@ -33,6 +33,23 @@ def _get(order: dict, *keys, default=None):
     return default
 
 
+def _appointment_policy(order: dict) -> dict:
+    """The appointment booking policy, accepting either key style.
+
+    BizzFlow sends camelCase (`appointment.leadHours`); a hand-built payload or
+    a DB row may use snake_case. Unknown/missing values are left to
+    appointment_policy.normalize_policy, which defaults every field.
+    """
+    appt = _get(order, "appointment", default=None)
+    if not isinstance(appt, dict):
+        return {}
+    return {
+        "strategy": appt.get("strategy"),
+        "lead_hours": appt.get("leadHours", appt.get("lead_hours")),
+        "fixed_date": appt.get("fixedDate", appt.get("fixed_date")),
+    }
+
+
 def order_to_payload(order: dict) -> dict:
     """Build an enter_order payload from a BizzFlow Order dict.
 
@@ -159,6 +176,12 @@ def order_to_payload(order: dict) -> dict:
         # (BizzFlow Admin -> Plan Details). The scraper expands THESE groups
         # rather than trying to detect the portal's red "*" from markup.
         "offer_groups": _get(order, "offerGroups", "offer_groups") or [],
+        # Booking policy for the appointment step, set by an admin in BizzFlow
+        # and carried per-job. Deliberately travels in the payload rather than
+        # in scraper config: changing the policy is then a settings change, not
+        # a droplet redeploy. Absent/partial is fine — appointment_policy
+        # defaults to first_available / 12h, the behaviour that shipped before.
+        "appointment": _appointment_policy(order),
         "remarks": _get(order, "remarks", default=""),
         "_order_id": _get(order, "id"),
         # Where run artefacts (the page-1 screenshot) get filed. `user_id` is

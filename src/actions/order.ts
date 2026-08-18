@@ -18,6 +18,7 @@ import MY_POSTCODES from "@/lib/malaysia-postcodes.json";
 import { addressKey, validateMalaysianAddress } from "@/lib/malaysia-address";
 import { reconcileStaleSubmits } from "@/lib/order-submit";
 import { mandatoryGroupsFor } from "@/actions/plans";
+import { getAppointmentPolicy } from "@/actions/admin-settings";
 import {
   nextOrderReference,
   recordEvent,
@@ -440,6 +441,7 @@ export async function listOrders(): Promise<{
       status: o.status,
       orderId: o.orderId,
       errorMessage: o.errorMessage,
+      errorCode: o.errorCode,
       stage: o.stage,
       reference: o.reference,
       deviceName: o.deviceName,
@@ -552,9 +554,15 @@ export async function startSubmit(id: string) {
   // expands these groups by name instead of guessing at the portal's red "*".
   const offerGroups = await mandatoryGroupsFor(order.offerName);
 
+  // The admin's appointment booking policy, carried per-job. In the payload
+  // rather than in scraper config so changing it is a settings change, not a
+  // droplet redeploy — which is the whole reason a fixed test date is workable.
+  const appointment = await getAppointmentPolicy();
+
   // Send the raw order; the Flask side maps it to a portal payload.
   const reqOrder = {
     offerGroups,
+    appointment,
     id: order.id,
     idType: order.idType,
     idNumber: order.idNumber,
@@ -728,6 +736,7 @@ export async function getOrderHistory(id: string): Promise<{
         stage: e.stage,
         status: e.status,
         message: e.message,
+        errorCode: e.errorCode,
         createdAt: e.createdAt.toISOString(),
       })),
     ),

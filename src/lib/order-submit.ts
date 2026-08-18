@@ -16,7 +16,10 @@ import {
   CAPTURE_STAGE_PREFIX,
   LEGACY_PAGE1_CAPTURE_STAGE,
   PAGE1_CAPTURE_SLOT,
+  POINT_OF_NO_RETURN,
+  isPortalOrderNumber,
   isScreenshotKey,
+  submitErrorCopy,
   type StageDetail,
   type StageDetails,
 } from "@/lib/order-types";
@@ -30,8 +33,14 @@ export interface OrderJobResult {
   order_url?: string;
   advance_payment?: string;
   warning?: string;
+  // Stable oe_errors code (e.g. device_out_of_stock) when the scraper could
+  // classify the failure. Absent when it could not — the caller then falls back
+  // to its own stage-specific wording rather than a blanket "unknown".
   error?: string;
   message?: string;
+  // The portal's own numeric code, e.g. "40300338". Carried for the log; the UI
+  // re-derives it from the message so the two can never disagree.
+  portal_code?: string;
   // Set when the portal refused a device for this package. Recorded so the
   // picker and preflight can stop offering it — the portal only tells us this
   // AFTER the order number exists, so learning it is the only way to avoid
@@ -70,6 +79,8 @@ export interface ProgressState {
   stage: string | null;
   orderId: string | null;
   errorMessage: string | null;
+  // oe_errors classification of the failure, when there was a classifiable one.
+  errorCode?: string | null;
   done: boolean; // no further polling needed
   // Resolved values per step, so the checklist can name the address it matched
   // rather than just that it checked one.
@@ -197,6 +208,28 @@ async function drainStages(
     await attachStageDetail(id, attempt, stage, detailMessage(detail));
   }
 
+  // The portal order number, the moment this attempt's portal mints it.
+  //
+  // Written HERE rather than only on the terminal paths, because a resubmit
+  // starts with the PREVIOUS attempt's number still on the row (the submit-start
+  // reset deliberately does not blank it — that would erase the only record of a
+  // stranded order if the run then died without reporting one). Any terminal
+  // path that did not explicitly set it therefore left the old number in place,
+  // and the panel, the "needs voiding" flag and the resubmit dialog all named
+  // the wrong portal order. Attempt 11 of ORD-0012 minted …429283 while the row
+  // still said …429128 from attempt 10.
+  //
+  // Updating on the capture stage fixes every terminal path at once and never
+  // blanks a known number: it only ever replaces one real order id with the
+  // newer real order id for the run now in progress.
+  const captured = details[POINT_OF_NO_RETURN];
+  if (captured?.outcome === "ok" && isPortalOrderNumber(captured.value)) {
+    const num = captured.value.trim();
+    await prisma.order
+      .updateMany({ where: { id, NOT: { orderId: num } }, data: { orderId: num } })
+      .catch((err) => console.error("[drainStages] order id:", err));
+  }
+
   if (screenshotKey && screenshotKey !== currentScreenshotUrl) {
     // Latest attempt's frame, so a collapsed row can show evidence exists
     // without loading history.
@@ -268,6 +301,7 @@ async function applyResult(
     status: string;
     orderId?: string | null;
     errorMessage?: string | null;
+    errorCode?: string | null;
   }): Promise<ProgressState> => {
     const o = await prisma.order.update({
       where: { id: orderId },
@@ -275,18 +309,21 @@ async function applyResult(
         status: data.status,
         ...(data.orderId !== undefined ? { orderId: data.orderId } : {}),
         errorMessage: data.errorMessage ?? null,
+        errorCode: data.errorCode ?? null,
         jobId: null, // the run is over — nothing left to reconcile
       },
     });
     await recordEvent({
       orderId, attempt, status: data.status, stage: o.stage,
       message: data.errorMessage ?? null,
+      errorCode: data.errorCode ?? null,
     });
     return {
       status: o.status,
       stage: o.stage,
       orderId: o.orderId,
       errorMessage: o.errorMessage,
+      errorCode: o.errorCode,
       done: true,
     };
   };
@@ -301,18 +338,28 @@ async function applyResult(
   }
 
   if (result.status === "error") {
+    // A code we have copy for is rendered as a titled block with its own
+    // explanation and remedy, so the message stays the portal's VERBATIM
+    // wording. Wrapping it in our own prose here would put the explanation in
+    // two voices and bury the sentence the agent can quote at Unifi support.
+    const code = submitErrorCopy(result.error) ? result.error! : null;
     if (result.order_id) {
       // Order EXISTS in the portal despite the failure. Surface as a warning to
       // verify/complete by hand — a plain "failed" would re-enable submit and
       // invite a duplicate.
-      const msg = `Order ${result.order_id} was created but the flow didn't finish: ${
-        result.message || result.error || "error"
-      }. Verify in the portal before retrying.`;
-      return finish({ status: "warning", orderId: result.order_id, errorMessage: msg });
+      const msg = code
+        ? result.message || "The portal returned an error."
+        : `Order ${result.order_id} was created but the flow didn't finish: ${
+            result.message || result.error || "error"
+          }. Verify in the portal before retrying.`;
+      return finish({
+        status: "warning", orderId: result.order_id, errorMessage: msg, errorCode: code,
+      });
     }
     return finish({
       status: "failed",
       errorMessage: result.message || result.error || "The portal returned an error.",
+      errorCode: code,
     });
   }
 
@@ -326,8 +373,14 @@ async function applyResult(
     });
   }
 
-  // Customer profile created but no order id — the legacy stop-early result.
-  return finish({ status: "order_entered", errorMessage: null });
+  // Customer profile created — the legacy stop-early result. It usually has no
+  // order id, but when it does that id must be written: passing nothing here is
+  // what let a previous attempt's number survive on the row.
+  return finish({
+    status: "order_entered",
+    ...(result.order_id ? { orderId: result.order_id } : {}),
+    errorMessage: null,
+  });
 }
 
 /**

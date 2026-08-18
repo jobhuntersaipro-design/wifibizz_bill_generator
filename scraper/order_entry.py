@@ -174,7 +174,20 @@ async def _check_duplicate_records(frame) -> str | None:
     return None
 
 
-async def fill_residence_address(frame, customer: dict) -> None:
+def normalize_address_line(value: str | None) -> str:
+    """Collapse whitespace runs so the portal's Address validator accepts the line.
+
+    The "Enter Address" modal marks its Address input `n-invalid` on CONSECUTIVE
+    whitespace (probed live 2026-08-17: hyphens, commas and 100+ chars all pass;
+    a lone double space fails). Drafts routinely carry one, because a blank
+    address segment upstream leaves "3 -  TAMAN" behind. Nothing about the
+    rejection is visible: OK leaves the residence address empty and pops a
+    page-level Warning that then blocks every later widget.
+    """
+    return " ".join((value or "").split())
+
+
+async def fill_residence_address(frame, customer: dict) -> dict:
     """Fill the required Residence Address via its pop-edit modal.
 
     The residence field (input[name="address"].js-address) is readonly; clicking
@@ -184,11 +197,12 @@ async def fill_residence_address(frame, customer: dict) -> None:
     target stable js-* classes instead.
     """
     postcode = (customer.get("residence_postcode") or "").strip()
-    street = (customer.get("residence_street") or customer.get("residence_address") or "").strip()
+    street = normalize_address_line(
+        customer.get("residence_street") or customer.get("residence_address"))
     country = (customer.get("residence_country") or "Malaysia").strip()
     if not (postcode or street):
         print("  ↳ no residence address data — skipping.")
-        return
+        return {"status": "ok", "stage": "residence_address", "skipped": True}
 
     # Open the modal via the expand icon next to the customer-form residence input.
     addr_input = frame.locator('input[name="address"].js-address').first
@@ -241,9 +255,43 @@ async def fill_residence_address(frame, customer: dict) -> None:
     await asyncio.sleep(0.8)
     try:
         val = await addr_input.input_value()
-        print(f"  ↳ residence address now: {val!r}")
     except Exception:
-        pass
+        val = None
+    print(f"  ↳ residence address now: {val!r}")
+
+    # An OK the modal's validator refused leaves the address EMPTY and puts a
+    # "Some errors exist in this page." Warning over the form. Stop here and name
+    # the field: every later step would otherwise fail against that overlay, and
+    # the first one to time out (a combobox) reports something unrelated.
+    if not (val or "").strip():
+        rejected = await _invalid_address_fields(frame)
+        detail = f" Portal rejected: {', '.join(rejected)}." if rejected else ""
+        return {
+            "status": "error", "stage": "residence_address",
+            "error": "residence_address_rejected",
+            "message": ("The portal rejected the residence address, so the customer "
+                        f"profile was not created.{detail} Address sent: {street!r}"),
+        }
+    return {"status": "ok", "stage": "residence_address", "address": val}
+
+
+async def _invalid_address_fields(frame) -> list[str]:
+    """Labels of the Enter Address modal fields the validator flagged (`n-invalid`).
+    Best-effort — used only to enrich an error message, never to decide flow."""
+    try:
+        return await frame.evaluate(r"""(() => {
+          const vis = e => e && e.offsetParent !== null;
+          const m = [...document.querySelectorAll('form.js-detail-form')].filter(vis).pop();
+          if (!m) return [];
+          return [...m.querySelectorAll('input.n-invalid, .has-error input')]
+            .map(i => {
+              const g = i.closest('.form-group');
+              const l = g && g.querySelector('label');
+              return ((l && l.innerText) || i.getAttribute('name') || '').trim();
+            }).filter(Boolean);
+        })()""")
+    except Exception:
+        return []
 
 
 async def _upload_id_documents(frame, customer: dict) -> None:
@@ -359,7 +407,9 @@ async def create_personal_customer(frame, customer: dict, fill_only: bool = Fals
 
     # Residence Address (required) — readonly input opened via the expand icon
     # into a pop-edit modal (Country + Postcode auto-fills City/State + street).
-    await fill_residence_address(frame, customer)
+    addr_result = await fill_residence_address(frame, customer)
+    if addr_result.get("status") != "ok":
+        return addr_result
 
     # --- Customer attributes (.js-cust-attr-form) ---
     await set_combobox(frame, "name_400054", customer["customer_tenure"])

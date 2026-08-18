@@ -186,10 +186,6 @@ const CAPTURE_SLOTS: Record<string, { label: string; caption: string }> = {
     label: "Attachments",
     caption: "The documents the portal accepted.",
   },
-  appointment: {
-    label: "Appointment",
-    caption: "The installation date and time that was taken.",
-  },
   delivery: {
     label: "Delivery terms",
     caption: "The terms and conditions the order was placed under.",
@@ -326,6 +322,66 @@ export const STATUS_LABELS: Record<string, string> = {
   warning: "Warning",
   failed: "Failed",
 };
+
+/**
+ * A classified submit failure, in the agent's language.
+ *
+ * The scraper's `oe_errors` codes are the wire vocabulary; this is the only
+ * place they become words a dealer reads. A code that isn't listed here renders
+ * as the portal's raw message exactly as before — an unmapped failure must
+ * degrade to the old behaviour, never to a blank panel.
+ *
+ * `fix` names the field to change. That is the whole point of classifying: the
+ * portal's own wording says what is wrong but never what to do about it.
+ */
+export interface SubmitErrorCopy {
+  title: string;
+  /** What the portal's code actually means, in one sentence. */
+  subtext: string;
+  /** The action that clears it. */
+  fix: string;
+}
+
+export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
+  device_out_of_stock: {
+    title: "Device out of stock",
+    subtext:
+      "The portal checks device stock when it leaves the Customer Order " +
+      "Information page, and refused this order because Unifi has no stock of " +
+      "the device on it. Nothing about the customer or the address is wrong.",
+    fix: "Edit the order, choose a different device, then resubmit.",
+  },
+};
+
+export function submitErrorCopy(code: string | null | undefined): SubmitErrorCopy | null {
+  return (code && SUBMIT_ERROR_CODES[code]) || null;
+}
+
+/**
+ * The portal's own numeric code, e.g. `40300338` from
+ * `[40300338]: Sorry, the SAMSUNG TV 55" is currently out of stock.`
+ *
+ * Derived from the stored message rather than kept in its own column: the code
+ * is only ever meaningful as part of that message, and a second column could
+ * drift out of step with it. Four digits minimum, so the portal's `[1]:LOGIN_ID`
+ * field marker in the RESERVELOGIN error isn't mistaken for a code.
+ */
+/**
+ * Does this look like a Customer Order Number the portal minted?
+ *
+ * The `capturing_order_no` stage reports the number on success and its own
+ * explanation on failure ("Portal did not show a Customer Order Number") in the
+ * same field, so the shape has to be checked before the value is trusted as an
+ * order id — writing that sentence into `Order.orderId` would make the row claim
+ * a portal order that does not exist.
+ */
+export function isPortalOrderNumber(value: string | null | undefined): boolean {
+  return !!value && /^\d{10,20}$/.test(value.trim());
+}
+
+export function portalCodeFrom(message: string | null | undefined): string | null {
+  return message?.match(/\[\s*(\d{4,})\s*\]/)?.[1] ?? null;
+}
 
 export const STATUS_FILTERS = [
   "all",
@@ -619,6 +675,9 @@ export interface OrderListItem {
   status: string; // draft | submitting | order_entered | submitted | warning | failed
   orderId: string | null;
   errorMessage: string | null;
+  // oe_errors classification of the last failure, when there was one. Null means
+  // "unclassified" — show the message on its own, as before.
+  errorCode: string | null;
   stage: string | null; // last submit stage key seen — drives the step checklist
   reference: string | null; // ORD-0042 — quotable before the portal issues a number
   deviceName: string | null;

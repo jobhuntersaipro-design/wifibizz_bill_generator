@@ -50,6 +50,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CaptureCarousel, captureSrc } from "./CaptureCarousel";
+import { SubmitErrorBlock } from "./SubmitErrorBlock";
 import { SubmitProgress } from "./SubmitProgress";
 
 /**
@@ -408,13 +409,12 @@ function Attempt({ a, defaultOpen, delay }: { a: AttemptView; defaultOpen: boole
 
       {/* The reason is worth seeing without expanding — it's the question being asked. */}
       {!open && failure?.message && (
-        <p
-          className={`px-4 pb-3 text-[11px] leading-snug ${
-            a.outcome === "warning" ? "text-amber-700" : "text-red-600"
-          }`}
-        >
-          {failure.message}
-        </p>
+        <SubmitErrorBlock
+          className="mx-4 mb-3"
+          errorMessage={failure.message}
+          errorCode={failure.errorCode}
+          status={a.outcome}
+        />
       )}
 
       <CollapsibleContent className="collapse-panel" keepMounted>
@@ -762,6 +762,7 @@ export function OrderHistoryPanel({ order, onClose }: { order: OrderListItem; on
                     stage={order.stage}
                     status={order.status}
                     errorMessage={order.errorMessage}
+                    errorCode={order.errorCode}
                     orderId={order.orderId}
                   />
                 </div>

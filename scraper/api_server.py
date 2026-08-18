@@ -300,7 +300,12 @@ def _redact_order_result(result):
                  # refuses, so they MUST survive redaction.
                  "rejected_device_code", "rejected_device_name",
                  "substituted_device_code", "substituted_device_name",
-                 "available_devices", "offered", "groups"}
+                 "available_devices", "offered", "groups",
+                 # The portal's own numeric code (e.g. 40300338) and the shape of
+                 # the dialog it came from. `dialog` is diagnostic — it is how one
+                 # live run answers "which selector actually matched?" — and both
+                 # are portal metadata, not customer data.
+                 "portal_code", "dialog"}
     return {k: v for k, v in result.items() if k in safe_keys}
 
 

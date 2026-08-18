@@ -1,0 +1,69 @@
+<!doctype html>
+<!--
+  The Appointment dialog as an OLDER FullCalendar renders it: day cells are
+  `.fc-day[data-date]` in the background grid, and the events live in a SEPARATE
+  absolutely-positioned layer laid over the top. No event is a descendant of its
+  day cell, so structural containment finds nothing and the reader has to fall
+  back to the geometric hit-test — the case the original code was written for.
+
+  This fixture is why the fallback still exists: deleting it and trusting
+  containment alone would silently return zero slots on this markup, which is
+  indistinguishable from an empty calendar.
+
+  Same traps as the modern fixture: an empty day (2026-08-29) and a hidden
+  event that must not be counted.
+
+  AND THE ONE THAT COST A REAL BOOKING: this grid has TWO week rows. The old
+  matcher took the first day whose box contained the event's top-left corner,
+  with 30px of slop below the cell — so an event near the top of week 2 also
+  fell inside week 1's box + 30px, and week 1 won for being earlier in the DOM.
+  Live, that dated every slot exactly seven days early: the reader reported
+  11-17 August for a calendar offering 18-31, and clicking the event it called
+  "18 Aug" booked 25 Aug in the portal. Row 2's events sit 8px below row 1's
+  bottom edge here, well inside the old 30px slop, so that bug reproduces.
+-->
+<meta charset="utf-8">
+<style>
+  body { margin: 0; font: 12px system-ui; }
+  .ui-dialog { border: 1px solid #ccc; margin: 8px; }
+  .ui-dialog-title { font-weight: 600; padding: 6px; background: #eee; }
+  .fc-view { position: relative; width: 372px; height: 200px; }
+  .fc-day {
+    position: absolute; width: 120px; height: 90px;
+    border: 1px solid #ddd; box-sizing: border-box;
+  }
+  .fc-event {
+    position: absolute; height: 16px; width: 112px;
+    background: #cfe; box-sizing: border-box; padding: 0 3px;
+  }
+</style>
+
+<div class="ui-dialog">
+  <div class="ui-dialog-title">Appointment</div>
+  <div class="fc fc-unthemed">
+    <div class="fc-view fc-month-view">
+      <!-- background grid — week 1 -->
+      <div class="fc-day fc-widget-content" data-date="2026-08-29" style="left:0;    top:0"></div>
+      <div class="fc-day fc-widget-content" data-date="2026-08-30" style="left:124px;top:0"></div>
+      <div class="fc-day fc-widget-content" data-date="2026-08-31" style="left:248px;top:0"></div>
+      <!-- week 2, directly below. The old corner-plus-slop matcher attributed
+           these days' events to the row above. -->
+      <div class="fc-day fc-widget-content" data-date="2026-09-05" style="left:0;    top:98px"></div>
+      <div class="fc-day fc-widget-content" data-date="2026-09-06" style="left:124px;top:98px"></div>
+      <div class="fc-day fc-widget-content" data-date="2026-09-07" style="left:248px;top:98px"></div>
+
+      <!-- event layer, laid OVER the grid rather than inside it -->
+      <a class="fc-event" style="left:126px; top:20px">09:30:00 - 12:00:00</a>
+      <a class="fc-event" style="left:126px; top:40px">14:30:00 - 17:00:00</a>
+      <a class="fc-event" style="left:250px; top:20px">09:30:00 - 12:00:00</a>
+      <a class="fc-event" style="left:250px; top:40px">12:00:00 - 14:30:00</a>
+      <a class="fc-event" style="left:250px; top:60px">17:00:00 - 19:30:00</a>
+      <a class="fc-event" style="left:250px; top:80px; display:none">21:00:00 - 23:00:00</a>
+      <!-- week 2's events: top:106px is 8px below week 1's bottom edge (90px),
+           i.e. inside the old +30px slop. These MUST date to September. -->
+      <a class="fc-event" style="left:126px; top:106px">09:30:00 - 12:00:00</a>
+      <a class="fc-event" style="left:250px; top:106px">14:30:00 - 17:00:00</a>
+    </div>
+  </div>
+  <input name="firstPreferredDatetime" value="">
+</div>

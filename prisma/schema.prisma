@@ -77,6 +77,12 @@ model Order {
   status         String    @default("draft") // draft | submitting | submitted | failed
   orderId        String?   @map("order_id")   // dealer portal order number
   errorMessage   String?   @map("error_message")
+  // Stable classification of the LAST failure, from the scraper's oe_errors
+  // vocabulary (e.g. device_out_of_stock). Kept beside the free-text message
+  // rather than parsed back out of it: the message is the portal's wording and
+  // changes without notice, while the UI needs to branch on what went wrong to
+  // tell the agent which field to fix.
+  errorCode      String?   @map("error_code")
 
   // Live submit progress. The scraper reports a stage key per portal milestone;
   // the browser polls for it rather than holding a long request open.
@@ -124,6 +130,7 @@ model OrderStatusEvent {
   stage     String?              // stage key, null for run-level events
   status    String               // submitting | order_entered | submitted | warning | failed | info
   message   String?              // portal text or our own explanation
+  errorCode String?  @map("error_code") // oe_errors code when this event is a classified failure
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([orderId, createdAt])
@@ -288,4 +295,25 @@ model WifibizzCase {
   @@index([userId, status])
   @@index([userId, caseCreatedAt(sort: Desc)])
   @@map("wifibizz_cases")
+}
+
+// Global application settings — one row, id = 1. A singleton rather than a
+// key/value bag so the columns are typed and a missing row can never be read as
+// "no policy"; the seed in the migration guarantees it exists.
+model AppSetting {
+  // SERIAL in the migration, to match every other table here — but only id = 1
+  // is ever written. Reads go through `where: { id: 1 }`.
+  id                   Int       @id @default(autoincrement())
+  // How the appointment step picks its slot: "first_available" | "fixed_date".
+  appointmentStrategy  String    @default("first_available") @map("appointment_strategy")
+  // Earliest slot allowed, measured from submit time. Applies to
+  // first_available only — a fixed date is an explicit override of the policy.
+  appointmentLeadHours Int       @default(12) @map("appointment_lead_hours")
+  // The day to book when the strategy is fixed_date. Within it, the earliest
+  // slot wins.
+  appointmentFixedDate DateTime? @db.Date @map("appointment_fixed_date")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  updatedBy            String?   @map("updated_by")
+
+  @@map("app_settings")
 }

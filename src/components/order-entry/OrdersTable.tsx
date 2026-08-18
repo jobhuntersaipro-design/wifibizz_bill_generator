@@ -114,6 +114,7 @@ export function OrdersTable({
                   stage={o.stage}
                   status={o.status}
                   errorMessage={o.errorMessage}
+                  errorCode={o.errorCode}
                   orderId={o.orderId}
                   details={stageDetails[o.id]}
                 />
@@ -173,6 +174,7 @@ export function OrdersTable({
                         stage={o.stage}
                         status={o.status}
                         errorMessage={o.errorMessage}
+                        errorCode={o.errorCode}
                         orderId={o.orderId}
                         details={stageDetails[o.id]}
                       />

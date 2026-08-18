@@ -1,0 +1,35 @@
+<!doctype html>
+<meta charset="utf-8">
+<!-- The jQuery-UI shape the portal uses for its in-iframe validation dialogs.
+     Modelled on the real "RESERVELOGIN error" / MSR dialogs: a .ui-dialog whose
+     class carries `modal-danger` and whose body holds the portal's own code. -->
+<style>
+  body { margin: 0; font: 13px sans-serif; height: 1400px; }
+  .ui-dialog { position: fixed; top: 80px; left: 120px; width: 520px;
+               background: #fff; border: 1px solid #ccc; }
+  .ui-dialog-title { font-weight: 600; padding: 10px; }
+  .modal-message { padding: 12px; }
+  .hidden-dialog { display: none; }
+</style>
+
+<div class="portal-body">Customer Order Information</div>
+
+<!-- A dialog that must NOT be picked: not visible. -->
+<div class="ui-dialog modal-danger hidden-dialog">
+  <div class="ui-dialog-title">Error</div>
+  <div class="modal-message">[99999999]: A stale dialog nobody can see.</div>
+  <button class="btn btn-primary">OK</button>
+</div>
+
+<!-- A dialog that must NOT be picked: it is the Offer picker, excluded by title. -->
+<div class="ui-dialog">
+  <div class="ui-dialog-title">Select Offer</div>
+  <div class="modal-body">Pick a device from the offer list.</div>
+  <button class="btn btn-primary">OK</button>
+</div>
+
+<div class="ui-dialog modal-danger" id="stock">
+  <div class="ui-dialog-title">Error</div>
+  <div class="modal-message">[40300338]: Sorry, the SAMSUNG TV 55&rdquo; is currently out of stock.</div>
+  <button class="btn btn-primary" onclick="document.getElementById('stock').style.display='none'">OK</button>
+</div>
