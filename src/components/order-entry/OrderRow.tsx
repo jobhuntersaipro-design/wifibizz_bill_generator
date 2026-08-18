@@ -191,31 +191,38 @@ function StatusBadge({ o }: { o: OrderListItem }) {
 }
 
 function OrderNumber({ o }: { o: OrderListItem }) {
-  // The column carries COMPLETED orders only. A run that stopped part-way can
-  // still have a number — the portal mints it early — but showing it here reads
-  // as "this order went through", which is the opposite of true. Those rows
-  // keep their "Needs voiding" flag and reach the number through Details.
-  if (o.status !== "submitted") {
-    return o.orderId ? (
-      <span className="text-[12px] text-[#8792A2]">—</span>
-    ) : (
-      // Absence is meaningful: the portal has not minted a number for this draft
-      // yet, which is not the same as "unknown".
-      <span className="text-[12px] text-[#8792A2]">Not yet issued</span>
-    );
-  }
   if (!o.orderId) {
+    // Absence is meaningful: the portal has not minted a number for this draft
+    // yet, which is not the same as "unknown".
     return <span className="text-[12px] text-[#8792A2]">Not yet issued</span>;
   }
+  // The portal mints the number early, so a run that stopped part-way owns a
+  // REAL order — one the agent may need to open in order to quote it, check it,
+  // or void it. Every number therefore links to its portal page.
+  //
+  // What the two treatments separate is whether the order COMPLETED, because a
+  // stranded order looking finished is the failure mode that matters: brand
+  // purple for a completed submission, muted for one that stopped part-way.
+  // That distinction is never left to colour alone — the Status badge sits in
+  // the adjacent column, the hover title spells it out, and screen readers get
+  // the qualifier appended below.
+  const done = o.status === "submitted";
   return (
     <a
       href={portalUrl(o.orderId)}
       target="_blank"
       rel="noopener noreferrer"
-      className="group inline-flex items-center gap-1 whitespace-nowrap text-[13px] font-medium tabular-nums text-[#635BFF] hover:underline"
-      title="Open the order on the Unifi dealer portal (may take a moment to appear after creation)"
+      className={`group inline-flex items-center gap-1 whitespace-nowrap text-[13px] tabular-nums hover:underline ${
+        done ? "font-medium text-[#635BFF]" : "text-[#8792A2]"
+      }`}
+      title={
+        done
+          ? "Open the order on the Unifi dealer portal (may take a moment to appear after creation)"
+          : "The portal issued this number, but the order was never completed \u2014 open it on the dealer portal"
+      }
     >
       {o.orderId}
+      {!done && <span className="sr-only"> (order not completed)</span>}
       <svg
         className="h-3 w-3 shrink-0 opacity-60 transition-opacity group-hover:opacity-100"
         viewBox="0 0 24 24"
@@ -332,8 +339,7 @@ function PrimaryAction({ o, a }: { o: OrderListItem; a: RowActions }) {
  *   portal has already minted a real order number against the draft, so editing
  *   our side changes nothing at Unifi and makes the two disagree. Delete stays —
  *   the agent may well want the row gone once the order is voided — and Details
- *   stays because, while `do_pay` is FALSE, it is the ONLY place that row's
- *   portal order number is shown.
+ *   stays because it is the only route to the run's captures and failure trail.
  */
 function RowMenu({ o, a }: { o: OrderListItem; a: RowActions }) {
   const showDetails = hasHistory(o);
