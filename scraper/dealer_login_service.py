@@ -361,7 +361,7 @@ async def _auto_otp_task(pending_id: str) -> None:
         registered_email = rec.get("registered_email") if rec else None
 
     try:
-        from gmail_otp_reader import get_latest_otp
+        from gmail_otp_reader import OtpNeverSent, get_latest_otp
     except Exception as e:
         _set_auto_status(pending_id, "error", message=f"Gmail reader unavailable: {e}")
         return
@@ -373,6 +373,12 @@ async def _auto_otp_task(pending_id: str) -> None:
             max_age_seconds=GMAIL_OTP_TIMEOUT_SECONDS,
             to_filter=registered_email,
         )
+    except OtpNeverSent as e:
+        # No mail arrived at all: the portal took the request and sent nothing.
+        # Reported separately from a timeout because the advice is the opposite
+        # — no code is coming, so "enter it manually" is useless here.
+        _set_auto_status(pending_id, "error", message=str(e), reason="otp_not_sent")
+        return
     except Exception as e:
         # e.g. Gmail token expired/revoked and no browser available to re-auth
         # (gmail_otp_reader raises RuntimeError for this) — surface it plainly.

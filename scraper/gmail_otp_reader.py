@@ -16,6 +16,28 @@ from googleapiclient.discovery import build
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 ALLOW_BROWSER_AUTH = os.getenv("GMAIL_ALLOW_BROWSER", "0") == "1"
 
+# How long a wait may stay completely silent — no mail for us at all — before
+# we stop and say the portal probably never sent a code. Observed live: the
+# portal answered genCaptcha with 200 and sent nothing, and the user watched a
+# countdown for five minutes. 0 disables the check.
+GMAIL_OTP_SILENT_AFTER_SECONDS = int(
+    os.getenv("GMAIL_OTP_SILENT_AFTER_SECONDS", "120")
+)
+
+# Successful Gmail queries required before silence is blamed on the portal.
+# One empty result proves nothing: Gmail could be erroring, or the very first
+# poll can land before the mail does.
+SILENT_MIN_POLLS = 3
+
+
+class OtpNeverSent(Exception):
+    """No mail arrived at all — the portal accepted the request and sent
+    nothing, so waiting out the rest of the window cannot help.
+
+    Distinct from returning None (waited, mail may have come but held no
+    usable code) because the two need opposite advice: None means "type the
+    code by hand", this means "nothing is coming — try again later"."""
+
 
 class GmailOTPReader:
     def __init__(self):
@@ -88,7 +110,7 @@ class GmailOTPReader:
 
     def get_latest_otp(
         self, sender_filter="@forward-sms.com", wait_seconds=60, max_wait=1800,
-        to_filter=None,
+        to_filter=None, silent_after=None,
     ):
         """
         Read latest OTP from email
@@ -103,16 +125,30 @@ class GmailOTPReader:
                 disambiguates between multiple accounts forwarding OTPs into
                 the same shared inbox at the same time — without it, two
                 concurrent logins could cross-match each other's codes.
+            silent_after: Give up early (raising OtpNeverSent) after this many
+                seconds with no mail for us at all. None/0 waits out max_wait
+                as before.
 
         Returns:
             OTP code as string, or None if not found
+
+        Raises:
+            OtpNeverSent: nothing arrived at all — see the class docstring for
+                why that is not the same as returning None.
         """
         print(f"Waiting for OTP email from {sender_filter}" +
               (f" to {to_filter}" if to_filter else "") + "...")
         print(f"Will check for up to {max_wait} seconds (timeout for delays)...")
 
         start_time = time.time() - 60
+        # The silent-detection clock is deliberately NOT start_time: that is
+        # backdated 60s to also catch mail that landed just before the wait
+        # began, so measuring against it would trip every threshold a full
+        # minute early.
+        wait_began = time.time()
         check_count = 0
+        successful_polls = 0
+        saw_fresh_mail = False
 
         while time.time() - start_time < max_wait:
             try:
@@ -131,6 +167,10 @@ class GmailOTPReader:
                 )
 
                 messages = results.get("messages", [])
+                # Counted only once the query itself came back. A Gmail outage
+                # or an auth failure raises below and must never be mistaken
+                # for "the portal sent nothing".
+                successful_polls += 1
 
                 if messages:
                     # Check each message for OTP
@@ -153,6 +193,10 @@ class GmailOTPReader:
                             )
                             continue
 
+                        # Something arrived for us. Whatever happens next, the
+                        # portal is not silent, so the silent check stands down.
+                        saw_fresh_mail = True
+
                         # Get subject and body
                         subject = self._get_header(message, "Subject")
                         body = self._get_message_body(message)
@@ -172,6 +216,23 @@ class GmailOTPReader:
                             )
                             return otp
 
+                # Nothing has arrived and enough real polls have run to trust
+                # that. Checked AFTER the scan above so a code landing in this
+                # same poll always wins over the accusation.
+                if (
+                    silent_after
+                    and not saw_fresh_mail
+                    and successful_polls >= SILENT_MIN_POLLS
+                    and time.time() - wait_began >= silent_after
+                ):
+                    quiet = int(time.time() - wait_began)
+                    print(f"✗ No OTP email at all after {quiet}s — portal likely sent none")
+                    raise OtpNeverSent(
+                        f"The portal accepted the request but no code arrived in {quiet}s. "
+                        "It is most likely rate-limiting OTP requests for this account — "
+                        "wait a while before asking for another code."
+                    )
+
                 # Progress indicator
                 elapsed = int(time.time() - start_time)
                 if elapsed % 30 == 0 and elapsed > 0:
@@ -187,6 +248,10 @@ class GmailOTPReader:
                 else:
                     time.sleep(30)  # Every 30 seconds after that
 
+            except OtpNeverSent:
+                # Deliberate signal, not a read failure — the generic handler
+                # below would swallow it and silently defeat the detection.
+                raise
             except Exception as e:
                 print(f"Error reading email: {e}")
                 time.sleep(5)
@@ -303,11 +368,12 @@ class GmailOTPReader:
 
 
 # Standalone function for easy import
-def get_latest_otp(sender_filter="@unifi.com.my", max_age_seconds=1800, to_filter=None):
+def get_latest_otp(sender_filter="@unifi.com.my", max_age_seconds=1800, to_filter=None,
+                   silent_after=GMAIL_OTP_SILENT_AFTER_SECONDS):
     reader = GmailOTPReader()
     return reader.get_latest_otp(
         sender_filter=sender_filter, wait_seconds=60, max_wait=max_age_seconds,
-        to_filter=to_filter,
+        to_filter=to_filter, silent_after=silent_after,
     )
 
 

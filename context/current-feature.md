@@ -2,79 +2,62 @@
 
 ## Status
 
-In Progress — code complete, prod migration pending (user to deploy)
+In Progress
 
 ## Goals
 
-Fix `/dashboard/order-entry/*` loading forever on production (bizzflow.top).
-
-1. Apply the missing migrations to the production database.
-2. Stop a failed server action from hanging the Order Entry card indefinitely.
+Stop the dealer login waiting 300 silent seconds for an OTP the portal never
+sent. Detect the silent case early and say what is actually happening.
 
 ## Notes
 
-### Root cause
+### What happened (2026-08-19)
 
-`prisma migrate deploy` was never part of the deploy: `build` was
-`prisma generate && next build`, and there is no `vercel.json`. Migrations were
-only ever hand-applied to the Neon **dev** branch (the `migrate dev` shadow-DB
-workaround), so the **prod** database was left behind from `20260811140000`
-onward. The project's own coding-standard already required this step.
+A login sat on "Reading the OTP from email automatically" until it timed out.
+Diagnosed live on the droplet:
 
-Evidence gathered by reproducing on prod as the affected user:
+```
+06:46:44Z  Requesting OTP...
+06:46:46Z  [GET] 200 .../portal/api/prod/genCaptcha     <- portal said OK
+06:46:47Z  Waiting for OTP email ... to nexion.eform@gmail.com
+06:50:34Z    Skipping old email (from 2082s ago)        <- 14:15 code, 35 min stale
+06:51:17Z  OTP not found after 300 seconds
+```
 
-- The `getDealerConnection` server action returns **500** (action id matched
-  against the deployed client bundle, so no guessing about which one).
-- `getPublishedPlans` also 500s (its `plans` tables are from 2026-08-15).
-- `getSidebarInfo` succeeds — it selects only pre-2026-08-11 columns.
-- `/dashboard/usage` renders fine, so Prisma and auth are healthy on prod;
-  the split is strictly by schema age.
-- `getDealerConnection` does a bare `findUnique` on `dealer_accounts`, so
-  Prisma selects **every** column including `registered_email` — added
-  2026-08-11 and missing on prod.
+Everything we built was healthy: forwarding works (8 Unifi OTPs reached
+`jobhunters.ai.pro@gmail.com` in 7 days with the `To:` header preserved), the
+Gmail token was valid, and the reader correctly refused a 35-minute-old code.
+**The portal returned 200 and then sent nothing.** Newest mail in the box was
+31 minutes older than the request, and still nothing 11 minutes later.
 
-### Why the symptom was a silent hang
+Most likely Unifi's own OTP throttle — six codes had been issued to that address
+in the preceding hours while the scraper made only one request, so the rest came
+from manual portal logins. Same limit as the known `46410045 "Access to otp code
+is too frequent"`, except returned as **200**, which `_capture_auth_api` cannot
+see: it only raises on non-2xx.
 
-`loadConnection()` had no try/catch and `setLoading(false)` sat after the
-`await`. A server action **rejects** on a 500 rather than resolving with
-`success: false`, so the spinner never cleared and nothing on screen said why.
-`runStatusCheck()` had the same shape ("Verifying connection…" forever).
+### Approach
 
-### Changes
+A 200-that-sends-nothing is indistinguishable from success at request time, so
+it can only be caught by the *absence* of mail afterwards. `get_latest_otp` now
+raises `OtpNeverSent` once `silent_after` seconds pass with no message newer
+than the wait start.
 
-- `package.json` — build is now
-  `prisma generate && prisma migrate deploy && next build`. A deploy that
-  can't migrate now fails loudly instead of shipping an app against a stale
-  schema.
-- `OrderEntryShell.tsx` — `loadConnection` and `runStatusCheck` catch a thrown
-  action. The initial-load failure shows a red banner + **Retry** instead of an
-  endless spinner; a failed re-check leaves the last known state alone (a failed
-  check is not evidence the session is gone).
+Two guards against crying wolf, because reporting "the portal is throttling you"
+for mail that was merely slow is worse than the wait it replaces:
 
-### Verification
+- The silent clock runs from a separate `wait_began`, NOT `start_time` — which
+  is deliberately backdated 60s, so reusing it would fire every threshold a
+  full minute early.
+- It needs `SILENT_MIN_POLLS` successful Gmail queries first, so a Gmail outage
+  or an auth failure is never reported as portal silence.
 
-- Forced `getDealerConnection` to throw locally: error banner rendered, Retry
-  showed the spinner, re-ran, and returned to a retryable error — no hang.
-  Restored, the connected view loads normally ("Connected as TMRS00517").
-- `npm run build` passes; the new step reports "No pending migrations to apply"
-  against the already-current dev DB.
-- Lint clean on the touched file (baseline was clean). 212 unit tests pass —
-  unchanged from baseline.
-- The 10 pending migrations contain no destructive statement against
-  pre-existing prod data; the two `DROP TABLE`s target tables created earlier in
-  the same pending batch.
-
-### Outstanding
-
-- **Not yet applied to prod.** The next deploy applies it via the new build
-  step; or run `prisma migrate deploy` against the prod `DATABASE_URL` first.
-- Prod's exact migration position was inferred from the failure pattern, not
-  read off its `_prisma_migrations` table (the prod URL lives only in Vercel).
-  `migrate deploy` is idempotent, so it will settle whatever the real gap is.
-- Preview deploys will now also run `migrate deploy` against whatever
-  `DATABASE_URL` their environment carries.
+The login is not aborted. The UI drops to manual entry exactly as it does on
+timeout, so a late code can still be typed — we are reporting a likely cause,
+not asserting a certainty.
 
 ## History
+
 
 
 

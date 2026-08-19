@@ -77,6 +77,9 @@ export default function OrderEntryShell({
 
   // Two-step state
   const [step, setStep] = useState<Step>("form");
+  // Explanation shown on the manual OTP step when the portal accepted the
+  // request but sent no code at all (see reason "otp_not_sent").
+  const [otpNotSent, setOtpNotSent] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [otp, setOtp] = useState("");
   const [secondsLeft, setSecondsLeft] = useState(0);
@@ -198,6 +201,17 @@ export default function OrderEntryShell({
             );
             break;
           }
+          if (result.data.reason === "otp_not_sent") {
+            // Still drop to manual entry rather than abandoning the login: we
+            // are reporting a likely cause, not a certainty, and a late code
+            // can still be typed if one turns up.
+            setOtpNotSent(
+              result.data.message ||
+                "The portal accepted the request but sent no code — it is likely rate-limiting OTP requests. Wait a while before asking for another."
+            );
+            setStep("otp");
+            break;
+          }
         // falls through — any other error means "couldn't auto-read", so offer
         // the manual OTP form.
         case "timeout":
@@ -281,6 +295,7 @@ export default function OrderEntryShell({
     e.preventDefault();
     setSending(true);
     setCredentialsError("");
+    setOtpNotSent(""); // a fresh request re-opens the question
     const result = await requestDealerOtp(
       staffCode.trim(),
       password,
@@ -664,13 +679,25 @@ export default function OrderEntryShell({
                 <div className="flex items-center gap-2 text-xs bg-[#EBE9FE] text-[#5851DB] rounded-lg px-4 py-2.5">
                   <ClockIcon className="w-3.5 h-3.5 shrink-0" />
                   <span>
-                    OTP sent via {channel}. Expires in{" "}
+                    {/* Don't claim the code was sent when we have just
+                        established that it wasn't — that is the same false
+                        confirmation this whole check exists to remove. */}
+                    {otpNotSent ? "This login window" : `OTP sent via ${channel}`}. Expires in{" "}
                     <span className="font-semibold tabular-nums">
                       {Math.floor(secondsLeft / 60)}:
                       {String(secondsLeft % 60).padStart(2, "0")}
                     </span>
                   </span>
                 </div>
+
+                {/* The portal took the request and sent nothing. Persistent,
+                    not a toast: the instruction is to WAIT before asking
+                    again, and a toast is gone before that can register. */}
+                {otpNotSent && (
+                  <div className="text-xs bg-amber-50 text-amber-900 rounded-lg px-4 py-3">
+                    {otpNotSent}
+                  </div>
+                )}
 
                 {channel === "Email" && (
                   <div className="flex items-center gap-2 text-xs bg-[#F6F9FC] text-[#425466] rounded-lg px-4 py-2.5">
