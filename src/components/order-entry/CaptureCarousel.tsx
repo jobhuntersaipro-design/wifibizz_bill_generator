@@ -190,8 +190,8 @@ export function CaptureCarousel({
 
           {expiry?.expired ? (
             <p className="max-w-sm rounded-xl border border-dashed border-white/20 px-6 py-10 text-center text-[12px] leading-relaxed text-white/60">
-              This frame passed its {CAPTURE_RETENTION_DAYS}-day retention and has
-              been deleted.
+              {isPdfCapture(current.key) ? "This document" : "This frame"} passed its{" "}
+              {CAPTURE_RETENTION_DAYS}-day retention and has been deleted.
             </p>
           ) : (
             isPdfCapture(current.key) ? (

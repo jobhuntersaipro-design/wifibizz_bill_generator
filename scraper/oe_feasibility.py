@@ -3233,6 +3233,15 @@ async def _post_pay_tail(page, payload: dict, stage, advance_payment: str | None
     the e-RF PDF before returning.
     """
     frame = _frame(page)
+    # The best confirmation seen SO FAR, remembered across iterations.
+    #
+    # Load-bearing, not tidiness: a "Submit Successfully" screen appears on one
+    # page and is gone the moment we Next past it looking for the e-RF page. Read
+    # it and drop it, and a run that then fails to find the e-RF page reports
+    # "no order number" for an order whose number we had already read and paid
+    # for — the exact failure this whole tail exists to prevent, arriving by the
+    # most likely live route (the Print e-RF text not matching).
+    seen = None
     for step in range(max_next):
         erf = await _find_erf_page(frame)
         if erf:
@@ -3240,43 +3249,63 @@ async def _post_pay_tail(page, payload: dict, stage, advance_payment: str | None
 
         res = await _find_submit_result(frame)
         if res:
-            # A confirmation screen on the way to the e-RF page — record the
-            # number and keep going; the document is still one or more Nexts on.
+            # A confirmation screen on the way to the e-RF page — keep the number
+            # and carry on; the document is still one or more Nexts away.
             print(f"    ↳ submit confirmation seen: {res}", flush=True)
-            nx = await click_next_newconn(page, stage=stage,
-                                          page_name=f"After payment ({step + 1})")
-            if nx.get("status") != "ok":
-                return {"status": "submitted", "stage": "done",
-                        "advance_payment": advance_payment,
-                        "warning": ("Payment went through and the order was confirmed, but "
-                                    "the flow could not reach the e-RF page: "
-                                    f"{nx.get('message', 'Next did not advance.')}"),
-                        **res}
-            await asyncio.sleep(3)
-            continue
+            seen = _better_confirmation(seen, res)
 
         nx = await click_next_newconn(page, stage=stage,
                                       page_name=f"After payment ({step + 1})")
         if nx.get("status") != "ok":
-            # Paid, and stuck. Report it as a warning on a submitted order only
-            # if we know the order number; otherwise it is a genuine error — and
-            # one whose message has to say that money was taken.
-            return _paid_but_stranded(nx.get("message"), advance_payment)
+            # Paid, and stuck. If a number was read at any point this is a
+            # submitted order that merely lost its paperwork; only a run that
+            # never saw one is a genuine error.
+            return _post_pay_outcome(
+                seen, advance_payment,
+                f"the flow could not reach the e-RF page: "
+                f"{nx.get('message', 'Next did not advance.')}")
         await asyncio.sleep(3)
 
     erf = await _find_erf_page(frame)
     if erf:
         return await _finish_on_erf_page(page, payload, stage, advance_payment, erf)
-    res = await _find_submit_result(frame)
-    if res:
+    seen = _better_confirmation(seen, await _find_submit_result(frame))
+    return _post_pay_outcome(
+        seen, advance_payment,
+        f"the e-RF page was not reached in {max_next} Next clicks, so no "
+        f"registration form was saved.")
+
+
+def _better_confirmation(current: dict | None, found: dict | None) -> dict | None:
+    """Keep whichever confirmation actually carries a usable order number.
+
+    `_find_submit_result` returns a dict with `order_id: None` when it matches
+    the success wording but not the number, so "we saw a confirmation" and "we
+    know the order number" are NOT the same thing, and a later numberless match
+    must never displace an earlier good one.
+    """
+    if found and is_portal_order_number(found.get("order_id")):
+        return found
+    if current:
+        return current
+    return found
+
+
+def _post_pay_outcome(seen: dict | None, advance_payment: str | None,
+                      what_went_wrong: str) -> dict:
+    """Submitted-with-a-warning if we know the order number, stranded if not.
+
+    One place decides this, because the difference between those two outcomes is
+    the difference between an order the agent can look up and one they have to
+    hunt for in the portal by hand.
+    """
+    if seen and is_portal_order_number(seen.get("order_id")):
         return {"status": "submitted", "stage": "done",
                 "advance_payment": advance_payment,
-                "warning": (f"Payment went through, but the e-RF page was not reached in "
-                            f"{max_next} Next clicks, so no registration form was saved."),
-                **res}
-    return _paid_but_stranded(
-        f"Reached neither a confirmation nor the e-RF page in {max_next} Next clicks.",
-        advance_payment)
+                "warning": ("Payment went through and the order was confirmed, but "
+                            f"{what_went_wrong}"),
+                **seen}
+    return _paid_but_stranded(what_went_wrong.strip().capitalize(), advance_payment)
 
 
 def _paid_but_stranded(detail: str | None, advance_payment: str | None) -> dict:

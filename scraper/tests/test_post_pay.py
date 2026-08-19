@@ -24,7 +24,12 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from oe_feasibility import _paid_but_stranded, is_portal_order_number  # noqa: E402
+from oe_feasibility import (  # noqa: E402
+    _better_confirmation,
+    _paid_but_stranded,
+    _post_pay_outcome,
+    is_portal_order_number,
+)
 from r2_upload import erf_key  # noqa: E402
 
 
@@ -97,3 +102,50 @@ def test_a_stranded_run_reads_cleanly_with_no_detail():
     r = _paid_but_stranded(None, None)
     assert not r["message"].endswith(" ")
     assert "PAYMENT WAS SUBMITTED" in r["message"]
+
+
+# ── Never lose a confirmation we already read ───────────────────────────────
+#
+# The post-Pay loop walks PAST the "Submit Successfully" screen looking for the
+# e-RF page. If the number read there is dropped, a run that then fails to find
+# the e-RF page (the most likely live failure — the Print e-RF text not matching)
+# reports "no order number" for an order that was read AND paid for. That is the
+# exact failure this tail exists to prevent, so it gets its own tests.
+
+OK = {"order_id": "2608000121575083", "order_url": "https://…"}
+NUMBERLESS = {"order_id": None, "order_url": None}
+
+
+def test_a_confirmation_with_a_number_is_kept():
+    assert _better_confirmation(None, OK) == OK
+
+
+def test_a_later_numberless_match_never_displaces_a_good_one():
+    # _find_submit_result returns a dict with order_id=None when it matches the
+    # success wording but not the number, so truthiness is not the test.
+    assert _better_confirmation(OK, NUMBERLESS) == OK
+    assert _better_confirmation(OK, None) == OK
+
+
+def test_a_numberless_match_is_still_better_than_nothing():
+    assert _better_confirmation(None, NUMBERLESS) == NUMBERLESS
+
+
+def test_a_known_order_number_survives_a_failed_erf_hunt():
+    r = _post_pay_outcome(OK, "150.00", "the e-RF page was not reached.")
+    assert r["status"] == "submitted"          # NOT an error: it is paid and known
+    assert r["order_id"] == "2608000121575083"
+    assert "the e-RF page was not reached." in r["warning"]
+
+
+def test_no_order_number_anywhere_is_a_stranded_error():
+    r = _post_pay_outcome(None, None, "the e-RF page was not reached.")
+    assert r["status"] == "error"
+    assert r["message"].startswith("PAYMENT WAS SUBMITTED")
+
+
+def test_a_confirmation_without_a_number_does_not_count_as_known():
+    # Seeing the words is not knowing the order. Reporting `submitted` with a
+    # null id would put a row in the table that names no portal order.
+    r = _post_pay_outcome(NUMBERLESS, None, "the e-RF page was not reached.")
+    assert r["status"] == "error"
