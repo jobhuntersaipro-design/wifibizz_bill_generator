@@ -656,12 +656,27 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
                             "Address + plan selected; " + describe_order_not_ready(btn_state))}
 
     if not order_ready:
-        why = describe_order_not_ready(btn_state)
         # Photograph the page we are refusing on. Two hypotheses for ORD-0006
         # (a hidden duplicate grid, then the dblclick gesture) were each
         # disproven by a deploy-and-run cycle that a single picture would have
         # settled. Costs nothing on the happy path — this branch mints no order.
         await capture_and_report(page, payload, "offer_grid", stage)
+
+        # A blocking portal dialog outranks anything we can infer from the DOM.
+        # ORD-0006 sat behind "This address only offers services from other
+        # operators and does not have any services provided by TM." — the portal
+        # had already said exactly why, in a sentence far more useful than our
+        # "the portal is keeping the Order button hidden", while the populated
+        # offer grid behind the overlay made it look like a selection problem.
+        dialog = await _capture_dialog_message(page)
+        if dialog:
+            code = map_error(dialog)
+            stage("placing_order", _detail(dialog, "failed"))
+            return {"status": "error", "error": code, "stage": "click_order",
+                    "message": dialog, "portal_code": portal_code(dialog),
+                    "state": btn_state}
+
+        why = describe_order_not_ready(btn_state)
         stage("placing_order", _detail(why, "failed"))
         return {"status": "error", "error": "order_not_ready", "stage": "click_order",
                 "message": why, "state": btn_state}

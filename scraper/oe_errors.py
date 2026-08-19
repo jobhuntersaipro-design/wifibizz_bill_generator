@@ -12,6 +12,13 @@ import re
 # ── Stable error codes (the contract with BizzFlow) ──
 ADDRESS_ALREADY_HAS_SERVICE = "address_already_has_service"
 ADDRESS_NOT_FOUND = "address_not_found"
+# The address exists and is known to the portal, but TM does not serve it — only
+# other operators do. The near-opposite of ADDRESS_ALREADY_HAS_SERVICE, and not
+# something a retry or a different package can fix: no Unifi order can be placed
+# here at all. Observed verbatim (ORD-0006, 2026-08-19):
+#   "This address only offers services from other operators and does not have
+#    any services provided by TM."
+ADDRESS_NO_TM_SERVICE = "address_no_tm_service"
 MSR_CUSTOMER_ID_LIMIT = "msr_customer_id_limit"
 MSR_OFFLINE_APPROVAL = "msr_offline_approval"
 LOGIN_ID_INVALID = "login_id_invalid"
@@ -36,7 +43,13 @@ _RULES: list[tuple[str, str]] = [
     ("out of stock", DEVICE_OUT_OF_STOCK),
     ("no stock", DEVICE_OUT_OF_STOCK),
     ("stock is not available", DEVICE_OUT_OF_STOCK),
-    # Feasibility / address
+    # Feasibility / address.
+    # This pair must stay ABOVE the "already has" rules: the portal's sentence
+    # for an unserved address contains "services provided by TM", and a loose
+    # rule ordering would file "no TM service here" as "already has TM service"
+    # — opposite meanings, opposite advice to the agent.
+    ("does not have any services provided by tm", ADDRESS_NO_TM_SERVICE),
+    ("only offers services from other operators", ADDRESS_NO_TM_SERVICE),
     ("already has tm service", ADDRESS_ALREADY_HAS_SERVICE),
     ("already has tm services", ADDRESS_ALREADY_HAS_SERVICE),
     ("address already has", ADDRESS_ALREADY_HAS_SERVICE),

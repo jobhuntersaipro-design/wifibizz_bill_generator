@@ -192,3 +192,29 @@ async def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(asyncio.run(main()))
+
+
+# ── Address served only by other operators (ORD-0006, 2026-08-19) ──────────
+# The portal blocked the whole Feasibility Check behind an Error dialog while
+# the offer grid sat populated behind it, so the run saw a correct offer row
+# highlighted, `.js-orderNow` still carrying `hide`, and no reason why.
+
+NO_TM = ("This address only offers services from other operators and does not "
+         "have any services provided by TM.")
+
+
+def test_an_address_with_no_tm_service_is_its_own_code():
+    from oe_errors import ADDRESS_NO_TM_SERVICE, map_error
+    assert map_error(NO_TM) == ADDRESS_NO_TM_SERVICE
+
+
+def test_it_is_not_confused_with_an_address_that_already_has_service():
+    """Opposite meanings and opposite advice: one says move the customer to a
+    different address, the other says the line is already there. The portal's
+    unserved-address sentence contains the words "services provided by TM", so
+    rule order is the only thing keeping these apart."""
+    from oe_errors import (ADDRESS_ALREADY_HAS_SERVICE, ADDRESS_NO_TM_SERVICE,
+                           map_error)
+    assert map_error(NO_TM) == ADDRESS_NO_TM_SERVICE
+    assert map_error("This address already has TM service.") == ADDRESS_ALREADY_HAS_SERVICE
+    assert ADDRESS_NO_TM_SERVICE != ADDRESS_ALREADY_HAS_SERVICE

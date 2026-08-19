@@ -385,6 +385,17 @@ export interface SubmitErrorCopy {
 export const ERF_NOT_DOWNLOADED = "erf_not_downloaded";
 
 export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
+  address_no_tm_service: {
+    title: "TM does not serve this address",
+    subtext:
+      "The portal knows this address but only other operators supply it \u2014 " +
+      "there is no TM line to sell. Nothing about the customer, the package or " +
+      "the device is wrong, and no Unifi order can be placed here at all.",
+    fix:
+      "Check the unit number with the customer first, since a neighbouring unit " +
+      "in the same building is often serviceable. If the address is right, this " +
+      "order cannot go ahead \u2014 delete the draft rather than resubmitting it.",
+  },
   device_out_of_stock: {
     title: "Device out of stock",
     subtext:
