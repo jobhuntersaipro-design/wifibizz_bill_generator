@@ -28,6 +28,11 @@ const SCRAPER_STAGES = [
   "appointment",
   "delivery_terms",
   "pay",
+  // Post-payment: only ever emitted when do_pay=TRUE, which is exactly why they
+  // are listed here — the first run that reaches them is a real charged order,
+  // and a missing step key would render that run's last two stages as "Working…".
+  "erf",
+  "order_complete",
 ];
 
 describe("stepIndexForStage", () => {
@@ -90,6 +95,16 @@ describe("SUBMIT_STEPS", () => {
     // The UI draws its divider from this key; a rename that misses one side
     // would silently drop the "order exists in portal" warning.
     expect(SUBMIT_STEPS.some((s) => s.key === POINT_OF_NO_RETURN)).toBe(true);
+  });
+
+  it("ends on the close-out, after the e-RF", () => {
+    // The submit is not over when the document is downloaded: the portal is
+    // still sitting on the confirmation page until its Next is clicked. Nothing
+    // may follow that, and a checklist that ticked "Downloading e-RF" last would
+    // read as complete while the browser was parked mid-order.
+    expect(SUBMIT_STEPS[SUBMIT_STEPS.length - 1].key).toBe("order_complete");
+    expect(stepIndexForStage("order_complete")).toBeGreaterThan(stepIndexForStage("erf"));
+    expect(stepIndexForStage("erf")).toBeGreaterThan(stepIndexForStage("pay"));
   });
 
   it("puts the two pre-portal checks first", () => {

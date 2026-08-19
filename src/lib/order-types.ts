@@ -67,6 +67,10 @@ export const SUBMIT_STEPS: SubmitStep[] = [
   // Only reachable after a real charge — with do_pay=FALSE a run stops at the
   // Pay gate and this step never ticks, which is correct: it did not happen.
   { key: "erf", label: "Downloading e-RF" },
+  // The confirmation page's Next, which returns the portal to the order list.
+  // Best-effort: it runs after the charge and after the e-RF is stored, so it
+  // can only ever tick amber, never fail the order.
+  { key: "order_complete", label: "Closing out order" },
 ];
 
 // Everything from here on has an order id in the portal: a failure after this
@@ -388,6 +392,26 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
       "Information page, and refused this order because Unifi has no stock of " +
       "the device on it. Nothing about the customer or the address is wrong.",
     fix: "Edit the order, choose a different device, then resubmit.",
+  },
+  pay_page_not_ready: {
+    title: "Pay page never finished loading",
+    subtext:
+      "The portal showed its Pay button before the charges had loaded, so the " +
+      "run stopped rather than click it. Nothing was paid \u2014 this happens " +
+      "before the payment, not during it.",
+    fix:
+      "Submit again. The order already exists in the portal and is waiting at " +
+      "the Pay step, so check it there first rather than creating a second one.",
+  },
+  pay_click_did_not_take: {
+    title: "Payment unconfirmed",
+    subtext:
+      "Pay was clicked, but the portal was still showing the Pay page 30 " +
+      "seconds later. The payment may or may not have gone through \u2014 the " +
+      "portal never said.",
+    fix:
+      "Check this order in the Unifi portal before doing anything else. Only " +
+      "resubmit once you have confirmed it was NOT paid.",
   },
   erf_not_downloaded: {
     title: "No e-RF (registration form)",
