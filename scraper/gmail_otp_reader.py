@@ -30,16 +30,27 @@ class GmailOTPReader:
                 "config/gmail_token.json", SCOPES
             )
 
+        refresh_error = None
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 try:
                     creds.refresh(Request())
-                except Exception as e:
-                    # Token refresh failed (expired/revoked) - delete and re-auth
-                    print(f"⚠️ Gmail token refresh failed: {e}")
-                    print("🗑️ Deleting expired token and requesting fresh login...")
-                    if os.path.exists("config/gmail_token.json"):
-                        os.remove("config/gmail_token.json")
+                except Exception as e:  # noqa: BLE001
+                    # The token is deliberately NOT deleted here.
+                    #
+                    # Deleting it is what turned one expiry into a dead feature:
+                    # on a server `ALLOW_BROWSER_AUTH` is off, so there is no way
+                    # to write a replacement, and removing the file makes the
+                    # failure permanent AND destroys the evidence of what went
+                    # wrong. A refresh can also fail for reasons that pass on
+                    # their own — a network blip, a 5xx from Google — and those
+                    # must not cost the credential.
+                    #
+                    # Keep the file, carry the reason, and let the caller say so.
+                    refresh_error = f"{type(e).__name__}: {e}"
+                    print(f"⚠️ Gmail token refresh failed: {refresh_error}")
+                    print("   Keeping config/gmail_token.json — a refresh failure "
+                          "is not proof the token is unusable.")
                     creds = None
 
             if not creds or not creds.valid:
@@ -51,8 +62,16 @@ class GmailOTPReader:
 
                 if not ALLOW_BROWSER_AUTH:
                     raise RuntimeError(
-                        "Gmail token missing/invalid and browser-based login is disabled on server. "
-                        "Generate config/gmail_token.json on a machine with a browser and upload it."
+                        "Gmail auto-read is unavailable: "
+                        + (f"refreshing the saved token failed ({refresh_error}). "
+                           if refresh_error else
+                           "config/gmail_token.json is missing or invalid. ")
+                        + "Browser sign-in is disabled here, so a token cannot be "
+                        "created on this machine. Regenerate it where a browser is "
+                        "available with `GMAIL_ALLOW_BROWSER=1 python -c \"from "
+                        "gmail_otp_reader import GmailOTPReader; GmailOTPReader()\"` "
+                        "and copy config/gmail_token.json across, then restart "
+                        "api_server."
                     )
 
                 print("🔐 Opening browser for Gmail authentication...")
