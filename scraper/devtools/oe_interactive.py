@@ -35,7 +35,7 @@ from oe_feasibility import (open_feasibility, select_plan, attach_customer,
                             create_billing_account, set_winback_tagging,
                             select_device, fill_customer_order_info,
                             pay_and_submit, submit_new_connection, click_next_newconn)
-from oe_capture_newconn import _pick_orderable_address
+from devtools.oe_capture_newconn import _pick_orderable_address
 
 CMD = os.environ.get("OE_CMD", "logs/oe_cmd.json")
 RES = os.environ.get("OE_RES", "logs/oe_result.json")

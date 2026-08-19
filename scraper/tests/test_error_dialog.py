@@ -32,8 +32,8 @@ from oe_feasibility import (  # noqa: E402
 )
 
 HERE = pathlib.Path(__file__).parent
-UIDIALOG = HERE / "fixture_stock_dialog_uidialog.html"
-SHELL = HERE / "fixture_stock_dialog_shell.html"
+UIDIALOG = HERE / "fixtures" / "fixture_stock_dialog_uidialog.html"
+SHELL = HERE / "fixtures" / "fixture_stock_dialog_shell.html"
 
 # The in-iframe fixture has to be loaded through an #myIframe exactly as the
 # portal does. srcdoc, not src: a file:// iframe is a separate origin, so

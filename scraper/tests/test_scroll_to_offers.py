@@ -21,8 +21,13 @@ from oe_feasibility import (  # noqa: E402
     SCROLL_TO_HEADING_JS,
 )
 
-FIXTURE = pathlib.Path(__file__).parent / "fixture_broadband_tab.html"
-ORDER_INFO_FIXTURE = pathlib.Path(__file__).parent / "fixture_order_info_page.html"
+# Diagnostic screenshots land here rather than beside the fixtures — they are
+# evidence for a human reading a failure, not source. Gitignored (blanket *.png).
+SHOTS = pathlib.Path(__file__).parent / "_artifacts"
+SHOTS.mkdir(exist_ok=True)
+
+FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "fixture_broadband_tab.html"
+ORDER_INFO_FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "fixture_order_info_page.html"
 
 # The real capture is a shot of the iframe's <body>, so the fixture is loaded
 # into an #myIframe exactly as the portal does — the JS walks that boundary.
@@ -105,7 +110,7 @@ async def main() -> int:
         check("Order Information is in frame", vis["info"]["partly"],
               f"top={vis['info']['top']} bottom={vis['info']['bottom']}")
 
-        await page.screenshot(path=str(FIXTURE.parent / "scroll_result.png"))
+        await page.screenshot(path=str(SHOTS / "scroll_result.png"))
 
         # ── The post-Next page: every section must be reachable ──────────────
         print("\nCustomer Order Information page:")
@@ -148,7 +153,7 @@ async def main() -> int:
             }""", want[slot])
             check(f"{slot}: section is in frame", seen["visible"],
                   f"top={seen['top']}")
-            await page.screenshot(path=str(FIXTURE.parent / f"scroll_{slot}.png"))
+            await page.screenshot(path=str(SHOTS / f"scroll_{slot}.png"))
 
         # The steps after the captures were written against the page where they
         # left it. Moving it underneath them would make evidence-gathering the

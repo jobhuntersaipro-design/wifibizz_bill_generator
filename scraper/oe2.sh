@@ -1,4 +1,6 @@
 #!/bin/bash
+# Requires the persistent runner (window 2), started from scraper/ with:
+#   python3 -m devtools.oe_interactive
 # Same as oe.sh but drives the SECOND runner (window 2): its own cmd/result/seq
 # files so it never clashes with window 1 (oe.sh).
 #   OP=eval  JS='<js>'                 bash oe2.sh

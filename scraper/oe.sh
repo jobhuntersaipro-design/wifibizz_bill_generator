@@ -1,4 +1,6 @@
 #!/bin/bash
+# Requires the persistent runner, started from scraper/ with:
+#   python3 -m devtools.oe_interactive
 # Send one command via env vars (avoids JSON/quote escaping). Waits for result.
 #   OP=eval  JS='<js returning value, `d` = iframe document>'  bash oe.sh
 #   OP=click SEL='<css>' [FORCE=1]                              bash oe.sh

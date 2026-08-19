@@ -22,8 +22,8 @@ from appointment_policy import choose_slot, describe_read_failure  # noqa: E402
 from oe_feasibility import _APPT_READ_JS, _TAG_SLOT_JS as TAG_JS  # noqa: E402
 
 HERE = pathlib.Path(__file__).parent
-MODERN = HERE / "fixture_appointment_dialog.html"
-LEGACY = HERE / "fixture_appointment_dialog_legacy.html"
+MODERN = HERE / "fixtures" / "fixture_appointment_dialog.html"
+LEGACY = HERE / "fixtures" / "fixture_appointment_dialog_legacy.html"
 
 # The real read happens inside the portal's #myIframe, and the JS walks that
 # boundary — so the fixture is loaded the same way. srcdoc, not src: a file://

@@ -11,4 +11,5 @@ __pycache__/
 *.pyc
 .pytest_cache/
 tests/
+devtools/   # dev-only portal probes; never needed by the service
 *.md

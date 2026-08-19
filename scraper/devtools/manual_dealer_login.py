@@ -49,7 +49,7 @@ async def _wait_for_otp_file(otp_file: str, timeout: int = 240) -> str:
 async def main(staff, password, channel, headed, slow_mo, otp_file):
     if headed:
         # Same headed monkeypatch used by oe_dry_run.py — flips headless off.
-        from oe_dry_run import _make_headed_launch
+        from devtools.oe_dry_run import _make_headed_launch
 
         login_manager._launch_browser_safe = _make_headed_launch(slow_mo)
 
