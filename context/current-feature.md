@@ -2,15 +2,83 @@
 
 ## Status
 
-Not Started
+In Progress — Phase A
 
 ## Goals
 
-<!-- What does success look like? -->
+**Scraper folder cleanup.** `scraper/` holds 42 Python files / 15,447 lines, and
+roughly 40% of it is dead or unreferenced. Reduce it to the code that actually
+runs, without touching the live submit path.
+
+Measured before starting (import graph from `api_server.py` + `tests/`):
+
+| | files | lines |
+| --- | --- | --- |
+| Reachable from the service | 18 | ~9,200 |
+| Cannot execute at all | 3 | 3,545 |
+| Runnable but referenced by nothing | 20 | 2,701 |
+
+**Phase A — delete what cannot run** (~3,545 lines, near-zero risk)
+- `scrape_orders.py` (1,550) imports `date_utils`; `check_status.py` (1,459)
+  imports `gsheets_writer`. Neither module exists anywhere in the repo, so both
+  files raise `ModuleNotFoundError` on import. `api_server.py` wraps them in
+  `try/except` and prints two ⚠️ lines on every boot.
+- 536 of `api_server.py`'s 1,291 lines serve 10 routes that depend on those
+  missing modules or are WifiBizz-crawler-era leftovers replaced by
+  `src/lib/crawler/`: `/scrape`, `/scrape_full`, `/scrape_incremental`,
+  `/download_csv`, `/get_months`, `/get_latest_summary`, `/get_current_summary`,
+  `/status`, `/save_credentials`, `/test_date_comparison`.
+- BizzFlow calls only `/orders`, `/jobs/<id>`, `/dealer/login/*`,
+  `/dealer/address-search`, `/health` (grepped across `src/`).
+- Verify: `api_server` imports with no warnings, 71 scraper tests pass.
+
+**Phase B — separate dev tools from the service** (low risk)
+- ~17 stale probes (`oe_capture_*`, `oe_test_*`, `inspect_*`, `oe_dry_run`,
+  `dry_run_customer`, `oe_real_feasibility`, `oe_watch_feasibility`, …) move to
+  `scraper/devtools/`. All but two were added in one commit — `0f8cbe1
+  "push scrapper"`, 52 files at once — and never touched since.
+- Keep in place: `oe_capture_appointment` (08-18), `probe_offer_catalog` (08-16,
+  cited by `plan-details.md`), `oe_capture_address` (cited by
+  `order-entry-address-api.md`), `oe_interactive.py` + `oe.sh` / `oe2.sh`.
+- Delete `oe_drive.sh` — superseded by `oe.sh` (same lock files, older interface).
+- Add `devtools/` to `.dockerignore`. The Dockerfile does `COPY . .`, so every
+  probe currently ships to the droplet.
+- Caveat: probes import `order_entry` etc. as top-level modules, so moving needs
+  a path shim or documented `PYTHONPATH`. Each must still run afterwards.
+
+**Phase C — housekeeping** (low risk)
+- `logs/` is 74MB / 163 PNGs / 211 files with no rotation, on a **1GB droplet**.
+  `deploy.sh` reads it for busy-detection but never prunes.
+- `tests/scroll_*.png` are test *outputs* written into the source tree.
+- Consolidate loose `tests/fixture_*.html` into `tests/fixtures/` — this
+  **requires updating** the `!scraper/tests/fixture_*.html` gitignore negation,
+  or a fresh clone loses them and the scroll tests fail.
+- Rename root `test_dealer_login.py` (a manual script, not a test — it collides
+  by name with the real `tests/test_dealer_login_capture.py`; pytest collects 0
+  tests from it, so this is confusing rather than dangerous).
+- Add `pytest.ini` with `testpaths = tests`.
+
+**Phase D — split `oe_feasibility.py` (3,329 lines) — NOT NOW.**
+7 embedded JS blobs; `fill_customer_order_info` alone is 329 lines. It is the
+live submit path and Phase 5 is still live-unverified. Refactoring code that
+cannot yet be tested against the portal trades a tidy folder for an unprovable
+regression. Revisit after one verified live submit.
 
 ## Notes
 
-<!-- Constraints, context, decisions -->
+- The three deploy docs are **not** redundant — they layer as provisioning
+  (`DEPLOY_DIGITALOCEAN.md`) → connections + routine updates
+  (`SOP_DROPLET_UPDATE.md`) → everyday loop (`SOP_DEPLOY.md`). Leave them.
+- `inspect_order_entry.py` and `oe_dump.py` have dev names but sit in the live
+  path — the first only under `OE_HEADED=1` (guarded by try/except), the second
+  for one hint string. Neither can simply move to `devtools/`.
+- `close_blocking_popup` is defined twice: `inspect_order_entry.py:236` and
+  `scrape_orders.py:40`. Phase A removes the second copy.
+- **Open question, deliberately not blocking:** nothing in `src/` calls the 10
+  legacy routes, but an external caller (cron on the droplet, a bookmark) cannot
+  be ruled out from here. Five of them already 500 on every call, so only
+  `/status`, `/save_credentials` and `/download_csv` could be losing anything
+  real. Every deletion is one `git revert` away.
 
 ## History
 
