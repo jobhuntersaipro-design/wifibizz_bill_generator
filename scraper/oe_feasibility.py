@@ -512,7 +512,8 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
     # Full path: drive the whole New Connection detail flow -> Pay/Submit.
     await cancel_customer_popup(page)
     sub = await submit_new_connection(page, payload, im_paths=im_paths,
-                                      id_paths=id_paths, do_pay=do_pay, on_stage=on_stage)
+                                      id_paths=id_paths, do_pay=do_pay, on_stage=on_stage,
+                                      known_order_id=order_id)
     sub.setdefault("order_id", order_id)
     sub.setdefault("order_url", _order_detail_url(sub.get("order_id") or order_id))
     return sub
@@ -1948,6 +1949,90 @@ READ_ERROR_DIALOG_JS = r"""((excl) => {
 })"""
 
 
+# The portal's "Order Validation Results" gate.
+#
+# NOT an error dialog, which is exactly why the flow used to walk past it:
+# `READ_ERROR_DIALOG_JS` only engages with a dialog whose class or title reads
+# warn/error, and this one is titled "Order Validation Results" with a body that
+# starts "Main Offer". It is a CONFIRMATION — "Please key in customer email
+# address or confirm to proceed if customer does not have email address." — with
+# OK and Cancel. Left unanswered it sits over the Customer Order Information
+# page, the attachment section never renders behind it, and the run dies 45s
+# later reporting a missing attachment block. Order 2608000121499094 was
+# stranded exactly that way.
+#
+# Deliberately NOT routed through read_error_dialog: that path returns a
+# `warning` and stops the run, which is the opposite of what this needs. This
+# answers the gate and lets the flow continue.
+#
+# The matcher is narrow on purpose — a validation-shaped title, or the gate's own
+# wording in the body. A broad "click any OK" would happily confirm a real
+# refusal (out of stock, address taken) and carry on as though nothing happened.
+CONFIRM_VALIDATION_JS = r"""(() => {
+  const vis=e=>{ if(!e) return false;
+    const r=e.getBoundingClientRect();
+    return (e.offsetParent!==null || getComputedStyle(e).position==='fixed')
+           && r.width>0 && r.height>0; };
+  const SELECTORS=['.ui-dialog','.modal.in','.modal.show','.ant-modal','[role=dialog]'];
+  const f=document.querySelector('#myIframe'), fd=f&&f.contentDocument;
+  const docs=[['iframe',fd],['top',document]];
+  for(const [container,d] of docs){
+    if(!d) continue;
+    for(const sel of SELECTORS){
+      for(const dl of [...d.querySelectorAll(sel)].filter(vis).reverse()){
+        const t=((dl.querySelector('.ui-dialog-title,.modal-title,.ant-modal-title')||{})
+                  .innerText||'').trim();
+        const body=((dl.querySelector('.modal-message,.modal-body,.ant-modal-body')||dl)
+                     .innerText||'').replace(/\s+/g,' ').trim();
+        const isGate=/validation\s*result/i.test(t)
+                   ||/key in customer email|confirm to proceed/i.test(body);
+        if(!isGate) continue;
+        // A gate that also carries a portal error code is NOT ours to confirm —
+        // that is a refusal wearing a validation title, and clicking OK would
+        // bury it.
+        if(/\[\d{4,}\]/.test(body)) return {skipped:'has_error_code', title:t,
+                                             message: body.slice(0,300)};
+        const ok=[...dl.querySelectorAll('button,a.btn')]
+                   .find(b=>/^ok$/i.test((b.innerText||'').trim()))
+               ||dl.querySelector('.btn-primary,.ant-btn-primary');
+        if(!ok) return {skipped:'no_ok_button', title:t, message: body.slice(0,300),
+                        buttons:[...dl.querySelectorAll('button,a.btn')]
+                                  .map(b=>(b.innerText||'').trim()).slice(0,8)};
+        ok.click();
+        return {confirmed:true, title:t, message: body.slice(0,300),
+                selector: sel, container: container};
+      }
+    }
+  }
+  return null;
+})"""
+
+
+async def confirm_validation_dialog(page) -> dict | None:
+    """Answer the portal's validation gate with OK. Returns what it found.
+
+    Reports rather than swallows: `skipped` tells the run log WHY a gate was left
+    alone, and the returned title/selector/container mean one live run settles
+    the shape instead of another round of guessing.
+    """
+    try:
+        dlg = await page.evaluate(CONFIRM_VALIDATION_JS)
+    except Exception as e:  # noqa: BLE001
+        print(f"  ↳ validation-gate check failed (continuing): {type(e).__name__}: {e}")
+        return None
+    if not dlg:
+        return None
+    if dlg.get("confirmed"):
+        print(f"  ↳ confirmed portal gate {dlg.get('title')!r} "
+              f"[{dlg.get('container')} {dlg.get('selector')}]: "
+              f"{(dlg.get('message') or '')[:140]}")
+        await asyncio.sleep(2.0)  # let the page finish what the OK released
+    else:
+        print(f"  ↳ validation gate left alone ({dlg.get('skipped')}): "
+              f"{(dlg.get('message') or '')[:140]}")
+    return dlg
+
+
 async def read_error_dialog(page, exclude_title_re=r"offer") -> dict | None:
     """Read + OK the visible Warning/Error dialog. Returns a diagnostic dict
     ({message, title, selector, container}) or None when nothing is up."""
@@ -2315,23 +2400,34 @@ def page_break(stage, page_name: str) -> None:
     stage(PAGE_BREAK_STAGE, _detail(page_name))
 
 
+_NEXT_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
+  const vis=e=>e&&e.offsetParent!==null;
+  const b=[...d.querySelectorAll('.js-btn-next')].filter(vis).pop();
+  if(!b) return 'nonext'; b.click(); return 'ok';
+})()"""
+
+
 async def click_next_newconn(page, expect_sel: str = None, timeout_ms: int = 20000,
-                             stage=None, page_name: str = None) -> dict:
+                             stage=None, page_name: str = None,
+                             picker_js: str = None) -> dict:
     """Click the New Connection Next (.js-btn-next). A "Subscription … incomplete"
     Warning may pop — dismiss it and report. Optionally wait for expect_sel to
-    appear (the next page's landmark)."""
+    appear (the next page's landmark).
+
+    `picker_js` swaps in a different way of FINDING the button — the pages after
+    Pay do not all carry `.js-btn-next`, and on those `_NEXT_JS` returns 'nonext'
+    for a page that plainly has a Next."""
     frame = _frame(page)
     # JS-click the Next button — it is often scrolled out of the viewport (a
     # Playwright click then times out as "element is outside of the viewport").
-    clicked = await page.evaluate(r"""(() => {
-      const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
-      const vis=e=>e&&e.offsetParent!==null;
-      const b=[...d.querySelectorAll('.js-btn-next')].filter(vis).pop();
-      if(!b) return 'nonext'; b.click(); return 'ok';
-    })()""")
+    clicked = await page.evaluate(picker_js or _NEXT_JS)
     if clicked != "ok":
         return {"status": "error", "error": "next_click_failed", "message": clicked}
     await asyncio.sleep(3)
+    # Answer the validation gate FIRST. It is not an error, so read_error_dialog
+    # skips it; left up, it blocks the page we are about to wait for.
+    await confirm_validation_dialog(page)
     warn = await read_error_dialog(page, exclude_title_re=r"$^")
     if warn:
         # classify_dialog supplies message/error/portal_code/dialog. The login-ID
@@ -2474,20 +2570,32 @@ async def fill_customer_order_info(page, payload: dict,
     # run carried on and burned another 60s inside _set_attach_file, surfacing as
     # "set_input_files: Timeout" — which names the file input rather than the page
     # that never arrived. Order 2608000121393253 was stranded exactly that way.
+    attach_sel = '.js-attchment-container[key="1"], input[type=file].js-file-upload'
     try:
-        await frame.locator(
-            '.js-attchment-container[key="1"], input[type=file].js-file-upload'
-        ).first.wait_for(state="attached", timeout=45000)
+        await frame.locator(attach_sel).first.wait_for(state="attached", timeout=45000)
     except Exception:
-        state = await _attachment_page_state(page)
-        shot = await _debug_screenshot(page, "order_info_no_attachments")
-        return {"status": "error", "error": "order_info_not_rendered",
-                "stage": "attachments",
-                "message": ("The Customer Order Information page never rendered its "
-                            "attachment section, so no document could be uploaded. "
-                            f"Page state: {json.dumps(state, ensure_ascii=False)}"
-                            + (f" Screenshot: {shot}" if shot else "")),
-                "page_state": state}
+        # A gate can also appear late, after the Next already looked clean. Answer
+        # it and give the page one more chance BEFORE stranding the order: the
+        # order number is already minted by this point, so failing here costs a
+        # real order that has to be voided by hand.
+        gate = await confirm_validation_dialog(page)
+        retried = False
+        if gate and gate.get("confirmed"):
+            try:
+                await frame.locator(attach_sel).first.wait_for(state="attached", timeout=30000)
+                retried = True
+            except Exception:
+                retried = False
+        if not retried:
+            state = await _attachment_page_state(page)
+            shot = await _debug_screenshot(page, "order_info_no_attachments")
+            return {"status": "error", "error": "order_info_not_rendered",
+                    "stage": "attachments",
+                    "message": ("The Customer Order Information page never rendered its "
+                                "attachment section, so no document could be uploaded. "
+                                f"Page state: {json.dumps(state, ensure_ascii=False)}"
+                                + (f" Screenshot: {shot}" if shot else "")),
+                    "page_state": state}
     await asyncio.sleep(2.5)  # let the page finish laying out before we touch fields
 
     # ── Attachments ──────────────────────────────────────────────────────────
@@ -3072,6 +3180,24 @@ async def _find_erf_page(frame) -> dict | None:
             "order_url": _order_detail_url(oid) if oid else None}
 
 
+async def _find_page_order_number(frame) -> str | None:
+    """Read "Customer Order Number <n>" off whatever page is showing.
+
+    Every page of this flow carries it in the heading — Terms & Conditions, Pay
+    and the confirmation page all do. That makes the heading a far better source
+    than the words "Submit Successfully", which this portal may never print at
+    all: a paid order was reported as lost because nothing after the click said
+    those two words, while its number was on screen the whole time.
+    """
+    try:
+        txt = await frame.locator("body").first.inner_text()
+    except Exception:  # noqa: BLE001
+        return None
+    m = re.search(r"Customer\s+Order\s+N(?:o|umber)\.?\s*[:：]?\s*([A-Z0-9]{6,})",
+                  txt, re.I)
+    return m.group(1) if m and is_portal_order_number(m.group(1)) else None
+
+
 async def capture_erf_pdf(page, payload: dict, order_no: str, stage) -> dict | None:
     """Click Print e-RF, catch the download, put the PDF in R2. Never raises.
 
@@ -3125,6 +3251,128 @@ async def capture_erf_pdf(page, payload: dict, order_no: str, stage) -> dict | N
     return detail
 
 
+# A VISIBLE Pay button is not a ready Pay page.
+#
+# Observed live on order 2608000121617449 (2026-08-19): the flow arrived, took
+# its Pay capture of an Order Information table reading "No record to view",
+# clicked a greyed-out Pay, nothing happened — and the run then reported the
+# payment as SUBMITTED and the order as lost. The button renders with the page;
+# the charge rows and the button's enabled state arrive with the data.
+_PAY_READY_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument;
+  if(!d) return {ready:false, why:'no iframe document'};
+  const vis=e=>e&&e.offsetParent!==null;
+  const T=e=>((e&&e.innerText)||'').trim();
+  const btn=[...d.querySelectorAll('button, a, .btn, input[type=button], input[type=submit]')]
+    .filter(vis).find(e=>/^\s*pay\s*$/i.test(e.innerText||e.value||''));
+  // Only what the DOM actually asserts. A className substring was in here too,
+  // and it is a guess about CSS this page has never been inspected for: it can
+  // only ever refuse a page that was fine. The two real signals below —
+  // the empty-state wording and the absence of any priced row — already catch
+  // the not-loaded page that motivated this check, and a click that turns out
+  // to be a no-op is caught after the fact by `_confirm_pay_took`. The class is
+  // still reported, for the next person reading a failure.
+  const disabled = !btn ? true : (btn.disabled===true
+      || btn.getAttribute('aria-disabled')==='true');
+
+  // Scope the empty-state check to the Order Information section.
+  //
+  // Scanning the whole body for "No record to view" was WRONG: this page also
+  // carries other grids that are legitimately empty, so the phrase is present
+  // on a fully-loaded page and the check could never pass. Found by a live run
+  // that refused to pay a page whose charges were plainly on screen.
+  const head=[...d.querySelectorAll('div,span,h1,h2,h3,h4,h5,label,td,th,p')]
+    .filter(e=>/^order\s*information$/i.test(T(e))).pop();
+  // The heading is a SIBLING of its table, not an ancestor of it. Climbing to
+  // an ancestor that contains a table walks straight up to <body>, which
+  // contains every other grid on the page too — which is how the whole-body
+  // scan came back in disguise and refused a loaded page a second time. Take
+  // the nearest table-bearing subtree that FOLLOWS the heading instead.
+  let sect=null;
+  for (let n=head; n && !sect; n=n.parentElement) {
+    for (let sib=n.nextElementSibling; sib && !sect; sib=sib.nextElementSibling) {
+      if (sib.tagName==='TABLE' || (sib.querySelector && sib.querySelector('table'))) sect=sib;
+    }
+  }
+  const stext = sect ? T(sect) : '';
+  const empty = sect ? /no\s*record\s*to\s*view/i.test(stext) : false;
+  // The positive half: charges have actually arrived. Every New Connection
+  // prices its items, down to RM 0.00, so an RM figure inside this section is
+  // what "loaded" looks like. Without a section to read, the button's own
+  // enabled state is all there is, and it decides alone.
+  const charged = sect ? /RM\s*[0-9]/i.test(stext) : true;
+  return {ready: !!btn && !disabled && !empty && charged,
+          found: !!btn, disabled: disabled, empty: empty, charged: charged,
+          section: !!sect, cls: btn ? (btn.className||'') : null,
+          sample: stext.replace(/\s+/g,' ').slice(0, 200)};
+})()"""
+
+
+async def _wait_for_pay_ready(page, timeout_s: int = 45) -> dict:
+    """Poll until the Pay page has finished loading, or say what it was missing.
+
+    Runs BEFORE the billable click and before the Pay capture, so both the charge
+    and the evidence describe a page that actually rendered.
+    """
+    last = {"ready": False, "why": "never read"}
+    for _ in range(max(1, timeout_s // 2)):
+        try:
+            last = await page.evaluate(_PAY_READY_JS)
+        except Exception as e:  # noqa: BLE001
+            last = {"ready": False, "why": f"{type(e).__name__}: {e}"}
+        if last.get("ready"):
+            return last
+        await asyncio.sleep(2)
+    print(f"    ↳ pay page never became ready: {last}", flush=True)
+    return last
+
+
+def _describe_pay_not_ready(state: dict) -> str:
+    """Name what the Pay page was still missing, in the portal's own terms.
+
+    Carries the section sample when the reason is about the table's contents:
+    the first version of this check misread a loaded page, and the sentence it
+    produced gave no way to tell a real stall from a bad check.
+    """
+    if not state.get("found"):
+        return "its Pay button never appeared"
+    if state.get("empty"):
+        return ("its Order Information table still read \"No record to view\" — the "
+                "charges had not loaded")
+    if not state.get("charged"):
+        return ("its Order Information table showed no charges "
+                f"(read: {state.get('sample') or 'nothing'!r})")
+    if state.get("disabled"):
+        return f"its Pay button stayed disabled (class {state.get('cls')!r})"
+    return state.get("why") or "it did not finish loading"
+
+
+async def _pay_page_still_showing(page) -> bool:
+    """Is the Pay button still on screen? Used only to tell a click that took
+    from one that did not."""
+    try:
+        return bool((await page.evaluate(_PAY_READY_JS)).get("found"))
+    except Exception:  # noqa: BLE001
+        # The frame going away is the page having changed.
+        return False
+
+
+async def _confirm_pay_took(page, timeout_s: int = 30) -> bool:
+    """Wait for the portal to leave the Pay page after the click.
+
+    Generous on purpose. Reporting "the payment did not go through" for an order
+    that WAS charged is the worst mistake this flow can make, so this waits well
+    past the portal's usual response before it will say the click did not take —
+    and even then the caller only says the payment is unconfirmed, never that it
+    did not happen.
+    """
+    for _ in range(max(1, timeout_s // 2)):
+        if not await _pay_page_still_showing(page):
+            return True
+        await asyncio.sleep(2)
+    return False
+
+
 async def _read_advance_payment(frame) -> str | None:
     """Read the 'Advance Payment' RM amount off the Pay-page fee preview (record it;
     AP/deposit is NOT an error)."""
@@ -3134,7 +3382,8 @@ async def _read_advance_payment(frame) -> str | None:
 
 
 async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
-                         payload: dict = None, on_stage=None) -> dict:
+                         payload: dict = None, on_stage=None,
+                         known_order_id: str = None) -> dict:
     """From the Customer Order Information page: Next through Terms & Conditions
     (Bypass Acknowledge is default-checked) to the Pay page; then (if do_pay) Pay
     and Next to the 'Submit Successfully' page. Returns {status:'ready_to_pay',
@@ -3194,6 +3443,19 @@ async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
                             f"{json.dumps(state, ensure_ascii=False)}"
                             + (f" Screenshot: {shot}" if shot else ""))}
 
+    # The button is on screen — but the page it belongs to may still be loading.
+    ready = await _wait_for_pay_ready(page)
+    if not ready.get("ready"):
+        shot = await _debug_screenshot(page, "pay_page_not_ready")
+        # Nothing has been charged: this returns BEFORE the click. The order is
+        # minted and sitting at the Pay step, which is what the message must say.
+        return {"status": "error", "error": "pay_page_not_ready", "stage": "pay_tail",
+                "advance_payment": None,
+                "message": ("The Pay page did not finish loading, so no payment was "
+                            f"attempted — {_describe_pay_not_ready(ready)}. The order "
+                            "exists in the portal and is waiting at the Pay step."
+                            + (f" Screenshot: {shot}" if shot else ""))}
+
     advance_payment = await _read_advance_payment(frame)
     # The amount, and any advance payment, exactly as the portal presented it —
     # taken BEFORE the billable click, so it is evidence either way: with
@@ -3218,15 +3480,30 @@ async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
     # Dismiss only a payment-confirm prompt — NOT the success page.
     await _dismiss_popup_ok(frame, page, exclude_title_re=r"success")
 
+    # Did the click actually take? A Pay page still on screen well after the
+    # click is the signature of the failure above — a click the portal ignored.
+    # Saying "PAYMENT WAS SUBMITTED" there sends the agent to void an order that
+    # was never charged, and stops them retrying one that only needs retrying.
+    if not await _confirm_pay_took(page):
+        shot = await _debug_screenshot(page, "pay_click_did_not_take")
+        return {"status": "error", "error": "pay_click_did_not_take", "stage": "pay_tail",
+                "advance_payment": advance_payment,
+                "message": ("Pay was clicked but the portal was still showing the Pay "
+                            "page 30s later, so the payment is UNCONFIRMED — it may or "
+                            "may not have gone through. Check the order in the portal "
+                            "before retrying."
+                            + (f" Screenshot: {shot}" if shot else ""))}
+
     # ── Everything below this line runs AFTER a real charge ──────────────────
     # The money has moved. Nothing here may turn a paid order into a failed one:
     # every artefact is best-effort, and the only outcome that reports an error
     # is the one where we came away with no order number at all.
-    return await _post_pay_tail(page, payload, stage, advance_payment)
+    return await _post_pay_tail(page, payload, stage, advance_payment,
+                                known_order_id=known_order_id)
 
 
 async def _post_pay_tail(page, payload: dict, stage, advance_payment: str | None,
-                         max_next: int = 6) -> dict:
+                         max_next: int = 6, known_order_id: str = None) -> dict:
     """Pay -> Next … Next -> the confirmation page with Print e-RF.
 
     The old version clicked Next at most three times looking for the words
@@ -3261,27 +3538,40 @@ async def _post_pay_tail(page, payload: dict, stage, advance_payment: str | None
             # and carry on; the document is still one or more Nexts away.
             print(f"    ↳ submit confirmation seen: {res}", flush=True)
             seen = _better_confirmation(seen, res)
+        elif not (seen and is_portal_order_number(seen.get("order_id"))):
+            oid = await _find_page_order_number(frame)
+            if oid:
+                seen = _better_confirmation(
+                    seen, {"order_id": oid, "order_url": _order_detail_url(oid)})
 
-        nx = await click_next_newconn(page, stage=stage,
+        # `_FINAL_NEXT_JS`, not the default: `.js-btn-next` alone returned
+        # 'nonext' on a real post-pay page and stopped the chain dead, which is
+        # what stranded a paid order. This picker keeps that class first and
+        # falls back to a control whose whole text is "Next".
+        nx = await click_next_newconn(page, stage=stage, picker_js=_FINAL_NEXT_JS,
                                       page_name=f"After payment ({step + 1})")
         if nx.get("status") != "ok":
             # Paid, and stuck. If a number was read at any point this is a
             # submitted order that merely lost its paperwork; only a run that
             # never saw one is a genuine error.
+            await _debug_screenshot(page, "post_pay_chain_blocked")
             return _post_pay_outcome(
                 seen, advance_payment,
                 f"the flow could not reach the e-RF page: "
-                f"{nx.get('message', 'Next did not advance.')}")
+                f"{nx.get('message', 'Next did not advance.')}",
+                known_order_id)
         await asyncio.sleep(3)
 
     erf = await _find_erf_page(frame)
     if erf:
         return await _finish_on_erf_page(page, payload, stage, advance_payment, erf)
     seen = _better_confirmation(seen, await _find_submit_result(frame))
+    await _debug_screenshot(page, "post_pay_erf_not_reached")
     return _post_pay_outcome(
         seen, advance_payment,
         f"the e-RF page was not reached in {max_next} Next clicks, so no "
-        f"registration form was saved.")
+        f"registration form was saved.",
+        known_order_id)
 
 
 def _better_confirmation(current: dict | None, found: dict | None) -> dict | None:
@@ -3300,12 +3590,17 @@ def _better_confirmation(current: dict | None, found: dict | None) -> dict | Non
 
 
 def _post_pay_outcome(seen: dict | None, advance_payment: str | None,
-                      what_went_wrong: str) -> dict:
+                      what_went_wrong: str, known_order_id: str = None) -> dict:
     """Submitted-with-a-warning if we know the order number, stranded if not.
 
     One place decides this, because the difference between those two outcomes is
     the difference between an order the agent can look up and one they have to
     hunt for in the portal by hand.
+
+    `known_order_id` is the number the portal minted BEFORE Pay, which this run
+    read and stored several steps earlier. A paid order whose number we have
+    known all along is not lost, and calling it lost is what sends an agent
+    hunting for an order that was already on their screen.
     """
     if seen and is_portal_order_number(seen.get("order_id")):
         return {"status": "submitted", "stage": "done",
@@ -3313,6 +3608,15 @@ def _post_pay_outcome(seen: dict | None, advance_payment: str | None,
                 "warning": ("Payment went through and the order was confirmed, but "
                             f"{what_went_wrong}"),
                 **seen}
+    if is_portal_order_number(known_order_id):
+        return {"status": "submitted", "stage": "done",
+                "advance_payment": advance_payment,
+                "order_id": known_order_id,
+                "order_url": _order_detail_url(known_order_id),
+                "warning": ("Payment went through. The portal never showed a "
+                            f"confirmation screen afterwards and {what_went_wrong} "
+                            "The order number is the one the portal minted before "
+                            "payment — verify the order in the portal.")}
     return _paid_but_stranded(what_went_wrong.strip().capitalize(), advance_payment)
 
 
@@ -3328,6 +3632,53 @@ def _paid_but_stranded(detail: str | None, advance_payment: str | None) -> dict:
                         "order number afterwards. Check the order in the portal before "
                         "retrying — do NOT resubmit blind. "
                         f"{detail or ''}").strip()}
+
+
+# The confirmation page's own Next — the click that ends the flow and puts the
+# portal back on the order list.
+#
+# `.js-btn-next` first, like every other Next on this flow, then a control whose
+# whole text is "Next": that page has been photographed and never inspected, so
+# its markup is not known to match the class the rest of the flow uses.
+_FINAL_NEXT_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
+  const vis=e=>e&&e.offsetParent!==null;
+  let b=[...d.querySelectorAll('.js-btn-next')].filter(vis).pop();
+  if(!b) b=[...d.querySelectorAll('button, a, .btn, input[type=button], input[type=submit]')]
+    .filter(vis).find(e=>/^\s*next\s*$/i.test(e.innerText||e.value||''));
+  if(!b) return 'nonext';
+  b.click(); return 'ok';
+})()"""
+
+
+async def _close_out_erf_page(page, stage) -> str:
+    """Click the confirmation page's Next and return what stopped it, or "".
+
+    Runs after the money has moved AND after the e-RF is already in R2, so it can
+    only ever produce a note: nothing it does or fails to do changes whether the
+    order was placed. It is here because the portal is only back on the order
+    list once this is clicked, and leaving the browser parked on a finished order
+    form is how the NEXT run starts somewhere it does not expect to be.
+    """
+    try:
+        clicked = await page.evaluate(_FINAL_NEXT_JS)
+    except Exception as e:  # noqa: BLE001
+        return f"the final Next could not be clicked ({type(e).__name__}: {e})"
+    if clicked != "ok":
+        return f"the final Next could not be clicked ({clicked})"
+    await asyncio.sleep(3)
+    page_break(stage, "Order complete")
+    # Back on the order list, the confirmation page's own control is gone. That
+    # absence is the check — it is the difference between having left the page
+    # and having clicked into a dialog this code cannot see.
+    try:
+        if await _frame(page).locator(_ERF_BUTTON_SELECTOR).count():
+            return "the confirmation page was still showing after the final Next"
+    except Exception:  # noqa: BLE001
+        # The frame going away IS leaving the page; a stale locator here is the
+        # success case, not a failure.
+        return ""
+    return ""
 
 
 async def _finish_on_erf_page(page, payload: dict, stage, advance_payment: str | None,
@@ -3377,6 +3728,18 @@ async def _finish_on_erf_page(page, payload: dict, stage, advance_payment: str |
             "downloaded"
             + (f": {shot.get('note')}" if shot and shot.get("note") else ".")
         )
+
+    # Last click of the flow: back to the order list. Best-effort by
+    # construction — the order is paid and its form stored, so a failure here is
+    # reported as a warning on a `submitted` order and never as an error.
+    note = await _close_out_erf_page(page, stage)
+    if note:
+        print(f"    ⚠ close-out: {note}", flush=True)
+        stage("order_complete", _detail("Order list not reached", "failed", note))
+        tail = f"The order was paid and confirmed, but {note}."
+        result["warning"] = f"{result['warning']} {tail}" if result.get("warning") else tail
+    else:
+        stage("order_complete", _detail("Returned to the order list"))
     return result
 
 
@@ -3385,7 +3748,7 @@ async def _finish_on_erf_page(page, payload: dict, stage, advance_payment: str |
 # ─────────────────────────────────────────────────────────────────────────────
 async def submit_new_connection(page, payload: dict, im_paths: list = None,
                                 id_paths: list = None, do_pay: bool = False,
-                                on_stage=None) -> dict:
+                                on_stage=None, known_order_id: str = None) -> dict:
     """page1 (contact/account/winback) -> device -> sub-tabs -> Next ->
     Customer Order Information -> Pay/Submit (gated). Returns the pay_and_submit
     result on success, or the first failing stage's error."""
@@ -3469,7 +3832,8 @@ async def submit_new_connection(page, payload: dict, im_paths: list = None,
         return r
 
     stage("pay")
-    r = await pay_and_submit(page, do_pay=do_pay, payload=payload, on_stage=on_stage)
+    r = await pay_and_submit(page, do_pay=do_pay, payload=payload, on_stage=on_stage,
+                             known_order_id=known_order_id)
     print(f"    ↳ pay_and_submit: {r}", flush=True)
     # A device substitution must survive to the very end: the order that gets
     # paid for is not the device the agent picked, and BizzFlow has to say so.

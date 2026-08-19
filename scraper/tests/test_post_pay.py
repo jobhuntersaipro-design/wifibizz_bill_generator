@@ -157,3 +157,38 @@ def test_the_erf_code_matches_the_string_bizzflow_renders():
     # one code: drift makes the UI fall back to the raw message with no title,
     # no explanation and no fix.
     assert ERF_NOT_DOWNLOADED == "erf_not_downloaded"
+
+
+# ── The order number the run already holds ──────────────────────────────────
+#
+# Added after a real paid-order failure (2608000121617449): the tail declared
+# "the portal never showed a confirmed order number afterwards" for an order
+# whose number the same run had read, stored and printed several steps earlier.
+# The portal does not have to confirm a number it already minted.
+
+def test_a_known_order_number_makes_a_stalled_chain_submitted_not_stranded():
+    r = _post_pay_outcome(None, "100.00", "the e-RF page was not reached.",
+                          "2608000121617449")
+    assert r["status"] == "submitted"
+    assert r["order_id"] == "2608000121617449"
+    assert "2608000121617449" in r["order_url"]
+    assert "warning" in r and "error" not in r
+
+
+def test_a_confirmation_read_after_payment_still_wins():
+    # Both available: prefer what the portal said AFTER the charge.
+    r = _post_pay_outcome({"order_id": "2608000121600001", "order_url": "u"},
+                          None, "…", "2608000121617449")
+    assert r["order_id"] == "2608000121600001"
+
+
+def test_a_non_order_shaped_known_value_is_not_promoted():
+    # The same guard as everywhere else: only a real portal number may reach
+    # Order.orderId, or the row claims an order that does not exist.
+    r = _post_pay_outcome(None, None, "…", "capturing_order_no failed")
+    assert r["status"] == "error" and r["error"] == "post_pay_not_confirmed"
+
+
+def test_with_nothing_at_all_it_still_leads_with_the_payment():
+    r = _post_pay_outcome(None, None, "…", None)
+    assert r["message"].startswith("PAYMENT WAS SUBMITTED")
