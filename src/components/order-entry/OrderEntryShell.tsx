@@ -39,7 +39,11 @@ const SESSION_REFRESH_MIN_GAP_MS = 5 * 60 * 1000;
 
 const TABS = [
   { href: "/dashboard/order-entry/new-order", label: "New Order" },
-  { href: "/dashboard/order-entry/drafts", label: "Drafts" },
+  // "Orders", not "Drafts": this tab has always listed every order — drafts,
+  // in-flight runs and orders the portal has already numbered — and calling it
+  // Drafts made the submitted ones look like they belonged somewhere else. The
+  // ROUTE stays /drafts so existing links and bookmarks keep working.
+  { href: "/dashboard/order-entry/drafts", label: "Orders" },
   { href: "/dashboard/order-entry/plan-details", label: "Plan Details" },
 ];
 

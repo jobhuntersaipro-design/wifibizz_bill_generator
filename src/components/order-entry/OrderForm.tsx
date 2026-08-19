@@ -223,9 +223,12 @@ export function OrderForm({
   // enough to mean it — an empty field is the "required" error, not this one.
   const idNumberIncomplete = isMykadLike && idNumber.length > 0 && !isCompleteMykad(idNumber);
 
-  // Documents: IM Conversation is the default + always required. The ID document
-  // matches the chosen ID Type (MyKad / Passport). Required = IM Conversation +
-  // ONE identity doc (MyKad / Passport / Others) — MyKad itself isn't mandatory.
+  // Documents are OPTIONAL — nothing here blocks a save. IM Conversation is the
+  // default type and the ID document follows the chosen ID Type (MyKad /
+  // Passport). The two flags below only drive the ticks in the card's hint, so
+  // an agent can see at a glance which of the usual pair they have attached.
+  // The scraper already tolerates an order with no attachments at all
+  // (`im_paths`/`id_paths` default to empty and each attach step is guarded).
   const idDocType = isMykadLike ? "mykad" : idType === "Passport" ? "passport" : "id";
   const idDocLabel = isMykadLike ? "MyKad" : idType === "Passport" ? "Passport" : "ID Document";
   const docTypeOptions = [
@@ -509,13 +512,23 @@ export function OrderForm({
     fd.append("docType", docType);
     if (docType === "other") fd.append("otherLabel", otherLabel.trim());
     fd.append("seq", String(seq));
-    const res = await uploadOrderDocument(fd);
-    setUploading(false);
-    if (res.success) {
-      setDocuments((d) => [...d, { type: res.type, url: res.url, key: res.key, filename: res.filename }]);
-      toast.success("Document uploaded.");
-    } else {
-      toast.error(res.error ?? "Upload failed");
+    // try/finally, not a bare await: `uploading` disables the drop zone with
+    // pointer-events-none, and a Server Action THROWS on a transport failure
+    // rather than returning {success:false}. One thrown call used to leave the
+    // uploader greyed out and unresponsive for the rest of the session, with
+    // nothing on screen to say why — a page reload was the only way out.
+    try {
+      const res = await uploadOrderDocument(fd);
+      if (res.success) {
+        setDocuments((d) => [...d, { type: res.type, url: res.url, key: res.key, filename: res.filename }]);
+        toast.success("Document uploaded.");
+      } else {
+        toast.error(res.error ?? "Upload failed");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? `Upload failed: ${e.message}` : "Upload failed. Try again.");
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -693,14 +706,6 @@ export function OrderForm({
     }
     if (!city.trim()) {
       toast.error("Enter the city.");
-      return;
-    }
-    if (!hasImDoc) {
-      toast.error("Attach the IM Conversation document (required).");
-      return;
-    }
-    if (!hasIdentityDoc) {
-      toast.error("Attach an ID document (MyKad / Passport / Others).");
       return;
     }
     // "with Device" packages require a device — the portal blocks the order
@@ -1323,10 +1328,13 @@ export function OrderForm({
         <div className={headCls}>Documents <span className="text-[#697386] font-normal">({documents.length}/{MAX_DOCS})</span></div>
         <div className="p-6 space-y-4">
           <p className="text-[11px] text-[#697386]">
-            <span className={hasImDoc ? "text-green-700" : "text-[#DF1B41]"}>IM Conversation</span>
+            {"Optional — usually "}
+            <span className={hasImDoc ? "text-green-700" : ""}>IM Conversation{hasImDoc ? " ✓" : ""}</span>
             {" and one of "}
-            <span className={hasIdentityDoc ? "text-green-700" : "text-[#DF1B41]"}>MyKad / Passport / Others</span>
-            {" are required. Up to "}{MAX_DOCS} files, max 5MB each (JPG/PNG/PDF/WEBP).
+            <span className={hasIdentityDoc ? "text-green-700" : ""}>
+              MyKad / Passport / Others{hasIdentityDoc ? " ✓" : ""}
+            </span>
+            {". Up to "}{MAX_DOCS} files, max 5MB each (JPG/PNG/PDF/WEBP).
             Saved as {idNumber || "{id}"}_
             {docType === "utility_bill"
               ? "utilitybill"
@@ -1356,6 +1364,11 @@ export function OrderForm({
               </div>
             )}
             {uploading && <span className="text-[11px] text-[#697386] pb-2">Uploading…</span>}
+            {!uploading && documents.length >= MAX_DOCS && (
+              <span className="text-[11px] text-[#697386] pb-2">
+                {MAX_DOCS} files attached — remove one to add another.
+              </span>
+            )}
           </div>
 
           {/* Drag-and-drop zone (also click-to-browse). `multiple` lets any doc
