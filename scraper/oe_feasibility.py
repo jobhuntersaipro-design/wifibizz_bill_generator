@@ -657,6 +657,11 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
 
     if not order_ready:
         why = describe_order_not_ready(btn_state)
+        # Photograph the page we are refusing on. Two hypotheses for ORD-0006
+        # (a hidden duplicate grid, then the dblclick gesture) were each
+        # disproven by a deploy-and-run cycle that a single picture would have
+        # settled. Costs nothing on the happy path — this branch mints no order.
+        await capture_and_report(page, payload, "offer_grid", stage)
         stage("placing_order", _detail(why, "failed"))
         return {"status": "error", "error": "order_not_ready", "stage": "click_order",
                 "message": why, "state": btn_state}
