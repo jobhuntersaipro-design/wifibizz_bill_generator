@@ -40,6 +40,11 @@ from oe_helpers import (
     select_grid_row,
     set_combobox,
 )
+from shell_modal import (
+    clear_shell_dialog,
+    describe_blocking_dialog,
+    dialog_summary,
+)
 
 ORDER_ENTRY_URL = "https://dealer.unifi.com.my/esales/crm-TYMH100163"
 IFRAME_SELECTOR = "#myIframe"
@@ -48,6 +53,14 @@ LOGS_DIR = "logs"
 
 class InfraError(RuntimeError):
     """Infrastructure failure (browser/session). Caller may retry."""
+
+
+class ShellDialogError(RuntimeError):
+    """A portal shell dialog is covering the order form and could not be cleared.
+
+    Deliberately NOT an InfraError: the session is fine and reconnecting will
+    not help. Someone has to answer the dialog in the portal.
+    """
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -95,23 +108,13 @@ async def ensure_on_order_entry(page) -> dict:
             f"Landed on {page.url} — session invalid or anti-bot detector fired."
         )
 
-    # Clear the 'Later'/announcement modal on the outer (Ant) shell.
-    try:
-        modal = page.locator(".ant-modal-wrap")
-        if await modal.count() > 0 and await modal.first.is_visible():
-            for sel in (
-                'button.ant-btn:has-text("Later")',
-                ".ant-modal-close",
-                'button.ant-btn:has-text("Cancel")',
-                'button.ant-btn:has-text("Close")',
-            ):
-                btn = page.locator(sel)
-                if await btn.count() > 0 and await btn.first.is_visible():
-                    await btn.first.click()
-                    await page.wait_for_timeout(800)
-                    break
-    except Exception:
-        pass
+    # Clear the announcement/password modal on the outer (Ant) shell.
+    #
+    # This used to be a single look right here, and it lost a race it could not
+    # win: the modal is inserted ~3s after domcontentloaded, which is exactly
+    # when the look happened. See shell_modal.py for the run it cost.
+    first = await clear_shell_dialog(page, appear_ms=8000)
+    print(f"  ↳ shell dialog: {first['outcome']} ({dialog_summary(first)})")
 
     # Confirm the order iframe is present.
     try:
@@ -130,6 +133,18 @@ async def ensure_on_order_entry(page) -> dict:
         raise InfraError(
             "Order Entry app never rendered inside #myIframe (shopping bar not visible)."
         )
+
+    # Sweep once more. The app takes up to 45s to render, which is a wide window
+    # for a shell dialog to arrive in, and the iframe renders perfectly happily
+    # underneath one — so "the form is up" is no evidence that it is reachable.
+    late = await clear_shell_dialog(page, appear_ms=0)
+    if late["outcome"] == "stuck":
+        print(f"  ⚠ shell dialog stuck: {dialog_summary(late)} ({late.get('reason')})")
+        if late.get("blocking"):
+            # Fail here, naming it. Every click from this point would spend 45s
+            # being swallowed and then report a timeout against an innocent
+            # selector — which is how this arrived as "the portal is busy".
+            raise ShellDialogError(describe_blocking_dialog(late))
 
     return {"status": "ok", "stage": "ensure_on_order_entry"}
 

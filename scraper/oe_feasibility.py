@@ -24,6 +24,7 @@ from oe_errors import (DEVICE_OUT_OF_STOCK, ERF_NOT_DOWNLOADED, UNKNOWN_ERROR,
                        map_error, portal_code)
 from oe_helpers import set_combobox
 from order_entry import ORDER_ENTRY_URL, _frame, ensure_on_order_entry
+from shell_modal import describe_blocking_dialog, read_shell_dialog
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -82,6 +83,14 @@ def humanize_error(e) -> str:
     """
     text = str(e) or type(e).__name__
     low = text.lower()
+    # A dialog and a loading overlay both "intercept pointer events" and they
+    # need opposite advice: one clears itself in seconds, the other waits for a
+    # human and will swallow every retry. Name the intercepting element before
+    # deciding — Playwright puts it in the call log.
+    if "ant-modal" in low or "ui-dialog" in low or 'role="dialog"' in low:
+        return ("A portal dialog is open over the order form and swallowed the "
+                "click. It has to be answered in the portal — retrying will not "
+                "clear it.")
     if "intercepts pointer events" in low or "blockui" in low or "modal-backdrop" in low:
         return ("The portal was still busy (its loading overlay was up) and didn't "
                 "accept the click. It may be under load — try again in a moment.")
@@ -638,6 +647,14 @@ async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = 
         import traceback
         traceback.print_exc()  # full traceback -> job log for debugging
         popup = await _capture_dialog_message(page) if page is not None else None
+        # _capture_dialog_message only engages with warning/error-shaped dialogs,
+        # by design. The dialog that actually blocked four live submits was an
+        # announcement ("Your Password is Expiring Soon") — not an error, and so
+        # invisible to it. Ask what is physically covering the form as well.
+        if not popup and page is not None:
+            blocker = await read_shell_dialog(page)
+            if blocker.get("present") and blocker.get("blocking"):
+                popup = describe_blocking_dialog(blocker)
         # Prefer the portal's own popup text; otherwise a humanised summary. The
         # verbatim exception still rides along for the job log.
         return {"status": "error", "stage": "order_entry",
