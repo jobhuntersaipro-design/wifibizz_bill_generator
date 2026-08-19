@@ -2,77 +2,105 @@
 
 ## Status
 
-In Progress — code complete, prod migration pending (user to deploy)
+Code complete, live-verified against the real portal — not yet deployed.
 
 ## Goals
 
-Fix `/dashboard/order-entry/*` loading forever on production (bizzflow.top).
-
-1. Apply the missing migrations to the production database.
-2. Stop a failed server action from hanging the Order Entry card indefinitely.
+Stop the portal's own shell dialog from silently killing every order submit,
+and stop the failure being reported as something it is not.
 
 ## Notes
 
-### Root cause
+### What happened (2026-08-19)
 
-`prisma migrate deploy` was never part of the deploy: `build` was
-`prisma generate && next build`, and there is no `vercel.json`. Migrations were
-only ever hand-applied to the Neon **dev** branch (the `migrate dev` shadow-DB
-workaround), so the **prod** database was left behind from `20260811140000`
-onward. The project's own coding-standard already required this step.
+Four consecutive live submits died at "Creating customer profile" (07:16, 07:22,
+07:53, 07:54) with the same message:
 
-Evidence gathered by reproducing on prod as the affected user:
+> The portal was still busy (its loading overlay was up) and didn't accept the
+> click. It may be under load — try again in a moment.
 
-- The `getDealerConnection` server action returns **500** (action id matched
-  against the deployed client bundle, so no guessing about which one).
-- `getPublishedPlans` also 500s (its `plans` tables are from 2026-08-15).
-- `getSidebarInfo` succeeds — it selects only pre-2026-08-11 columns.
-- `/dashboard/usage` renders fine, so Prisma and auth are healthy on prod;
-  the split is strictly by schema age.
-- `getDealerConnection` does a bare `findUnique` on `dealer_accounts`, so
-  Prisma selects **every** column including `registered_email` — added
-  2026-08-11 and missing on prod.
+Every part of that was wrong. The droplet was healthy (17d uptime, load 0.16,
+1.2GB of 2GB free, swap untouched, no OOM, disk 19%) and the portal was not
+loading anything. The job log named the real blocker:
 
-### Why the symptom was a silent hang
+```
+File "/app/order_entry.py", line 306, in create_personal_customer
+    await frame.locator(".js-order-search").first.click()
+TimeoutError: Locator.click: Timeout 45000ms exceeded.
+  - <div class="ant-modal-wrap " aria-labelledby="rcDialogTitle0">…
+      from <div>…</div> subtree intercepts pointer events
+```
 
-`loadConnection()` had no try/catch and `setLoading(false)` sat after the
-`await`. A server action **rejects** on a 500 rather than resolving with
-`success: false`, so the spinner never cleared and nothing on screen said why.
-`runStatusCheck()` had the same shape ("Verifying connection…" forever).
+An **Ant dialog on the outer shell** — outside `#myIframe` entirely. Opening the
+saved session against the live portal showed it:
 
-### Changes
+> **Your Password is Expiring Soon** — Please update your password to maintain
+> access to your account.  `[Later]` `[Change Now]`  (no ✕ close control)
 
-- `package.json` — build is now
-  `prisma generate && prisma migrate deploy && next build`. A deploy that
-  can't migrate now fails loudly instead of shipping an app against a stale
-  schema.
-- `OrderEntryShell.tsx` — `loadConnection` and `runStatusCheck` catch a thrown
-  action. The initial-load failure shows a red banner + **Retry** instead of an
-  endless spinner; a failed re-check leaves the last known state alone (a failed
-  check is not evidence the session is gone).
+### Root cause — a race, not a missing selector
 
-### Verification
+`ensure_on_order_entry` already looked for `button.ant-btn:has-text("Later")`,
+and that selector is correct — verified, it matches and reports visible. It lost
+a race by roughly nothing: it navigated, slept **3000ms**, looked **exactly
+once**, and the modal is inserted at **t+3.0s** (polled live at 500ms
+intervals). The empty look was swallowed by a bare `except: pass`, nothing ever
+re-checked, and the iframe app then rendered perfectly happily *underneath* the
+dialog — so every guard downstream passed and the first click into the form was
+eaten.
 
-- Forced `getDealerConnection` to throw locally: error banner rendered, Retry
-  showed the spinner, re-ran, and returned to a retryable error — no hang.
-  Restored, the connected view loads normally ("Connected as TMRS00517").
-- `npm run build` passes; the new step reports "No pending migrations to apply"
-  against the already-current dev DB.
-- Lint clean on the touched file (baseline was clean). 212 unit tests pass —
-  unchanged from baseline.
-- The 10 pending migrations contain no destructive statement against
-  pre-existing prod data; the two `DROP TABLE`s target tables created earlier in
-  the same pending batch.
+Three defects stacked, and all three are fixed:
 
-### Outstanding
+1. **Sampling instead of polling.** Absence at one instant proved nothing.
+2. **No verification.** A click that failed to dismiss was indistinguishable
+   from no dialog at all, because nobody looked again.
+3. **A message that sent the agent the wrong way.** "Under load — try again in a
+   moment" invited retries against a dialog that waits for a human. Four were
+   burned on it.
 
-- **Not yet applied to prod.** The next deploy applies it via the new build
-  step; or run `prisma migrate deploy` against the prod `DATABASE_URL` first.
-- Prod's exact migration position was inferred from the failure pattern, not
-  read off its `_prisma_migrations` table (the prod URL lives only in Vercel).
-  `migrate deploy` is idempotent, so it will settle whatever the real gap is.
-- Preview deploys will now also run `migrate deploy` against whatever
-  `DATABASE_URL` their environment carries.
+### Approach
+
+New `scraper/shell_modal.py` — one reader (`READ_SHELL_DIALOG_JS`), one
+dismisser, one pure `describe_blocking_dialog()`, used at every point that
+touches the shell:
+
+- **Poll for appearance**, then **confirm the dialog actually left**.
+- `blocking` is a real hit-test — `elementFromPoint` at the centre of
+  `#myIframe`, asking the document what is painted there. A shell dialog that
+  does *not* cover the form must never fail a run that would have succeeded.
+- **Dismissal is a strict allowlist** (`later`, `not now`, `skip`, `dismiss`,
+  `close`, `cancel`, ✕). This dialog's other button is "Change Now", which opens
+  a password-change form on a live CRM. Anything unrecognised is **reported, not
+  clicked** — stopping with "a dialog called X is covering the form" beats
+  pressing a button nobody chose.
+- A second sweep runs *after* the iframe app renders (up to 45s of extra window
+  for a dialog to arrive in), and a dialog still blocking there raises
+  `ShellDialogError` naming it — rather than letting the next click spend 45s
+  being swallowed and then blame an innocent selector.
+- Same helper now runs on the **dealer login** path, which had the identical
+  one-shot pattern.
+- `humanize_error` distinguishes a dialog from a loading overlay, and the
+  `enter_full_order` catch asks what is physically covering the form (the
+  existing `_capture_dialog_message` only engages with warning/error-shaped
+  dialogs, so an announcement was invisible to it).
+
+### Verified
+
+- **Live against the real portal**, with the dialog actually up:
+  `shell dialog: dismissed (Your Password is Expiring Soon | dismiss=Later |
+  BLOCKING)` → `ensure_on_order_entry` ok → **`.js-order-search` clicked**, the
+  exact click that timed out four times in production.
+- 12 new tests (127 scraper tests total, +1 skipped), including the load-bearing
+  one: a modal injected at t+3.0s is caught, and the old single-look behaviour
+  is pinned as *missing* it so nobody simplifies the poll back into a sample.
+  Fixtures carry the real markup and the real two-button trap.
+
+### Open
+
+- **The dealer password is genuinely expiring.** "Later" defers it; when it
+  hard-expires, login breaks entirely, not just order entry. Worth changing
+  deliberately and updating the stored credential.
+- **The droplet is running `scraper-v2026.08.17-2` (`12fa534`)** — Phase 5 and
+  Phase 6 (including the verified-pay work) have never been deployed.
 
 ## History
 

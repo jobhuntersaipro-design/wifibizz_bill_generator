@@ -31,6 +31,7 @@ import os
 import time
 
 import login_manager
+from shell_modal import clear_shell_dialog, dialog_summary
 from login_manager import HISTORY_URL, LOGIN_URL
 
 
@@ -517,13 +518,12 @@ async def submit_otp_and_finalize(
             "specific reason — either the password or the OTP is wrong/expired."
         )
 
-    try:
-        later_btn = page.locator('button.ant-btn:has-text("Later")')
-        if await later_btn.is_visible(timeout=3000):
-            await later_btn.click()
-            await page.wait_for_timeout(1000)
-    except Exception:
-        pass
+    # Same shell dialog the order flow trips over — cleared here so the session
+    # is saved from a page that is actually usable. Non-fatal: a dialog we can't
+    # dismiss doesn't invalidate the login, and the order flow checks again.
+    cleared = await clear_shell_dialog(page, appear_ms=6000)
+    if cleared["outcome"] != "none":
+        print(f"  ↳ shell dialog at login: {cleared['outcome']} ({dialog_summary(cleared)})")
 
     await page.wait_for_load_state("networkidle", timeout=30000)
     await page.wait_for_timeout(2000)
