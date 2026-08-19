@@ -357,6 +357,71 @@ async def select_plan(frame, plan: dict) -> dict:
     return {"status": "ok", "stage": "select_plan", "matched": name}
 
 
+# Read the real state of the Order button and the offer grid in one pass.
+#
+# `is_enabled()` was the wrong question. Playwright reports a button enabled
+# whenever it is not *disabled*, and the portal hides Order with Bootstrap's
+# `hide` (display:none) while leaving it enabled — so a hidden button passed the
+# guard, and the click that followed sat 45s waiting for a visibility that was
+# never coming, then failed as "the portal may be slow". It is not slow: it is
+# telling us it will not take an order for this address/plan yet.
+#
+# Visibility is tested with offsetParent/getClientRects rather than by looking
+# for the `hide` class, so display:none on ANY ancestor counts too — the class
+# is one way the portal hides it, not the only one.
+ORDER_BUTTON_STATE_JS = r"""(() => {
+  const f = document.querySelector('#myIframe'), d = f && f.contentDocument;
+  if (!d) return {error: 'no order-entry iframe'};
+  const b = d.querySelector('.js-orderNow');
+  const rows = [...d.querySelectorAll('.js-offer-grid tr.jqgrow')];
+  const title = r => {
+    const td = [...r.querySelectorAll('td[title]')]
+      .find(t => (t.getAttribute('title') || '').length > 8);
+    return td ? td.getAttribute('title') : '';
+  };
+  const chosen = rows.filter(r => /ui-state-highlight|ui-state-select|success|selected/.test(r.className));
+  return {
+    present: !!b,
+    className: b ? b.className : null,
+    disabled: b ? !!b.disabled : null,
+    visible: b ? !!(b.offsetParent || b.getClientRects().length) : false,
+    rows: rows.length,
+    selected: chosen.map(title).filter(Boolean).slice(0, 5),
+    offers: rows.map(title).filter(Boolean).slice(0, 25),
+  };
+})"""
+
+
+async def read_order_button_state(frame) -> dict:
+    """DOM facts about the Order button + offer grid. Never raises: this runs on
+    the failure path, where a second exception would bury the first."""
+    try:
+        return await frame.page.evaluate(ORDER_BUTTON_STATE_JS) or {}
+    except Exception as e:
+        return {"error": f"could not read order button state: {str(e)[:120]}"}
+
+
+def describe_order_not_ready(state: dict) -> str:
+    """Say which of the three distinct blockers actually applies, because the
+    operator's next move differs for each: a missing button means the page is
+    not the one we think it is, an unselected offer is ours to fix, and a
+    hidden-but-present button is the portal declining this combination."""
+    if state.get("error"):
+        return state["error"]
+    if not state.get("present"):
+        return "The portal never rendered an Order button on this page."
+    if state.get("disabled"):
+        return "The portal rendered the Order button but left it disabled."
+    if not state.get("visible"):
+        if state.get("rows") and not state.get("selected"):
+            return (f"No offer row is selected, so the portal keeps Order hidden. "
+                    f"The grid lists {state['rows']} offer(s).")
+        chosen = ", ".join(state.get("selected") or []) or "none"
+        return ("The portal is keeping the Order button hidden for this address "
+                f"and plan (selected offer: {chosen}).")
+    return "Order button not ready."
+
+
 async def _capture_order_id(frame) -> str | None:
     """After Order is clicked, read the 'Customer Order Number' from the header."""
     import re
@@ -476,20 +541,37 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
 
     stage("placing_order")
     order_btn = frame.locator(".js-orderNow").first
-    order_ready = (await order_btn.is_enabled()) if await order_btn.count() else False
+    # Ask the DOM, not is_enabled() — see ORDER_BUTTON_STATE_JS for why that
+    # check let a display:none button through and turned an instant, accurate
+    # refusal into a 45s timeout blamed on portal load.
+    btn_state = await read_order_button_state(frame)
+    order_ready = bool(
+        btn_state.get("present")
+        and btn_state.get("visible")
+        and not btn_state.get("disabled")
+    )
+    print(f"  ↳ order button: present={btn_state.get('present')} "
+          f"visible={btn_state.get('visible')} disabled={btn_state.get('disabled')} "
+          f"class={btn_state.get('className')!r} rows={btn_state.get('rows')} "
+          f"selected={btn_state.get('selected')}", flush=True)
+    if not order_ready:
+        print(f"  ⚠ offers on this address: {btn_state.get('offers')}", flush=True)
 
     if dry_run:
         # SAFETY GATE: never click Order on a dry-run.
         return {"status": "dry_run", "order_ready": order_ready,
                 "stage": "feasibility_dry_run",
-                "message": "Address + plan selected; Order button "
-                           + ("ENABLED — ready to mint order id." if order_ready
-                              else "NOT enabled.")}
+                "state": btn_state,
+                "message": ("Address + plan selected; Order button ENABLED — "
+                            "ready to mint order id."
+                            if order_ready else
+                            "Address + plan selected; " + describe_order_not_ready(btn_state))}
 
     if not order_ready:
-        stage("placing_order",
-              _detail("Order button not enabled by the portal", "failed"))
-        return {"status": "error", "error": "order_not_ready", "stage": "click_order"}
+        why = describe_order_not_ready(btn_state)
+        stage("placing_order", _detail(why, "failed"))
+        return {"status": "error", "error": "order_not_ready", "stage": "click_order",
+                "message": why, "state": btn_state}
     await order_btn.click()
     await asyncio.sleep(4)
     stage("placing_order", _detail("Order clicked"))
