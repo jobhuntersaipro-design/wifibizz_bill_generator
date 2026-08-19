@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, ExternalLink, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ExternalLink, FileText, X } from "lucide-react";
 import {
   CAPTURE_RETENTION_DAYS,
   captureCaption,
   captureExpiry,
   captureLabel,
+  isPdfCapture,
   type CaptureFrame,
 } from "@/lib/order-types";
 import {
@@ -97,6 +98,10 @@ export function CaptureCarousel({
       const c = captures[n];
       if (!c) continue;
       if (captureExpiry(c.at)?.expired) continue;
+      // A PDF is not an image: `new Image()` would fetch it and fail its decode
+      // silently, warming nothing while looking like it worked. The iframe
+      // fetches it when the slide mounts.
+      if (isPdfCapture(c.key)) continue;
       const img = new Image();
       img.src = captureSrc(c.key);
     }
@@ -185,15 +190,19 @@ export function CaptureCarousel({
 
           {expiry?.expired ? (
             <p className="max-w-sm rounded-xl border border-dashed border-white/20 px-6 py-10 text-center text-[12px] leading-relaxed text-white/60">
-              This frame passed its {CAPTURE_RETENTION_DAYS}-day retention and has
-              been deleted.
+              {isPdfCapture(current.key) ? "This document" : "This frame"} passed its{" "}
+              {CAPTURE_RETENTION_DAYS}-day retention and has been deleted.
             </p>
           ) : (
-            <Frame
-              key={current.id}
-              src={src}
-              alt={`${captureLabel(current.slot)} as the portal rendered it`}
-            />
+            isPdfCapture(current.key) ? (
+              <PdfFrame key={current.id} src={src} label={captureLabel(current.slot)} />
+            ) : (
+              <Frame
+                key={current.id}
+                src={src}
+                alt={`${captureLabel(current.slot)} as the portal rendered it`}
+              />
+            )
           )}
 
           <NavButton
@@ -231,6 +240,10 @@ export function CaptureCarousel({
                       {gone ? (
                         <span className="flex h-full w-full items-center justify-center bg-white/5 text-[9px] text-white/40">
                           Gone
+                        </span>
+                      ) : isPdfCapture(c.key) ? (
+                        <span className="flex h-full w-full items-center justify-center bg-white/10">
+                          <FileText className="h-4 w-4 text-white/70" aria-hidden="true" />
                         </span>
                       ) : (
                         /* eslint-disable-next-line @next/next/no-img-element --
@@ -288,6 +301,48 @@ function Frame({ src, alt }: { src: string; alt: string }) {
         }`}
       />
     </>
+  );
+}
+
+/**
+ * The e-RF, previewed in place.
+ *
+ * An <iframe> against the same auth-gated route the frames use, so the document
+ * is read without leaving the page — which is the whole reason it is stored
+ * rather than merely linked. There is no load event worth trusting on a
+ * cross-document iframe, so there is no skeleton: the browser paints its own
+ * progress inside the viewer.
+ *
+ * Some browsers (mobile Safari, anything with a PDF plugin disabled) render
+ * nothing at all here. The fallback link behind the frame is why that is a
+ * degraded preview rather than an empty black rectangle, and the header's
+ * "Open original" is the same escape hatch one level up.
+ */
+function PdfFrame({ src, label }: { src: string; label: string }) {
+  return (
+    <div className="relative flex h-full w-full max-w-4xl flex-col items-center justify-center px-2 py-2">
+      <div className="relative h-full w-full overflow-hidden rounded-lg bg-white/5">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center">
+          <FileText className="h-6 w-6 text-white/50" aria-hidden="true" />
+          <p className="text-[12px] leading-relaxed text-white/60">
+            This browser cannot preview PDFs inline.
+          </p>
+          <a
+            href={src}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[12px] font-medium text-white underline underline-offset-2"
+          >
+            Open {label}
+          </a>
+        </div>
+        <iframe
+          src={src}
+          title={label}
+          className="relative h-full w-full border-0 bg-white"
+        />
+      </div>
+    </div>
   );
 }
 

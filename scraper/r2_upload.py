@@ -75,6 +75,27 @@ def screenshot_key(user_id: str, order_id: str, attempt: int = 1,
             f"submit-{int(attempt)}-{slot_slug(slot)}.jpg")
 
 
+def erf_key(user_id: str, order_id: str, order_no: str) -> str:
+    """The R2 key for the e-RF (electronic Registration Form) PDF of one order.
+
+    Named after the PORTAL's order number rather than the attempt, because that
+    is the number printed on the document and the number a dispute will quote.
+    `submit-3-erf.pdf` is unidentifiable the moment it leaves the browser, and
+    the download serves this key's own basename as the filename. The portal mints
+    a fresh number per attempt, so this stays unique across resubmits with no
+    attempt counter.
+
+    Same `order-screenshots/` prefix as the frames, so the 90-day lifecycle rule
+    (which filters by prefix) expires the form with the evidence it belongs to —
+    it deliberately does NOT live under `orders/`, where nothing expires.
+
+    The order number reaches a key and a URL, so it is stripped to [A-Za-z0-9].
+    An empty result falls back to `order`, never to a bare `_erf.pdf`.
+    """
+    safe = re.sub(r"[^A-Za-z0-9]+", "", order_no or "")[:32] or "order"
+    return f"order-screenshots/{user_id}/{order_id}/{safe}_erf.pdf"
+
+
 def upload_bytes(key: str, data: bytes, content_type: str) -> str:
     """Put an object into R2 and return its key.
 

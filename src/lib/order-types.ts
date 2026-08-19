@@ -64,6 +64,13 @@ export const SUBMIT_STEPS: SubmitStep[] = [
   { key: "appointment", label: "Booking appointment" },
   { key: "delivery_terms", label: "Delivery details" },
   { key: "pay", label: "Payment" },
+  // Only reachable after a real charge — with do_pay=FALSE a run stops at the
+  // Pay gate and this step never ticks, which is correct: it did not happen.
+  { key: "erf", label: "Downloading e-RF" },
+  // The confirmation page's Next, which returns the portal to the order list.
+  // Best-effort: it runs after the charge and after the e-RF is stored, so it
+  // can only ever tick amber, never fail the order.
+  { key: "order_complete", label: "Closing out order" },
 ];
 
 // Everything from here on has an order id in the portal: a failure after this
@@ -194,6 +201,20 @@ const CAPTURE_SLOTS: Record<string, { label: string; caption: string }> = {
     label: "Pay screen",
     caption: "The amount due and any advance payment, before the Pay click.",
   },
+  // Everything below happens only after a real payment.
+  erf_page: {
+    label: "Order confirmation",
+    caption:
+      "The service numbers the portal assigned, with the offer and accept date for each.",
+  },
+  erf_page_bottom: {
+    label: "Order confirmation \u2014 services",
+    caption: "The rest of the assigned services, below the fold of the confirmation page.",
+  },
+  erf: {
+    label: "e-RF (Registration Form)",
+    caption: "The registration form the portal generated for this order, as a PDF.",
+  },
 };
 
 export function captureLabel(slot: string): string {
@@ -217,7 +238,19 @@ export function captureCaption(slot: string): string {
 export const isScreenshotKey = (value: string | null | undefined): boolean =>
   !!value &&
   value.startsWith("order-screenshots/") &&
-  /\.(png|jpe?g)$/i.test(value);
+  /\.(png|jpe?g|pdf)$/i.test(value);
+
+/**
+ * Is this capture a PDF rather than an image?
+ *
+ * The e-RF is a document, not a screen, but it is stored and reported through
+ * exactly the same capture path so it lands on the timeline in its true
+ * chronological place. Every renderer that would otherwise reach for an `<img>`
+ * has to ask this first \u2014 including the carousel's `new Image()` preloader,
+ * which fails silently on a PDF rather than visibly.
+ */
+export const isPdfCapture = (key: string | null | undefined): boolean =>
+  !!key && /\.pdf$/i.test(key);
 
 /**
  * How long a capture survives in R2, or null when nothing is known to delete.
@@ -342,6 +375,15 @@ export interface SubmitErrorCopy {
   fix: string;
 }
 
+/**
+ * The one error code BizzFlow raises itself rather than reading off the portal.
+ *
+ * Mirrors `ERF_NOT_DOWNLOADED` in scraper/oe_errors.py. Both ends can set it:
+ * the scraper when a paid run fails to fetch the form or stops at the Pay gate,
+ * BizzFlow when a result comes back with no `erf_key` at all.
+ */
+export const ERF_NOT_DOWNLOADED = "erf_not_downloaded";
+
 export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
   device_out_of_stock: {
     title: "Device out of stock",
@@ -350,6 +392,37 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
       "Information page, and refused this order because Unifi has no stock of " +
       "the device on it. Nothing about the customer or the address is wrong.",
     fix: "Edit the order, choose a different device, then resubmit.",
+  },
+  pay_page_not_ready: {
+    title: "Pay page never finished loading",
+    subtext:
+      "The portal showed its Pay button before the charges had loaded, so the " +
+      "run stopped rather than click it. Nothing was paid \u2014 this happens " +
+      "before the payment, not during it.",
+    fix:
+      "Submit again. The order already exists in the portal and is waiting at " +
+      "the Pay step, so check it there first rather than creating a second one.",
+  },
+  pay_click_did_not_take: {
+    title: "Payment unconfirmed",
+    subtext:
+      "Pay was clicked, but the portal was still showing the Pay page 30 " +
+      "seconds later. The payment may or may not have gone through \u2014 the " +
+      "portal never said.",
+    fix:
+      "Check this order in the Unifi portal before doing anything else. Only " +
+      "resubmit once you have confirmed it was NOT paid.",
+  },
+  erf_not_downloaded: {
+    title: "No e-RF (registration form)",
+    subtext:
+      "An order is only complete once its registration form has been " +
+      "downloaded, and this run produced none. Either it stopped at the Pay " +
+      "gate without paying, or it paid and the form could not be fetched \u2014 the " +
+      "message below says which.",
+    fix:
+      "Check the order in the Unifi portal before doing anything else. If it " +
+      "was paid, the form is on the order's confirmation page under Print e-RF.",
   },
 };
 

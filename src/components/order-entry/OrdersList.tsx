@@ -19,6 +19,7 @@ import type { RowActions } from "./OrderRow";
 import { OrdersTable } from "./OrdersTable";
 import { OrdersToolbar } from "./OrdersToolbar";
 import { ResubmitDialog } from "./ResubmitDialog";
+import { DeleteOrderDialog } from "./DeleteOrderDialog";
 
 /** One poll's view of an in-flight submit, as returned by the progress route. */
 interface ProgressState {
@@ -57,6 +58,10 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   const [historyId, setHistoryId] = useState<string | null>(null);
   // The order awaiting a resubmit confirmation, if any.
   const [resubmitId, setResubmitId] = useState<string | null>(null);
+  // …and the one awaiting a delete confirmation. Delete is irreversible and,
+  // for a row the portal has numbered, destroys the only local record of a real
+  // order — so it asks first, every time.
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   // Superadmins see everyone's drafts + a "Made By" column.
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
 
@@ -75,13 +80,13 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
           setOrders(res.data);
           setIsSuperAdmin(!!res.isSuperAdmin);
         } else {
-          setLoadError(res.error ?? "Couldn't load drafts.");
+          setLoadError(res.error ?? "Couldn't load orders.");
         }
       })
       .catch((e) => {
         if (!active) return;
         console.error("[OrdersList] listOrders failed:", e);
-        setLoadError("Couldn't load drafts. Reload the page — if it keeps failing, the server is erroring.");
+        setLoadError("Couldn't load orders. Reload the page — if it keeps failing, the server is erroring.");
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -101,10 +106,10 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
       }
     } catch (e) {
       console.error("[OrdersList] reload failed:", e);
-      toast.error("Couldn't refresh the drafts list.");
+      toast.error("Couldn't refresh the orders list.");
       // Also record it, so a failed "Try again" shows the error state again
       // rather than silently falling through to "No orders yet".
-      setLoadError("Couldn't load drafts. Reload the page — if it keeps failing, the server is erroring.");
+      setLoadError("Couldn't load orders. Reload the page — if it keeps failing, the server is erroring.");
     }
   }
 
@@ -296,7 +301,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     setBusyId(null);
     if (res.success) {
       setOrders((o) => o.filter((x) => x.id !== id));
-      toast.success("Draft deleted.");
+      toast.success("Order deleted.");
     } else {
       toast.error("Delete failed");
     }
@@ -316,7 +321,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   if (loadError) {
     return (
       <div className="rounded-xl border border-red-200 bg-white p-10 text-center">
-        <p className="text-sm font-medium text-red-700">Couldn&apos;t load drafts</p>
+        <p className="text-sm font-medium text-red-700">Couldn&apos;t load orders</p>
         <p className="mx-auto mt-1 max-w-md text-xs leading-snug text-[#697386]">{loadError}</p>
         <button
           type="button"
@@ -337,7 +342,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     return (
       <div className="rounded-xl border border-dashed border-[#E3E8EF] bg-white p-10 text-center">
         <p className="text-sm font-medium text-[#425466]">No orders yet</p>
-        <p className="mt-1 text-xs text-[#697386]">Fill in the New Order tab to create a draft.</p>
+        <p className="mt-1 text-xs text-[#697386]">Fill in the New Order tab to create one.</p>
       </div>
     );
   }
@@ -347,6 +352,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   // Re-read the same way: a row that finished mid-dialog must not be resubmitted
   // against a stale snapshot of itself.
   const resubmitOrder = orders.find((o) => o.id === resubmitId) ?? null;
+  const deleteOrderRow = orders.find((o) => o.id === deleteId) ?? null;
 
   const filtered = filterOrders(orders, filters);
   // Options come from ALL loaded rows, not the filtered ones — deriving them
@@ -367,7 +373,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     onSubmit: () => handleSubmit(o.id, o.fullName),
     onResubmit: () => setResubmitId(o.id),
     onEdit: () => onEdit(o.id),
-    onDelete: () => handleDelete(o.id),
+    onDelete: () => setDeleteId(o.id),
     onShowHistory: () => setHistoryId(o.id),
   });
 
@@ -405,6 +411,17 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
 
       {/* Re-checked at confirm time, not just at open time: the row may have
           been picked up by another tab's poll while the dialog sat open. */}
+      {deleteOrderRow && (
+        <DeleteOrderDialog
+          order={deleteOrderRow}
+          onCancel={() => setDeleteId(null)}
+          onConfirm={() => {
+            setDeleteId(null);
+            handleDelete(deleteOrderRow.id);
+          }}
+        />
+      )}
+
       {resubmitOrder && canResubmit(resubmitOrder) && (
         <ResubmitDialog
           order={resubmitOrder}

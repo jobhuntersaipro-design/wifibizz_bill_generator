@@ -182,7 +182,18 @@ def _redact_order_result(result):
                  # the dialog it came from. `dialog` is diagnostic — it is how one
                  # live run answers "which selector actually matched?" — and both
                  # are portal metadata, not customer data.
-                 "portal_code", "dialog"}
+                 "portal_code", "dialog",
+                 # The e-RF's R2 key and the portal order URL. NOT PII: the key is
+                 # order-screenshots/<userId>/<orderId>/<portalOrderNumber>_erf.pdf
+                 # and the URL carries the order number only.
+                 #
+                 # Their absence here is why a run that paid, downloaded the form
+                 # and uploaded it to R2 came back reading "finished without
+                 # downloading the e-RF" and was demoted from Submitted to Order
+                 # Entered: BizzFlow decides that on `erf_key`, and redaction
+                 # removed it. Same trap as `ap_amount` above — a whitelist a
+                 # returned field never joined.
+                 "erf_key", "order_url"}
     return {k: v for k, v in result.items() if k in safe_keys}
 
 

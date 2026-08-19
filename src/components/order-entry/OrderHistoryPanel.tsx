@@ -9,6 +9,7 @@ import {
   Clock,
   Copy,
   ExternalLink,
+  FileText,
   History,
   CornerDownRight,
   ListChecks,
@@ -29,6 +30,7 @@ import {
   heroFor,
   initialsFor,
   isPageBreakStage,
+  isPdfCapture,
   labelForStage,
   mergeTimeline,
   partitionCaptures,
@@ -203,14 +205,24 @@ function CapturesStrip({
               className="group block w-20 cursor-pointer rounded-md text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
             >
               <span className="block overflow-hidden rounded-md border border-[#E3E8EF] bg-[#F6F9FC]">
-                {/* eslint-disable-next-line @next/next/no-img-element -- an
-                    auth-gated private stream, not an optimisable static asset */}
-                <img
-                  src={captureSrc(c.key)}
-                  alt=""
-                  loading="lazy"
-                  className="h-12 w-full object-cover object-top transition-transform duration-200 ease-out group-hover:scale-[1.04]"
-                />
+                {isPdfCapture(c.key) ? (
+                  /* A PDF has no thumbnail to show — a file tile says what it is
+                     rather than leaving a blank slot in the rail. */
+                  <span className="flex h-12 w-full items-center justify-center bg-[#EDEBFF] transition-transform duration-200 ease-out group-hover:scale-[1.04]">
+                    <FileText className="h-4 w-4 text-[#635BFF]" aria-hidden="true" />
+                  </span>
+                ) : (
+                  <>
+                    {/* eslint-disable-next-line @next/next/no-img-element -- an
+                        auth-gated private stream, not an optimisable static asset */}
+                    <img
+                      src={captureSrc(c.key)}
+                      alt=""
+                      loading="lazy"
+                      className="h-12 w-full object-cover object-top transition-transform duration-200 ease-out group-hover:scale-[1.04]"
+                    />
+                  </>
+                )}
               </span>
               <span className="mt-1 block truncate text-[9px] leading-tight text-[#697386]">
                 {captureLabel(c.slot)}
@@ -241,6 +253,9 @@ function ShotRow({
 }) {
   const [loaded, setLoaded] = useState(false);
   const src = captureSrc(capture.key);
+  // The e-RF arrives through the capture path so it lands in its true place on
+  // the timeline, but it is a document, not a screen — no <img>, no thumbnail.
+  const isPdf = isPdfCapture(capture.key);
   const expiry = captureExpiry(capture.at);
   // Past retention the object is GONE from R2, so the <img> would 404 into a
   // broken frame. Say so in words instead.
@@ -251,7 +266,11 @@ function ShotRow({
     <li className="step-row-in flex items-start gap-3">
       <div className="flex w-3.5 shrink-0 flex-col items-center self-stretch">
         <span className="flex h-4 w-3.5 items-center justify-center">
-          <Camera className="h-3 w-3 shrink-0 text-[#635BFF]" aria-hidden="true" />
+          {isPdf ? (
+            <FileText className="h-3 w-3 shrink-0 text-[#635BFF]" aria-hidden="true" />
+          ) : (
+            <Camera className="h-3 w-3 shrink-0 text-[#635BFF]" aria-hidden="true" />
+          )}
         </span>
         {!last && <span className="w-px flex-1 bg-[#B9B5FF]" />}
       </div>
@@ -282,8 +301,8 @@ function ShotRow({
         </div>
         {expired ? (
           <p className="mt-1.5 rounded-lg border border-dashed border-[#E3E8EF] px-3 py-4 text-center text-[10px] leading-snug text-[#8792A2]">
-            This frame passed its {CAPTURE_RETENTION_DAYS}-day retention and has been
-            deleted.
+            {isPdf ? "This document" : "This frame"} passed its {CAPTURE_RETENTION_DAYS}-day
+            retention and has been deleted.
           </p>
         ) : (
           <button
@@ -293,19 +312,36 @@ function ShotRow({
             className="group mt-1.5 block w-full cursor-pointer rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
           >
             <div className="relative overflow-hidden rounded-lg border border-[#E3E8EF] bg-white">
-              {!loaded && <Skeleton className="h-40 w-full rounded-none" />}
-              {/* eslint-disable-next-line @next/next/no-img-element -- an auth-gated
-                  private stream, not an optimisable static asset */}
-              <img
-                src={src}
-                alt={`${captureLabel(capture.slot)} as the portal rendered it`}
-                loading="lazy"
-                onLoad={() => setLoaded(true)}
-                onError={() => setLoaded(true)}
-                className={`h-40 w-full object-cover object-top transition-transform duration-300 ease-out group-hover:scale-[1.015] ${
-                  loaded ? "opacity-100" : "absolute inset-0 opacity-0"
-                }`}
-              />
+              {isPdf && (
+                <span className="flex items-center gap-2.5 px-3 py-4 transition-colors duration-150 group-hover:bg-[#F6F9FC]">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#EDEBFF]">
+                    <FileText className="h-4 w-4 text-[#635BFF]" aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0 text-left">
+                    <span className="block truncate text-[11px] font-medium text-[#0A2540]">
+                      {capture.key.split("/").pop()}
+                    </span>
+                    <span className="block text-[10px] text-[#8792A2]">
+                      PDF · click to preview
+                    </span>
+                  </span>
+                </span>
+              )}
+              {!isPdf && !loaded && <Skeleton className="h-40 w-full rounded-none" />}
+              {!isPdf && (
+                /* eslint-disable-next-line @next/next/no-img-element -- an auth-gated
+                   private stream, not an optimisable static asset */
+                <img
+                  src={src}
+                  alt={`${captureLabel(capture.slot)} as the portal rendered it`}
+                  loading="lazy"
+                  onLoad={() => setLoaded(true)}
+                  onError={() => setLoaded(true)}
+                  className={`h-40 w-full object-cover object-top transition-transform duration-300 ease-out group-hover:scale-[1.015] ${
+                    loaded ? "opacity-100" : "absolute inset-0 opacity-0"
+                  }`}
+                />
+              )}
             </div>
           </button>
         )}

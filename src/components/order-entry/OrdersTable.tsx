@@ -164,7 +164,7 @@ export function OrdersTable({
                 c.key === "select" ? (
                   <TableHead key={c.key} className={`w-10 px-4 py-3 ${PIN_SELECT}`}>
                     <Checkbox
-                      aria-label="Select all submittable drafts"
+                      aria-label="Select all submittable orders"
                       checked={allSelected}
                       indeterminate={someSelected && !allSelected}
                       disabled={selectableIds.length === 0 || batchRunning}

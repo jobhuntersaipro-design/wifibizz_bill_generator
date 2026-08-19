@@ -90,7 +90,7 @@ export function OrdersToolbar({
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="relative flex-1">
           <label htmlFor="drafts-search" className="sr-only">
-            Search drafts by name, ID number, phone or reference
+            Search orders by name, ID number, phone or reference
           </label>
           <input
             id="drafts-search"

@@ -155,6 +155,12 @@ async def _launch_browser_safe():
 
     context = await browser.new_context(
         viewport={"width": 1280, "height": 800},
+        # Explicit because the post-payment e-RF capture depends on it: Print
+        # e-RF produces a file download, and a context that refuses downloads
+        # would fail that step silently on an order that has already been paid
+        # for. It is the Playwright default today; this stops a default change
+        # from quietly costing us the registration form.
+        accept_downloads=True,
         user_agent=(
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "

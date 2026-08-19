@@ -7,6 +7,7 @@ import {
   daysUntilExpiry,
   expiryLabel,
   isCaptureStage,
+  isPdfCapture,
   isScreenshotKey,
   mergeTimeline,
   partitionCaptures,
@@ -65,6 +66,29 @@ describe("capture stage recognition", () => {
     // A failed capture records its REASON in the same field.
     expect(isScreenshotKey("Screenshot not stored")).toBe(false);
     expect(isScreenshotKey("orders/u/id-copy.jpg")).toBe(false);
+  });
+
+  it("accepts the e-RF PDF, which travels the same capture path", () => {
+    const erf = "order-screenshots/u/o/2608000121575083_erf.pdf";
+    // Rejecting it here would render the R2 key as a failure REASON in a text
+    // row — the exact leak partitionCaptures exists to prevent.
+    expect(isScreenshotKey(erf)).toBe(true);
+    expect(isPdfCapture(erf)).toBe(true);
+    // …and every image renderer has to be able to tell the two apart, because
+    // an <img> pointed at a PDF fails silently rather than visibly.
+    expect(isPdfCapture(key("pay"))).toBe(false);
+    expect(isPdfCapture("order-screenshots/u/o/submit-1-page1.png")).toBe(false);
+    expect(isPdfCapture("e-RF not stored")).toBe(false);
+    expect(isPdfCapture(null)).toBe(false);
+    // The prefix rule still binds: a PDF outside the capture namespace is not
+    // a capture, whatever it is called.
+    expect(isScreenshotKey("orders/u/o/2608000121575083_erf.pdf")).toBe(false);
+  });
+
+  it("labels and captions the post-payment slots", () => {
+    expect(captureLabel("erf")).toBe("e-RF (Registration Form)");
+    expect(captureLabel("erf_page")).toBe("Order confirmation");
+    expect(stepIndexForStage("capture_erf")).toBe(-1);
   });
 });
 
