@@ -415,6 +415,30 @@ ORDER_BUTTON_STATE_JS = r"""(() => {
     selectedText: chosen.map(r => (r.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 200)).slice(0, 3),
     sampleRow: rows.length ? titles(rows[0]) : [],
     panel,
+    // Which gesture the portal actually listens for. jqGrid is jQuery-based, so
+    // its handlers are introspectable — this answers click-vs-dblclick with the
+    // page's own bindings instead of a guess.
+    events: (() => {
+      try {
+        const jq = d.defaultView && (d.defaultView.jQuery || d.defaultView.$);
+        if (!jq || !jq._data) return 'jquery not reachable';
+        const grid = d.querySelector('.js-offer-grid');
+        const at = el => {
+          if (!el) return null;
+          const e = jq._data(el, 'events');
+          return e ? Object.keys(e) : [];
+        };
+        return {
+          grid: at(grid),
+          gridParent: at(grid && grid.parentElement),
+          row: at(chosen[0] || rows[0]),
+          orderBtn: at(b),
+          // Delegated handlers usually live high up; this is where a
+          // "click a row -> reveal Order" binding would sit.
+          body: at(d.body),
+        };
+      } catch (e) { return 'events probe failed: ' + e.message; }
+    })(),
   };
 })"""
 
@@ -591,6 +615,7 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
         print(f"  ⚠ selectedText={btn_state.get('selectedText')}", flush=True)
         print(f"  ⚠ sampleRow={btn_state.get('sampleRow')}", flush=True)
         print(f"  ⚠ panel={btn_state.get('panel')}", flush=True)
+        print(f"  ⚠ events={btn_state.get('events')}", flush=True)
 
     if dry_run:
         # SAFETY GATE: never click Order on a dry-run.
