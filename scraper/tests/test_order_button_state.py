@@ -23,7 +23,12 @@ def test_the_live_failure_is_reported_as_the_portal_hiding_the_button():
     why = describe_order_not_ready({
         "present": True, "disabled": False, "visible": False,
         "className": "btn btn-default js-orderNow hide",
-        "rows": 6, "selected": ["Unifi Home 500Mbps Premium Value With Device (36M)"],
+        "rows": 6,
+        # One selected row, reported as ALL its title cells — the portal puts an
+        # internal id in the first one, which is what made an earlier version of
+        # this probe report 32-char hashes as offer names.
+        "selected": [["lVFzZSfwNuwuBJBVsm8kDLTG37CXpYJ7",
+                      "Unifi Home 500Mbps Premium Value With Device (36M)"]],
     })
     assert "hidden" in why
     assert "Unifi Home 500Mbps Premium Value With Device (36M)" in why
@@ -52,7 +57,7 @@ def test_a_disabled_button_is_reported_before_visibility():
     disabled button can also be off-screen — so it must win."""
     why = describe_order_not_ready({
         "present": True, "disabled": True, "visible": False,
-        "rows": 3, "selected": ["X"],
+        "rows": 3, "selected": [["X"]],
     })
     assert "disabled" in why
 

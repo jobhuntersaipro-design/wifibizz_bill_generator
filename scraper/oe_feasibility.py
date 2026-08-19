@@ -372,22 +372,49 @@ async def select_plan(frame, plan: dict) -> dict:
 ORDER_BUTTON_STATE_JS = r"""(() => {
   const f = document.querySelector('#myIframe'), d = f && f.contentDocument;
   if (!d) return {error: 'no order-entry iframe'};
+  const vis = el => !!el && !!(el.offsetParent || el.getClientRects().length);
   const b = d.querySelector('.js-orderNow');
+
+  // Every .js-offer-grid, not just the first. If the portal keeps a hidden
+  // template grid alongside the live one, a row click can land in the wrong
+  // grid: it selects, it highlights, and the portal never reacts — which looks
+  // exactly like the portal refusing the order.
+  const grids = [...d.querySelectorAll('.js-offer-grid')].map((g, i) => ({
+    i, visible: vis(g), rows: g.querySelectorAll('tr.jqgrow').length,
+  }));
+
   const rows = [...d.querySelectorAll('.js-offer-grid tr.jqgrow')];
-  const title = r => {
-    const td = [...r.querySelectorAll('td[title]')]
-      .find(t => (t.getAttribute('title') || '').length > 8);
-    return td ? td.getAttribute('title') : '';
-  };
+  // ALL titles per row. Picking "the first long one" silently read an internal
+  // id column and reported 32-char hashes as offer names.
+  const titles = r => [...r.querySelectorAll('td[title]')]
+    .map(t => t.getAttribute('title') || '').filter(Boolean);
   const chosen = rows.filter(r => /ui-state-highlight|ui-state-select|success|selected/.test(r.className));
+
+  // What sits around the Order button — a sibling action or a message is
+  // usually the portal saying what it wants next.
+  let panel = null;
+  if (b) {
+    const box = b.closest('.panel, .modal-content, .row, form') || b.parentElement;
+    panel = {
+      text: (box ? box.innerText || '' : '').replace(/\s+/g, ' ').trim().slice(0, 400),
+      buttons: [...(box ? box.querySelectorAll('button, a.btn') : [])]
+        .map(x => ({t: (x.textContent || '').trim().slice(0, 40), c: x.className, v: vis(x)}))
+        .slice(0, 12),
+    };
+  }
+
   return {
     present: !!b,
     className: b ? b.className : null,
     disabled: b ? !!b.disabled : null,
-    visible: b ? !!(b.offsetParent || b.getClientRects().length) : false,
+    visible: vis(b),
+    grids,
     rows: rows.length,
-    selected: chosen.map(title).filter(Boolean).slice(0, 5),
-    offers: rows.map(title).filter(Boolean).slice(0, 25),
+    selectedCount: chosen.length,
+    selected: chosen.map(titles).slice(0, 3),
+    selectedText: chosen.map(r => (r.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 200)).slice(0, 3),
+    sampleRow: rows.length ? titles(rows[0]) : [],
+    panel,
   };
 })"""
 
@@ -420,7 +447,7 @@ def describe_order_not_ready(state: dict) -> str:
         if state.get("rows") and not state.get("selected"):
             return (f"No offer row is selected, so the portal keeps Order hidden. "
                     f"The grid lists {state['rows']} offer(s).")
-        chosen = ", ".join(state.get("selected") or []) or "none"
+        chosen = "; ".join(" | ".join(t) for t in (state.get("selected") or [])) or "none"
         return ("The portal is keeping the Order button hidden for this address "
                 f"and plan (selected offer: {chosen}).")
     return "Order button not ready."
@@ -556,10 +583,14 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
     )
     print(f"  ↳ order button: present={btn_state.get('present')} "
           f"visible={btn_state.get('visible')} disabled={btn_state.get('disabled')} "
-          f"class={btn_state.get('className')!r} rows={btn_state.get('rows')} "
-          f"selected={btn_state.get('selected')}", flush=True)
+          f"class={btn_state.get('className')!r}", flush=True)
     if not order_ready:
-        print(f"  ⚠ offers on this address: {btn_state.get('offers')}", flush=True)
+        print(f"  ⚠ grids={btn_state.get('grids')} rows={btn_state.get('rows')} "
+              f"selectedCount={btn_state.get('selectedCount')}", flush=True)
+        print(f"  ⚠ selected={btn_state.get('selected')}", flush=True)
+        print(f"  ⚠ selectedText={btn_state.get('selectedText')}", flush=True)
+        print(f"  ⚠ sampleRow={btn_state.get('sampleRow')}", flush=True)
+        print(f"  ⚠ panel={btn_state.get('panel')}", flush=True)
 
     if dry_run:
         # SAFETY GATE: never click Order on a dry-run.
