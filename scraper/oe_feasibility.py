@@ -3331,6 +3331,11 @@ async def _finish_on_erf_page(page, payload: dict, stage, advance_payment: str |
     against what each one bought. The Pay capture is taken before the click, so
     none of those numbers exist in any earlier frame.
     """
+    # A step of its own on the checklist, not just a pair of artefacts: fetching
+    # the registration form is the last thing a submit does, and a run that
+    # reached Pay but came home without the document should say so in the place
+    # the agent is already looking.
+    stage("erf")
     await capture_and_report(page, payload, "erf_page", stage)
     # The service breakdown runs down the page inside the portal's inner
     # scroller, so the first frame only ever holds the top of it — the same

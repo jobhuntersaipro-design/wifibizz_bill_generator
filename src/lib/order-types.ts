@@ -64,6 +64,9 @@ export const SUBMIT_STEPS: SubmitStep[] = [
   { key: "appointment", label: "Booking appointment" },
   { key: "delivery_terms", label: "Delivery details" },
   { key: "pay", label: "Payment" },
+  // Only reachable after a real charge — with do_pay=FALSE a run stops at the
+  // Pay gate and this step never ticks, which is correct: it did not happen.
+  { key: "erf", label: "Downloading e-RF" },
 ];
 
 // Everything from here on has an order id in the portal: a failure after this
