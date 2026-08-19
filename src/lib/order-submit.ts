@@ -14,6 +14,7 @@ import { prisma } from "@/lib/prisma";
 import { attachStageDetail, recordEvent } from "@/lib/order-history";
 import {
   CAPTURE_STAGE_PREFIX,
+  ERF_NOT_DOWNLOADED,
   LEGACY_PAGE1_CAPTURE_STAGE,
   PAGE1_CAPTURE_SLOT,
   POINT_OF_NO_RETURN,
@@ -33,6 +34,9 @@ export interface OrderJobResult {
   order_url?: string;
   advance_payment?: string;
   warning?: string;
+  // The R2 key of the downloaded e-RF. Its PRESENCE is what marks an order
+  // complete — absent means no registration form, whatever else went right.
+  erf_key?: string;
   // Stable oe_errors code (e.g. device_out_of_stock) when the scraper could
   // classify the failure. Absent when it could not — the caller then falls back
   // to its own stage-specific wording rather than a blanket "unknown".
@@ -328,11 +332,33 @@ async function applyResult(
     };
   };
 
+  // An order is only finished when its registration form is in hand. The scraper
+  // reports `erf_key` when the e-RF reached R2 and ERF_NOT_DOWNLOADED when it
+  // did not — including the do_pay=false gated stop, which never pays and so
+  // never produces one. Until ORDER_ENTRY_DO_PAY=true that is EVERY run.
+  //
+  // A missing form never yields `failed`, whatever else happened: `failed`
+  // re-enables the normal Submit button, and doing that to an order the portal
+  // may already have charged for is how a customer gets billed twice. It
+  // becomes `warning`, which keeps the order number, keeps it out of batch
+  // submit, and leaves only the Resubmit path behind its confirmation dialog.
+  const erfMissing = !result.erf_key;
+
   // Full flow through Pay done ("submitted"), or the legacy order-id-only path.
   if ((result.status === "submitted" || result.status === "success") && result.order_id) {
     const ap = result.advance_payment
       ? `Advance Payment RM${result.advance_payment} was required.`
       : null;
+    if (erfMissing) {
+      const why = result.message || result.warning
+        || "The run finished without downloading the e-RF.";
+      return finish({
+        status: "warning",
+        orderId: result.order_id,
+        errorMessage: [why, ap].filter(Boolean).join(" "),
+        errorCode: ERF_NOT_DOWNLOADED,
+      });
+    }
     const note = [result.warning, ap].filter(Boolean).join(" ") || null;
     return finish({ status: "submitted", orderId: result.order_id, errorMessage: note });
   }
@@ -370,6 +396,23 @@ async function applyResult(
       status: "warning",
       ...(result.order_id ? { orderId: result.order_id } : {}),
       errorMessage: result.warning,
+    });
+  }
+
+  // An order exists in the portal but no registration form came back — the
+  // do_pay=false gated stop lands here. "Order Entered" would claim a finished
+  // order, so it reports the code instead.
+  //
+  // Scoped to runs that actually placed an order: the customer-create-only path
+  // below has no order id, nothing was ordered, and there is no form for it to
+  // be missing.
+  if (result.order_id && erfMissing) {
+    return finish({
+      status: "warning",
+      orderId: result.order_id,
+      errorMessage: result.message
+        || "The order was placed but no e-RF (registration form) was downloaded.",
+      errorCode: ERF_NOT_DOWNLOADED,
     });
   }
 

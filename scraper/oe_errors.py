@@ -18,6 +18,11 @@ LOGIN_ID_INVALID = "login_id_invalid"
 LOGIN_ID_TAKEN = "login_id_taken"
 VOBB_UNAVAILABLE = "vobb_unavailable"
 DEVICE_OUT_OF_STOCK = "device_out_of_stock"
+# An order is not finished until its registration form is in hand. This is the
+# only code here NOT matched from portal wording — the portal never says it. It
+# is our own completeness check: a submit that produced no e-RF is incomplete,
+# whether it stopped at the Pay gate or paid and then failed to fetch the form.
+ERF_NOT_DOWNLOADED = "erf_not_downloaded"
 UNKNOWN_ERROR = "unknown_error"
 
 # ── Substring → code rules (matched against .modal-message, case-insensitive) ──

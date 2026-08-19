@@ -20,7 +20,8 @@ import re
 
 import dealer_web_login
 from appointment_policy import choose_slot, describe_read_failure
-from oe_errors import DEVICE_OUT_OF_STOCK, UNKNOWN_ERROR, map_error, portal_code
+from oe_errors import (DEVICE_OUT_OF_STOCK, ERF_NOT_DOWNLOADED, UNKNOWN_ERROR,
+                       map_error, portal_code)
 from oe_helpers import set_combobox
 from order_entry import ORDER_ENTRY_URL, _frame, ensure_on_order_entry
 
@@ -3201,9 +3202,16 @@ async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
 
     if not do_pay:
         # SAFETY GATE — stop before the billable click.
+        #
+        # Carries ERF_NOT_DOWNLOADED too: with the gate closed no payment happens,
+        # so no registration form is ever generated, and an order without one is
+        # not complete however cleanly the run behaved. Deliberate — it means
+        # every submit reports this code until ORDER_ENTRY_DO_PAY=true.
         return {"status": "ready_to_pay", "stage": "pay_gate",
                 "advance_payment": advance_payment,
-                "message": "Reached Pay page; do_pay=False so NOT submitting."}
+                "error": ERF_NOT_DOWNLOADED,
+                "message": ("Reached the Pay page and stopped there (do_pay=False), so "
+                            "no payment was made and no e-RF was generated.")}
 
     await pay_loc.first.click(timeout=8000)
     await asyncio.sleep(3)
@@ -3355,7 +3363,20 @@ async def _finish_on_erf_page(page, payload: dict, stage, advance_payment: str |
                              "Customer Order Number could not be read.")
         order_no = str(((payload or {}).get("order_ref") or {}).get("order_id") or "")
 
-    await capture_erf_pdf(page, payload, order_no, stage)
+    shot = await capture_erf_pdf(page, payload, order_no, stage)
+    # The order is only finished when the form is in hand. A failed or disabled
+    # capture is reported with a code rather than swallowed — but the status
+    # stays `submitted` and the order number is kept, because the money HAS
+    # moved and a state that re-enables Submit could charge the customer twice.
+    if shot and shot.get("outcome") == "ok":
+        result["erf_key"] = shot.get("value")
+    else:
+        result["error"] = ERF_NOT_DOWNLOADED
+        result["message"] = (
+            "The order was paid, but its e-RF (registration form) could not be "
+            "downloaded"
+            + (f": {shot.get('note')}" if shot and shot.get("note") else ".")
+        )
     return result
 
 

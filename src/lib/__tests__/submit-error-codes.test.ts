@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  ERF_NOT_DOWNLOADED,
   SUBMIT_ERROR_CODES,
   portalCodeFrom,
   submitErrorCopy,
@@ -60,5 +61,24 @@ describe("portalCodeFrom", () => {
 
   it("tolerates padding inside the brackets", () => {
     expect(portalCodeFrom("[ 40300338 ]: out of stock")).toBe("40300338");
+  });
+});
+
+describe("the e-RF completeness code", () => {
+  it("has copy, so a missing registration form never renders a blank panel", () => {
+    // Unlike every other code here this one is NOT matched from portal wording —
+    // the portal never says it. It is our own completeness rule, so if the copy
+    // is ever dropped the agent sees an unexplained warning on every order.
+    const copy = submitErrorCopy(ERF_NOT_DOWNLOADED);
+    expect(copy?.title).toBe("No e-RF (registration form)");
+    expect(copy?.fix).toMatch(/portal/i);
+  });
+
+  it("keeps the same string the scraper emits", () => {
+    // scraper/oe_errors.py ERF_NOT_DOWNLOADED. These are two constants in two
+    // languages naming one code; drift makes the panel silently fall back to
+    // the raw message.
+    expect(ERF_NOT_DOWNLOADED).toBe("erf_not_downloaded");
+    expect(SUBMIT_ERROR_CODES[ERF_NOT_DOWNLOADED]).toBeDefined();
   });
 });

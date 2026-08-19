@@ -24,6 +24,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from oe_errors import ERF_NOT_DOWNLOADED  # noqa: E402
 from oe_feasibility import (  # noqa: E402
     _better_confirmation,
     _paid_but_stranded,
@@ -149,3 +150,10 @@ def test_a_confirmation_without_a_number_does_not_count_as_known():
     # null id would put a row in the table that names no portal order.
     r = _post_pay_outcome(NUMBERLESS, None, "the e-RF page was not reached.")
     assert r["status"] == "error"
+
+
+def test_the_erf_code_matches_the_string_bizzflow_renders():
+    # src/lib/order-types.ts ERF_NOT_DOWNLOADED. Two constants, two languages,
+    # one code: drift makes the UI fall back to the raw message with no title,
+    # no explanation and no fix.
+    assert ERF_NOT_DOWNLOADED == "erf_not_downloaded"

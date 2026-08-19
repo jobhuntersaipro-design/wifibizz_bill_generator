@@ -371,6 +371,15 @@ export interface SubmitErrorCopy {
   fix: string;
 }
 
+/**
+ * The one error code BizzFlow raises itself rather than reading off the portal.
+ *
+ * Mirrors `ERF_NOT_DOWNLOADED` in scraper/oe_errors.py. Both ends can set it:
+ * the scraper when a paid run fails to fetch the form or stops at the Pay gate,
+ * BizzFlow when a result comes back with no `erf_key` at all.
+ */
+export const ERF_NOT_DOWNLOADED = "erf_not_downloaded";
+
 export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
   device_out_of_stock: {
     title: "Device out of stock",
@@ -379,6 +388,17 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
       "Information page, and refused this order because Unifi has no stock of " +
       "the device on it. Nothing about the customer or the address is wrong.",
     fix: "Edit the order, choose a different device, then resubmit.",
+  },
+  erf_not_downloaded: {
+    title: "No e-RF (registration form)",
+    subtext:
+      "An order is only complete once its registration form has been " +
+      "downloaded, and this run produced none. Either it stopped at the Pay " +
+      "gate without paying, or it paid and the form could not be fetched \u2014 the " +
+      "message below says which.",
+    fix:
+      "Check the order in the Unifi portal before doing anything else. If it " +
+      "was paid, the form is on the order's confirmation page under Print e-RF.",
   },
 };
 
