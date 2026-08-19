@@ -55,19 +55,22 @@ function getTimeString(): string {
   return `${hh}:${String(m).padStart(2, "0")} ${ampm}`;
 }
 
-// Renders text with URLs styled as blue links
+// Renders text with URLs styled as blue links and WhatsApp *bold* markup emboldened
 function TextWithLinks({ text, style }: { text: string; style?: React.CSSProperties }) {
-  const urlRegex = /(https?:\/\/[^\s]+)/g;
-  const parts = text.split(urlRegex);
+  const parts = text.split(/(https?:\/\/[^\s]+|\*[^*]+\*)/g);
   return (
     <span style={style}>
-      {parts.map((part, i) =>
-        urlRegex.test(part) ? (
-          <span key={i} style={{ color: "#53BDEB", textDecoration: "underline" }}>{part}</span>
-        ) : (
-          <span key={i}>{part}</span>
-        )
-      )}
+      {parts.map((part, i) => {
+        if (/^https?:\/\//.test(part)) {
+          return (
+            <span key={i} style={{ color: "#53BDEB", textDecoration: "underline" }}>{part}</span>
+          );
+        }
+        if (part.length > 2 && part.startsWith("*") && part.endsWith("*")) {
+          return <span key={i} style={{ fontWeight: 700 }}>{part.slice(1, -1)}</span>;
+        }
+        return <span key={i}>{part}</span>;
+      })}
     </span>
   );
 }
@@ -106,15 +109,14 @@ function buildScriptLines(c: CaseRow, installOffsetDays: number): { label: strin
   }
 
   return [
-    { label: "1.Customer Name (as per NRIC/Passport) :", value: name },
-    { label: "2.Contact Number :", value: mobile },
-    { label: "3.Customer IC :", value: idNo },
-    { label: "4.Email Address :", value: "" },
+    { label: "1.\u2060 \u2060Customer Name (as per NRIC/Passport): ", value: name },
+    { label: "2.\u2060 \u2060Contact Number: ", value: mobile },
+    { label: "3.\u2060 \u2060Customer IC/Passport No.: ", value: idNo },
+    { label: "4.\u2060 \u2060Email Address:", value: "" },
     { label: "", value: email },
-    { label: "5.Installation Address : ", value: address },
-    { label: "6.Billing Address :", value: "same as above" },
-    { label: "7.Package to be subscribed :", value: pkg },
-    { label: "8.Preferred Installation Date :", value: installDate },
+    { label: "5.\u2060 \u2060Installation Address: ", value: address },
+    { label: "6.\u2060 \u2060Package to be Subscribed: ", value: pkg },
+    { label: "7.\u2060 \u2060Preferred Installation Date: ", value: installDate },
   ];
 }
 
@@ -129,11 +131,13 @@ function getTerms(provider: string | null): string[] {
     ];
   }
   return [
-    "I hereby consent to subscribed the service with subscription contract of 36 months",
-    "I have been informed on the Terms & Condition as at https://unifi.com.my/personal/home/fibre-broadband/tnc and TM Privacy Notice",
-    "I agree to pay advance payment of RM 100 for Malaysian and RM 500 for foreigner within 10 days after installation complete.",
-    "I hereby agree all the information provided to TM is correct and genuine.",
+    "I hereby consent to subscribed the service with subscription contract of 36 months.",
+    "I agree to pay advance payment of RM100 for Malaysian and RM 500 for foreigner within 10 days after installation complete.",
+    "I have been informed on the Terms & Condition as at https://unifi.com.my/personal/home/fibre-broadband/tnc and Privacy Notice of TM",
     "I hereby consent TM representative to proceed and process my order. Kindly notify me if there is any issues pertaining to my request.",
+    "I acknowledge that the package order cannot be cancelled once the order has been submitted. Where applicable, I agree to bear any device penalty or related charges arising from cancellation, including where the device has already been processed for delivery.",
+    "I acknowledge and agree to be liable for all applicable costs, charges, device penalties and expenses arising from any cancellation, early termination or breach of the applicable subscription terms.",
+    "I hereby authorise the *TM representative* to proceed with and process my order based on the information provided.",
   ];
 }
 
@@ -299,6 +303,11 @@ function WhatsAppChat({
               borderRight: "8px solid #202C33",
               borderBottom: "10px solid transparent",
             }} />
+
+            {/* Script heading */}
+            {!isBusiness(caseData.provider) && (
+              <div style={{ ...S.text }}>UNIFI</div>
+            )}
 
             {/* Script lines */}
             <div style={{ ...S.text }}>
