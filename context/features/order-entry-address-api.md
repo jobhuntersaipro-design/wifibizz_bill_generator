@@ -2,7 +2,7 @@
 
 Captured live 2026-07-27 from an authenticated dealer session driving the
 Feasibility → Select Address modal. This is the API the BizzFlow address picker
-is built against. Source capture tool: `scraper/oe_capture_address.py`; raw
+is built against. Source capture tool: `scraper/devtools/oe_capture_address.py`; raw
 capture: `scraper/logs/qrynig_capture_*.json`.
 
 ## Endpoint

@@ -170,7 +170,26 @@ if [ "$healthy" -ne 1 ]; then
     Read the container logs above, fix it on your Mac, cut a new tag."
 fi
 
-# ── 6. Record what happened ────────────────────────────────────────────────
+# ── 6. Prune old job logs and screenshots ──────────────────────────────────
+# The service writes one .log per job plus debug screenshots, and nothing ever
+# removed them: 74MB / 163 PNGs had accumulated locally by the time anyone
+# looked. The droplet is 1GB with swap, so an unbounded logs/ dir eventually
+# takes the service down in a way that reads as a Chromium OOM.
+#
+# Runs AFTER the health check on purpose — the busy-detection above reads log
+# mtimes, and the rollback path needs the container logs intact.
+# Only touches files older than LOG_RETAIN_DAYS; today's evidence always stays.
+LOG_RETAIN_DAYS="${LOG_RETAIN_DAYS:-14}"
+if [ -d "$APP_DIR/logs" ]; then
+  before="$(du -sh "$APP_DIR/logs" 2>/dev/null | cut -f1)"
+  find "$APP_DIR/logs" -maxdepth 1 -type f \( -name '*.log' -o -name '*.png' -o -name '*.jpg' \) \
+       -mtime "+$LOG_RETAIN_DAYS" -delete 2>/dev/null || true
+  after="$(du -sh "$APP_DIR/logs" 2>/dev/null | cut -f1)"
+  say "Pruned logs older than ${LOG_RETAIN_DAYS}d"
+  info "logs/: $before -> $after"
+fi
+
+# ── 7. Record what happened ────────────────────────────────────────────────
 cat > "$STATE_FILE" <<EOF
 DEPLOYED_REF=$REF
 DEPLOYED_SHA=$NEW_SHA

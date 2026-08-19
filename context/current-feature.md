@@ -2,7 +2,7 @@
 
 ## Status
 
-In Progress — Phase A
+In Progress — Phases A, B, C done; D deferred
 
 ## Goals
 
@@ -18,7 +18,7 @@ Measured before starting (import graph from `api_server.py` + `tests/`):
 | Cannot execute at all | 3 | 3,545 |
 | Runnable but referenced by nothing | 20 | 2,701 |
 
-**Phase A — delete what cannot run** (~3,545 lines, near-zero risk)
+**Phase A — delete what cannot run — DONE** (`ca2035c`)
 - `scrape_orders.py` (1,550) imports `date_utils`; `check_status.py` (1,459)
   imports `gsheets_writer`. Neither module exists anywhere in the repo, so both
   files raise `ModuleNotFoundError` on import. `api_server.py` wraps them in
@@ -32,7 +32,7 @@ Measured before starting (import graph from `api_server.py` + `tests/`):
   `/dealer/address-search`, `/health` (grepped across `src/`).
 - Verify: `api_server` imports with no warnings, 71 scraper tests pass.
 
-**Phase B — separate dev tools from the service** (low risk)
+**Phase B — separate dev tools from the service — DONE**
 - ~17 stale probes (`oe_capture_*`, `oe_test_*`, `inspect_*`, `oe_dry_run`,
   `dry_run_customer`, `oe_real_feasibility`, `oe_watch_feasibility`, …) move to
   `scraper/devtools/`. All but two were added in one commit — `0f8cbe1
@@ -46,7 +46,7 @@ Measured before starting (import graph from `api_server.py` + `tests/`):
 - Caveat: probes import `order_entry` etc. as top-level modules, so moving needs
   a path shim or documented `PYTHONPATH`. Each must still run afterwards.
 
-**Phase C — housekeeping** (low risk)
+**Phase C — housekeeping — DONE**
 - `logs/` is 74MB / 163 PNGs / 211 files with no rotation, on a **1GB droplet**.
   `deploy.sh` reads it for busy-detection but never prunes.
 - `tests/scroll_*.png` are test *outputs* written into the source tree.
@@ -63,6 +63,34 @@ Measured before starting (import graph from `api_server.py` + `tests/`):
 live submit path and Phase 5 is still live-unverified. Refactoring code that
 cannot yet be tested against the portal trades a tidy folder for an unprovable
 regression. Revisit after one verified live submit.
+
+## Outcome
+
+Root `scraper/` went from 42 `.py` / 15,447 lines to **18 service modules /
+~8,700 lines**; the 22 dev probes live in `scraper/devtools/` and are excluded
+from the Docker image, so the droplet now receives the service and nothing else.
+
+**Phase A found a live security hole**, which is the most important result here.
+`/download_csv` built `outputs/<filename>` from the query string with no
+traversal check and passed it to `send_file`, on a host Caddy serves publicly
+with no token check. Verified locally: `?filename=../config/gmail_token.json`
+returned the Gmail OAuth token; `.env` and `sessions/` were equally reachable.
+`/save_credentials` was the unauthenticated write half. **Deploying closes it —
+then rotate the Gmail token, `ORDER_ENTRY_API_TOKEN` and the dealer password,
+since exposure is unbounded.** Caddy's access log would say whether it was used.
+
+**Discovered while working, not in the original plan:**
+- `tests/test_scroll_to_offers.py` and `tests/test_appointment_reader.py`
+  collect **zero** tests under pytest — they are standalone async scripts with
+  their own `check()` harness and only run when invoked by hand
+  (`python3 tests/test_scroll_to_offers.py`). The 70-test suite never touches
+  them, so they can rot silently. Both were run directly here and pass (their
+  fixture paths changed in Phase C). Worth converting to real pytest cases.
+- `logs/` grew 74MB in 8 days (~9MB/day). `LOG_RETAIN_DAYS=14` implies a steady
+  state near 130MB on a 1GB droplet — lower it if that is too close.
+
+**Not done, deliberately:** Phase D (`oe_feasibility.py`, 3,329 lines). It is the
+live submit path and Phase 5 remains live-unverified.
 
 ## Notes
 

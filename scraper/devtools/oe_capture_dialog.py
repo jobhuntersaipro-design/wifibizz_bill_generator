@@ -19,7 +19,7 @@ import os
 
 import login_manager
 from credential_manager import CredentialManager
-from oe_dry_run import _make_headed_launch
+from devtools.oe_dry_run import _make_headed_launch
 from oe_helpers import set_combobox
 
 ORDER_ENTRY_PRIVCODE = "crm-TYMH100163"

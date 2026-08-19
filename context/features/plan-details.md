@@ -14,7 +14,7 @@ mandatory groups are marked with a red `*`:
 ```
 
 That dialog only exists on an order's own detail page — verified live with
-[probe_offer_catalog.py](../../scraper/probe_offer_catalog.py), which found **zero**
+[probe_offer_catalog.py](../../scraper/devtools/probe_offer_catalog.py), which found **zero**
 `[Pick n-m]` text anywhere before the Order button is clicked. So automation
 cannot read it without first minting a real order, which is what the (now
 removed) Catalogue tab did.
