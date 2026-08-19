@@ -392,11 +392,15 @@ ORDER_BUTTON_STATE_JS = r"""(() => {
 })"""
 
 
-async def read_order_button_state(frame) -> dict:
-    """DOM facts about the Order button + offer grid. Never raises: this runs on
-    the failure path, where a second exception would bury the first."""
+async def read_order_button_state(page) -> dict:
+    """DOM facts about the Order button + offer grid. Takes the PAGE, not the
+    FrameLocator: the script reaches through #myIframe itself, and a
+    FrameLocator has no .page to evaluate on.
+
+    Never raises — this runs on the failure path, where a second exception would
+    bury the first."""
     try:
-        return await frame.page.evaluate(ORDER_BUTTON_STATE_JS) or {}
+        return await page.evaluate(ORDER_BUTTON_STATE_JS) or {}
     except Exception as e:
         return {"error": f"could not read order button state: {str(e)[:120]}"}
 
@@ -544,7 +548,7 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
     # Ask the DOM, not is_enabled() — see ORDER_BUTTON_STATE_JS for why that
     # check let a display:none button through and turned an instant, accurate
     # refusal into a 45s timeout blamed on portal load.
-    btn_state = await read_order_button_state(frame)
+    btn_state = await read_order_button_state(page)
     order_ready = bool(
         btn_state.get("present")
         and btn_state.get("visible")
