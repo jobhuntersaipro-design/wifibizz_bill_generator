@@ -2,7 +2,7 @@
 
 ## Status
 
-In Progress
+In Progress — deploying, then one live production submit.
 
 ## Goals
 
@@ -55,6 +55,26 @@ for mail that was merely slow is worse than the wait it replaces:
 The login is not aborted. The UI drops to manual entry exactly as it does on
 timeout, so a late code can still be typed — we are reporting a likely cause,
 not asserting a certainty.
+
+## Deploy state (carried over from the shell-dialog fix, merged as `b07d100`)
+
+This is the operational context the next deploy has to clear, and it is why the
+OTP work cannot be tested on production without deploying first.
+
+- **The droplet is running `scraper-v2026.08.17-2` (`12fa534`).** Phase 5, Phase
+  6 (including the verified-pay work) and the shell-dialog fix have **never been
+  deployed**. Production submits are running pre-Phase-5 code.
+- The shell-dialog fix (`scraper/shell_modal.py`) is code complete and
+  live-verified against the real portal, but ships for the first time here. It
+  stops the portal's "Your Password is Expiring Soon" Ant dialog silently eating
+  the first click into the order form — the cause of four consecutive submits
+  dying at "Creating customer profile" and being misreported as portal load.
+
+### Open
+
+- **The dealer password is genuinely expiring.** "Later" defers it; when it
+  hard-expires, login breaks entirely, not just order entry. Worth changing
+  deliberately and updating the stored credential.
 
 ## History
 
