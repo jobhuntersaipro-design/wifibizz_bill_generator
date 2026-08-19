@@ -314,47 +314,75 @@ async def select_address(frame, addr: dict) -> dict:
             "matched": _longest_title(target_titles)}
 
 
-async def select_plan(frame, plan: dict) -> dict:
+# Find the offer row case/whitespace-insensitively and report every title cell,
+# so a miss can name what the address actually serves. Deliberately returns an
+# INDEX and clicks nothing — the choosing gesture belongs to Playwright, which
+# can raise the real mouse events the portal listens for. A DOM .click() from
+# here fires no dblclick, which is exactly the bug this replaced.
+OFFER_ROW_INDEX_JS = r"""((want) => {
+  const f = document.querySelector('#myIframe'), d = f && f.contentDocument;
+  if (!d) return {i: -1, offers: []};
+  const norm = s => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const w = norm(want);
+  const rows = [...d.querySelectorAll('.js-offer-grid tr.jqgrow')];
+  // All title cells, then the longest — the first cell is an internal id, and
+  // taking "the first one over 8 chars" reported 32-char hashes as offer names.
+  const offers = rows.map(r => {
+    const ts = [...r.querySelectorAll('td[title]')]
+      .map(t => t.getAttribute('title') || '')
+      .filter(t => t && !/^[A-Za-z0-9]{24,}$/.test(t));
+    return ts.sort((a, b) => b.length - a.length)[0] || '';
+  });
+  // Exact, else an offer that CONTAINS the wanted name. Do NOT match the other
+  // direction (want.includes(offer)) — that grabs a shorter, wrong offer (e.g.
+  // plain "Unifi Home 300Mbps" when we want the with-device bundle), which
+  // lands us on an offer with no device/tabs.
+  let idx = offers.findIndex(o => norm(o) === w);
+  if (idx < 0) idx = offers.findIndex(o => o && norm(o).includes(w));
+  return {i: idx, offers: offers.filter(Boolean).slice(0, 25)};
+})"""
+
+
+async def select_plan(frame, plan: dict, page=None) -> dict:
     """plan: {name}. Offers are INLINE in .js-offer-grid (no Main Offer modal).
     Matching is case/space-insensitive; on a miss we log the offers the address
     ACTUALLY serves so the mismatch is obvious (the draft package must match one
-    of the serviceable offers for the picked address)."""
+    of the serviceable offers for the picked address).
+
+    The row is chosen with a DOUBLE-click. The portal's own bindings say so —
+    the grid registers `grid:ondblclickrow`, and a single click only sets
+    jqGrid's own highlight. Selecting with a single click left the correct row
+    highlighted in the right grid while `.js-orderNow` kept Bootstrap's `hide`,
+    which is what stalled ORD-0006 for six attempts. attach_customer already
+    double-clicks the customer grid for the same reason.
+    """
     await frame.locator(".js-offer-grid").first.wait_for(state="visible", timeout=20000)
     name = plan["name"]
+    rows = frame.locator(".js-offer-grid tr.jqgrow")
+
     row = frame.locator(f'.js-offer-grid tr.jqgrow:has(td[title="{name}"])').first
+    matched = name
     if await row.count() == 0:
         row = frame.locator(f'.js-offer-grid tr.jqgrow:has(td[title*="{name}"])').first
     if await row.count() == 0:
-        # Case/whitespace-insensitive match against the actual offer titles.
-        picked = await frame.page.evaluate(r"""((want) => {
-          const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return {i:-1,offers:[]};
-          const norm=s=>(s||'').replace(/\s+/g,' ').trim().toLowerCase();
-          const w=norm(want);
-          const rows=[...d.querySelectorAll('.js-offer-grid tr.jqgrow')];
-          const offers=rows.map(r=>{const td=[...r.querySelectorAll('td[title]')].find(t=>(t.getAttribute('title')||'').length>8);return td?td.getAttribute('title'):'';}).filter(Boolean);
-          // Exact, else an offer that CONTAINS the wanted name. Do NOT match the
-          // other direction (want.includes(offer)) — that grabs a shorter, wrong
-          // offer (e.g. plain "Unifi Home 300Mbps" when we want the with-device
-          // bundle), which lands us on an offer with no device/tabs.
-          let idx=offers.findIndex(o=>norm(o)===w);
-          if(idx<0) idx=offers.findIndex(o=>norm(o).includes(w));
-          if(idx>=0) rows[idx].click();
-          return {i:idx, offers:offers.slice(0,25)};
-        })""", name)
-        if picked.get("i", -1) < 0:
+        # Attribute selectors are case-SENSITIVE, and this portal writes some
+        # offers lowercase ("unifi Home ..."), so the fuzzy pass is a normal
+        # path, not a rare fallback.
+        picked = await (page or frame.page).evaluate(OFFER_ROW_INDEX_JS, name)
+        i = picked.get("i", -1)
+        if i < 0:
             print(f"  ⚠ offer '{name}' not found. Address serves: {picked.get('offers')}", flush=True)
             return {"status": "error", "error": "offer_not_found", "stage": "select_plan",
                     "message": f"Plan '{name}' not serviceable here. Available: {picked.get('offers')}"}
-        await asyncio.sleep(1)
+        row = rows.nth(i)
         # The fuzzy path can land on an offer whose name differs from what the
         # draft asked for, so report the portal's wording, not ours.
         offers = picked.get("offers") or []
-        i = picked["i"]
-        return {"status": "ok", "stage": "select_plan",
-                "matched": offers[i] if 0 <= i < len(offers) else name}
-    await row.click()
-    await asyncio.sleep(1)
-    return {"status": "ok", "stage": "select_plan", "matched": name}
+        matched = offers[i] if 0 <= i < len(offers) else name
+
+    await row.dblclick()
+    await asyncio.sleep(2)
+    return {"status": "ok", "stage": "select_plan", "matched": matched}
 
 
 # Read the real state of the Order button and the offer grid in one pass.
@@ -588,7 +616,7 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
     stage("checking_address", _detail(r.get("matched")))
 
     stage("checking_plan")
-    r = await select_plan(frame, payload["plan"])
+    r = await select_plan(frame, payload["plan"], page=page)
     if r["status"] != "ok":
         stage("checking_plan", _detail(r.get("message") or r.get("error"), "failed"))
         return r
