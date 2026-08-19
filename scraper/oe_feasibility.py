@@ -3026,6 +3026,104 @@ async def _ensure_bypass_acknowledge(page) -> bool:
     })()"""))
 
 
+def is_portal_order_number(value: str | None) -> bool:
+    """Does this look like a Customer Order Number the portal minted?
+
+    The scraper-side twin of BizzFlow's `isPortalOrderNumber` (order-types.ts).
+    Both ends check the shape because both ends can put a value into
+    `Order.orderId`, and a failure sentence written there makes the row claim a
+    portal order that does not exist.
+    """
+    return bool(value and re.fullmatch(r"\d{10,20}", value.strip()))
+
+
+# The confirmation screen's Print e-RF control.
+#
+# Matched on the button's TEXT, not a class: this page has never been inspected,
+# only photographed, so its markup is unknown. The text is what the screenshot
+# actually shows. `e-RF` is written with a hyphen there; the pattern tolerates a
+# space or none in case the portal is inconsistent about it elsewhere.
+_ERF_BUTTON_SELECTOR = (
+    'button:has-text("Print e-RF"):visible, a:has-text("Print e-RF"):visible, '
+    '.btn:has-text("Print e-RF"):visible')
+
+
+async def _find_erf_page(frame) -> dict | None:
+    """Read the post-Pay confirmation page, or None if this isn't it.
+
+    Terminal condition for the post-Pay chain. Keyed on the Print e-RF control
+    rather than on the heading: the heading is "New Connection", the same words
+    as page 1, so a title match would end the loop several pages early. That
+    button exists on exactly one screen of the flow.
+
+    Returns {order_id} — the number out of "Customer Order Number <n>" in the
+    heading, which is the number printed on the document the button downloads.
+    """
+    try:
+        if not await frame.locator(_ERF_BUTTON_SELECTOR).count():
+            return None
+    except Exception:  # noqa: BLE001
+        return None
+    txt = await frame.locator("body").first.inner_text()
+    m = re.search(r"Customer\s+Order\s+N(?:o|umber)\.?\s*[:：]?\s*([A-Z0-9]{6,})", txt, re.I)
+    oid = m.group(1) if m else None
+    return {"order_id": oid,
+            "order_url": _order_detail_url(oid) if oid else None}
+
+
+async def capture_erf_pdf(page, payload: dict, order_no: str, stage) -> dict | None:
+    """Click Print e-RF, catch the download, put the PDF in R2. Never raises.
+
+    Runs AFTER a real payment, which is the whole reason every failure path here
+    returns rather than raises: the customer has been charged, and a missing
+    document must not turn a paid order into a failed one.
+
+    Print e-RF is expected to produce a file download. It could instead open a
+    popup tab or call window.print(); rather than guess, this waits for a
+    download and REPORTS what it saw when none arrives — including whether a
+    popup opened — so the first live run settles the question with evidence.
+    """
+    if not _capture_enabled("erf"):
+        return None
+    ref = (payload or {}).get("order_ref") or {}
+    user_id, order_id = ref.get("user_id"), ref.get("order_id")
+    if not user_id or not order_id:
+        return None
+
+    frame = _frame(page)
+    popup = {"opened": None}
+    page.once("popup", lambda p: popup.__setitem__("opened", p.url or "(no url)"))
+
+    try:
+        async with page.expect_download(timeout=45000) as dl_info:
+            await frame.locator(_ERF_BUTTON_SELECTOR).first.click(timeout=10000)
+        download = await dl_info.value
+        path = await download.path()
+        with open(path, "rb") as fh:
+            data = fh.read()
+        portal_name = download.suggested_filename
+    except Exception as e:  # noqa: BLE001
+        note = f"{type(e).__name__}: {e}"
+        if popup["opened"]:
+            note += f" (a popup opened instead: {popup['opened']})"
+        print(f"  ⚠ e-RF download failed: {note}", flush=True)
+        return _detail("e-RF not downloaded", "failed", note)
+
+    # The portal's own filename is logged, never used as the key — see erf_key.
+    print(f"  ✓ e-RF downloaded: {portal_name} ({len(data)} bytes)", flush=True)
+    try:
+        from r2_upload import erf_key, upload_bytes
+        key = erf_key(user_id, order_id, order_no)
+        upload_bytes(key, data, "application/pdf")
+        print(f"  ✓ e-RF uploaded: {key}", flush=True)
+        detail = _detail(key)
+    except Exception as e:  # noqa: BLE001
+        print(f"  ⚠ e-RF upload failed: {type(e).__name__}: {e}", flush=True)
+        detail = _detail("e-RF not stored", "failed", f"{type(e).__name__}: {e}")
+    stage(capture_stage_name("erf"), detail)
+    return detail
+
+
 async def _read_advance_payment(frame) -> str | None:
     """Read the 'Advance Payment' RM amount off the Pay-page fee preview (record it;
     AP/deposit is NOT an error)."""
@@ -3111,24 +3209,120 @@ async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
     await asyncio.sleep(3)
     # Dismiss only a payment-confirm prompt — NOT the success page.
     await _dismiss_popup_ok(frame, page, exclude_title_re=r"success")
-    # Pay -> order-accepted summary -> Next -> "Submit Successfully".
-    for _ in range(3):
+
+    # ── Everything below this line runs AFTER a real charge ──────────────────
+    # The money has moved. Nothing here may turn a paid order into a failed one:
+    # every artefact is best-effort, and the only outcome that reports an error
+    # is the one where we came away with no order number at all.
+    return await _post_pay_tail(page, payload, stage, advance_payment)
+
+
+async def _post_pay_tail(page, payload: dict, stage, advance_payment: str | None,
+                         max_next: int = 6) -> dict:
+    """Pay -> Next … Next -> the confirmation page with Print e-RF.
+
+    The old version clicked Next at most three times looking for the words
+    "Submit Successfully" and reported `submit_result_not_found` otherwise. The
+    portal's actual last page says no such thing — it is headed "New Connection /
+    Customer Order Number <n>" and carries the service numbers the order was
+    assigned and a Print e-RF button. So a run could complete a real payment and
+    still come back with no order id, which is the worst failure this flow has.
+
+    Terminates on the e-RF page, keeps honouring a "Submit Successfully" screen
+    if the portal shows one on the way, and captures the confirmation page and
+    the e-RF PDF before returning.
+    """
+    frame = _frame(page)
+    for step in range(max_next):
+        erf = await _find_erf_page(frame)
+        if erf:
+            return await _finish_on_erf_page(page, payload, stage, advance_payment, erf)
+
         res = await _find_submit_result(frame)
         if res:
-            return {"status": "submitted", "stage": "done",
-                    "advance_payment": advance_payment, **res}
-        try:
-            await frame.locator('.js-btn-next:visible, button:has-text("Next"):visible'
-                                ).last.click(timeout=6000)
+            # A confirmation screen on the way to the e-RF page — record the
+            # number and keep going; the document is still one or more Nexts on.
+            print(f"    ↳ submit confirmation seen: {res}", flush=True)
+            nx = await click_next_newconn(page, stage=stage,
+                                          page_name=f"After payment ({step + 1})")
+            if nx.get("status") != "ok":
+                return {"status": "submitted", "stage": "done",
+                        "advance_payment": advance_payment,
+                        "warning": ("Payment went through and the order was confirmed, but "
+                                    "the flow could not reach the e-RF page: "
+                                    f"{nx.get('message', 'Next did not advance.')}"),
+                        **res}
             await asyncio.sleep(3)
-        except Exception:
-            break
+            continue
+
+        nx = await click_next_newconn(page, stage=stage,
+                                      page_name=f"After payment ({step + 1})")
+        if nx.get("status") != "ok":
+            # Paid, and stuck. Report it as a warning on a submitted order only
+            # if we know the order number; otherwise it is a genuine error — and
+            # one whose message has to say that money was taken.
+            return _paid_but_stranded(nx.get("message"), advance_payment)
+        await asyncio.sleep(3)
+
+    erf = await _find_erf_page(frame)
+    if erf:
+        return await _finish_on_erf_page(page, payload, stage, advance_payment, erf)
     res = await _find_submit_result(frame)
     if res:
         return {"status": "submitted", "stage": "done",
-                "advance_payment": advance_payment, **res}
-    return {"status": "error", "error": "submit_result_not_found", "stage": "pay_tail",
-            "message": "Clicked Pay but no 'Submit Successfully' confirmation captured."}
+                "advance_payment": advance_payment,
+                "warning": (f"Payment went through, but the e-RF page was not reached in "
+                            f"{max_next} Next clicks, so no registration form was saved."),
+                **res}
+    return _paid_but_stranded(
+        f"Reached neither a confirmation nor the e-RF page in {max_next} Next clicks.",
+        advance_payment)
+
+
+def _paid_but_stranded(detail: str | None, advance_payment: str | None) -> dict:
+    """The one error this tail may return — and it leads with the payment.
+
+    Whoever reads this has to know a charge was made before they read anything
+    else, because the recovery is to check the portal by hand, not to resubmit.
+    """
+    return {"status": "error", "error": "post_pay_not_confirmed", "stage": "pay_tail",
+            "advance_payment": advance_payment,
+            "message": ("PAYMENT WAS SUBMITTED, but the portal never showed a confirmed "
+                        "order number afterwards. Check the order in the portal before "
+                        "retrying — do NOT resubmit blind. "
+                        f"{detail or ''}").strip()}
+
+
+async def _finish_on_erf_page(page, payload: dict, stage, advance_payment: str | None,
+                              erf: dict) -> dict:
+    """Photograph the confirmation page, download the e-RF, and return submitted.
+
+    In that order, and the order matters: the click may navigate away, and this
+    page is the only screen listing the service numbers the portal assigned
+    against what each one bought. The Pay capture is taken before the click, so
+    none of those numbers exist in any earlier frame.
+    """
+    await capture_and_report(page, payload, "erf_page", stage)
+    # The service breakdown runs down the page inside the portal's inner
+    # scroller, so the first frame only ever holds the top of it — the same
+    # geometry every other detail page has. A second, anchored frame follows.
+    if await _scroll_to_heading(page, r"service\s*number"):
+        await capture_and_report(page, payload, "erf_page" + BOTTOM_SUFFIX, stage)
+
+    order_no = erf.get("order_id")
+    result = {"status": "submitted", "stage": "done",
+              "advance_payment": advance_payment, **erf}
+    if not is_portal_order_number(order_no):
+        # The page is the right one (Print e-RF is on it) but the heading did not
+        # yield a usable number. The form is still worth having; it is named for
+        # the order it belongs to, so it goes under the id we do hold.
+        print(f"    ⚠ e-RF page reached but its order number reads {order_no!r}", flush=True)
+        result["warning"] = ("The order was submitted and paid, but the confirmation page's "
+                             "Customer Order Number could not be read.")
+        order_no = str(((payload or {}).get("order_ref") or {}).get("order_id") or "")
+
+    await capture_erf_pdf(page, payload, order_no, stage)
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────

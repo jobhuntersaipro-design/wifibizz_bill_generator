@@ -3,7 +3,7 @@ import { auth } from "@/auth";
 import { getFromR2 } from "@/lib/r2";
 
 /**
- * The image types a capture may be stored as, and what to serve them back as.
+ * The types a capture may be stored as, and what to serve them back as.
  *
  * An allowlist rather than a single hard-coded type: captures are JPEG (nine
  * frames per attempt compress to a third of the PNG size), but every frame taken
@@ -14,6 +14,9 @@ const CONTENT_TYPES: Record<string, string> = {
   png: "image/png",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
+  // The e-RF registration form. Stored under this prefix, not `orders/`, so it
+  // expires on the same 90-day lifecycle rule as the frames it belongs with.
+  pdf: "application/pdf",
 };
 
 /**
@@ -45,6 +48,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: false, error: "Not found" }, { status: 404 });
   }
 
+  const filename = (key.split("/").pop() ?? "capture").replace(/["\\]/g, "");
+
   try {
     const stream = await getFromR2(key);
     if (!stream) {
@@ -53,10 +58,13 @@ export async function GET(request: Request) {
     return new Response(stream, {
       headers: {
         "Content-Type": contentType,
-        // Inline so the detail panel can render it as a thumbnail. Safe here
-        // because the type comes from the extension allowlist above, never from
-        // what was stored, and nosniff stops the browser second-guessing it.
-        "Content-Disposition": "inline",
+        // Inline so the panel can render it in place — a thumbnail for a frame,
+        // an iframe preview for the e-RF PDF. Safe because the type comes from
+        // the extension allowlist above, never from what was stored, and nosniff
+        // stops the browser second-guessing it. The filename is the key's own
+        // basename (quotes stripped so it cannot break out of the header), so a
+        // saved e-RF lands as <orderNumber>_erf.pdf rather than as the route.
+        "Content-Disposition": `inline; filename="${filename}"`,
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "private, no-store",
       },

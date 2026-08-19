@@ -194,6 +194,20 @@ const CAPTURE_SLOTS: Record<string, { label: string; caption: string }> = {
     label: "Pay screen",
     caption: "The amount due and any advance payment, before the Pay click.",
   },
+  // Everything below happens only after a real payment.
+  erf_page: {
+    label: "Order confirmation",
+    caption:
+      "The service numbers the portal assigned, with the offer and accept date for each.",
+  },
+  erf_page_bottom: {
+    label: "Order confirmation \u2014 services",
+    caption: "The rest of the assigned services, below the fold of the confirmation page.",
+  },
+  erf: {
+    label: "e-RF (Registration Form)",
+    caption: "The registration form the portal generated for this order, as a PDF.",
+  },
 };
 
 export function captureLabel(slot: string): string {
@@ -217,7 +231,19 @@ export function captureCaption(slot: string): string {
 export const isScreenshotKey = (value: string | null | undefined): boolean =>
   !!value &&
   value.startsWith("order-screenshots/") &&
-  /\.(png|jpe?g)$/i.test(value);
+  /\.(png|jpe?g|pdf)$/i.test(value);
+
+/**
+ * Is this capture a PDF rather than an image?
+ *
+ * The e-RF is a document, not a screen, but it is stored and reported through
+ * exactly the same capture path so it lands on the timeline in its true
+ * chronological place. Every renderer that would otherwise reach for an `<img>`
+ * has to ask this first \u2014 including the carousel's `new Image()` preloader,
+ * which fails silently on a PDF rather than visibly.
+ */
+export const isPdfCapture = (key: string | null | undefined): boolean =>
+  !!key && /\.pdf$/i.test(key);
 
 /**
  * How long a capture survives in R2, or null when nothing is known to delete.
