@@ -60,6 +60,9 @@ export default function OrderEntryShell({
   const isWide = pathname?.endsWith("/drafts") || pathname?.endsWith("/plan-details");
 
   const [loading, setLoading] = useState(true);
+  // Set when the initial load itself failed (server action threw). Replaces the
+  // spinner with a retryable message rather than spinning indefinitely.
+  const [loadError, setLoadError] = useState("");
   const [connection, setConnection] = useState<DealerConnection | null>(null);
 
   // Step 1 fields
@@ -91,14 +94,22 @@ export default function OrderEntryShell({
 
   const runStatusCheck = useCallback(async () => {
     setChecking(true);
-    const result = await checkDealerConnection();
-    if (result.success) {
-      setConnection(result.data);
-      if (result.data?.staffCode) setStaffCode(result.data.staffCode);
-      if (result.data?.registeredEmail) setRegisteredEmail(result.data.registeredEmail);
-      setSessionExpired(!!result.data && !result.data.connected);
+    // Same reason as loadConnection: a thrown action would otherwise leave this
+    // stuck on "Verifying connection…" with no way out. The stored connection
+    // stays on screen — a failed re-check is not evidence the session is gone.
+    try {
+      const result = await checkDealerConnection();
+      if (result.success) {
+        setConnection(result.data);
+        if (result.data?.staffCode) setStaffCode(result.data.staffCode);
+        if (result.data?.registeredEmail) setRegisteredEmail(result.data.registeredEmail);
+        setSessionExpired(!!result.data && !result.data.connected);
+      }
+    } catch {
+      // Leave the last known state as-is; the countdown still governs expiry.
+    } finally {
+      setChecking(false);
     }
-    setChecking(false);
   }, []);
 
   // The portal rejected the staff code / password. No OTP can rescue that
@@ -117,7 +128,22 @@ export default function OrderEntryShell({
   }, []);
 
   const loadConnection = useCallback(async () => {
-    const result = await getDealerConnection();
+    setLoadError("");
+    // A server action REJECTS on a 500 — it does not resolve with success:false.
+    // Without this catch the `await` below never returns, `setLoading(false)`
+    // never runs, and the card spins on "Loading…" forever with nothing on
+    // screen saying why. That is exactly what a missing prod migration looked
+    // like: an indefinite silent hang instead of a reportable error.
+    let result: Awaited<ReturnType<typeof getDealerConnection>>;
+    try {
+      result = await getDealerConnection();
+    } catch {
+      setLoading(false);
+      setLoadError(
+        "Couldn't load your dealer connection. Please retry — if it keeps failing, contact support."
+      );
+      return;
+    }
     if (result.success) {
       setConnection(result.data);
       if (result.data?.staffCode) setStaffCode(result.data.staffCode);
@@ -137,7 +163,6 @@ export default function OrderEntryShell({
   useEffect(() => {
     // loadConnection awaits before any setState, so this isn't a synchronous
     // cascade — the lint rule can't see through the async boundary.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadConnection();
   }, [loadConnection]);
 
@@ -240,7 +265,6 @@ export default function OrderEntryShell({
     lastAutoRefreshRef.current = Date.now();
     // runStatusCheck flips `checking` synchronously; that's the intended
     // guard above, not an unintended render cascade.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     runStatusCheck();
   }, [connection?.connected, checking, sessionSecondsLeft, runStatusCheck]);
 
@@ -394,6 +418,22 @@ export default function OrderEntryShell({
               <div className="flex flex-col items-center gap-3 py-6">
                 <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />
                 <p className="text-sm text-[#697386]">Loading…</p>
+              </div>
+            ) : loadError ? (
+              /* ---------- Initial load failed ---------- */
+              <div className="space-y-4">
+                <div className="text-sm bg-red-50 text-[#DF1B41] rounded-lg px-4 py-3">
+                  {loadError}
+                </div>
+                <Button
+                  onClick={() => {
+                    setLoading(true);
+                    loadConnection();
+                  }}
+                  className="w-full"
+                >
+                  Retry
+                </Button>
               </div>
             ) : isConnected ? (
               /* ---------- Connected state ---------- */
