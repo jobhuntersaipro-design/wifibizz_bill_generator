@@ -545,11 +545,14 @@ async def _capture_order_id(frame) -> str | None:
 
 async def _dismiss_customer_not_exist_dialog(frame) -> str | None:
     """If the portal has popped 'Customer record does not exist. Please create a
-    new customer.', dismiss it and return its text; otherwise None. Best-effort —
-    an unreadable page answers None and the search loop just keeps retrying."""
+    new customer.', dismiss it and return its text; otherwise None. Live
+    2026-08-20: it is an 'Information' popup with a single OK, stacked over the
+    Advanced Query dialog — and portal popups come as .ui-dialog OR .modal.in
+    (the same pair _capture_dialog_message reads). Best-effort — an unreadable
+    page answers None and the search loop just keeps retrying."""
     try:
-        dlg = frame.locator(".ui-dialog:visible").filter(
-            has_text="record does not exist").first
+        dlg = frame.locator(".ui-dialog:visible, .modal.in:visible").filter(
+            has_text="record does not exist").last
         if not await dlg.count():
             return None
         msg = ""
@@ -557,11 +560,36 @@ async def _dismiss_customer_not_exist_dialog(frame) -> str | None:
             msg = (await dlg.locator(".modal-message, .modal-body").first.inner_text()).strip()
         except Exception:  # noqa: BLE001
             msg = "Customer record does not exist. Please create a new customer."
-        await dlg.locator(".modal-footer button, button.btn").first.click(timeout=3000)
+        ok = dlg.locator('button:has-text("OK"):visible').first
+        if not await ok.count():
+            ok = dlg.locator(".modal-footer button, button.btn").first
+        await ok.click(timeout=3000)
         await asyncio.sleep(1)
         return msg
     except Exception:  # noqa: BLE001
         return None
+
+
+async def _open_advanced_query(frame, id_type: str) -> None:
+    """Open the Advanced Query dialog (the >> toggle) and set ID Type. Called on
+    the first attach attempt and again after a create-via-dialog, which closes
+    Advanced Query to reach the Customer dialog's Add button."""
+    # Open Advanced Query (>>); its child <img> intercepts clicks -> force.
+    await frame.locator(".js-advanced-query-btn:visible").first.click(timeout=8000, force=True)
+    await asyncio.sleep(2)
+
+    # ID Type (native <select> or a custom combobox fallback).
+    sel = frame.locator('select[name="certTypeId"]:visible, select.js-cert-type-id:visible').first
+    if await sel.count():
+        try:
+            await sel.select_option(label=id_type, timeout=5000)
+        except Exception:
+            await sel.select_option(value="1", timeout=5000)  # 1 = MyKad
+    else:
+        trig = frame.locator('.js-cert-type-id-content:visible .btn-group .btn, .js-cert-type-id-content:visible .glyphicon-triangle-bottom').first
+        if await trig.count():
+            await trig.click(); await asyncio.sleep(1)
+            await frame.locator(f'a:has-text("{id_type}"):visible, li:has-text("{id_type}"):visible').first.click()
 
 
 async def _search_customer_rows(frame, ic: str, name: str, attempts: int = 6):
@@ -588,10 +616,31 @@ async def _search_customer_rows(frame, ic: str, name: str, attempts: int = 6):
     return rows, n, not_exist
 
 
+async def _close_advanced_query(frame) -> None:
+    """Best-effort: close the stacked Advanced Query dialog (its Cancel or ×) so
+    the underlying Customer dialog's Add button is reachable. Live 2026-08-20:
+    Advanced Query is its own dialog OVER the Customer dialog, with OK/Cancel at
+    the bottom and an × top-right."""
+    try:
+        aq = frame.locator(".ui-dialog:visible, .modal.in:visible").filter(
+            has_text="Advanced Query").last
+        if not await aq.count():
+            return
+        btn = aq.locator('button:has-text("Cancel"):visible').first
+        if not await btn.count():
+            btn = aq.locator(".close:visible, .js-cancel:visible").first
+        if await btn.count():
+            await btn.click(timeout=3000)
+            await asyncio.sleep(1.5)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 async def _create_customer_via_dialog(frame, customer: dict) -> dict:
     """Recovery for a customer the fuzzy search cannot find: the Customer dialog
     has its own Add (person+) button -> Select Customer Type -> the same Personal
-    Customer form the Stage-1 create uses, so the fill logic is shared.
+    Customer form the Stage-1 create uses, so the fill logic is shared. The
+    stacked Advanced Query dialog is closed first so Add is reachable.
 
     The Add button's class inside this dialog is unverified against the live
     portal; .js-add-cust-btn (the order-search creator's class) is probed first,
@@ -599,6 +648,7 @@ async def _create_customer_via_dialog(frame, customer: dict) -> dict:
     error — the caller degrades to the plain customer_not_found it has today."""
     from order_entry import choose_personal_customer, fill_and_submit_personal_customer
 
+    await _close_advanced_query(frame)
     add = frame.locator(
         ".ui-dialog:visible .js-add-cust-btn:visible, "
         ".js-add-cust-btn:visible, "
@@ -629,23 +679,7 @@ async def attach_customer(frame, customer: dict) -> dict:
     name = customer.get("name", "")
     id_type = customer.get("id_type", "MyKad")
 
-    # Open Advanced Query (>>); its child <img> intercepts clicks -> force.
-    await frame.locator(".js-advanced-query-btn:visible").first.click(timeout=8000, force=True)
-    await asyncio.sleep(2)
-
-    # ID Type (native <select> or a custom combobox fallback).
-    sel = frame.locator('select[name="certTypeId"]:visible, select.js-cert-type-id:visible').first
-    if await sel.count():
-        try:
-            await sel.select_option(label=id_type, timeout=5000)
-        except Exception:
-            await sel.select_option(value="1", timeout=5000)  # 1 = MyKad
-    else:
-        trig = frame.locator('.js-cert-type-id-content:visible .btn-group .btn, .js-cert-type-id-content:visible .glyphicon-triangle-bottom').first
-        if await trig.count():
-            await trig.click(); await asyncio.sleep(1)
-            await frame.locator(f'a:has-text("{id_type}"):visible, li:has-text("{id_type}"):visible').first.click()
-
+    await _open_advanced_query(frame, id_type)
     rows, n, not_exist = await _search_customer_rows(frame, ic, name)
     note = None
     if not n:
@@ -660,6 +694,10 @@ async def attach_customer(frame, customer: dict) -> dict:
                     "message": (f"{why} Create-via-dialog also failed: "
                                 f"{r.get('message') or r.get('error')}")}
         note = "Customer not found — created via the Customer dialog"
+        # The create closed Advanced Query (and left the plain Customer dialog);
+        # the search fields live in Advanced Query, so re-open it if needed.
+        if not await frame.locator('input[name="certNbr"]:visible').count():
+            await _open_advanced_query(frame, id_type)
         rows, n, not_exist = await _search_customer_rows(frame, ic, name)
         if not n:
             return {"status": "error", "error": "customer_not_found",

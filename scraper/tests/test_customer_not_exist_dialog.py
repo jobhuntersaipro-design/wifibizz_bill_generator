@@ -48,6 +48,31 @@ FUZZY_DIALOG_ONLY = """
 </div>
 """
 
+# The popup as the live 2026-08-20 run showed it: an 'Information' modal with a
+# single blue OK, stacked over the Advanced Query dialog (itself over the
+# Customer dialog). The helper must dismiss ONLY the popup — Advanced Query has
+# to survive so the search can retry — and must match .modal.in, not just
+# .ui-dialog.
+STACKED_INFO_POPUP = """
+<div class="ui-dialog" style="display:block">
+  <div class="modal-header">Customer</div>
+  <button class="js-advanced-query-btn">&gt;&gt;</button>
+</div>
+<div class="modal in" style="display:block">
+  <div class="modal-title">Advanced Query</div>
+  <input name="certNbr">
+  <button class="btn">Query</button>
+  <div class="modal-footer"><button class="btn">OK</button><button class="btn">Cancel</button></div>
+</div>
+<div class="modal in info-popup" style="display:block">
+  <div class="modal-title">Information</div>
+  <div class="modal-body">Customer record does not exist. Please create a new customer.</div>
+  <div class="modal-footer">
+    <button class="btn" onclick="this.closest('.info-popup').style.display='none'">OK</button>
+  </div>
+</div>
+"""
+
 # A dismissed popup leaves its nodes in the DOM; :visible must not count them.
 NOT_EXIST_HIDDEN = """
 <div class="ui-dialog" style="display:none">
@@ -74,8 +99,11 @@ def _probe(fixture_html):
                 frame = page.frame_locator("#myIframe")
                 msg = await _dismiss_customer_not_exist_dialog(frame)
                 still_up = await frame.locator(
-                    ".ui-dialog:visible", has_text="record does not exist").count()
-                return msg, still_up
+                    ".ui-dialog:visible, .modal.in:visible",
+                    has_text="record does not exist").count()
+                aq_up = await frame.locator(
+                    ".modal.in:visible", has_text="Advanced Query").count()
+                return msg, still_up, aq_up
             finally:
                 await browser.close()
     try:
@@ -87,16 +115,23 @@ def _probe(fixture_html):
 
 
 def test_popup_is_detected_and_dismissed():
-    msg, still_up = _probe(NOT_EXIST_DIALOG)
+    msg, still_up, _ = _probe(NOT_EXIST_DIALOG)
     assert msg and "does not exist" in msg
     assert still_up == 0  # OK was actually clicked
 
 
+def test_live_shape_info_popup_over_advanced_query():
+    msg, still_up, aq_up = _probe(STACKED_INFO_POPUP)
+    assert msg and "create a new customer" in msg
+    assert still_up == 0  # the Information popup's OK was clicked
+    assert aq_up == 1     # Advanced Query must survive for the search retry
+
+
 def test_fuzzy_search_dialog_is_not_the_popup():
-    msg, _ = _probe(FUZZY_DIALOG_ONLY)
+    msg, _, _ = _probe(FUZZY_DIALOG_ONLY)
     assert msg is None
 
 
 def test_a_dismissed_popups_leftover_nodes_do_not_count():
-    msg, _ = _probe(NOT_EXIST_HIDDEN)
+    msg, _, _ = _probe(NOT_EXIST_HIDDEN)
     assert msg is None
