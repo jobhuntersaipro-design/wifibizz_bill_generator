@@ -10,9 +10,8 @@ import {
   uploadOrderDocument,
   lookupPostcode,
   getOrder,
-  searchDealerAddress,
 } from "@/actions/order";
-import { MAX_DOCS, type OrderDocument, type AddressResult } from "@/lib/order-types";
+import { MAX_DOCS, type OrderDocument } from "@/lib/order-types";
 import { getPublishedPlans, getPlanOffer, type OfferItemView } from "@/actions/plans";
 import { parseMykad, inferRace, formatMykad, isCompleteMykad, isValidEmail } from "@/lib/mykad";
 import {
@@ -33,12 +32,7 @@ import {
   variantLabel,
 } from "@/lib/device-catalog";
 import { MALAYSIA_STATES } from "@/lib/malaysia-states";
-import {
-  validateMalaysianAddress,
-  toPortalState,
-  searchKeywordFrom,
-  widenKeyword,
-} from "@/lib/malaysia-address";
+import { validateMalaysianAddress, parseMalaysianAddress } from "@/lib/malaysia-address";
 
 // Shared field styles — light border + hover to signal clickability.
 const inputCls =
@@ -138,33 +132,25 @@ export function OrderForm({
   const [email, setEmail] = useState("");
   const mobileRef = useRef<HTMLInputElement>(null);
 
-  // ONE address field: the agent types the complete address (the shape the
-  // portal returns as `concatAddress`) and Confirm derives postcode / state /
-  // city from it, then searches the portal for the serviceable unit.
+  // ONE address field: the agent pastes the complete address exactly as the
+  // Unifi portal renders it. There is no Confirm step — the agent carries full
+  // responsibility for its accuracy, and the submit run searches the portal
+  // with this text as-is. Postcode / state / city are derived from it as they
+  // type, and stay editable.
   const [postcode, setPostcode] = useState("");
   const [stateVal, setStateVal] = useState("");
   const [city, setCity] = useState("");
   const [street, setStreet] = useState("");
   const [detecting, setDetecting] = useState(false);
 
-  // Serviceable SERVICE address (portal QryNIGAddress) — required for feasibility.
-  // The agent searches, picks the exact unit, and we store the resourceInstId so
-  // the backend selects the address "By Address Id" (the reliable path).
+  // Portal resourceInstId carried by drafts saved under the old Confirm flow.
+  // Never set by this form anymore, but when present the scraper still selects
+  // the exact unit "By Address Id" — so it is kept, and cleared if the agent
+  // edits the address it belonged to.
   const [addressId, setAddressId] = useState("");
   const [addressFull, setAddressFull] = useState("");
   const [serviceCategory, setServiceCategory] = useState("");
-  const [addrResults, setAddrResults] = useState<AddressResult[]>([]);
-  const [addrSearching, setAddrSearching] = useState(false);
-  const [addrSearched, setAddrSearched] = useState(false);
-  // Set once the typed address validates — that's what unlocks the derived
-  // postcode / state / city for manual correction.
-  const [addrConfirmed, setAddrConfirmed] = useState(false);
   const [addrError, setAddrError] = useState("");
-  // What the progress bar is reporting right now. The portal returns no
-  // percentage, so this narrates the stage instead of faking one.
-  const [addrStage, setAddrStage] = useState("");
-  // Fields most recently auto-filled by Confirm — drives the one-shot flash.
-  const [autoFilled, setAutoFilled] = useState<string[]>([]);
 
   const [offerName, setOfferName] = useState("");
   const [offerCategory, setOfferCategory] = useState("");
@@ -259,14 +245,6 @@ export function OrderForm({
     setIdNumber(val);
     if (mykadLike) applyMykad(val);
   }
-
-  // The flash is a one-shot: drop the marker once it has played so the next
-  // Confirm re-adds the class and the animation runs again.
-  useEffect(() => {
-    if (!autoFilled.length) return;
-    const t = setTimeout(() => setAutoFilled([]), 1000);
-    return () => clearTimeout(t);
-  }, [autoFilled]);
 
   // 60 offers is too many for one flat list. Narrow by speed first (the thing
   // the customer actually asked for), then group what's left by add-on flavour
@@ -426,9 +404,6 @@ export function OrderForm({
         setAddressId(o.addressId || "");
         setAddressFull(o.addressFull || "");
         setServiceCategory(o.serviceCategory || "");
-        // An existing draft already has its address fields — never lock the
-        // agent out of editing what was saved before this flow existed.
-        setAddrConfirmed(Boolean(o.postcode || o.state || o.city || o.addressId));
         setOfferName(o.offerName || "");
         setOfferCategory(o.offerCategory || "");
         setDeviceCode(o.deviceCode || "");
@@ -551,125 +526,25 @@ export function OrderForm({
   }
 
   /**
-   * Editing the address invalidates a previously picked unit — otherwise the
-   * green "✓ Serviceable" strip (and the addressId the order is submitted with)
-   * keeps pointing at a unit the agent has since typed away from.
+   * The address is the single source of truth: postcode / state / city are
+   * derived from it as the agent types (still editable below, if the parse
+   * gets one wrong). Editing it also invalidates an old draft's Confirm-era
+   * addressId — otherwise the submit would select a unit the agent has since
+   * typed away from.
    */
   function handleStreetChange(value: string) {
     const next = value.toUpperCase();
     setStreet(next);
     if (addrError) setAddrError("");
-    if (autoFilled.length) setAutoFilled([]);
     if (addressId && next !== addressFull.toUpperCase()) {
       setAddressId("");
       setAddressFull("");
       setServiceCategory("");
     }
-  }
-
-  // Confirm the typed full address: validate the format, derive postcode /
-  // state / city from it, then ask the portal (QryNIGAddress) for the matching
-  // serviceable units. Picking one stores the resourceInstId used for
-  // feasibility "By Address Id".
-  async function confirmAddress() {
-    const q = street.trim();
-
-    // A fresh Confirm re-decides serviceability from scratch.
-    setAddressId("");
-    setAddressFull("");
-    setServiceCategory("");
-
-    const check = validateMalaysianAddress(q);
-    if (!check.ok) {
-      setAddrError(check.reason);
-      setAddrResults([]);
-      setAddrSearched(false);
-      toast.error(check.reason);
-      return;
-    }
-    setAddrError("");
-
-    // Fill the derived fields immediately — they hold even if the portal search
-    // comes back empty, so the agent can still save a draft. Flag which ones we
-    // touched so each flashes once instead of silently changing under the agent.
-    setPostcode(check.postcode);
-    setStateVal(check.state);
-    if (check.city) setCity(check.city);
-    setAutoFilled(["postcode", "state", ...(check.city ? ["city"] : [])]);
-    setAddrConfirmed(true);
-    if (check.hint) toast.message(check.hint);
-
-    const portalState = toPortalState(check.state);
-    if (!portalState) {
-      const reason = `The portal doesn't support address search for ${check.state}.`;
-      setAddrError(reason);
-      toast.error(reason);
-      return;
-    }
-
-    setAddrSearching(true);
-    setAddrSearched(true);
-    setAddrStage(`Searching the Unifi portal in ${check.state}…`);
-    // The state travels as its own request field, so the keyword drops the
-    // trailing "<STATE> MALAYSIA <postcode>" tail. If the exact address finds
-    // nothing, retry once without the leading unit number — the portal indexes
-    // street and building names more reliably than units.
-    const keyword = searchKeywordFrom(q);
-    let res = await searchDealerAddress(portalState, keyword, "keyword");
-    if (res.success && res.addresses.length === 0) {
-      const wider = widenKeyword(keyword);
-      if (wider && wider !== keyword) {
-        setAddrStage("No exact match — widening the search…");
-        res = await searchDealerAddress(portalState, wider, "keyword");
-      }
-    }
-    setAddrSearching(false);
-    setAddrStage("");
-    if (!res.success) {
-      setAddrResults([]);
-      toast.error(res.error ?? "Address search failed.");
-      return;
-    }
-    // Surface the closest match to what was typed first (the portal returns the
-    // building's units in arbitrary order — e.g. B,D,A,C,E — which is annoying).
-    const qn = q.toUpperCase();
-    const prefix = (s: string) => {
-      const a = s.toUpperCase();
-      let i = 0;
-      while (i < a.length && i < qn.length && a[i] === qn[i]) i++;
-      return i;
-    };
-    const sorted = [...res.addresses].sort((x, y) => {
-      const ex = x.addressFull.toUpperCase() === qn ? 1 : 0;
-      const ey = y.addressFull.toUpperCase() === qn ? 1 : 0;
-      if (ex !== ey) return ey - ex; // exact match first
-      return prefix(y.addressFull) - prefix(x.addressFull); // then longest common prefix
-    });
-    setAddrResults(sorted);
-    if (sorted.length === 0) toast.message("No serviceable address found for that address.");
-  }
-
-  // Picking a serviceable unit fills EVERYTHING — feasibility id + the profile's
-  // residence address — so there's a single address source, no second field.
-  function pickAddress(a: AddressResult) {
-    setAddressId(a.addressId);
-    setAddressFull(a.addressFull);
-    setServiceCategory(a.serviceCategory ?? "");
-    // Derive the customer-profile residence fields from the picked address.
-    // Match the State to a MALAYSIA_STATES option (title-case) so the dropdown
-    // reflects it instead of falling back to "---".
-    if (a.state) {
-      const st = MALAYSIA_STATES.find((s) => s.toUpperCase() === a.state!.toUpperCase());
-      setStateVal(st ?? a.state);
-    }
-    if (a.city) setCity(a.city.toUpperCase());
-    if (a.postcode) setPostcode(a.postcode);
-    setStreet(a.addressFull.toUpperCase());
-    setAddrResults([]);
-    setAddrSearched(false);
-    setAddrConfirmed(true);
-    setAddrError("");
-    toast.success("Serviceable address selected.");
+    const parts = parseMalaysianAddress(next);
+    if (parts.postcode) setPostcode(parts.postcode);
+    if (parts.state) setStateVal(parts.state);
+    if (parts.city) setCity(parts.city.toUpperCase());
   }
 
   async function handleSave(e: React.FormEvent) {
@@ -688,8 +563,6 @@ export function OrderForm({
     }
     // The address is required — an empty or half-typed one is what makes the
     // portal reject the customer profile as "data incomplete", so block it here.
-    // (A confirmed addressId is NOT required: an order can still be saved as a
-    // draft while the agent sorts out serviceability.)
     const addrCheck = validateMalaysianAddress(street);
     if (!addrCheck.ok) {
       setAddrError(addrCheck.reason);
@@ -887,77 +760,48 @@ export function OrderForm({
         </div>
       </div>
 
-      {/* Installation Address — ONE card, ONE field: the agent types the
-          complete address and Confirm derives postcode / state / city from it,
-          then searches the portal for the serviceable unit to pick. */}
+      {/* Installation Address — ONE card, ONE field: the agent pastes the
+          complete address exactly as the Unifi portal renders it. No Confirm
+          step: the submit run drives the portal with this text as-is, so its
+          accuracy is entirely the agent's responsibility. */}
       <div className={`${cardCls} overflow-hidden`}>
         <div className={headCls}>
-          Installation Address <span className="text-[#697386] font-normal">— type the full address, then Confirm</span>
+          Installation Address <span className="text-[#697386] font-normal">— paste the full address from the Unifi portal</span>
         </div>
         <div className="p-6 space-y-4">
-          {/* Full Address IS the search field — Confirm validates it, fills the
-              fields below, and asks the portal for the serviceable units. */}
           <div className="space-y-1.5">
             <Label className={labelCls}>
               Full Address <span className="text-[#DF1B41]">*</span>
             </Label>
-            <div className="flex gap-2">
-              <Input
-                value={street}
-                onChange={(e) => handleStreetChange(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); confirmAddress(); } }}
-                className={`flex-1 ${inputCls} uppercase`}
-                placeholder="A-07-15 PERSIARAN SAUJANA PUTRA UTAMA 7 BANDAR SAUJANA PUTRA JENJAROM SELANGOR MALAYSIA 42610"
-              />
-              <Button
-                type="button"
-                onClick={confirmAddress}
-                disabled={addrSearching}
-                aria-busy={addrSearching}
-                className="h-10 px-4 rounded-lg text-sm font-medium bg-[#0A2540] hover:bg-[#635BFF] transition-colors duration-200 hover-glow press-effect cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {addrSearching ? "Confirming…" : "Confirm"}
-              </Button>
-            </div>
-
-            {/* Progress while the portal is being queried. The portal reports no
-                percentage, so this is an indeterminate bar plus a stage label —
-                honest about "working" without inventing a completion figure. */}
-            {addrSearching && (
-              <div className="space-y-1.5 pt-0.5" role="status" aria-live="polite">
-                <div className="h-1 w-full overflow-hidden rounded-full bg-[#EEF1F6]">
-                  <div className="progress-indeterminate h-full w-1/3 rounded-full bg-[#635BFF]" />
-                </div>
-                <p className="text-[11px] text-[#697386]">{addrStage || "Checking the address…"}</p>
-              </div>
-            )}
+            <Input
+              value={street}
+              onChange={(e) => handleStreetChange(e.target.value)}
+              className={`${inputCls} uppercase`}
+              placeholder="A-07-15 PERSIARAN SAUJANA PUTRA UTAMA 7 BANDAR SAUJANA PUTRA JENJAROM SELANGOR MALAYSIA 42610"
+            />
 
             {/* Guidance: what "full address" means, in the order the portal
                 writes it, with the parts named so the agent can self-check. */}
-            {!addrSearching && (
-              <div className="rounded-lg border border-[#E3E8EF] bg-[#F6F9FC] px-3 py-2.5 space-y-1.5">
-                <p className="text-[11px] text-[#0A2540]">
-                  <span className="font-medium">Paste the address exactly as the Unifi portal shows it.</span>{" "}
-                  It must already exist and be serviceable there — checking that is the agent&apos;s responsibility.
-                </p>
-                <p className="text-[11px] text-[#697386]">
-                  Order of parts:{" "}
-                  <span className="text-[#0A2540]">unit</span> · <span className="text-[#0A2540]">street</span> ·{" "}
-                  <span className="text-[#0A2540]">area</span> · <span className="text-[#0A2540]">city</span> ·{" "}
-                  <span className="text-[#0A2540]">state</span> · <span className="text-[#0A2540]">MALAYSIA</span> ·{" "}
-                  <span className="text-[#0A2540]">postcode</span>
-                </p>
-                <p className="text-[11px] text-[#697386]">
-                  Example:{" "}
-                  <code className="rounded bg-white px-1.5 py-0.5 text-[10px] text-[#0A2540] border border-[#E3E8EF]">
-                    A-07-15 PERSIARAN SAUJANA PUTRA UTAMA 7 BANDAR SAUJANA PUTRA JENJAROM SELANGOR MALAYSIA 42610
-                  </code>
-                </p>
-                <p className="text-[11px] text-[#697386]">
-                  Confirm fills Postcode, State and City for you, then lists the serviceable units to pick from.
-                </p>
-              </div>
-            )}
+            <div className="rounded-lg border border-[#E3E8EF] bg-[#F6F9FC] px-3 py-2.5 space-y-1.5">
+              <p className="text-[11px] text-[#0A2540]">
+                <span className="font-medium">Copy the address exactly as the Unifi portal shows it — you are fully responsible for its accuracy.</span>{" "}
+                It is not checked against the portal here: the order is submitted with this address as-is, and a wrong or
+                unserviceable one fails at submit time.
+              </p>
+              <p className="text-[11px] text-[#697386]">
+                Order of parts:{" "}
+                <span className="text-[#0A2540]">unit</span> · <span className="text-[#0A2540]">street</span> ·{" "}
+                <span className="text-[#0A2540]">area</span> · <span className="text-[#0A2540]">city</span> ·{" "}
+                <span className="text-[#0A2540]">state</span> · <span className="text-[#0A2540]">MALAYSIA</span> ·{" "}
+                <span className="text-[#0A2540]">postcode</span>
+              </p>
+              <p className="text-[11px] text-[#697386]">
+                Example:{" "}
+                <code className="rounded bg-white px-1.5 py-0.5 text-[10px] text-[#0A2540] border border-[#E3E8EF]">
+                  A-07-15 PERSIARAN SAUJANA PUTRA UTAMA 7 BANDAR SAUJANA PUTRA JENJAROM SELANGOR MALAYSIA 42610
+                </code>
+              </p>
+            </div>
             {addrError && (
               <p className="flex items-start gap-1.5 text-[11px] text-[#DF1B41]" role="alert">
                 <svg viewBox="0 0 24 24" className="mt-px h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -966,45 +810,15 @@ export function OrderForm({
                 <span>{addrError}</span>
               </p>
             )}
-            {addressId ? (
-              <div className="flex items-center justify-between gap-3 rounded-lg border border-green-500 bg-green-50 px-3 py-2 text-[12px] text-[#0A2540]">
-                <span><span className="text-green-700 font-medium">✓ Serviceable</span> {addressFull}{serviceCategory && ` · ${serviceCategory}`}</span>
-                <button type="button" onClick={() => { setAddressId(""); setAddressFull(""); setServiceCategory(""); }} className="shrink-0 text-[11px] text-[#DF1B41] hover:underline">Clear</button>
-              </div>
-            ) : addrResults.length > 0 ? (
-              <p className="text-[11px] text-[#697386]">Pick a unit below to confirm it&apos;s serviceable. Closest match to what you typed is shown first.</p>
-            ) : null}
-            {addrResults.length > 0 && (
-              <div className="max-h-72 overflow-auto rounded-lg border border-[#E3E8EF] divide-y divide-[#F0F3F8]">
-                {addrResults.map((a) => (
-                  <button
-                    key={a.addressId}
-                    type="button"
-                    onClick={() => pickAddress(a)}
-                    className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[12px] text-[#0A2540] cursor-pointer transition-colors duration-200 hover:bg-[#F6F9FC] focus:bg-[#F6F9FC] focus:outline-none"
-                  >
-                    <span className="truncate">{a.addressFull}</span>
-                    {a.serviceCategory && (
-                      <span className="ml-3 shrink-0 text-[11px] text-[#697386]">{a.serviceCategory}</span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-            {addrSearched && !addrSearching && addrResults.length === 0 && !addressId && (
-              <p className="text-[11px] text-[#DF1B41]">Not found in the Unifi portal. Check the address in the portal first — it must exist and be serviceable.</p>
-            )}
           </div>
 
-          {/* Derived from the address above on Confirm — kept visible and, once
-              confirmed, editable so the agent can correct what was derived. */}
+          {/* Derived from the address above as the agent types — always
+              editable so they can correct what was derived. */}
           <div className="border-t border-[#F0F3F8] pt-4 space-y-3">
             <div className="flex items-center gap-2">
               <AutoIcon />
               <span className="text-[11px] font-medium text-[#0A2540]">Extracted from the address above</span>
-              <span className="text-[11px] text-[#697386]">
-                {addrConfirmed ? "— check these, edit if the portal disagrees" : "— fills in when you press Confirm"}
-              </span>
+              <span className="text-[11px] text-[#697386]">— check these, edit if the portal disagrees</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
@@ -1015,9 +829,7 @@ export function OrderForm({
                 <Input
                   value={postcode}
                   onChange={(e) => handlePostcode(e.target.value)}
-                  readOnly={!addrConfirmed}
-                  aria-readonly={!addrConfirmed}
-                  className={`${inputCls} transition-colors duration-200 ${autoFilled.includes("postcode") ? "field-flash" : ""} ${!addrConfirmed ? "bg-[#F6F9FC] text-[#697386] cursor-not-allowed" : ""}`}
+                  className={inputCls}
                   placeholder="40150"
                   inputMode="numeric"
                 />
@@ -1029,8 +841,7 @@ export function OrderForm({
                 <select
                   value={stateVal}
                   onChange={(e) => setStateVal(e.target.value)}
-                  disabled={!addrConfirmed}
-                  className={`${selectCls} transition-colors duration-200 ${autoFilled.includes("state") ? "field-flash" : ""} ${!addrConfirmed ? "bg-[#F6F9FC] text-[#697386] opacity-70 cursor-not-allowed" : ""}`}
+                  className={selectCls}
                 >
                   <option value="">---</option>
                   {MALAYSIA_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -1043,9 +854,7 @@ export function OrderForm({
                 <Input
                   value={city}
                   onChange={(e) => setCity(e.target.value.toUpperCase())}
-                  readOnly={!addrConfirmed}
-                  aria-readonly={!addrConfirmed}
-                  className={`${inputCls} uppercase transition-colors duration-200 ${autoFilled.includes("city") ? "field-flash" : ""} ${!addrConfirmed ? "bg-[#F6F9FC] text-[#697386] cursor-not-allowed" : ""}`}
+                  className={`${inputCls} uppercase`}
                   placeholder="SHAH ALAM"
                 />
               </div>

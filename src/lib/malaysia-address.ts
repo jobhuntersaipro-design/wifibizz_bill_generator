@@ -111,22 +111,6 @@ export function toPortalState(state: string): string | null {
 }
 
 /**
- * The keyword actually sent to QryNIGAddress. The state travels as its own
- * request field and the portal matches on the address body, so the trailing
- * "<STATE> MALAYSIA <postcode>" tail is dropped — keeping it only narrows the
- * match for no gain.
- */
-export function searchKeywordFrom(input: string): string {
-  return normalizeAddress(input)
-    .replace(/\s*\b\d{5}\b\s*$/, " ")
-    .replace(/\s*\bMALAYSIA\b\s*/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(new RegExp(`\\s+(${MALAYSIA_STATES.map((s) => s.toUpperCase()).join("|")})\\s*$`), "")
-    .trim();
-}
-
-/**
  * A comparison key for "is this the same installation address?".
  *
  * Punctuation and spacing differ freely between what an agent types and what
@@ -140,19 +124,6 @@ export function searchKeywordFrom(input: string): string {
  */
 export function addressKey(input: string): string {
   return normalizeKey(normalizeAddress(input || "").replace(/\bMALAYSIA\b/g, " "));
-}
-
-/**
- * Drop the leading unit/house token ("A-07-15") from a keyword. Used as a
- * second, wider attempt when the portal returns nothing for the exact address —
- * it indexes street and building names more reliably than unit numbers.
- */
-export function widenKeyword(keyword: string): string {
-  const tokens = keyword.split(" ");
-  if (tokens.length < 3) return keyword;
-  const first = tokens[0];
-  const looksLikeUnit = /^[A-Z]?-?\d+(-\d+)*$/.test(first) || /^\d/.test(first);
-  return looksLikeUnit ? tokens.slice(1).join(" ") : keyword;
 }
 
 function hasStreetOrUnit(normalized: string): boolean {
