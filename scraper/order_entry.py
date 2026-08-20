@@ -373,9 +373,26 @@ async def create_personal_customer(frame, customer: dict, fill_only: bool = Fals
     #   3. choose Personal Customer
     await frame.locator(".js-order-search").first.click()
     await frame.locator(".js-add-cust-btn").first.click()
+    await choose_personal_customer(frame)
+    return await fill_and_submit_personal_customer(frame, customer,
+                                                   fill_only=fill_only,
+                                                   on_filled=on_filled)
+
+
+async def choose_personal_customer(frame) -> None:
+    """Select Customer Type picker -> Personal Customer. The picker is the same
+    modal whether it was opened from the order-search + button or from the
+    Customer (Fuzzy Search) dialog's Add button."""
     await frame.locator(".show-customer-left").first.wait_for(state="visible", timeout=15000)
     await frame.locator(".show-customer-left").first.click()
 
+
+async def fill_and_submit_personal_customer(frame, customer: dict,
+                                            fill_only: bool = False,
+                                            on_filled=None) -> dict:
+    """Fill the (already open) Personal Customer form and submit it. Shared by
+    create_personal_customer and the attach-time create-via-dialog fallback in
+    oe_feasibility — the form is the same component from either entry point."""
     # --- Basic Information (form.js-cust-form) ---
     await set_combobox(frame, "certTypeId", customer["id_type"])
     await frame.locator('input[name="certNbr"]').first.fill(customer["id_number"])

@@ -543,12 +543,92 @@ async def _capture_order_id(frame) -> str | None:
     return None
 
 
-async def attach_customer(frame, ic: str, name: str, id_type: str = "MyKad") -> dict:
+async def _dismiss_customer_not_exist_dialog(frame) -> str | None:
+    """If the portal has popped 'Customer record does not exist. Please create a
+    new customer.', dismiss it and return its text; otherwise None. Best-effort —
+    an unreadable page answers None and the search loop just keeps retrying."""
+    try:
+        dlg = frame.locator(".ui-dialog:visible").filter(
+            has_text="record does not exist").first
+        if not await dlg.count():
+            return None
+        msg = ""
+        try:
+            msg = (await dlg.locator(".modal-message, .modal-body").first.inner_text()).strip()
+        except Exception:  # noqa: BLE001
+            msg = "Customer record does not exist. Please create a new customer."
+        await dlg.locator(".modal-footer button, button.btn").first.click(timeout=3000)
+        await asyncio.sleep(1)
+        return msg
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _search_customer_rows(frame, ic: str, name: str, attempts: int = 6):
+    """Advanced-Query search loop shared by the first attach attempt and the
+    retry after a create-via-dialog. Returns (row_locator, count, not_exist_msg):
+    count 0 with a not_exist_msg means the portal itself said the customer does
+    not exist (dialog already dismissed), not merely that results were slow."""
+    rows = frame.locator(".js-customer-result-grid tr.jqgrow")
+    n, not_exist = 0, None
+    for _ in range(attempts):
+        await frame.locator('input[name="certNbr"]:visible').first.fill(ic, timeout=8000)
+        await frame.locator('input[name="custName"]:visible').first.fill(name, timeout=8000)
+        await frame.locator("button.js-query:visible").first.click(timeout=8000)
+        await asyncio.sleep(5)
+        # The portal may answer the Query with a 'record does not exist' popup
+        # instead of an empty grid; it blocks further queries until dismissed.
+        not_exist = await _dismiss_customer_not_exist_dialog(frame)
+        if not_exist:
+            break
+        n = await rows.count()
+        if n:
+            break
+        await asyncio.sleep(3)  # let a just-created customer propagate, then retry
+    return rows, n, not_exist
+
+
+async def _create_customer_via_dialog(frame, customer: dict) -> dict:
+    """Recovery for a customer the fuzzy search cannot find: the Customer dialog
+    has its own Add (person+) button -> Select Customer Type -> the same Personal
+    Customer form the Stage-1 create uses, so the fill logic is shared.
+
+    The Add button's class inside this dialog is unverified against the live
+    portal; .js-add-cust-btn (the order-search creator's class) is probed first,
+    then anything add-customer-shaped in a visible dialog. A miss returns an
+    error — the caller degrades to the plain customer_not_found it has today."""
+    from order_entry import choose_personal_customer, fill_and_submit_personal_customer
+
+    add = frame.locator(
+        ".ui-dialog:visible .js-add-cust-btn:visible, "
+        ".js-add-cust-btn:visible, "
+        '.ui-dialog:visible [class*="add-cust"]:visible').first
+    if not await add.count():
+        return {"status": "error", "error": "add_customer_button_not_found",
+                "stage": "attach_customer",
+                "message": "No Add-customer button found in the Customer dialog."}
+    await add.click(timeout=8000, force=True)
+    await choose_personal_customer(frame)
+    r = await fill_and_submit_personal_customer(frame, customer)
+    # An IC already in the CRM ('multiple customer records') means the customer
+    # exists after all — searchable, so the retry below can still attach it.
+    if r.get("status") not in ("ok", "success") and r.get("error") != "multiple_customer_records":
+        return r
+    return {"status": "ok", "stage": "attach_customer_create"}
+
+
+async def attach_customer(frame, customer: dict) -> dict:
     """Customer dialog (after Order) -> Advanced Query: pick ID Type, fill IC +
     name, Query, double-click the customer row, tick the PII mandatory-question
     checkboxes, Proceed. Retries the search — a just-created customer can take a
-    moment to become searchable. Verified selectors (iframe->>form/active-subs/
-    checkbox-form)."""
+    moment to become searchable. If the portal says 'Customer record does not
+    exist' (or the grid stays empty), creates the customer through the dialog's
+    own Add button and searches again. Verified selectors (iframe->>form/
+    active-subs/checkbox-form); the Add-button path is live-unverified."""
+    ic = customer.get("id_number", "")
+    name = customer.get("name", "")
+    id_type = customer.get("id_type", "MyKad")
+
     # Open Advanced Query (>>); its child <img> intercepts clicks -> force.
     await frame.locator(".js-advanced-query-btn:visible").first.click(timeout=8000, force=True)
     await asyncio.sleep(2)
@@ -566,20 +646,27 @@ async def attach_customer(frame, ic: str, name: str, id_type: str = "MyKad") -> 
             await trig.click(); await asyncio.sleep(1)
             await frame.locator(f'a:has-text("{id_type}"):visible, li:has-text("{id_type}"):visible').first.click()
 
-    rows = frame.locator(".js-customer-result-grid tr.jqgrow")
-    n = 0
-    for _ in range(6):
-        await frame.locator('input[name="certNbr"]:visible').first.fill(ic, timeout=8000)
-        await frame.locator('input[name="custName"]:visible').first.fill(name, timeout=8000)
-        await frame.locator("button.js-query:visible").first.click(timeout=8000)
-        await asyncio.sleep(5)
-        n = await rows.count()
-        if n:
-            break
-        await asyncio.sleep(3)  # let a just-created customer propagate, then retry
+    rows, n, not_exist = await _search_customer_rows(frame, ic, name)
+    note = None
     if not n:
-        return {"status": "error", "error": "customer_not_found", "stage": "attach_customer",
-                "message": f"Customer {ic} not searchable after create."}
+        why = not_exist or f"Customer {ic} not searchable."
+        print(f"  ↳ {why} — creating via the Customer dialog's Add button", flush=True)
+        r = await _create_customer_via_dialog(frame, customer)
+        if r["status"] != "ok":
+            # Never a worse outcome than before the recovery existed: the
+            # original not-found error, with what the recovery hit appended.
+            return {"status": "error", "error": "customer_not_found",
+                    "stage": "attach_customer",
+                    "message": (f"{why} Create-via-dialog also failed: "
+                                f"{r.get('message') or r.get('error')}")}
+        note = "Customer not found — created via the Customer dialog"
+        rows, n, not_exist = await _search_customer_rows(frame, ic, name)
+        if not n:
+            return {"status": "error", "error": "customer_not_found",
+                    "stage": "attach_customer",
+                    "message": (f"Customer {ic} was created via the dialog but "
+                                f"still not searchable."
+                                + (f" Portal said: {not_exist}" if not_exist else ""))}
 
     await rows.first.dblclick()  # IC+name+type search returns the single customer
     await asyncio.sleep(3)
@@ -594,7 +681,10 @@ async def attach_customer(frame, ic: str, name: str, id_type: str = "MyKad") -> 
     # 'Proceed' is unique to the topmost PII dialog.
     await frame.locator('button:has-text("Proceed"):visible').first.click(timeout=8000)
     await asyncio.sleep(4)
-    return {"status": "ok", "stage": "attach_customer"}
+    out = {"status": "ok", "stage": "attach_customer"}
+    if note:
+        out["note"] = note
+    return out
 
 
 async def finalize_install_contact(frame) -> dict:
@@ -752,9 +842,15 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
     ic = cust.get("id_number")
     if ic:
         stage("attaching_customer")
-        r = await attach_customer(frame, ic, cust.get("name", ""), cust.get("id_type", "MyKad"))
+        r = await attach_customer(frame, cust)
         if r["status"] != "ok":
+            stage("attaching_customer",
+                  _detail(r.get("message") or r.get("error"), "failed"))
             return r
+        if r.get("note"):
+            # e.g. "Customer not found — created via the Customer dialog": the
+            # timeline should record that this attempt built the customer here.
+            stage("attaching_customer", _detail(r["note"]))
 
     stage("capturing_order_no")
     await asyncio.sleep(3)  # let the New Connection order-detail page render
