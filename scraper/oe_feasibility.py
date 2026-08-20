@@ -614,6 +614,27 @@ async def finalize_install_contact(frame) -> dict:
         return {"status": "ok", "note": f"install-contact confirm skipped: {str(e)[:80]}"}
 
 
+async def customer_dialog_open(frame) -> bool:
+    """Whether the portal's Customer (Fuzzy Search) dialog is already up.
+
+    Live 2026-08-20 (ORD-0009 attempts 3-5, submit-5-failure.jpg): after the
+    offer-row double-click the portal opened the Customer dialog ITSELF — the
+    very dialog the Order click normally summons — and its modal backdrop then
+    ate every Order click for 45s until the attempt died as
+    "Customer Fuzzy Search Cancel". When the dialog is already showing, Order
+    is implied and clicking it is not only unnecessary but impossible.
+
+    The probe is the Advanced Query control (.js-advanced-query-btn) because it
+    is the first thing attach_customer clicks: visible means the attach flow
+    can proceed right now. Best-effort — an unreadable page answers False and
+    the flow falls back to the plain Order click.
+    """
+    try:
+        return await frame.locator(".js-advanced-query-btn:visible").count() > 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
 async def run_feasibility(page, payload: dict, dry_run: bool = True,
                           continue_to_submit: bool = False, do_pay: bool = False,
                           im_paths: list = None, id_paths: list = None,
@@ -688,7 +709,15 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
                             if order_ready else
                             "Address + plan selected; " + describe_order_not_ready(btn_state))}
 
-    if not order_ready:
+    if await customer_dialog_open(frame):
+        # The portal has skipped ahead: choosing the offer opened the Customer
+        # dialog directly, so there is no Order click to make — its backdrop
+        # would only swallow it (the "Customer Fuzzy Search Cancel" 45s timeout
+        # that killed ORD-0009 attempts 3-5).
+        print("  ↳ Customer dialog already open — skipping the Order click", flush=True)
+        stage("placing_order",
+              _detail("Customer dialog already open — Order implied by plan selection"))
+    elif not order_ready:
         # Photograph the page we are refusing on. Two hypotheses for ORD-0006
         # (a hidden duplicate grid, then the dblclick gesture) were each
         # disproven by a deploy-and-run cycle that a single picture would have
@@ -713,9 +742,10 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
         stage("placing_order", _detail(why, "failed"))
         return {"status": "error", "error": "order_not_ready", "stage": "click_order",
                 "message": why, "state": btn_state}
-    await order_btn.click()
-    await asyncio.sleep(4)
-    stage("placing_order", _detail("Order clicked"))
+    else:
+        await order_btn.click()
+        await asyncio.sleep(4)
+        stage("placing_order", _detail("Order clicked"))
 
     # Order is customer-first: attach the (already-created) customer by IC.
     cust = payload.get("customer", {})
