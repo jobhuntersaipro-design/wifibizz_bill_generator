@@ -33,6 +33,8 @@ const SCRAPER_STAGES = [
   // and a missing step key would render that run's last two stages as "Working…".
   "erf",
   "order_complete",
+  // enter_full_order emits this on a successful run; it is the final step.
+  "submitted",
 ];
 
 describe("stepIndexForStage", () => {
@@ -97,14 +99,25 @@ describe("SUBMIT_STEPS", () => {
     expect(SUBMIT_STEPS.some((s) => s.key === POINT_OF_NO_RETURN)).toBe(true);
   });
 
-  it("ends on the close-out, after the e-RF", () => {
-    // The submit is not over when the document is downloaded: the portal is
-    // still sitting on the confirmation page until its Next is clicked. Nothing
-    // may follow that, and a checklist that ticked "Downloading e-RF" last would
-    // read as complete while the browser was parked mid-order.
-    expect(SUBMIT_STEPS[SUBMIT_STEPS.length - 1].key).toBe("order_complete");
-    expect(stepIndexForStage("order_complete")).toBeGreaterThan(stepIndexForStage("erf"));
-    expect(stepIndexForStage("erf")).toBeGreaterThan(stepIndexForStage("pay"));
+  it("ends on Submitted, in seventeen steps", () => {
+    // The checklist ends where the order does. Downloading the e-RF and
+    // clicking the confirmation page's Next are post-payment house-keeping,
+    // not milestones an agent tracks — as their own steps they left a paid,
+    // finished order reading 16/18.
+    expect(SUBMIT_STEPS).toHaveLength(17);
+    expect(SUBMIT_STEPS[SUBMIT_STEPS.length - 1].key).toBe("submitted");
+    expect(SUBMIT_STEPS[SUBMIT_STEPS.length - 1].label).toBe("Submitted");
+  });
+
+  it("folds the post-payment stages into the final step", () => {
+    // They are still emitted by the scraper, which deploys separately. An
+    // unmapped key renders as a bare "Working…", so both must resolve — and to
+    // the LAST step, since by then the charge has happened.
+    const last = SUBMIT_STEPS.length - 1;
+    expect(stepIndexForStage("erf")).toBe(last);
+    expect(stepIndexForStage("order_complete")).toBe(last);
+    expect(stepIndexForStage("submitted")).toBe(last);
+    expect(last).toBeGreaterThan(stepIndexForStage("pay"));
   });
 
   it("puts the two pre-portal checks first", () => {
