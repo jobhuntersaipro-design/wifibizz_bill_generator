@@ -680,7 +680,7 @@ export function OrderHistoryPanel({ order, onClose }: { order: OrderListItem; on
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-5 py-4">
           {/* ── Hero: the one value an agent copies out of this panel ─────── */}
           <div
-            className={`panel-card-in rounded-xl px-4 py-3.5 text-white ${tone.hero}`}
+            className={`panel-card-in relative rounded-xl px-4 py-3.5 text-white ${tone.hero}`}
             style={{ animationDelay: "60ms" }}
           >
             <div className="flex items-center gap-1.5">
@@ -714,14 +714,16 @@ export function OrderHistoryPanel({ order, onClose }: { order: OrderListItem; on
             </div>
             {/* The paid submit is the agent's payday — it gets the one
                 celebratory animation in the section, played once. */}
-            {/* 30px, floated: any larger and the 16-digit number wraps at the
-                panel's 390px — and the number is the one value agents copy. */}
+            {/* Absolutely positioned: floating it stole layout width and made
+                the 16-digit number wrap — and the number is the one value
+                agents copy. The meta line below is short, so the bottom-right
+                corner is reliably empty. */}
             {order.status === "submitted" && (
               <LottieSpot
                 name="success"
-                size={30}
+                size={34}
                 loop={false}
-                className="float-right ml-2 mt-0.5"
+                className="absolute bottom-2.5 right-3"
                 fallback={null}
               />
             )}
