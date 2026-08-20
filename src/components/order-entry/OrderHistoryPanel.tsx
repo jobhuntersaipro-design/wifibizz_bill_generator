@@ -714,12 +714,14 @@ export function OrderHistoryPanel({ order, onClose }: { order: OrderListItem; on
             </div>
             {/* The paid submit is the agent's payday — it gets the one
                 celebratory animation in the section, played once. */}
+            {/* 30px, floated: any larger and the 16-digit number wraps at the
+                panel's 390px — and the number is the one value agents copy. */}
             {order.status === "submitted" && (
               <LottieSpot
                 name="success"
-                size={44}
+                size={30}
                 loop={false}
-                className="float-right -mt-1 ml-2"
+                className="float-right ml-2 mt-0.5"
                 fallback={null}
               />
             )}
