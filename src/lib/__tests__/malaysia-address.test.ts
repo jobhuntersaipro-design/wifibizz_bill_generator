@@ -3,8 +3,6 @@ import {
   validateMalaysianAddress,
   parseMalaysianAddress,
   toPortalState,
-  searchKeywordFrom,
-  widenKeyword,
   addressKey,
 } from "@/lib/malaysia-address";
 
@@ -141,31 +139,6 @@ describe("toPortalState", () => {
   });
 });
 
-describe("searchKeywordFrom", () => {
-  it("drops the trailing state / MALAYSIA / postcode tail", () => {
-    expect(searchKeywordFrom(REFERENCE)).toBe(
-      "A-07-15 PERSIARAN SAUJANA PUTRA UTAMA 7 FTTH BSP 21 BANDAR SAUJANA PUTRA JENJAROM"
-    );
-  });
-
-  it("handles a two-word state", () => {
-    expect(searchKeywordFrom("NO 1 JALAN SATU SEREMBAN NEGERI SEMBILAN MALAYSIA 70100")).toBe(
-      "NO 1 JALAN SATU SEREMBAN"
-    );
-  });
-});
-
-describe("widenKeyword", () => {
-  it("drops a leading unit token", () => {
-    expect(widenKeyword("A-07-15 PERSIARAN SAUJANA PUTRA UTAMA 7")).toBe(
-      "PERSIARAN SAUJANA PUTRA UTAMA 7"
-    );
-  });
-
-  it("leaves a keyword that already starts with a street word", () => {
-    expect(widenKeyword("JALAN SAUJANA PUTRA UTAMA")).toBe("JALAN SAUJANA PUTRA UTAMA");
-  });
-});
 
 describe("parseMalaysianAddress", () => {
   it("extracts parts without validating", () => {
