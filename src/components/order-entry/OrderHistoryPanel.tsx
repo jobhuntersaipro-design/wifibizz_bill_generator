@@ -13,8 +13,12 @@ import {
   History,
   CornerDownRight,
   ListChecks,
+  MapPin,
   Maximize2,
+  Package,
+  Phone,
   RotateCcw,
+  User,
   X,
 } from "lucide-react";
 import { getOrderHistory } from "@/actions/order";
@@ -38,6 +42,7 @@ import {
   needsVoiding,
   stepsCompleted,
   type CaptureFrame,
+  formatCreatedFull,
   type OrderListItem,
   type RunTone,
 } from "@/lib/order-types";
@@ -53,6 +58,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CaptureCarousel, captureSrc } from "./CaptureCarousel";
+import { formatAddress } from "./OrderRow";
 import { SubmitErrorBlock } from "./SubmitErrorBlock";
 import { SubmitProgress } from "./SubmitProgress";
 
@@ -806,6 +812,13 @@ export function OrderHistoryPanel({ order, onClose }: { order: OrderListItem; on
                 <History className="h-3.5 w-3.5" aria-hidden="true" />
                 History{attempts?.length ? ` · ${attempts.length}` : ""}
               </TabsTrigger>
+              <TabsTrigger
+                value="order"
+                className="min-h-10 flex-none cursor-pointer px-1 pb-2 text-[12px] text-[#697386] after:bottom-[-1px] after:bg-[#635BFF] data-active:text-[#0A2540]"
+              >
+                <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+                Order
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="progress" className="tab-panel-in flex flex-col gap-3">
@@ -842,9 +855,99 @@ export function OrderHistoryPanel({ order, onClose }: { order: OrderListItem; on
               ))}
             </TabsContent>
 
+            <TabsContent value="order" className="tab-panel-in flex flex-col gap-3">
+              <OrderDetails order={order} />
+            </TabsContent>
+
           </Tabs>
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+
+/* ── Order tab: everything the draft holds, grouped as the form asks it ────── */
+
+/**
+ * One labelled value. A missing value renders as a dash rather than the row
+ * hiding, so an incomplete draft is VISIBLY incomplete — a hidden row reads as
+ * "not applicable", which is a different claim.
+ */
+function DetailRow({ label, value }: { label: string; value?: string | null }) {
+  const has = !!value?.trim();
+  return (
+    <div className="flex items-start justify-between gap-4 py-1.5">
+      <dt className="w-24 shrink-0 text-[11px] leading-5 text-[#697386]">{label}</dt>
+      <dd
+        className={`min-w-0 flex-1 break-words text-right text-[12px] leading-5 ${
+          has ? "text-[#0A2540]" : "text-[#C1C9D2]"
+        }`}
+      >
+        {has ? value : "—"}
+      </dd>
+    </div>
+  );
+}
+
+/** The full draft, read-only — the record behind the row, without opening Edit. */
+function OrderDetails({ order }: { order: OrderListItem }) {
+  return (
+    <>
+      <SectionCard icon={User} label="Customer" delay={0}>
+        <dl className="divide-y divide-[#F0F3F7]">
+          <DetailRow label="Full name" value={order.fullName} />
+          <DetailRow label="ID" value={`${order.idType} · ${order.idNumber}`} />
+          {order.idExpiry && <DetailRow label="ID expiry" value={order.idExpiry} />}
+          <DetailRow label="Gender" value={order.gender} />
+          <DetailRow label="Birthday" value={order.birthday} />
+          <DetailRow label="Race" value={order.race} />
+        </dl>
+      </SectionCard>
+
+      <SectionCard icon={Phone} label="Contact" delay={60}>
+        <dl className="divide-y divide-[#F0F3F7]">
+          <DetailRow label="Phone" value={order.phone} />
+          <DetailRow label="Email" value={order.email} />
+        </dl>
+      </SectionCard>
+
+      <SectionCard icon={MapPin} label="Installation address" delay={120}>
+        <dl className="divide-y divide-[#F0F3F7]">
+          <DetailRow label="Address" value={formatAddress(order)} />
+          <DetailRow label="Postcode" value={order.postcode} />
+          <DetailRow label="City" value={order.city} />
+          <DetailRow label="State" value={order.state} />
+        </dl>
+      </SectionCard>
+
+      <SectionCard icon={Package} label="Package" delay={180}>
+        <dl className="divide-y divide-[#F0F3F7]">
+          <DetailRow label="Main offer" value={order.offerName} />
+          <DetailRow
+            label="Device"
+            value={
+              order.deviceName
+                ? order.deviceCode
+                  ? `${order.deviceName} · #${order.deviceCode}`
+                  : order.deviceName
+                : null
+            }
+          />
+        </dl>
+      </SectionCard>
+
+      <SectionCard icon={FileText} label="Other" delay={240}>
+        <dl className="divide-y divide-[#F0F3F7]">
+          <DetailRow label="Remarks" value={order.remarks} />
+          <DetailRow label="Documents" value={order.docCount ? `${order.docCount} attached` : null} />
+          <DetailRow label="Reference" value={order.reference} />
+          <DetailRow label="Created" value={formatCreatedFull(order.createdAt)} />
+          {order.createdByEmail && (
+            <DetailRow label="Created by" value={order.createdByEmail} />
+          )}
+        </dl>
+      </SectionCard>
+    </>
   );
 }
