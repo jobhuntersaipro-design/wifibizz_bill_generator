@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import LottieSpot from "./LottieSpot";
 import {
   saveOrder,
   uploadOrderDocument,
@@ -208,6 +209,23 @@ export function OrderForm({
   // Only complain about a half-typed ID once the agent has moved on / typed
   // enough to mean it — an empty field is the "required" error, not this one.
   const idNumberIncomplete = isMykadLike && idNumber.length > 0 && !isCompleteMykad(idNumber);
+
+  // What still stands between the agent and a saveable draft, in the order the
+  // form asks for it. Informational only — the save handler stays the sole
+  // validator — but the sticky bar can then answer "why can't I save yet?"
+  // without the agent scrolling back up to look for red marks.
+  const missingRequired = useMemo(() => {
+    const missing: string[] = [];
+    if (isMykadLike ? !isCompleteMykad(idNumber) : !idNumber.trim()) missing.push("ID Number");
+    if (!fullName.trim()) missing.push("Full Name");
+    if (!emailValid) missing.push("Email");
+    if (!street.trim()) missing.push("Full Address");
+    if (!/^\d{5}$/.test(postcode.trim())) missing.push("Postcode");
+    if (!stateVal) missing.push("State");
+    if (!city.trim()) missing.push("City");
+    if (!offerName) missing.push("Package");
+    return missing;
+  }, [isMykadLike, idNumber, fullName, emailValid, street, postcode, stateVal, city, offerName]);
 
   // Documents are OPTIONAL — nothing here blocks a save. IM Conversation is the
   // default type and the ID document follows the chosen ID Type (MyKad /
@@ -1190,6 +1208,7 @@ export function OrderForm({
               dragActive ? "border-[#635BFF] bg-[#635BFF]/5" : "border-[#CBD2DC] hover:border-[#635BFF]/60"
             } ${uploading || documents.length >= MAX_DOCS ? "opacity-50 pointer-events-none" : ""}`}
           >
+            <LottieSpot name="dropzone" size={52} className="-mb-1" fallback={null} />
             <span className="text-[13px] font-medium text-[#425466]">
               Drag &amp; drop files here, or <span className="text-[#635BFF]">browse</span>
             </span>
@@ -1221,10 +1240,30 @@ export function OrderForm({
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
+      {/* Sticky action bar: the primary action rides the viewport bottom, so a
+          six-card form never means scrolling back down to save. The summary is
+          informational — handleSubmit stays the sole validator. */}
+      <div className="sticky bottom-0 z-20 -mx-1 flex items-center gap-3 rounded-t-xl border border-b-0 border-[#E3E8EF] bg-white/95 px-4 py-3 shadow-[0_-6px_16px_rgba(10,37,64,0.06)] backdrop-blur">
         <Button type="submit" disabled={saving} aria-busy={saving} className="h-10 px-6 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] hover-glow press-effect cursor-pointer transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed">
           {saving ? "Saving…" : draftId ? "Update Draft" : "Save Order"}
         </Button>
+        {missingRequired.length > 0 ? (
+          <span className="min-w-0 truncate text-xs text-[#697386]" aria-live="polite">
+            {missingRequired.length} required field{missingRequired.length === 1 ? "" : "s"} left
+            <span className="hidden sm:inline">
+              {" · "}
+              {missingRequired.slice(0, 3).join(", ")}
+              {missingRequired.length > 3 ? "…" : ""}
+            </span>
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[#0E9F6E]" aria-live="polite">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5" aria-hidden="true">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+            All required fields filled
+          </span>
+        )}
       </div>
     </form>
   );

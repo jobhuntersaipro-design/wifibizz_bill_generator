@@ -42,6 +42,7 @@ import {
   type RunTone,
 } from "@/lib/order-types";
 import { Badge } from "@/components/ui/badge";
+import LottieSpot from "./LottieSpot";
 import {
   Collapsible,
   CollapsibleContent,
@@ -711,6 +712,17 @@ export function OrderHistoryPanel({ order, onClose }: { order: OrderListItem; on
                 )}
               </div>
             </div>
+            {/* The paid submit is the agent's payday — it gets the one
+                celebratory animation in the section, played once. */}
+            {order.status === "submitted" && (
+              <LottieSpot
+                name="success"
+                size={44}
+                loop={false}
+                className="float-right -mt-1 ml-2"
+                fallback={null}
+              />
+            )}
             <p
               className={`mt-1.5 font-semibold leading-tight text-white ${
                 hero.isOrderNumber

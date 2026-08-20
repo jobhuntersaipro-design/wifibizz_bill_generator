@@ -18,6 +18,7 @@ import { OrderHistoryPanel } from "./OrderHistoryPanel";
 import type { RowActions } from "./OrderRow";
 import { OrdersTable } from "./OrdersTable";
 import { OrdersToolbar } from "./OrdersToolbar";
+import LottieSpot from "./LottieSpot";
 import { ResubmitDialog } from "./ResubmitDialog";
 import { DeleteOrderDialog } from "./DeleteOrderDialog";
 
@@ -340,7 +341,8 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
 
   if (orders.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-[#E3E8EF] bg-white p-10 text-center">
+      <div className="flex flex-col items-center rounded-xl border border-dashed border-[#E3E8EF] bg-white p-10 text-center">
+        <LottieSpot name="empty-orders" size={110} className="mb-2" fallback={null} />
         <p className="text-sm font-medium text-[#425466]">No orders yet</p>
         <p className="mt-1 text-xs text-[#697386]">Fill in the New Order tab to create one.</p>
       </div>

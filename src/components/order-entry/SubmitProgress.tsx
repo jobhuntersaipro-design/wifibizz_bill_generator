@@ -1,6 +1,7 @@
 "use client";
 
 import { SubmitErrorBlock } from "@/components/order-entry/SubmitErrorBlock";
+import LottieSpot from "./LottieSpot";
 import {
   SUBMIT_STEPS,
   POINT_OF_NO_RETURN,
@@ -133,7 +134,12 @@ export function SubmitProgress({
     <div className="px-4 py-3 bg-[#F6F9FC] border-t border-[#E3E8EF]">
       {/* One glanceable line of progress above the detail — the timeline says
           which step, this says how far. */}
-      <div className="mb-1.5 flex items-baseline gap-2">
+      <div className="mb-1.5 flex items-center gap-2">
+        {/* The 2-5 minute wait is where the agent actually lives — a small
+            processing loop says "still working" louder than a static label. */}
+        {!isTerminal(status) && (
+          <LottieSpot name="processing" size={22} className="-my-1.5" fallback={null} />
+        )}
         <span
           className={`text-[11px] font-semibold ${
             status === "failed"

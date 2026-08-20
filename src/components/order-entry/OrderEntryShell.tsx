@@ -18,6 +18,7 @@ import {
   type DealerConnection,
 } from "@/actions/dealer";
 import { toast } from "sonner";
+import LottieSpot from "./LottieSpot";
 
 // "auto" = server is reading the OTP from Gmail in the background (tried for
 // every Email-channel login; only actually succeeds if it lands in the
@@ -393,6 +394,22 @@ export default function OrderEntryShell({
   // expired clock. `checking` keeps it shown (as "Verifying…") during a check.
   const isConnected =
     connection?.connected && (checking || sessionSecondsLeft > 0);
+
+  // One warning as the session enters its last five minutes — expiring silently
+  // mid-form is how an agent loses a filled order. Re-arms after a reconnect.
+  const expiryWarnedRef = useRef(false);
+  useEffect(() => {
+    if (!isConnected || sessionSecondsLeft <= 0) {
+      expiryWarnedRef.current = false;
+      return;
+    }
+    if (sessionSecondsLeft <= 300 && !expiryWarnedRef.current) {
+      expiryWarnedRef.current = true;
+      toast.warning(
+        "Your dealer session expires in under 5 minutes — reconnect soon to keep submitting.",
+      );
+    }
+  }, [isConnected, sessionSecondsLeft]);
   // Superadmins may browse the drafts view without a live portal session
   // (view-only — submitting an order still needs a real connection).
   const canView = isConnected || isSuperAdmin;
@@ -409,6 +426,69 @@ export default function OrderEntryShell({
       </div>
 
       <div className="max-w-xl animate-fade-in-up" style={{ animationDelay: "200ms" }}>
+        {!loading && !loadError && isConnected ? (
+          /* ---------- Connected: a slim status strip instead of the card.
+             Session plumbing matters when it is broken; once connected the
+             agent's work is below, so ~300px of card collapses to one line. */
+          <div className="flex items-center gap-3 rounded-lg border border-[#E3E8EF] bg-white px-4 py-2.5">
+            {checking ? (
+              <span
+                className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent"
+                aria-hidden="true"
+              />
+            ) : (
+              <span className="relative flex h-2 w-2 shrink-0" aria-hidden="true">
+                <span
+                  className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 motion-reduce:hidden ${
+                    sessionSecondsLeft <= 300 ? "bg-amber-500" : "bg-[#0E9F6E]"
+                  }`}
+                />
+                <span
+                  className={`relative inline-flex h-2 w-2 rounded-full ${
+                    sessionSecondsLeft <= 300 ? "bg-amber-500" : "bg-[#0E9F6E]"
+                  }`}
+                />
+              </span>
+            )}
+            <span className="truncate text-sm text-[#0A2540]">
+              {checking ? (
+                "Verifying connection…"
+              ) : (
+                <>
+                  Connected as{" "}
+                  <span className="font-semibold tabular-nums">
+                    {connection?.staffCode || "—"}
+                  </span>
+                </>
+              )}
+            </span>
+            <span
+              className="hidden h-4 w-px shrink-0 bg-[#E3E8EF] sm:inline-block"
+              aria-hidden="true"
+            />
+            <span
+              className={`hidden items-center gap-1.5 text-xs tabular-nums sm:inline-flex ${
+                sessionSecondsLeft <= 60
+                  ? "font-semibold text-[#DF1B41]"
+                  : sessionSecondsLeft <= 300
+                    ? "font-semibold text-amber-600"
+                    : "text-[#697386]"
+              }`}
+              title="Session expires in"
+            >
+              <ClockIcon className="h-3.5 w-3.5" />
+              {sessionSecondsLeft > 0 ? fmtCountdown(sessionSecondsLeft) : "verifying…"}
+            </span>
+            <button
+              type="button"
+              disabled={disconnecting}
+              onClick={handleDisconnect}
+              className="ml-auto shrink-0 cursor-pointer text-xs font-medium text-[#697386] transition-colors duration-150 hover:text-[#DF1B41] disabled:opacity-50"
+            >
+              {disconnecting ? "Disconnecting…" : "Disconnect"}
+            </button>
+          </div>
+        ) : (
         <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden">
           {/* Card header */}
           <div className="px-6 py-4 border-b border-[#E3E8EF]">
@@ -449,61 +529,6 @@ export default function OrderEntryShell({
                 >
                   Retry
                 </Button>
-              </div>
-            ) : isConnected ? (
-              /* ---------- Connected state ---------- */
-              <div className="space-y-4">
-                {checking ? (
-                  <div className="flex items-center gap-2 text-sm bg-[#F6F9FC] text-[#425466] rounded-lg px-4 py-3">
-                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent inline-block" />
-                    <span>Verifying connection…</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 text-sm bg-green-50 text-green-700 rounded-lg px-4 py-3">
-                    <CheckIcon className="w-4 h-4 shrink-0" />
-                    <span>
-                      Connected as{" "}
-                      <span className="font-semibold tabular-nums">
-                        {connection?.staffCode || "—"}
-                      </span>
-                    </span>
-                  </div>
-                )}
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div className="bg-[#F6F9FC] rounded-lg px-4 py-3">
-                    <p className="text-[#697386]">Last connected</p>
-                    <p className="text-[#0A2540] font-medium mt-0.5">
-                      {connection?.lastConnectedAt
-                        ? new Date(connection.lastConnectedAt).toLocaleString()
-                        : "—"}
-                    </p>
-                  </div>
-                  <div className="bg-[#F6F9FC] rounded-lg px-4 py-3">
-                    <p className="text-[#697386]">Session expires in</p>
-                    {sessionSecondsLeft > 0 ? (
-                      <p className={`font-semibold mt-0.5 tabular-nums ${sessionSecondsLeft <= 60 ? "text-[#DF1B41]" : "text-[#0A2540]"}`}>
-                        {fmtCountdown(sessionSecondsLeft)}
-                      </p>
-                    ) : checking ? (
-                      <p className="font-medium mt-0.5 text-[#697386]">Verifying…</p>
-                    ) : (
-                      // Stored clock elapsed but we haven't re-verified, so don't
-                      // claim "expired" — the check runs automatically on load.
-                      <p className="font-medium mt-0.5 text-[#B54708]">Reload to verify</p>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={disconnecting}
-                    onClick={handleDisconnect}
-                    className="h-10 px-5 rounded-lg text-sm font-medium border-[#E3E8EF] text-[#DF1B41] hover:border-[#DF1B41] hover:bg-red-50 press-effect"
-                  >
-                    {disconnecting ? "Disconnecting…" : "Disconnect"}
-                  </Button>
-                </div>
               </div>
             ) : step === "form" ? (
               /* ---------- Step 1: staff code + password + channel ---------- */
@@ -662,8 +687,15 @@ export default function OrderEntryShell({
             ) : step === "auto" ? (
               /* ---------- Step 2 (auto): reading OTP from Gmail ---------- */
               <div className="space-y-4">
-                <div className="flex items-center gap-2 text-xs bg-[#EBE9FE] text-[#5851DB] rounded-lg px-4 py-2.5">
-                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#5851DB] border-t-transparent inline-block shrink-0" />
+                <div className="flex items-center gap-2.5 text-xs bg-[#EBE9FE] text-[#5851DB] rounded-lg px-4 py-2.5">
+                  <LottieSpot
+                    name="otp-reading"
+                    size={30}
+                    className="-my-1"
+                    fallback={
+                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#5851DB] border-t-transparent inline-block shrink-0" />
+                    }
+                  />
                   <span>
                     Reading the OTP from email automatically. Expires in{" "}
                     <span className="font-semibold tabular-nums">
@@ -759,6 +791,7 @@ export default function OrderEntryShell({
             )}
           </div>
         </div>
+        )}
       </div>
 
       {/* `{children}` must stay mounted regardless of connection state — an App
@@ -808,14 +841,6 @@ function PortalIcon({ className }: { className?: string }) {
       <rect width="18" height="18" x="3" y="3" rx="2" />
       <path d="M3 9h18" />
       <path d="m9 16 3-3 3 3" />
-    </svg>
-  );
-}
-
-function CheckIcon({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M20 6 9 17l-5-5" />
     </svg>
   );
 }
