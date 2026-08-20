@@ -302,6 +302,25 @@ export async function saveOrder(rawInput: OrderInput) {
     return { success: false as const, error: `Installation address — ${addrCheck.reason}` };
   }
 
+  // Server-side half of the "cancelled is terminal / submitted is a portal
+  // record" rule — the row menu already hides Edit for both, but the menu can
+  // be bypassed and an edit here would desynchronise or resurrect the record.
+  if (input.id) {
+    const existing = await prisma.order.findUnique({
+      where: { id: input.id },
+      select: { status: true },
+    });
+    if (existing?.status === "cancelled" || existing?.status === "submitted") {
+      return {
+        success: false as const,
+        error:
+          existing.status === "cancelled"
+            ? "This order is cancelled and can no longer be edited."
+            : "This order was submitted to the portal and can no longer be edited.",
+      };
+    }
+  }
+
   // One installation address may only sit on one open draft: the portal treats
   // a second order for the same premise as a duplicate, so catching it here
   // saves a dealer-session round trip and a rejected order.
@@ -454,6 +473,49 @@ export async function listOrders(): Promise<{
       createdByEmail: superAdmin ? o.user?.email ?? null : null,
     })),
   };
+}
+
+/**
+ * Manually mark a SUBMITTED order as cancelled.
+ *
+ * Terminal and one-way: nothing transitions out of "cancelled" — the row keeps
+ * Details (the audit trail of a real paid order) and Delete, and refuses
+ * submit/resubmit/edit. This is BizzFlow bookkeeping only: it does NOT void
+ * the order at Unifi, and the appended history event says so in words, because
+ * an agent reading the trail later must not mistake this for a portal void.
+ */
+export async function cancelOrder(id: string) {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
+  const superAdmin = await isSuperAdmin(session.user.id);
+  const order = await prisma.order.findFirst({
+    where: superAdmin ? { id } : { id, userId: session.user.id },
+    select: { id: true, status: true, attempt: true },
+  });
+  if (!order) return { success: false as const, error: "Order not found." };
+  if (order.status === "cancelled") {
+    return { success: false as const, error: "This order is already cancelled." };
+  }
+  if (order.status !== "submitted") {
+    return { success: false as const, error: "Only a submitted order can be cancelled." };
+  }
+  await prisma.order.update({
+    where: { id: order.id },
+    data: {
+      status: "cancelled",
+      statusEvents: {
+        create: {
+          attempt: order.attempt ?? 1,
+          stage: null,
+          status: "info",
+          message:
+            "Manually marked Cancelled by the agent. This does not void the order at Unifi — " +
+            "the portal record stays live and must be voided there if required.",
+        },
+      },
+    },
+  });
+  return { success: true as const };
 }
 
 export async function deleteOrder(id: string) {

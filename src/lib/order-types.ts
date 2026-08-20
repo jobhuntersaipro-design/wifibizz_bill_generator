@@ -351,6 +351,7 @@ export const STATUS_LABELS: Record<string, string> = {
   submitted: "Submitted",
   warning: "Warning",
   failed: "Failed",
+  cancelled: "Cancelled",
 };
 
 /**
@@ -471,6 +472,7 @@ export const STATUS_FILTERS = [
   "warning",
   "failed",
   "submitted",
+  "cancelled",
 ];
 
 /** One screen a submit attempt photographed. */
@@ -646,15 +648,25 @@ export function labelForStage(stage: string | null | undefined): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** The run's colour family, driving the hero tint and every status accent. */
-export type RunTone = "running" | "submitted" | "warning" | "failed" | "draft";
+export type RunTone = "running" | "submitted" | "warning" | "failed" | "draft" | "cancelled";
 
 export function toneForStatus(status: string): RunTone {
   if (status === "submitting") return "running";
   if (status === "submitted" || status === "order_entered") return "submitted";
   if (status === "warning") return "warning";
   if (status === "failed") return "failed";
+  if (status === "cancelled") return "cancelled";
   return "draft";
 }
+
+/**
+ * Only a fully submitted order can be manually cancelled, and cancelling is
+ * terminal: nothing ever transitions out of "cancelled" — the row keeps
+ * Details (the audit trail of a real paid order) and Delete, nothing else.
+ * Cancelling here is BizzFlow bookkeeping only; it does NOT void the order at
+ * Unifi, which is why the confirm dialog links the portal record.
+ */
+export const canCancel = (o: { status: string }): boolean => o.status === "submitted";
 
 /**
  * Up to two initials for the avatar.
@@ -698,6 +710,7 @@ export function heroFor(order: {
     warning: "Needs checking",
     failed: "Failed",
     draft: "Draft",
+    cancelled: "Cancelled",
   };
   return { value: words[tone], isOrderNumber: false, tone };
 }
