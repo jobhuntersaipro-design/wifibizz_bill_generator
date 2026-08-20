@@ -720,19 +720,26 @@ export function heroFor(order: {
 }
 
 /**
- * How many of the 16 steps a run actually reached.
+ * How far through the checklist a run got: the FURTHEST step it reached.
  *
- * Counts DISTINCT known step keys: a stage is reported twice (bare, then with
- * its resolved detail) and coarse aliases collapse onto the step they begin, so
- * a naive length would over-count and could exceed the total.
+ * The checklist is sequential, so reaching a step means the earlier ones
+ * happened — counting only the stages that were emitted under-reports, because
+ * not every step has a stage of its own. `checking_session` never does: it is
+ * verified before the job is handed to the scraper, so a fully submitted,
+ * charged order counted 16 of 17 and read as unfinished — which is the exact
+ * complaint that shrank this list.
+ *
+ * Unknown keys and nulls are ignored (captures, a scraper deploy ahead of this
+ * one), and coarse aliases resolve to the step they begin, so the result can
+ * never exceed the number of steps.
  */
 export function stepsCompleted(stages: (string | null | undefined)[]): number {
-  const seen = new Set<number>();
+  let furthest = -1;
   for (const s of stages) {
     const i = stepIndexForStage(s);
-    if (i >= 0) seen.add(i);
+    if (i > furthest) furthest = i;
   }
-  return seen.size;
+  return furthest + 1;
 }
 
 /**

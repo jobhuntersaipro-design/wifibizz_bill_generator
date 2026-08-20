@@ -5,6 +5,7 @@ import {
   formatDuration,
   heroFor,
   initialsFor,
+  stepIndexForStage,
   stepsCompleted,
   toneForStatus,
 } from "@/lib/order-types";
@@ -68,15 +69,37 @@ describe("heroFor", () => {
 });
 
 describe("stepsCompleted", () => {
-  it("counts a stage once even though it is reported twice", () => {
-    // Every stage is emitted bare, then again with its resolved detail.
-    expect(stepsCompleted(["checking_address", "checking_address", "checking_plan"])).toBe(2);
+  it("reports the furthest step reached, not the number of stages seen", () => {
+    // The checklist is sequential: a run reporting `checking_plan` has been
+    // through the four steps before it, whether or not each emitted a stage.
+    // Every stage is also emitted twice (bare, then with its resolved detail),
+    // which must not double-count.
+    const i = stepIndexForStage("checking_plan");
+    expect(stepsCompleted(["checking_address", "checking_address", "checking_plan"])).toBe(i + 1);
+  });
+
+  it("counts a completed run as every step, including ones with no stage", () => {
+    // `checking_session` has no stage of its own — it is verified before the
+    // job reaches the scraper. A charged, submitted order reading 16/17 was
+    // the bug this fixes.
+    const submitted = ["validating_draft", "creating_customer", "pay", "erf", "submitted"];
+    expect(stepsCompleted(submitted)).toBe(SUBMIT_STEPS.length);
   });
 
   it("collapses coarse aliases onto the step they begin", () => {
-    // `feasibility` and `checking_address` are the same step; counting both
-    // would let the total exceed 16.
-    expect(stepsCompleted(["feasibility", "checking_address"])).toBe(1);
+    // `feasibility` and `checking_address` are the same step, so neither may
+    // push the count past that step.
+    expect(stepsCompleted(["feasibility", "checking_address"])).toBe(
+      stepIndexForStage("checking_address") + 1,
+    );
+  });
+
+  it("does not let a trailing capture or unknown key inflate the count", () => {
+    // Captures fire between steps and are not steps; an unknown key may come
+    // from a scraper deploy ahead of this one.
+    expect(stepsCompleted(["checking_plan", "capture_offer_grid", "some_future_stage"])).toBe(
+      stepIndexForStage("checking_plan") + 1,
+    );
   });
 
   it("ignores unknown stages and nulls rather than inflating the count", () => {
