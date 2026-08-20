@@ -47,13 +47,12 @@ export const SUBMIT_STEPS: SubmitStep[] = [
   { key: "appointment", label: "Booking appointment" },
   { key: "delivery_terms", label: "Delivery details" },
   { key: "pay", label: "Payment" },
-  // Only reachable after a real charge — with do_pay=FALSE a run stops at the
-  // Pay gate and this step never ticks, which is correct: it did not happen.
-  { key: "erf", label: "Downloading e-RF" },
-  // The confirmation page's Next, which returns the portal to the order list.
-  // Best-effort: it runs after the charge and after the e-RF is stored, so it
-  // can only ever tick amber, never fail the order.
-  { key: "order_complete", label: "Closing out order" },
+  // The finish line. Downloading the e-RF and clicking the confirmation page's
+  // Next both happen after the charge and are house-keeping, not milestones an
+  // agent tracks — they used to be their own steps, which made a paid order sit
+  // at 16/18 and read as unfinished. They now fold into this one via
+  // STAGE_ALIASES, so the checklist ends where the order does.
+  { key: "submitted", label: "Submitted" },
 ];
 
 // Everything from here on has an order id in the portal: a failure after this
@@ -601,6 +600,11 @@ const STAGE_ALIASES: Record<string, string> = {
   new_connection_page1: "installation_contact",
   subproduct_tabs: "selecting_device",
   customer_order_info: "uploading_attachments",
+  // Post-payment house-keeping the checklist no longer lists separately. They
+  // are still emitted by the scraper, so they must resolve to something: the
+  // final step, which is where the run has actually got to.
+  erf: "submitted",
+  order_complete: "submitted",
 };
 
 /**

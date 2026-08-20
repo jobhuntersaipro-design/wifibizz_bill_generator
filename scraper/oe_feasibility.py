@@ -1429,41 +1429,137 @@ async def create_billing_account(frame, page, acct_name: str = "") -> dict:
     return {"status": "ok", "stage": "account", "created": True, "closed": closed}
 
 
+# The Winback Tagging combobox is found by its LABEL: the input carries an
+# obfuscated name, so the label text is the only stable anchor. Module
+# constants (not inline strings) so tests can exercise them against a fixture.
+_WINBACK_OPEN_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
+  const lbl=[...d.querySelectorAll('label')].find(l=>/winback/i.test(l.title||l.textContent||''));
+  if(!lbl) return 'nolabel';
+  const grp=lbl.closest('.form-group'); if(!grp) return 'nogroup';
+  const caret=grp.querySelector('.ui-combobox-fish .input-group-addon, .input-group-addon');
+  const disp=grp.querySelector('input[role="combobox"]');
+  const t=caret||disp; if(!t) return 'notrigger';
+  t.click(); return 'clicked';
+})()"""
+
+# Every option the OPEN dropdown offers, in order. Read before choosing, so a
+# failure can say what the portal actually listed instead of only what we
+# wanted — the diagnostic ORD-0010 attempt 7 needed and did not have.
+_WINBACK_OPTIONS_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return [];
+  const vis=e=>e&&e.offsetParent!==null;
+  const menu=[...d.querySelectorAll('ul.combobox-dropdown')].filter(vis).pop();
+  if(!menu) return [];
+  return [...menu.querySelectorAll('li')]
+    .map(li=>(li.getAttribute('title')||li.innerText||'').trim()).filter(Boolean);
+})()"""
+
+# What the field ended up holding — the only proof the click took.
+_WINBACK_VALUE_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return null;
+  const lbl=[...d.querySelectorAll('label')].find(l=>/winback/i.test(l.title||l.textContent||''));
+  const grp=lbl&&lbl.closest('.form-group'); if(!grp) return null;
+  const disp=grp.querySelector('input[role="combobox"]');
+  return disp ? (disp.value||'').trim() : null;
+})()"""
+
+
+def pick_winback_option(options: list, wanted: str) -> str | None:
+    """The offered option matching `wanted`, or None.
+
+    Exact first, then case/space-insensitive — the portal's own list is the
+    authority on spelling. Never a fuzzy or first-option fallback: Winback
+    Tagging classifies whether the customer is being won back from another
+    operator, so guessing it puts a wrong classification on a real order.
+    """
+    for o in options or []:
+        if o == wanted:
+            return o
+    target = (wanted or "").strip().lower()
+    for o in options or []:
+        if (o or "").strip().lower() == target:
+            return o
+    return None
+
+
 async def set_winback_tagging(frame, page, value: str = "HSBA Wireless Access") -> dict:
     """Winback Tagging inline combobox (Home bundles only — absent on Business
-    offers). Returns status 'skipped' if the field isn't present."""
-    # Look for the Winback field FIRST (retry a few times — the page may still be
-    # settling), and only skip if it genuinely isn't there. Open its combobox.
+    offers). Returns status 'skipped' if the field isn't present.
+
+    Live 2026-08-20 (ORD-0010 attempt 7, order 2608000121821144): this reported
+    "winback option 'HSBA Wireless Access' not found (TimeoutError)" for a field
+    whose dropdown offers exactly that one option. The old code called .click()
+    on the caret and returned 'opened' regardless of whether a menu appeared, so
+    a click that did not land looked identical to a missing option — and the run
+    went on to be refused at Next with the portal's unhelpful "Some errors exists
+    in order item(s)", the real cause (an empty mandatory field) visible only in
+    the screenshot.
+
+    So: retry opening until the menu is genuinely VISIBLE, read what it offers,
+    and verify the field holds a value afterwards. A failure now names the
+    options the portal listed.
+    """
+    menu = frame.locator("ul.combobox-dropdown:visible").last
     opened = "nolabel"
     for _ in range(6):
-        opened = await page.evaluate(r"""(() => {
-          const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
-          const lbl=[...d.querySelectorAll('label')].find(l=>/winback/i.test(l.title||l.textContent||''));
-          if(!lbl) return 'nolabel';
-          const grp=lbl.closest('.form-group'); if(!grp) return 'nogroup';
-          const caret=grp.querySelector('.ui-combobox-fish .input-group-addon, .input-group-addon');
-          const disp=grp.querySelector('input[role="combobox"]');
-          (caret||disp).click(); return 'opened';
-        })()""")
-        if opened == "opened":
+        try:
+            if await menu.count():
+                break
+        except Exception:  # noqa: BLE001
+            pass
+        opened = await page.evaluate(_WINBACK_OPEN_JS)
+        if opened != "clicked":
+            # Field genuinely absent (e.g. Unifi Home 100Mbps PrimePromo has no
+            # Winback) — wait and re-look; the page may still be settling.
+            await asyncio.sleep(0.5)
+            continue
+        try:
+            await menu.wait_for(state="visible", timeout=2500)
             break
-        await asyncio.sleep(0.5)
-    # Field genuinely absent (e.g. Unifi Home 100Mbps PrimePromo has no Winback) OR
-    # can't open → SKIP, never block the flow (fields differ per offer; don't lock).
-    if opened != "opened":
-        return {"status": "skipped", "stage": "winback", "reason": "not_applicable",
-                "message": f"winback not applicable ({opened})"}
-    await asyncio.sleep(1)
-    try:
-        await frame.locator(
-            f'ul.combobox-dropdown:visible li[title="{value}"]').first.click(timeout=6000)
-    except Exception as e:
-        # The field exists and is still on "---Please select---". The portal
-        # treats it as mandatory, so this is UNSET, not not-applicable.
+        except Exception:  # noqa: BLE001
+            pass
+
+    if not await menu.count():
+        if opened != "clicked":
+            # Never block the flow on a field this offer does not have.
+            return {"status": "skipped", "stage": "winback", "reason": "not_applicable",
+                    "message": f"winback not applicable ({opened})"}
         return {"status": "skipped", "stage": "winback", "reason": "unset",
-                "message": f"winback option '{value}' not found ({type(e).__name__})"}
+                "message": ("the Winback Tagging dropdown would not open, so the "
+                            "portal's mandatory field is still '---Please select---'")}
+
+    options = await page.evaluate(_WINBACK_OPTIONS_JS)
+    target = pick_winback_option(options, value)
+    if target is None:
+        listed = ", ".join(repr(o) for o in options) if options else "nothing"
+        return {"status": "skipped", "stage": "winback", "reason": "unset",
+                "options": options,
+                "message": (f"winback option {value!r} was not offered — "
+                            f"the portal listed: {listed}")}
+
+    try:
+        opt = menu.locator(f'li[title="{target}"]').first
+        if not await opt.count():
+            opt = menu.get_by_text(target, exact=True).first
+        await opt.click(timeout=6000)
+    except Exception as e:  # noqa: BLE001
+        return {"status": "skipped", "stage": "winback", "reason": "unset",
+                "options": options,
+                "message": (f"winback option {target!r} was offered but could not "
+                            f"be clicked ({type(e).__name__})")}
+
     await asyncio.sleep(0.5)
-    return {"status": "ok", "stage": "winback", "selected": value}
+    # Proof, not assumption: an option click the widget ignored leaves the
+    # mandatory field empty and Next fails later with a message that names
+    # neither the field nor this step.
+    got = await page.evaluate(_WINBACK_VALUE_JS)
+    if not (got or "").strip():
+        return {"status": "skipped", "stage": "winback", "reason": "unset",
+                "options": options,
+                "message": (f"clicked winback option {target!r} but the field is "
+                            f"still empty")}
+    return {"status": "ok", "stage": "winback", "selected": got, "options": options}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
