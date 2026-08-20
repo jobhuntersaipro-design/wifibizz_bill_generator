@@ -1,35 +1,6 @@
 # Current Feature
 
-## Failure Screenshots on Every Submit Attempt
-
-### Status
-
-In Progress — branch `feature/failure-captures`.
-
-### Goals
-
-A failed submit attempt currently shows an error code with no picture of what
-the portal looked like at that moment. Of the ~55 error-return sites in
-`scraper/oe_feasibility.py`, almost none capture the screen; a handful write a
-PNG to the droplet's local `logs/` dir, which never reaches R2 or the timeline.
-
-1. **Universal failure capture at one chokepoint.** In `enter_full_order`,
-   whenever a step returns `status: "error"` (and in the exception handler),
-   photograph the page under a new `failure` capture slot via the existing
-   `capture_and_report`. Error sites return immediately upward, so the page
-   still shows the state the step refused on — one hook covers every error
-   path, including future ones. A failed capture never costs the run anything.
-2. **Fill the two per-step success gaps**: the customer-profile form after its
-   fields are filled (`customer_form`, before the Create click) and the offer
-   grid after a successful plan selection (`offer_grid`, currently shot only on
-   failure).
-3. **Label the new slots** in `CAPTURE_SLOTS` (`src/lib/order-types.ts`) so the
-   timeline names them instead of using the generic fallback. No other UI
-   change — the timeline already renders any `capture_*` event chronologically.
-
----
-
-# Also In Flight: OTP Silent-Portal Detection
+## OTP Silent-Portal Detection
 
 ## Status
 
@@ -108,6 +79,8 @@ OTP work cannot be tested on production without deploying first.
   deliberately and updating the stored credential.
 
 ## History
+
+- **Failure Screenshots on Every Attempt + Customer-Dialog-Before-Order Fix — VERIFIED LIVE, FIRST FULLY CLEAN PAID SUBMIT** (2026-08-20): Two merges (`2d88636` failure captures, `761ab94` dialog fix), deployed as `scraper-v2026.08.20-3` then `-4`. **Captures:** of the ~55 error-return sites in `oe_feasibility.py`, almost none photographed the screen — a failed attempt showed an error code and nothing else. New `capture_failure()` engages at three chokepoints in `enter_full_order` (fatal customer-create result, any error result from the feasibility→submit flow, the exception handler) under a new `failure` R2 slot; one hook covers every error path including future ones, because error results return immediately upward so the page still shows what the step refused on. Also added: `customer_form` (the filled profile form before the Create click, via a best-effort `on_filled` hook — skipped on retries where the duplicate-IC check exits before the form is filled) and `offer_grid` on plan-selection *success* (previously failure-only). `CAPTURE_SLOTS` labels all three. **Deploy trap that ate the first verification:** the user's `scraper-v2026.08.20-2` tag was cut from a stale main (`8b38c0d`, pre-merge), so the droplet ran old code while the timeline stayed pictureless — `.last-deploy` + a `grep -c capture_failure` on the droplet settled it in two commands. **The fix the failure frame paid for immediately:** ORD-0009 attempts 3–5 all died as `Customer Fuzzy Search Cancel` after a 45s `Locator.click` timeout on the Order button; `submit-5-failure.jpg` showed the Customer (Fuzzy Search) dialog **already open with an empty search box** — the portal opens it ITSELF after the offer-row dblclick, and the Order click was bouncing off its modal backdrop. No search ever ran or failed; the error text was just the dialog's title + Cancel button read out. New `customer_dialog_open()` (probes a visible `.js-advanced-query-btn`, the first control `attach_customer` clicks) makes `run_feasibility` skip the Order click and report "Customer dialog already open — Order implied by plan selection". Three browser-fixture tests (open / absent / dismissed-leftover-nodes, the last one because `:visible` must not count a dismissed dialog's DOM remains). **Verified live end-to-end via Playwright on production:** auto-OTP reconnect, resubmit of ORD-0009 → attempt 6 logged "skipping the Order click", attached the customer, and ran the whole flow to a **real paid submit** — order `2608000121750632`, RM100 advance, appointment 2026-08-21 17:00, e-RF PDF stored, full 11-frame capture trail on the timeline with the new labels rendering. 155 scraper tests, 209 vitest, build + lint clean. **Note:** WOJAK LANG order `2608000121750632` is a live paid order for test-shaped data — void it in the portal if unintended, before the appointment dispatches.
 
 - **Remove Address Confirm — Agent Owns the Address — VERIFIED LIVE** (2026-08-20): Merged as `bc73d30` / `575fdcb`, Vercel-deployed (no scraper change). The Installation Address Confirm step is gone: the agent pastes the address exactly as the Unifi portal renders it, the card says in so many words that its accuracy is entirely their responsibility, and the submit run drives the portal with it as-is — the scraper's existing "By Keywords" search + exact-match against the results grid was already the no-addressId path. Postcode / State / City went from Confirm outputs (read-only until confirmed) back to always-editable fields, now derived live from the address as the agent types via `parseMalaysianAddress` (no portal call). Removed: the `searchDealerAddress` server action, the serviceable-unit picker, progress bar, ✓ Serviceable strip, one-shot field flash, `AddressResult`, `searchKeywordFrom`/`widenKeyword` + their tests (−326 net lines), and **`startSubmit`'s addressId gate** — the fatal "Select a serviceable Service Address" block that would have refused every new draft. Kept deliberately: save-time address validation (postcode/state agreement — a draft that can't pass it can't pass the portal either), and Confirm-era `addressId`s on old drafts still travel in the payload ("By Address Id" exact-unit selection) and are cleared when the agent edits the address they belonged to. **Verified**: build, lint, 208 vitest; locally in the browser — pasting a full address auto-filled 42610 / Selangor / JENJAROM, a draft saved with no addressId and was deleted after; on production after deploy the new card and subtext render. **Not verified**: a live submit of a Confirm-less draft (blocked on having a TM-serviceable address — same blocker as the fix below).
 
