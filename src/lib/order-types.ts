@@ -762,6 +762,11 @@ export interface OrderListItem {
   // every consumer wants the same one string, and formatting in the row would
   // put the same logic in the table and the card.
   phone: string | null;
+  email: string | null;
+  gender: string | null;
+  birthday: string | null; // dd-mm-yyyy
+  race: string | null;
+  idExpiry: string | null; // dd-mm-yyyy (passport/foreigner IDs)
   offerName: string | null;
   street: string | null;
   postcode: string | null;
