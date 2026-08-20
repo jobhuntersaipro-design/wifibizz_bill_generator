@@ -134,8 +134,12 @@ export function groupByAttempt(events: StatusEventView[]): AttemptView[] {
     .sort((a, b) => b[0] - a[0])
     .map(([attempt, list]) => {
       const sorted = [...list].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-      const last = sorted[sorted.length - 1];
-      const ended = TERMINAL.has(last?.status ?? "") ? last : null;
+      // The last TERMINAL event, not the last event: info events legitimately
+      // trail a finished run (a manual cancellation note, a data correction),
+      // and reading one as "still running" relabelled a submitted attempt as
+      // Running the moment it was cancelled.
+      const ended =
+        [...sorted].reverse().find((e) => TERMINAL.has(e.status ?? "")) ?? null;
       return {
         attempt,
         startedAt: sorted[0]?.createdAt ?? "",

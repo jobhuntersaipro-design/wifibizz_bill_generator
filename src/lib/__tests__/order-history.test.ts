@@ -79,3 +79,17 @@ describe("needsVoiding", () => {
     expect(needsVoiding({ status: "draft", orderId: null })).toBe(false);
   });
 });
+
+describe("an info event after the run does not reopen it", () => {
+  it("keeps the terminal outcome when an info note trails it", () => {
+    // The real sequence a manual cancellation writes: the run ended
+    // "submitted", then the cancel note lands hours later as "info".
+    const attempts = groupByAttempt([
+      ev(6, "submitting", "2026-08-20T05:39:12Z", "checking_draft"),
+      ev(6, "submitted", "2026-08-20T05:44:25Z"),
+      ev(6, "info", "2026-08-20T07:31:24Z"),
+    ]);
+    expect(attempts[0].outcome).toBe("submitted");
+    expect(attempts[0].endedAt).toBe("2026-08-20T05:44:25Z");
+  });
+});
