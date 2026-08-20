@@ -1,5 +1,36 @@
 # Current Feature
 
+## Failure Screenshots on Every Submit Attempt
+
+### Status
+
+In Progress — branch `feature/failure-captures`.
+
+### Goals
+
+A failed submit attempt currently shows an error code with no picture of what
+the portal looked like at that moment. Of the ~55 error-return sites in
+`scraper/oe_feasibility.py`, almost none capture the screen; a handful write a
+PNG to the droplet's local `logs/` dir, which never reaches R2 or the timeline.
+
+1. **Universal failure capture at one chokepoint.** In `enter_full_order`,
+   whenever a step returns `status: "error"` (and in the exception handler),
+   photograph the page under a new `failure` capture slot via the existing
+   `capture_and_report`. Error sites return immediately upward, so the page
+   still shows the state the step refused on — one hook covers every error
+   path, including future ones. A failed capture never costs the run anything.
+2. **Fill the two per-step success gaps**: the customer-profile form after its
+   fields are filled (`customer_form`, before the Create click) and the offer
+   grid after a successful plan selection (`offer_grid`, currently shot only on
+   failure).
+3. **Label the new slots** in `CAPTURE_SLOTS` (`src/lib/order-types.ts`) so the
+   timeline names them instead of using the generic fallback. No other UI
+   change — the timeline already renders any `capture_*` event chronologically.
+
+---
+
+# Also In Flight: OTP Silent-Portal Detection
+
 ## Status
 
 In Progress — deploying, then one live production submit.

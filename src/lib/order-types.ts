@@ -117,6 +117,20 @@ export function captureSlot(stage: string | null | undefined): string | null {
  * An unknown slot is humanised rather than dropped — see the prefix note above.
  */
 const CAPTURE_SLOTS: Record<string, { label: string; caption: string }> = {
+  customer_form: {
+    label: "Customer profile form",
+    caption:
+      "Every field as it was typed and selected — name, ID, address, contact — before the Create click.",
+  },
+  offer_grid: {
+    label: "Offer grid",
+    caption:
+      "The offers the portal listed for this address, with the chosen plan's row when selection succeeded.",
+  },
+  failure: {
+    label: "At the moment of failure",
+    caption: "The page exactly as the portal showed it when this attempt's failing step gave up.",
+  },
   page1: {
     label: "New Connection page 1",
     caption:

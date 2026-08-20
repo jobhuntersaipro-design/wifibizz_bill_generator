@@ -651,6 +651,9 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
         stage("checking_plan", _detail(r.get("message") or r.get("error"), "failed"))
         return r
     stage("checking_plan", _detail(r.get("matched")))
+    # The successful counterpart of the failure shots below: the grid with the
+    # chosen plan row selected, so every attempt records what was offered here.
+    await capture_and_report(page, payload, "offer_grid", stage)
 
     stage("placing_order")
     order_btn = frame.locator(".js-orderNow").first
@@ -799,12 +802,7 @@ async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = 
     import dealer_login_service
     from order_entry import create_personal_customer
 
-    def stage(name):
-        if on_stage:
-            try:
-                on_stage(name)
-            except Exception:
-                pass
+    stage = _stage_emitter(on_stage)
 
     # Download the required attachments (IM Conversation + ID copy) from R2.
     im_paths, id_paths = [], []
@@ -830,9 +828,13 @@ async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = 
         await ensure_on_order_entry(page)
         frame = _frame(page)
 
-        # Stage 1 — create the customer profile for real.
+        # Stage 1 — create the customer profile for real. on_filled photographs
+        # the completed form (every typed/selected field) before the Create
+        # click — the only record of what was entered if the create is refused.
         stage("creating_customer")
-        r = await create_personal_customer(frame, payload["customer"], fill_only=False)
+        r = await create_personal_customer(
+            frame, payload["customer"], fill_only=False,
+            on_filled=lambda: capture_and_report(page, payload, "customer_form", stage))
         # A clean create returns status="ok" (from _await_customer_create_result);
         # a customer whose IC is already in the CRM returns the
         # "multiple_customer_records" warning. BOTH mean the customer now exists and
@@ -841,6 +843,7 @@ async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = 
         # Anything else (data incomplete / validation / stage error) is fatal.
         customer_existed = r.get("error") == "multiple_customer_records"
         if r.get("status") not in ("ok", "success") and not customer_existed:
+            await capture_failure(page, payload, r, stage)
             return r
         stage("order_entered")
 
@@ -858,6 +861,9 @@ async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = 
             stage("submitted")
         result["customer_created"] = not customer_existed
         result["customer_existed"] = customer_existed
+        # The page still shows whatever the failing step refused on — photograph
+        # it before teardown so every failed attempt carries its own evidence.
+        await capture_failure(page, payload, result, stage)
         return result
     except Exception as e:
         # A step threw (e.g. a combobox couldn't open) — often because a portal
@@ -877,10 +883,13 @@ async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = 
                 popup = describe_blocking_dialog(blocker)
         # Prefer the portal's own popup text; otherwise a humanised summary. The
         # verbatim exception still rides along for the job log.
-        return {"status": "error", "stage": "order_entry",
-                "error": "portal_error" if popup else "exception",
-                "message": popup or humanize_error(e),
-                "exception": f"{type(e).__name__}: {e}"}
+        outcome = {"status": "error", "stage": "order_entry",
+                   "error": "portal_error" if popup else "exception",
+                   "message": popup or humanize_error(e),
+                   "exception": f"{type(e).__name__}: {e}"}
+        # The page (popup and all) is still up — photograph what actually threw.
+        await capture_failure(page, payload, outcome, stage)
+        return outcome
     finally:
         await dealer_web_login.safe_teardown(pw, browser, context)
 
@@ -1277,6 +1286,20 @@ async def capture_and_report(page, payload: dict, slot: str, stage) -> dict | No
     if shot:
         stage(capture_stage_name(slot), shot)
     return shot
+
+
+async def capture_failure(page, payload: dict, result, stage) -> None:
+    """Photograph the screen at the moment a step returned an error.
+
+    One chokepoint instead of a capture at each of the ~55 error-return sites:
+    error results return immediately upward, so the page still shows the state
+    the step refused on. Engages only for a dict with status == "error" and a
+    live page; like every capture, a failure here must never cost the run
+    anything further (capture_and_report already guarantees that).
+    """
+    if page is None or not isinstance(result, dict) or result.get("status") != "error":
+        return
+    await capture_and_report(page, payload, "failure", stage)
 
 
 # The suffix a bottom-of-page frame carries. Kept as a constant because BizzFlow
