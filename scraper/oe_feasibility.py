@@ -343,6 +343,11 @@ OFFER_ROW_INDEX_JS = r"""((want) => {
 })"""
 
 
+# How long the offer grid may stay row-less before we call the address
+# unserviceable. A constant so tests can shrink it instead of waiting it out.
+OFFER_ROWS_TIMEOUT_MS = 15000
+
+
 async def select_plan(frame, plan: dict, page=None) -> dict:
     """plan: {name}. Offers are INLINE in .js-offer-grid (no Main Offer modal).
     Matching is case/space-insensitive; on a miss we log the offers the address
@@ -360,6 +365,19 @@ async def select_plan(frame, plan: dict, page=None) -> dict:
     name = plan["name"]
     rows = frame.locator(".js-offer-grid tr.jqgrow")
 
+    # The grid element appears before its rows do — the portal fills them by a
+    # separate AJAX call after the address OK. Reading too early makes a slow
+    # feasibility query indistinguishable from a genuinely unserviceable
+    # address, so give the rows their own wait before concluding anything.
+    try:
+        await rows.first.wait_for(state="attached", timeout=OFFER_ROWS_TIMEOUT_MS)
+    except Exception:
+        print(f"  ⚠ offer grid stayed empty for '{name}'", flush=True)
+        return {"status": "error", "error": "no_offers_listed", "stage": "select_plan",
+                "message": ("The portal listed no offers at all for this address — "
+                            "it is likely not serviceable by TM (the portal reports "
+                            "'services from other operators' for such addresses).")}
+
     row = frame.locator(f'.js-offer-grid tr.jqgrow:has(td[title="{name}"])').first
     matched = name
     if await row.count() == 0:
@@ -371,9 +389,17 @@ async def select_plan(frame, plan: dict, page=None) -> dict:
         picked = await (page or frame.page).evaluate(OFFER_ROW_INDEX_JS, name)
         i = picked.get("i", -1)
         if i < 0:
-            print(f"  ⚠ offer '{name}' not found. Address serves: {picked.get('offers')}", flush=True)
+            offers = [o for o in (picked.get("offers") or []) if o]
+            print(f"  ⚠ offer '{name}' not found. Address serves: {offers}", flush=True)
+            if not offers:
+                # Rows existed above but none carried a readable offer title —
+                # report that plainly instead of the baffling "Available: []".
+                return {"status": "error", "error": "no_offers_listed", "stage": "select_plan",
+                        "message": ("The portal listed no readable offers for this "
+                                    "address — it is likely not serviceable by TM.")}
             return {"status": "error", "error": "offer_not_found", "stage": "select_plan",
-                    "message": f"Plan '{name}' not serviceable here. Available: {picked.get('offers')}"}
+                    "message": (f"Plan '{name}' is not offered at this address. "
+                                f"The portal offers: {', '.join(offers)}")}
         row = rows.nth(i)
         # The fuzzy path can land on an offer whose name differs from what the
         # draft asked for, so report the portal's wording, not ours.

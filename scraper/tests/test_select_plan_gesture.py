@@ -160,3 +160,58 @@ def test_the_offer_list_never_reports_internal_ids_as_names():
     assert picked["i"] == -1
     assert picked["offers"] == ["unifi Home 300Mbps Broadband",
                                 "Unifi Home 500Mbps Premium Value With Device (36M)"]
+
+
+def test_an_empty_offer_grid_is_reported_as_unserviceable_not_a_bare_list():
+    """ORD-0007 failed with "not serviceable here. Available: []" — an empty
+    Python list pasted into a sentence an agent is meant to act on. A grid with
+    no rows must produce its own verdict, in words."""
+    empty = GRID.replace('class="jqgrow"', 'class="jqnothing"')
+    async def go(page, frame):
+        await page.set_content(
+            HOST.replace("FIXTURE_HTML",
+                         empty.replace("&", "&amp;").replace('"', "&quot;")))
+        import oe_feasibility
+        before = oe_feasibility.OFFER_ROWS_TIMEOUT_MS
+        oe_feasibility.OFFER_ROWS_TIMEOUT_MS = 500
+        try:
+            return await select_plan(page.frame_locator("#myIframe"),
+                                     {"name": "Unifi Home 500Mbps Premium Value With Device (36M)"},
+                                     page=page)
+        finally:
+            oe_feasibility.OFFER_ROWS_TIMEOUT_MS = before
+    r = _run(go)
+    assert r["status"] == "error"
+    assert r["error"] == "no_offers_listed"
+    assert "[]" not in r["message"]
+    assert "not serviceable" in r["message"] or "no offers" in r["message"]
+
+
+def test_rows_that_arrive_late_are_still_found():
+    """The grid element renders before its rows — the portal fills them by AJAX
+    after the address OK. select_plan must wait for rows, not read an empty grid
+    and declare the address unserviceable."""
+    delayed = GRID.replace(
+        "</script>",
+        """
+  // Simulate the portal's AJAX fill: strip the rows out now, put them back later.
+  var saved = [].map.call(grid.querySelectorAll('tr.jqgrow'), function (r) {
+    var html = r.outerHTML; r.parentNode.removeChild(r); return html;
+  });
+  setTimeout(function () {
+    grid.querySelector('tbody') || grid;  // srcdoc tables always get a tbody
+    saved.forEach(function (html) {
+      (grid.querySelector('tbody') || grid).insertAdjacentHTML('beforeend', html);
+    });
+  }, 700);
+</script>""")
+    async def go(page, frame):
+        await page.set_content(
+            HOST.replace("FIXTURE_HTML",
+                         delayed.replace("&", "&amp;").replace('"', "&quot;")))
+        return await select_plan(page.frame_locator("#myIframe"),
+                                 {"name": "Unifi Home 500Mbps Premium Value With Device (36M)"},
+                                 page=page)
+    r = _run(go)
+    assert r["status"] == "ok"
+    assert r["matched"] == "Unifi Home 500Mbps Premium Value With Device (36M)"
