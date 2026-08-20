@@ -636,6 +636,113 @@ async def _close_advanced_query(frame) -> None:
         pass
 
 
+def name_prefix(name: str) -> str | None:
+    """The leading token of a name, for a second Advanced Query attempt.
+
+    Live 2026-08-20: the portal matches Customer Name as a PREFIX of the
+    registered name, with a minimum length. For IC 820505034434, registered as
+    "HONG LIONG TONG", the search answered:
+
+        "HONG TUNG TUNG" (the draft) -> 0 rows, "record does not exist"
+        "HONG"                       -> 4 rows
+        "H"                          -> 0 rows
+        "%"                          -> 0 rows   (no wildcard support)
+
+    So a draft whose name diverges after the first word is still findable. The
+    IC is a mandatory exact criterion, so any row this returns belongs to that
+    IC — a shorter name cannot pull in a stranger.
+
+    Returns None when there is nothing new to try (single token, or too short
+    to be accepted).
+    """
+    tokens = (name or "").split()
+    if not tokens:
+        return None
+    first = tokens[0]
+    if len(first) < 3 or first == (name or "").strip():
+        return None
+    return first
+
+
+async def _read_pii_registered_name(frame) -> str | None:
+    """The registered customer's full name off the PII mandatory-questions
+    dialog ("Q: Registered Customer Full Name A: <NAME>"). Best-effort — used
+    only to tell the agent WHO the existing record belongs to, never for flow."""
+    try:
+        dlg = frame.locator(".ui-dialog:visible, .modal.in:visible").filter(
+            has_text="Registered Customer Full Name").last
+        if not await dlg.count():
+            return None
+        text = await dlg.inner_text()
+        # innerText may keep the Q/A line breaks or collapse them to spaces —
+        # stop at the next numbered question either way.
+        m = re.search(
+            r"Registered Customer Full Name\s*A[.:]?\s*(.+?)(?:\s+\d+\.\s*Q:|\n|$)",
+            text)
+        return m.group(1).strip().splitlines()[0].strip() if m else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _select_existing_customer_from_dup(frame, customer: dict) -> dict:
+    """Attach the EXISTING CRM customer through the duplicate-IC path.
+
+    Live 2026-08-20 (ORD-0010): the CRM already held IC 820505034434 under a
+    DIFFERENT registered name (HONG LIONG TONG vs the draft's HONG TUNG TUNG),
+    so the Advanced Query search — which matches IC AND name — kept answering
+    "Customer record does not exist" while the create form's duplicate check
+    said records exist. The only route to that record is the create dialog's
+    own Confirm: OK -> "Select Customer" picker -> the row with our IC -> OK ->
+    the same PII dialog the search-attach path reaches (verified live up to
+    Proceed). Expects the "Multiple customer records found" Confirm to be up
+    (fill_and_submit_personal_customer leaves it that way on purpose)."""
+    confirm = frame.locator(".ui-dialog:visible, .modal.in:visible").filter(
+        has_text="Multiple customer records").last
+    try:
+        await confirm.locator('button:has-text("OK")').first.click(timeout=8000)
+    except Exception as e:  # noqa: BLE001
+        return {"status": "error", "error": "dup_confirm_not_clickable",
+                "stage": "attach_customer",
+                "message": f"Duplicate-records Confirm did not accept OK: {type(e).__name__}"}
+    sel = frame.locator(".ui-dialog:visible, .modal.in:visible").filter(
+        has_text="Select Customer").last
+    try:
+        await sel.wait_for(state="visible", timeout=15000)
+    except Exception:
+        return {"status": "error", "error": "customer_picker_missing",
+                "stage": "attach_customer",
+                "message": "OK on the duplicate Confirm did not open Select Customer."}
+    # The picker's grid fills asynchronously after the dialog shows — poll for
+    # rows before judging the content (checking immediately reads an empty grid
+    # and mis-reports "no matching record", seen live 2026-08-20).
+    rows = sel.locator("tr.jqgrow")
+    for _ in range(20):
+        if await rows.count():
+            break
+        await asyncio.sleep(0.5)
+    # Pick by IC, never a blind first row — the picker can list several records.
+    row = rows.filter(has_text=customer.get("id_number", "")).first
+    if not await row.count():
+        listed = await rows.count()
+        return {"status": "error", "error": "customer_picker_no_ic_match",
+                "stage": "attach_customer",
+                "message": (f"Select Customer listed {listed} record(s), but none "
+                            f"shows IC {customer.get('id_number')}.")}
+    await row.click()
+    await asyncio.sleep(1)
+    await sel.locator('button:has-text("OK")').last.click(timeout=8000)
+    await asyncio.sleep(4)
+    registered = await _read_pii_registered_name(frame)
+    # Acknowledge the PII questions. Live 2026-08-20: this does NOT attach the
+    # customer to the order — the portal closes the whole create/picker stack
+    # and returns to the Customer (Fuzzy Search) dialog, offer row still
+    # selected, waiting for a customer to be chosen for the ORDER. What the
+    # detour is really worth is the registered name, which is masked
+    # everywhere else and is what makes the re-search below possible.
+    await _answer_pii_and_proceed(frame)
+    return {"status": "ok", "stage": "attach_customer", "registered_name": registered}
+
+
 async def _create_customer_via_dialog(frame, customer: dict) -> dict:
     """Recovery for a customer the fuzzy search cannot find: the Customer dialog
     has its own Add (person+) button -> Select Customer Type -> the same Personal
@@ -660,11 +767,28 @@ async def _create_customer_via_dialog(frame, customer: dict) -> dict:
     await add.click(timeout=8000, force=True)
     await choose_personal_customer(frame)
     r = await fill_and_submit_personal_customer(frame, customer)
-    # An IC already in the CRM ('multiple customer records') means the customer
-    # exists after all — searchable, so the retry below can still attach it.
-    if r.get("status") not in ("ok", "success") and r.get("error") != "multiple_customer_records":
+    if r.get("error") == "multiple_customer_records":
+        # The IC is already registered at Unifi, under a name the search could
+        # not guess. Open the duplicate Confirm's own picker purely to READ the
+        # registered name off the PII dialog, so the caller can search for it.
+        picked = await _select_existing_customer_from_dup(frame, customer)
+        if picked["status"] == "ok":
+            return {"status": "ok", "stage": "attach_customer_create",
+                    "created": False,
+                    "registered_name": picked.get("registered_name")}
+        # Picker failed — close the create form and let the caller retry its
+        # search (never a worse outcome than before the picker existed).
+        print(f"  ⚠ duplicate-IC picker failed: {picked.get('message')}", flush=True)
+        try:
+            dlg = frame.locator(".ui-dialog:visible, .modal.in:visible").filter(
+                has_text="Personal Customer").last
+            await dlg.locator('button:has-text("Cancel")').last.click(timeout=5000)
+        except Exception:  # noqa: BLE001
+            pass
+        return {"status": "ok", "stage": "attach_customer_create", "created": False}
+    if r.get("status") not in ("ok", "success"):
         return r
-    return {"status": "ok", "stage": "attach_customer_create"}
+    return {"status": "ok", "stage": "attach_customer_create", "created": True}
 
 
 async def attach_customer(frame, customer: dict) -> dict:
@@ -682,6 +806,23 @@ async def attach_customer(frame, customer: dict) -> dict:
     await _open_advanced_query(frame, id_type)
     rows, n, not_exist = await _search_customer_rows(frame, ic, name)
     note = None
+
+    # The registered name may simply differ from what the agent typed, and the
+    # portal matches Customer Name as a prefix — so retry on the leading token
+    # before concluding the customer does not exist. Cheap, and it avoids the
+    # whole create-dialog detour for the common "spelled differently" case.
+    if not n:
+        prefix = name_prefix(name)
+        if prefix:
+            print(f"  ↳ no match for {name!r} — retrying on the prefix {prefix!r}",
+                  flush=True)
+            rows, n, not_exist = await _search_customer_rows(
+                frame, ic, prefix, attempts=2)
+            if n:
+                note = (f"Matched on the name prefix {prefix!r}: the portal's "
+                        f"registered name for this IC differs from the draft's "
+                        f"{name!r}.")
+
     if not n:
         why = not_exist or f"Customer {ic} not searchable."
         print(f"  ↳ {why} — creating via the Customer dialog's Add button", flush=True)
@@ -693,23 +834,43 @@ async def attach_customer(frame, customer: dict) -> dict:
                     "stage": "attach_customer",
                     "message": (f"{why} Create-via-dialog also failed: "
                                 f"{r.get('message') or r.get('error')}")}
-        note = "Customer not found — created via the Customer dialog"
+        # Which name to search on now: the portal's own, when the duplicate
+        # picker read it, otherwise the draft's (a customer we just created is
+        # registered under exactly what we typed).
+        registered = r.get("registered_name")
+        search_name = registered or name
+        if registered:
+            note = (f"Customer already registered at Unifi as {registered!r} "
+                    f"(draft says {name!r}) — attached the existing record.")
+        else:
+            note = "Customer not found — created via the Customer dialog"
         # The create closed Advanced Query (and left the plain Customer dialog);
         # the search fields live in Advanced Query, so re-open it if needed.
         if not await frame.locator('input[name="certNbr"]:visible').count():
             await _open_advanced_query(frame, id_type)
-        rows, n, not_exist = await _search_customer_rows(frame, ic, name)
+        rows, n, not_exist = await _search_customer_rows(frame, ic, search_name)
         if not n:
+            what = ("was created via the dialog but still not searchable"
+                    if not registered else
+                    f"is registered as {registered!r} but that name found nothing")
             return {"status": "error", "error": "customer_not_found",
                     "stage": "attach_customer",
-                    "message": (f"Customer {ic} was created via the dialog but "
-                                f"still not searchable."
+                    "message": (f"Customer {ic} {what}."
                                 + (f" Portal said: {not_exist}" if not_exist else ""))}
 
-    await rows.first.dblclick()  # IC+name+type search returns the single customer
+    # One row per ACTIVE SUBSCRIBER, not one per customer: this IC returns four
+    # rows, all customer code 101005802971, differing only by account number.
+    # They are the same person, and the order's billing account is chosen later
+    # in the New Connection flow, so the first row is as good as any.
+    await rows.first.dblclick()
     await asyncio.sleep(3)
+    return await _answer_pii_and_proceed(frame, note=note)
 
-    # PII mandatory-questions form -> tick ALL -> Proceed.
+
+async def _answer_pii_and_proceed(frame, note: str | None = None) -> dict:
+    """Tick every PII mandatory-question checkbox and click Proceed. Shared by
+    the search-attach path (after the result-row dblclick) and the duplicate-IC
+    picker path — both land on the same PII dialog."""
     checks = frame.locator('form.js-mandatory-question-form input[name="answerCheck"]')
     for i in range(await checks.count()):
         try:

@@ -202,7 +202,7 @@ def normalize_address_line(value: str | None) -> str:
     return " ".join((value or "").split())
 
 
-async def fill_residence_address(frame, customer: dict) -> dict:
+async def fill_residence_address(frame, customer: dict, root=None) -> dict:
     """Fill the required Residence Address via its pop-edit modal.
 
     The residence field (input[name="address"].js-address) is readonly; clicking
@@ -219,8 +219,9 @@ async def fill_residence_address(frame, customer: dict) -> dict:
         print("  ↳ no residence address data — skipping.")
         return {"status": "ok", "stage": "residence_address", "skipped": True}
 
-    # Open the modal via the expand icon next to the customer-form residence input.
-    addr_input = frame.locator('input[name="address"].js-address').first
+    # Open the modal via the expand icon next to the customer-form residence
+    # input, anchored to the Personal Customer dialog when the caller gave one.
+    addr_input = (root or frame).locator('input[name="address"].js-address').first
     caret = addr_input.locator(
         'xpath=following-sibling::span[contains(@class,"input-group-addon")]'
     ).first
@@ -309,7 +310,7 @@ async def _invalid_address_fields(frame) -> list[str]:
         return []
 
 
-async def _upload_id_documents(frame, customer: dict) -> None:
+async def _upload_id_documents(frame, customer: dict, root=None) -> None:
     """Upload the required "Customer ID copy" attachment (doctypeid="2").
 
     Files come from a local path (customer["id_doc_path"], for testing) or the
@@ -331,12 +332,12 @@ async def _upload_id_documents(frame, customer: dict) -> None:
         print("  ↳ no ID-copy document provided — attachment left empty.")
         return
 
-    file_input = frame.locator(
+    file_input = (root or frame).locator(
         'li.js-attach-item[doctypeid="2"] input[type="file"].fileupload-select'
     ).first
     await file_input.set_input_files(files)
     # Wait for the upload to register (a file chip appears in the list container).
-    container = frame.locator(
+    container = (root or frame).locator(
         'li.js-attach-item[doctypeid="2"] .js-files-container'
     ).first
     for _ in range(20):
@@ -387,16 +388,36 @@ async def choose_personal_customer(frame) -> None:
     await frame.locator(".show-customer-left").first.click()
 
 
+def personal_customer_dialog(frame):
+    """The visible dialog hosting the Personal Customer form (the LAST such
+    dialog is the topmost). Shared with tests — the selector is the fix for
+    the ORD-0010 attach-time fill collision, so it is pinned by fixture."""
+    return frame.locator(".ui-dialog:visible, .modal.in:visible").filter(
+        has=frame.locator("form.js-cust-form")).last
+
+
 async def fill_and_submit_personal_customer(frame, customer: dict,
                                             fill_only: bool = False,
                                             on_filled=None) -> dict:
     """Fill the (already open) Personal Customer form and submit it. Shared by
     create_personal_customer and the attach-time create-via-dialog fallback in
     oe_feasibility — the form is the same component from either entry point."""
+    # --- Scope: the visible Personal Customer dialog ------------------------
+    # From the attach-time entry point this form opens OVER the Customer
+    # (Fuzzy Search) dialog, whose Advanced Query search fields are ALSO named
+    # certNbr / custName (and it has its own OK button). Unscoped `.first`
+    # lookups can anchor on one of those — hidden remains or behind the modal —
+    # and time out. Live failure ORD-0010 attempt 4: ID Number present, every
+    # other field empty, the attempt dying at the Customer Name fill, reported
+    # as the dialog's labels read out. Anchor every lookup on the one visible
+    # dialog hosting form.js-cust-form (the LAST such dialog is the topmost).
+    dlg = personal_customer_dialog(frame)
+    await dlg.wait_for(state="visible", timeout=15000)
+
     # --- Basic Information (form.js-cust-form) ---
-    await set_combobox(frame, "certTypeId", customer["id_type"])
-    await frame.locator('input[name="certNbr"]').first.fill(customer["id_number"])
-    await frame.locator('input[name="custName"]').first.fill(customer["name"])
+    await set_combobox(frame, "certTypeId", customer["id_type"], scope=dlg)
+    await dlg.locator('input[name="certNbr"]').first.fill(customer["id_number"])
+    await dlg.locator('input[name="custName"]').first.fill(customer["name"])
 
     # MyKad-like IDs: the portal auto-derives Gender + Birthday from the ID number
     # and locks those fields, so their widgets won't accept input. Wait for the
@@ -420,23 +441,23 @@ async def fill_and_submit_personal_customer(frame, customer: dict,
     id_type = (customer.get("id_type") or "").strip().lower()
     mykad_like = id_type in {"mykad", "mykas", "mytentera"}
     if mykad_like:
-        gender_hidden = frame.locator('input[name="gender"]').first
+        gender_hidden = dlg.locator('input[name="gender"]').first
         for _ in range(20):
             if await gender_hidden.input_value():
                 break
             await asyncio.sleep(0.3)
         print("  ↳ MyKad: Gender + Birthday auto-derived from ID — skipping manual set.")
     else:
-        await set_combobox(frame, "gender", customer["gender"])
+        await set_combobox(frame, "gender", customer["gender"], scope=dlg)
         # Date fields open a jQuery UI datepicker on focus; fill then dismiss it
         # with Escape so its overlay doesn't intercept later clicks.
-        birthday = frame.locator('input[name="birthdayDay"]').first
+        birthday = dlg.locator('input[name="birthdayDay"]').first
         await birthday.fill(customer["birthday"])
         await birthday.press("Escape")
 
-    await set_combobox(frame, "name_400011", customer["race"])
-    await set_combobox(frame, "name_400020", customer["nationality"])
-    await set_combobox(frame, "custDefLangId", customer["preferred_language"])
+    await set_combobox(frame, "name_400011", customer["race"], scope=dlg)
+    await set_combobox(frame, "name_400020", customer["nationality"], scope=dlg)
+    await set_combobox(frame, "custDefLangId", customer["preferred_language"], scope=dlg)
 
     # Customer Type: the <select name="custType"> lives in a display:none wrapper
     # ("temporarily only support personal customer") and already defaults to
@@ -444,23 +465,24 @@ async def fill_and_submit_personal_customer(frame, customer: dict,
 
     # Residence Address (required) — readonly input opened via the expand icon
     # into a pop-edit modal (Country + Postcode auto-fills City/State + street).
-    addr_result = await fill_residence_address(frame, customer)
+    addr_result = await fill_residence_address(frame, customer, root=dlg)
     if addr_result.get("status") != "ok":
         return addr_result
 
     # --- Customer attributes (.js-cust-attr-form) ---
-    await set_combobox(frame, "name_400054", customer["customer_tenure"])
-    await set_combobox(frame, "name_410013", customer["sub_segment"])
-    await set_combobox(frame, "name_410011", customer["segment"])
-    await set_combobox(frame, "name_410008", customer["segment_code"])
+    await set_combobox(frame, "name_400054", customer["customer_tenure"], scope=dlg)
+    await set_combobox(frame, "name_410013", customer["sub_segment"], scope=dlg)
+    await set_combobox(frame, "name_410011", customer["segment"], scope=dlg)
+    await set_combobox(frame, "name_410008", customer["segment_code"], scope=dlg)
 
     # --- Contact Information (scope to form.js-qry-form to avoid name collisions) ---
     contact = customer["contact"]
-    contact_form = frame.locator("form.js-qry-form")
+    contact_form = dlg.locator("form.js-qry-form")
     await contact_form.locator('input[name="contactManName"]').first.fill(contact["name"])
-    await set_combobox(frame, "mainComm", contact["preferred_contact"])
-    await set_combobox(frame, "roleType", contact["role"])
-    await set_combobox(frame, "contactManType", contact.get("contact_man_type", contact["role"]))
+    await set_combobox(frame, "mainComm", contact["preferred_contact"], scope=dlg)
+    await set_combobox(frame, "roleType", contact["role"], scope=dlg)
+    await set_combobox(frame, "contactManType",
+                       contact.get("contact_man_type", contact["role"]), scope=dlg)
     # Mobile: the number field (mobilePhone) is disabled until a valid area code
     # (portal example "eg.60") is entered. .fill() sets the value but may not fire
     # the keyup the validator listens for, so type it and blur to enable the
@@ -484,7 +506,7 @@ async def fill_and_submit_personal_customer(frame, customer: dict,
     # The row has a real <input type=file class=fileupload-select multiple>, so we
     # set files directly. Source: a local path (id_doc_path, for testing) or the
     # order's R2 keys (id_doc_keys) downloaded on the fly.
-    await _upload_id_documents(frame, customer)
+    await _upload_id_documents(frame, customer, root=dlg)
 
     if on_filled:
         try:
@@ -499,7 +521,7 @@ async def fill_and_submit_personal_customer(frame, customer: dict,
     # Submit profile (this CREATES a real customer). Verified live: .js-ok fires
     # the app's validation — an incomplete form shows a "data is incomplete"
     # Warning and creates nothing; a complete one shows "...successfully created".
-    await frame.locator(".js-ok").first.click()
+    await dlg.locator(".js-ok").first.click()
     return await _await_customer_create_result(frame)
 
 

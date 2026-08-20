@@ -43,6 +43,7 @@ async def set_combobox(
     timeout: int = DEFAULT_TIMEOUT,
     nth: int = 0,
     hidden_selector: str | None = None,
+    scope=None,
 ) -> None:
     """
     Set a `---Please select---` combobox by its hidden input's `name`.
@@ -76,8 +77,17 @@ async def set_combobox(
     # the hidden input, climb to its parent wrapper, and reach back down for the
     # display input + caret. `hidden_selector` lets callers target a field whose
     # name is obfuscated (e.g. the address modal) by a stable class instead.
+    # `scope` narrows the anchor search to one dialog. Needed when the same
+    # field name exists in several stacked dialogs (the attach-time create:
+    # Advanced Query's search fields are literally certNbr/custName, so an
+    # unscoped nth(0) can anchor on a hidden leftover and time out).
     if hidden_selector:
-        hidden = frame.locator(hidden_selector).nth(nth)
+        hidden = (scope or frame).locator(hidden_selector).nth(nth)
+        wrap = hidden.locator("xpath=..")
+        disp = wrap.locator('input[role="combobox"]').first
+        caret = wrap.locator('span.input-group-addon').first
+    elif scope is not None:
+        hidden = scope.locator(f'input[name="{field_name}"]').nth(nth)
         wrap = hidden.locator("xpath=..")
         disp = wrap.locator('input[role="combobox"]').first
         caret = wrap.locator('span.input-group-addon').first
