@@ -238,3 +238,53 @@ def test_the_phase1_page1_switch_still_works_and_only_touches_page1(monkeypatch)
     monkeypatch.setenv("OE_CAPTURE_PAGE1", "false")
     assert not _capture_enabled("page1")
     assert _capture_enabled("broadband")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# capture_failure — the one chokepoint that photographs every failed attempt.
+# The whole point is that ~55 error-return sites get evidence without each one
+# being edited, so what is worth pinning is WHEN it engages: exactly on a dict
+# with status "error" and a live page, and never otherwise.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_capture_failure_engages_on_error_result(monkeypatch):
+    import oe_feasibility
+
+    calls = []
+
+    async def fake_capture_and_report(page, payload, slot, stage):
+        calls.append(slot)
+
+    monkeypatch.setattr(oe_feasibility, "capture_and_report", fake_capture_and_report)
+    result = {"status": "error", "error": "offer_not_found", "stage": "select_plan"}
+    asyncio.run(oe_feasibility.capture_failure(_Page(), REF, result, lambda *a: None))
+    assert calls == ["failure"], "an error result with a live page must be photographed"
+
+
+def test_capture_failure_stays_out_of_non_failures(monkeypatch):
+    import oe_feasibility
+
+    calls = []
+
+    async def fake_capture_and_report(page, payload, slot, stage):
+        calls.append(slot)
+
+    monkeypatch.setattr(oe_feasibility, "capture_and_report", fake_capture_and_report)
+    stage = lambda *a: None  # noqa: E731
+
+    # A success, a dry run and a ready-to-pay stop are not failures.
+    for status in ("submitted", "success", "dry_run", "ready_to_pay", "discovered"):
+        asyncio.run(oe_feasibility.capture_failure(_Page(), REF, {"status": status}, stage))
+    # A result that is not a dict at all (defensive against a raise path).
+    asyncio.run(oe_feasibility.capture_failure(_Page(), REF, None, stage))
+    # No page — the browser never opened (e.g. doc download failed first).
+    asyncio.run(oe_feasibility.capture_failure(
+        None, REF, {"status": "error", "error": "doc_download_failed"}, stage))
+
+    assert calls == [], "capture_failure must engage only on status=='error' with a page"
+
+
+def test_failure_slot_reports_under_its_own_stage():
+    # BizzFlow partitions captures by the capture_ prefix; the failure frame
+    # must land under a stage of its own, next to the step that failed.
+    assert capture_stage_name("failure") == "capture_failure"

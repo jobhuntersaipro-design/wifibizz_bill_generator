@@ -349,7 +349,8 @@ async def _upload_id_documents(frame, customer: dict) -> None:
     print(f"  ↳ uploaded {len(files)} ID-copy file(s).")
 
 
-async def create_personal_customer(frame, customer: dict, fill_only: bool = False) -> dict:
+async def create_personal_customer(frame, customer: dict, fill_only: bool = False,
+                                    on_filled=None) -> dict:
     """
     Open the customer-type picker, choose Personal Customer, fill the profile
     (Basic Info + customer attributes + Contact tab), attach the ID doc, submit.
@@ -361,6 +362,10 @@ async def create_personal_customer(frame, customer: dict, fill_only: bool = Fals
     first dry-run can verify the field mapping without creating a real customer
     record (and without hitting the required ID-copy attachment). Returns
     status="filled" in that mode.
+
+    on_filled, when given, is an async thunk invoked once every field is filled
+    and before Submit — the caller's chance to photograph the completed form.
+    It is best-effort: any failure in it must never cost the create.
     """
     # Open the customer creator (verified live; not in the original SELECTOR_MAP):
     #   1. click the (initially empty) order-search box to render the search bar
@@ -463,6 +468,12 @@ async def create_personal_customer(frame, customer: dict, fill_only: bool = Fals
     # set files directly. Source: a local path (id_doc_path, for testing) or the
     # order's R2 keys (id_doc_keys) downloaded on the fly.
     await _upload_id_documents(frame, customer)
+
+    if on_filled:
+        try:
+            await on_filled()
+        except Exception as e:
+            print(f"  ⚠ customer-form capture failed: {type(e).__name__}: {e}")
 
     # Fill-only dry run: stop here without saving (no real customer created).
     if fill_only:

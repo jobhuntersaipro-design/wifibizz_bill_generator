@@ -55,6 +55,14 @@ describe("capture stage recognition", () => {
     expect(captureLabel("some_new_tab")).toBe("Some new tab");
   });
 
+  it("names the failure and form frames instead of falling back", () => {
+    // The failure frame is the one the agent opens first on a red attempt —
+    // it must read as what it is, not as a humanised slug.
+    expect(captureLabel("failure")).toBe("At the moment of failure");
+    expect(captureLabel("customer_form")).toBe("Customer profile form");
+    expect(captureLabel("offer_grid")).toBe("Offer grid");
+  });
+
   it("is never mistaken for a step in the checklist", () => {
     expect(stepIndexForStage("capture_pay")).toBe(-1);
   });
