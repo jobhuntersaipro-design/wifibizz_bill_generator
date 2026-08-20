@@ -613,6 +613,11 @@ export async function startSubmit(id: string) {
       method: "POST",
       headers,
       cache: "no-store",
+      // Starting a job is a payload-build + thread-spawn on the scraper — it
+      // never legitimately takes long. Without this, Node's fetch waits forever
+      // and a wedged droplet surfaces as a platform timeout instead of an error
+      // the agent can read. (fetchJob in order-submit.ts has the same guard.)
+      signal: AbortSignal.timeout(10_000),
       body: JSON.stringify({
         order: reqOrder,
         user_key: session.user.id,
@@ -643,6 +648,11 @@ export async function startSubmit(id: string) {
     });
     return { success: true as const, jobId: start.job_id };
   } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      return fail(
+        "The order service didn't respond within 10 seconds — it may be overloaded. Try again shortly.",
+      );
+    }
     return fail(e instanceof Error ? e.message : "Order service unreachable.");
   }
 }
@@ -678,6 +688,9 @@ export async function searchDealerAddress(
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Internal-Token": ORDER_TOKEN },
       cache: "no-store",
+      // This one genuinely drives the portal (QryNIGAddress), so it gets a
+      // longer budget than starting a job — but still must not hang forever.
+      signal: AbortSignal.timeout(30_000),
       body: JSON.stringify({ user_key: session.user.id, state: st, value: val, query_by: queryBy }),
     });
     const data = (await res.json().catch(() => ({}))) as {
