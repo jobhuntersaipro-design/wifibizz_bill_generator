@@ -68,6 +68,7 @@ const TONE: Record<RunTone, { hero: string; dot: string; chip: string; label: st
   warning: { hero: "bg-[#C2740B]", dot: "bg-amber-500", chip: "bg-amber-100 text-amber-800", label: "Needs checking" },
   failed: { hero: "bg-[#D6304A]", dot: "bg-red-500", chip: "bg-red-100 text-red-700", label: "Failed" },
   draft: { hero: "bg-[#425466]", dot: "bg-[#8792A2]", chip: "bg-[#E3E8EF] text-[#425466]", label: "Draft" },
+  cancelled: { hero: "bg-[#697386]", dot: "bg-[#8792A2]", chip: "bg-[#E3E8EF] text-[#697386]", label: "Cancelled" },
 };
 
 const OUTCOME_LABEL: Record<string, string> = {

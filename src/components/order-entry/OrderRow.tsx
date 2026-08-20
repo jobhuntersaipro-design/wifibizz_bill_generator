@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { Check, ListTree, MessageSquare, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { Ban, Check, ListTree, MessageSquare, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import {
   STATUS_LABELS,
   canResubmit,
+  canCancel,
   canSubmit,
   createdParts,
   formatCreated,
@@ -34,6 +35,7 @@ const STATUS_STYLES: Record<string, string> = {
   submitted: "bg-green-100 text-green-700",
   warning: "bg-amber-100 text-amber-800",
   failed: "bg-red-100 text-red-700",
+  cancelled: "bg-[#E3E8EF] text-[#697386]",
 };
 
 /**
@@ -79,6 +81,7 @@ export interface RowActions {
   onSubmit: () => void;
   onResubmit: () => void;
   onEdit: () => void;
+  onCancelOrder: () => void;
   onDelete: () => void;
   onShowHistory: () => void;
 }
@@ -218,11 +221,17 @@ function OrderNumber({ o }: { o: OrderListItem }) {
       title={
         done
           ? "Open the order on the Unifi dealer portal (may take a moment to appear after creation)"
-          : "The portal issued this number, but the order was never completed \u2014 open it on the dealer portal"
+          : o.status === "cancelled"
+            ? "Cancelled in BizzFlow \u2014 the portal order still exists until voided there. Open it on the dealer portal"
+            : "The portal issued this number, but the order was never completed \u2014 open it on the dealer portal"
       }
     >
       {o.orderId}
-      {!done && <span className="sr-only"> (order not completed)</span>}
+      {!done && (
+        <span className="sr-only">
+          {o.status === "cancelled" ? " (cancelled)" : " (order not completed)"}
+        </span>
+      )}
       <svg
         className="h-3 w-3 shrink-0 opacity-60 transition-opacity group-hover:opacity-100"
         viewBox="0 0 24 24"
@@ -343,9 +352,13 @@ function PrimaryAction({ o, a }: { o: OrderListItem; a: RowActions }) {
  */
 function RowMenu({ o, a }: { o: OrderListItem; a: RowActions }) {
   const showDetails = hasHistory(o);
-  // A portal record is never ours to edit or delete.
+  // A portal record is never ours to edit or delete — but it CAN be manually
+  // marked Cancelled, which is the one-way door into a state where only
+  // Details and Delete remain.
   const isPortalRecord = o.status === "submitted";
-  const showEdit = !isPortalRecord && o.status !== "order_entered";
+  const isCancelled = o.status === "cancelled";
+  const showCancel = canCancel(o);
+  const showEdit = !isPortalRecord && !isCancelled && o.status !== "order_entered";
   const showDelete = !isPortalRecord;
   // Nothing to offer — render nothing, rather than an empty menu that opens
   // onto a blank panel.
@@ -385,6 +398,15 @@ function RowMenu({ o, a }: { o: OrderListItem; a: RowActions }) {
           >
             <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
             Edit draft
+          </DropdownMenuItem>
+        )}
+        {showCancel && (
+          <DropdownMenuItem
+            onClick={a.onCancelOrder}
+            className="cursor-pointer text-[13px] text-[#C2740B]"
+          >
+            <Ban className="h-3.5 w-3.5" aria-hidden="true" />
+            Cancel order…
           </DropdownMenuItem>
         )}
         {showDelete && (

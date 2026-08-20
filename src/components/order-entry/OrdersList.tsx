@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
-import { listOrders, startSubmit, deleteOrder } from "@/actions/order";
+import { listOrders, startSubmit, deleteOrder, cancelOrder } from "@/actions/order";
 import {
   EMPTY_FILTERS,
+  canCancel,
   canResubmit,
   canSubmit,
   filterOptions,
@@ -20,6 +21,7 @@ import { OrdersTable } from "./OrdersTable";
 import { OrdersToolbar } from "./OrdersToolbar";
 import LottieSpot from "./LottieSpot";
 import { ResubmitDialog } from "./ResubmitDialog";
+import { CancelOrderDialog } from "./CancelOrderDialog";
 import { DeleteOrderDialog } from "./DeleteOrderDialog";
 
 /** One poll's view of an in-flight submit, as returned by the progress route. */
@@ -63,6 +65,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   // for a row the portal has numbered, destroys the only local record of a real
   // order — so it asks first, every time.
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [cancelId, setCancelId] = useState<string | null>(null);
   // Superadmins see everyone's drafts + a "Made By" column.
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
 
@@ -296,6 +299,20 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     });
   }
 
+  async function handleCancelOrder(id: string) {
+    setBusyId(id);
+    const res = await cancelOrder(id);
+    setBusyId(null);
+    if (res.success) {
+      setOrders((list) =>
+        list.map((x) => (x.id === id ? { ...x, status: "cancelled" } : x)),
+      );
+      toast.success("Order marked Cancelled. Remember to void it on the Unifi portal.");
+    } else {
+      toast.error(res.error ?? "Cancel failed");
+    }
+  }
+
   async function handleDelete(id: string) {
     setBusyId(id);
     const res = await deleteOrder(id);
@@ -355,6 +372,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   // against a stale snapshot of itself.
   const resubmitOrder = orders.find((o) => o.id === resubmitId) ?? null;
   const deleteOrderRow = orders.find((o) => o.id === deleteId) ?? null;
+  const cancelOrderRow = orders.find((o) => o.id === cancelId) ?? null;
 
   const filtered = filterOrders(orders, filters);
   // Options come from ALL loaded rows, not the filtered ones — deriving them
@@ -375,6 +393,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     onSubmit: () => handleSubmit(o.id, o.fullName),
     onResubmit: () => setResubmitId(o.id),
     onEdit: () => onEdit(o.id),
+    onCancelOrder: () => setCancelId(o.id),
     onDelete: () => setDeleteId(o.id),
     onShowHistory: () => setHistoryId(o.id),
   });
@@ -420,6 +439,20 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
           onConfirm={() => {
             setDeleteId(null);
             handleDelete(deleteOrderRow.id);
+          }}
+        />
+      )}
+
+      {/* Re-checked at confirm time for the same reason as Delete — and gated
+          on canCancel so a row that finished changing state while the dialog
+          was open cannot be cancelled from a stale snapshot. */}
+      {cancelOrderRow && canCancel(cancelOrderRow) && (
+        <CancelOrderDialog
+          order={cancelOrderRow}
+          onCancel={() => setCancelId(null)}
+          onConfirm={() => {
+            setCancelId(null);
+            handleCancelOrder(cancelOrderRow.id);
           }}
         />
       )}

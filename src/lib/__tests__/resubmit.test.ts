@@ -86,3 +86,40 @@ describe("the two predicates never both fire", () => {
     }
   });
 });
+
+// ── Manual cancel: one way in, no way out ────────────────────────────────────
+//
+// "cancelled" is terminal bookkeeping for a submitted order. What these pin:
+// only a submitted row offers the door, and once through it every submit-shaped
+// action stays refused — a cancelled row that became submittable again would
+// resurrect a live portal order from a state the agent was told was final.
+
+import { STATUS_LABELS, STATUS_FILTERS, canCancel, toneForStatus } from "@/lib/order-types";
+
+describe("canCancel", () => {
+  it("offers cancel to submitted rows only", () => {
+    expect(canCancel({ status: "submitted" })).toBe(true);
+    for (const status of ["draft", "submitting", "order_entered", "warning", "failed", "cancelled"]) {
+      expect(canCancel({ status })).toBe(false);
+    }
+  });
+});
+
+describe("a cancelled order is terminal", () => {
+  const cancelled = { status: "cancelled", orderId: "2608000121750632" };
+
+  it("can never be submitted or resubmitted", () => {
+    expect(canSubmit(cancelled)).toBe(false);
+    expect(canResubmit(cancelled)).toBe(false);
+  });
+
+  it("is not flagged as needing voiding — the agent explicitly chose its state", () => {
+    expect(needsVoiding(cancelled)).toBe(false);
+  });
+
+  it("has its own label, filter option and tone", () => {
+    expect(STATUS_LABELS.cancelled).toBe("Cancelled");
+    expect(STATUS_FILTERS).toContain("cancelled");
+    expect(toneForStatus("cancelled")).toBe("cancelled");
+  });
+});
