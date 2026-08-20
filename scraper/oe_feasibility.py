@@ -644,6 +644,10 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
     stage("checking_plan")
     r = await select_plan(frame, payload["plan"], page=page)
     if r["status"] != "ok":
+        # Photograph the offer grid we are refusing on, exactly as the
+        # order-not-ready branch below does. "No offers listed" is a claim about
+        # what the portal showed — the agent asked to see it, not take our word.
+        await capture_and_report(page, payload, "offer_grid", stage)
         stage("checking_plan", _detail(r.get("message") or r.get("error"), "failed"))
         return r
     stage("checking_plan", _detail(r.get("matched")))
