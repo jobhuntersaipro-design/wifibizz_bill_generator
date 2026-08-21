@@ -20,7 +20,9 @@ import re
 
 import dealer_web_login
 from appointment_policy import choose_slot, describe_read_failure
-from oe_errors import (DEVICE_OUT_OF_STOCK, ERF_NOT_DOWNLOADED, UNKNOWN_ERROR,
+from customer_match import (describe_ic_name_mismatch, may_attach_existing)
+from oe_errors import (CUSTOMER_IC_NAME_MISMATCH, DEVICE_OUT_OF_STOCK,
+                       ERF_NOT_DOWNLOADED, UNKNOWN_ERROR, VOICE_NUMBER_TAKEN,
                        map_error, portal_code)
 from oe_helpers import set_combobox
 from order_entry import ORDER_ENTRY_URL, _frame, ensure_on_order_entry
@@ -531,10 +533,15 @@ def describe_order_not_ready(state: dict) -> str:
     return "Order button not ready."
 
 
-async def _capture_order_id(frame) -> str | None:
-    """After Order is clicked, read the 'Customer Order Number' from the header."""
+async def _capture_order_id(frame, attempts: int = 20) -> str | None:
+    """After Order is clicked, read the 'Customer Order Number' from the header.
+
+    `attempts` is one second each. The default waits for the New Connection page
+    to render on the success path; the failure path passes 1, where the page is
+    already up and the only question is whether a number was ever minted.
+    """
     import re
-    for _ in range(20):
+    for _ in range(max(1, attempts)):
         txt = await frame.locator("body").first.inner_text()
         m = re.search(r"(?:Customer\s+)?Order\s+N(?:o|umber)\.?\s*[:：]?\s*([A-Z0-9]{6,})", txt, re.I)
         if m:
@@ -834,10 +841,32 @@ async def attach_customer(frame, customer: dict) -> dict:
                     "stage": "attach_customer",
                     "message": (f"{why} Create-via-dialog also failed: "
                                 f"{r.get('message') or r.get('error')}")}
+        # The duplicate-IC picker found an EXISTING record for this IC. Before
+        # anything is attached to it, the two names have to describe the same
+        # person — one IC is one customer, and this record is about to receive a
+        # real, chargeable order and be billed through its own account.
+        #
+        # This used to attach whatever the IC resolved to and merely leave a
+        # note. Live 2026-08-21 (ORD-0018) that attached WOJAK LANG to an order
+        # for ZAINUDDEEN BIN ABDUL BAARI — a name sharing not one character —
+        # and minted two portal orders against WOJAK LANG's account before the
+        # run fell over. The note explaining it was never emitted, because the
+        # run threw further down and the note is only reported once
+        # `attach_customer` returns.
+        #
+        # An unreadable registered name refuses too: `names_agree` is False for
+        # an empty name on purpose. "We could not read who this is" is a reason
+        # to stop, not a reason to proceed.
+        registered = r.get("registered_name")
+        if not may_attach_existing(r, name):
+            msg = describe_ic_name_mismatch(ic, name, registered)
+            print(f"  ✗ {msg}", flush=True)
+            return {"status": "error", "error": CUSTOMER_IC_NAME_MISMATCH,
+                    "stage": "attach_customer", "message": msg,
+                    "registered_name": registered}
         # Which name to search on now: the portal's own, when the duplicate
         # picker read it, otherwise the draft's (a customer we just created is
         # registered under exactly what we typed).
-        registered = r.get("registered_name")
         search_name = registered or name
         if registered:
             note = (f"Customer already registered at Unifi as {registered!r} "
@@ -1045,6 +1074,24 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
         if r["status"] != "ok":
             stage("attaching_customer",
                   _detail(r.get("message") or r.get("error"), "failed"))
+            # The portal minted the order number back at the Order click, two
+            # steps ago — it is in the page heading right now. Carry it out with
+            # the failure, so BizzFlow files this as a warning that NEEDS
+            # VOIDING instead of a plain failure with no order number.
+            #
+            # Live 2026-08-21 (ORD-0018): without this, attempts 4 and 5 each
+            # left a real order at Unifi (2608000121891767, 2608000121892024)
+            # that BizzFlow had no record of, and re-offered a plain Submit
+            # button that would have minted a third.
+            #
+            # `attempts=1` — no retry loop. The number is either on screen or it
+            # was never minted, and this is the failure path: 20 seconds of
+            # polling here delays the agent's error for nothing.
+            if not r.get("order_id"):
+                oid = await _capture_order_id(frame, attempts=1)
+                if oid and is_portal_order_number(oid):
+                    r["order_id"] = oid
+                    stage("capturing_order_no", _detail(oid))
             return r
         if r.get("note"):
             # e.g. "Customer not found — created via the Customer dialog": the
@@ -2093,9 +2140,58 @@ async def _set_service_number_username(frame, page, email: str,
             "tried": sorted(tried)}
 
 
-async def _pick_voice_number(frame, page) -> dict:
-    """Voice: 3-dots -> Query -> confirm popup OK -> first number cell -> OK."""
-    # Open the Select-Number popup via the 3-dots on the visible accNbr field.
+# The portal's wording when the voice number a run picked has already been
+# reserved by somebody else's order. Captured live 2026-08-21 on ORD-0018 /
+# order 2608000121894804:
+#   "[40330227]: The number is taken by another order, please choose another
+#    number."
+# It appears AFTER the picker's OK, so the number looks accepted right up until
+# the dialog lands — and nothing dismissed it, so the next tab's very first
+# click died on the modal backdrop and the run reported a Playwright timeout
+# instead of the sentence above.
+_NUMBER_TAKEN_RE = re.compile(
+    r"taken\s+by\s+another\s+order|number\s+is\s+taken|choose\s+another\s+number",
+    re.I)
+
+# How many distinct numbers one run may burn before giving up. Each retry
+# re-opens the picker and re-runs Query (~10-15s), but the order number is
+# already minted by the time this step runs, so failing strands a real order —
+# the budget is deliberately generous.
+VOICE_NUMBER_ATTEMPTS = 10
+
+
+def is_number_taken(message: str | None) -> bool:
+    """True when a portal popup is rejecting a voice number as already reserved."""
+    return bool(message) and bool(_NUMBER_TAKEN_RE.search(message))
+
+
+def next_number_card(numbers: list, tried: set) -> int | None:
+    """Index of the first card whose number has not been rejected this run.
+
+    Pure, because the retry depends on it entirely: the pool re-queries in the
+    same order every time, so re-picking by a fixed index would re-offer the
+    number the portal just refused and loop until the budget ran out. A card
+    whose number could not be read is still offered once — an unreadable label
+    is not evidence the number is bad — via the positional fallback the caller
+    adds to `tried`.
+    """
+    for i, n in enumerate(numbers):
+        if (n or f"#{i}") not in tried:
+            return i
+    return None
+
+
+_NUMBER_CARDS_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return [];
+  const vis=e=>e&&e.offsetParent!==null;
+  const dl=[...d.querySelectorAll('.ui-dialog, .modal.in')].filter(vis).pop(); if(!dl) return [];
+  return [...dl.querySelectorAll('.number-card')]
+           .map(c=>((c.innerText||'').replace(/\s+/g,' ').trim()));
+})()"""
+
+
+async def _open_voice_number_picker(frame, page) -> dict:
+    """3-dots -> Query -> confirm popup OK -> wait for the number cards."""
     opened = await page.evaluate(r"""(() => {
       const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
       const vis=e=>e&&e.offsetParent!==null;
@@ -2104,7 +2200,8 @@ async def _pick_voice_number(frame, page) -> dict:
       dots[dots.length-1].click(); return 'ok';
     })()""")
     if opened != "ok":
-        return {"status": "error", "error": "voice_dots_failed", "stage": "voice_number", "message": opened}
+        return {"status": "error", "error": "voice_dots_failed",
+                "stage": "voice_number", "message": opened}
     await asyncio.sleep(2)
     # Query all available numbers (no condition).
     try:
@@ -2112,7 +2209,8 @@ async def _pick_voice_number(frame, page) -> dict:
             'button.js-search-whp-number:visible, .ui-dialog:visible button:has-text("Query")'
         ).last.click(timeout=8000)
     except Exception as e:
-        return {"status": "error", "error": "voice_query_failed", "stage": "voice_number", "message": str(e)}
+        return {"status": "error", "error": "voice_query_failed",
+                "stage": "voice_number", "message": str(e)}
     await asyncio.sleep(2)
     # Confirm popup: "It will take a bit long time … continue?" -> OK.
     try:
@@ -2123,34 +2221,89 @@ async def _pick_voice_number(frame, page) -> dict:
         pass
     # The number query is slow — WAIT for the `.number-card`s to actually render
     # (clicking before they load is why the number didn't stick).
-    card = frame.locator('.ui-dialog:visible .number-card').first
     try:
-        await card.wait_for(state="visible", timeout=25000)
+        await frame.locator('.ui-dialog:visible .number-card').first.wait_for(
+            state="visible", timeout=25000)
     except Exception:
         return {"status": "error", "error": "voice_no_numbers", "stage": "voice_number",
                 "message": "number cards did not load after Query"}
-    # The selection handler fires on `.number-card` with a REAL Playwright click (a
-    # JS click doesn't add the `selected` class). Click + verify it's selected;
-    # retry a couple of cards if the first doesn't take.
-    selected = False
-    for i in range(3):
-        try:
-            await frame.locator('.ui-dialog:visible .number-card').nth(i).click(timeout=6000)
-            await asyncio.sleep(0.6)
-        except Exception:
-            continue
-        if await frame.locator('.ui-dialog:visible .number-card.selected').count() > 0:
-            selected = True
-            break
-    if not selected:
-        return {"status": "error", "error": "voice_number_not_selected",
-                "stage": "voice_number", "message": "no number card became 'selected'"}
-    ok = await _click_dialog_ok(frame, page, timeout_ms=6000)
-    if ok["status"] != "ok":
-        return {"status": "error", "error": "voice_ok_failed", "stage": "voice_number",
-                "message": f"Confirming the voice number failed. {ok['message']}"}
-    await asyncio.sleep(2)
-    return {"status": "ok", "stage": "voice_number"}
+    return {"status": "ok"}
+
+
+async def _pick_voice_number(frame, page, attempts: int = VOICE_NUMBER_ATTEMPTS) -> dict:
+    """Voice: 3-dots -> Query -> confirm popup OK -> a free number cell -> OK.
+
+    Retries with a DIFFERENT number when the portal answers the OK with
+    "[40330227]: The number is taken by another order". That rejection lands as
+    an Error dialog a beat after the picker closes; the old version never looked
+    for it, so the number was reported as chosen, the dialog stayed up, and the
+    next sub-product tab died on its modal backdrop.
+    """
+    tried, last_msg = set(), None
+    for attempt in range(attempts):
+        opened = await _open_voice_number_picker(frame, page)
+        if opened.get("status") != "ok":
+            return opened
+
+        numbers = await page.evaluate(_NUMBER_CARDS_JS)
+        # The selection handler fires on `.number-card` with a REAL Playwright
+        # click (a JS click doesn't add the `selected` class). Click + verify
+        # it's selected; walk on to the next unused card if it doesn't take.
+        chosen, selected = None, False
+        for _ in range(3):
+            i = next_number_card(numbers, tried)
+            if i is None:
+                break
+            chosen = numbers[i] if i < len(numbers) and numbers[i] else f"#{i}"
+            tried.add(chosen)
+            try:
+                await frame.locator('.ui-dialog:visible .number-card').nth(i).click(timeout=6000)
+                await asyncio.sleep(0.6)
+            except Exception:
+                continue
+            if await frame.locator('.ui-dialog:visible .number-card.selected').count() > 0:
+                selected = True
+                break
+        if not selected:
+            if chosen is None:
+                return {"status": "error", "error": "voice_no_free_numbers",
+                        "stage": "voice_number", "tried": sorted(tried),
+                        "message": ("Every number the portal offered has already been "
+                                    f"rejected this run (tried {sorted(tried)}).")}
+            return {"status": "error", "error": "voice_number_not_selected",
+                    "stage": "voice_number", "message": "no number card became 'selected'"}
+
+        ok = await _click_dialog_ok(frame, page, timeout_ms=6000)
+        if ok["status"] != "ok":
+            return {"status": "error", "error": "voice_ok_failed", "stage": "voice_number",
+                    "message": f"Confirming the voice number failed. {ok['message']}"}
+        await asyncio.sleep(2)
+
+        # Read what the OK produced instead of assuming it stuck. This also
+        # DISMISSES the dialog — leaving one up is what blocked the TV tab.
+        msg = await _dismiss_popup_ok(frame, page, exclude_title_re=r"offer")
+        if msg is None:
+            return {"status": "ok", "stage": "voice_number", "number": chosen,
+                    "attempts": attempt + 1}
+        last_msg = msg
+        if not is_number_taken(msg):
+            # Some other popup. The order id is already minted by this point, so
+            # failing here strands it over something that may not even be fatal.
+            # Record it and carry on; whatever actually blocks resurfaces at the
+            # Next, which does check.
+            print(f"  ↳ voice-number popup (not a collision): {msg!r}", flush=True)
+            return {"status": "ok", "stage": "voice_number", "number": chosen,
+                    "attempts": attempt + 1, "note": msg}
+        print(f"  ↳ voice number {chosen} is taken by another order — picking another "
+              f"({attempt + 1}/{attempts})", flush=True)
+
+    # The oe_errors code, not a step-local name: this is the one voice failure
+    # BizzFlow has copy for, and `submitErrorCopy` looks the result's `error` up
+    # verbatim — a private name here renders as a bare portal dump instead.
+    return {"status": "error", "error": VOICE_NUMBER_TAKEN, "stage": "voice_number",
+            "message": (f"The portal refused {attempts} voice numbers as already taken by "
+                        f"another order (tried {sorted(tried)}). Last message: {last_msg!r}"),
+            "tried": sorted(tried)}
 
 
 async def _subproduct_tabs(frame):
@@ -2284,6 +2437,17 @@ async def fill_subproduct_tabs(page, payload: dict, on_stage=None) -> dict:
             continue
         await asyncio.sleep(2)
         await cancel_customer_popup(page)
+        # A dialog left over from the PREVIOUS tab makes every click on this one
+        # bounce off `<div class="modal-backdrop in">`, and Playwright reports
+        # that as a 6s locator timeout — a message that names neither the tab nor
+        # the portal's own complaint. ORD-0018 attempt 6 died exactly that way,
+        # carrying the voice number-taken dialog into the TV tab. Read it (which
+        # dismisses it) and keep the sentence on the tab's result; anything that
+        # genuinely blocks the order resurfaces at the Next, which does check.
+        stray = await _dismiss_popup_ok(frame, page, exclude_title_re=r"offer")
+        if stray:
+            print(f"  ↳ cleared a dialog left over before the {txt} tab: {stray!r}",
+                  flush=True)
         # Install Contact is a SHARED field at the top of the page (set on page 1),
         # not per-tab — only set it if it's still empty.
         ic_val = await frame.locator(
@@ -2297,7 +2461,8 @@ async def fill_subproduct_tabs(page, payload: dict, on_stage=None) -> dict:
             sn = await _pick_voice_number(frame, page)
         else:
             sn = await _set_service_number_username(frame, page, email)
-        results[txt] = {"install_contact": ic.get("status"), "service_number": sn}
+        results[txt] = {"install_contact": ic.get("status"), "service_number": sn,
+                        **({"stray_dialog": stray} if stray else {})}
         if sn.get("status") != "ok":
             return {"status": "error", "stage": "subproduct_tab",
                     "tab": txt, "message": sn.get("message"), "tabs": results}

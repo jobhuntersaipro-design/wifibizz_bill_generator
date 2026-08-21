@@ -9,6 +9,7 @@ import {
   MAX_DOCS,
   type OrderDocument,
   formatPhone,
+  canSubmit,
   type OrderListItem,
 } from "@/lib/order-types";
 import { MALAYSIA_STATES } from "@/lib/malaysia-states";
@@ -16,6 +17,8 @@ import { ID_TYPES } from "@/lib/dealer-offers";
 import MY_POSTCODES from "@/lib/malaysia-postcodes.json";
 import { addressKey, validateMalaysianAddress } from "@/lib/malaysia-address";
 import { reconcileStaleSubmits } from "@/lib/order-submit";
+import { fillMissingInstallationDates } from "@/lib/installation-date";
+import { batchOrderIds, finishBatch, reconcileBatch } from "@/lib/batch-submit";
 import { mandatoryGroupsFor } from "@/actions/plans";
 import { getAppointmentPolicy } from "@/actions/admin-settings";
 import {
@@ -441,6 +444,17 @@ export async function listOrders(): Promise<{
     include: { user: { select: { email: true } } },
   });
 
+  // Read the installation appointment out of the e-RF for any completed order
+  // that has not been read yet, once each. Same best-effort contract as the
+  // reconcile above and for the same reason: this is a column, and the job here
+  // is listing the orders.
+  let appointments: Record<string, string | null> = {};
+  try {
+    appointments = await fillMissingInstallationDates(orders);
+  } catch (e) {
+    console.error("[listOrders] installation-date fill failed (listing anyway):", e);
+  }
+
   return {
     success: true,
     isSuperAdmin: superAdmin,
@@ -473,6 +487,11 @@ export async function listOrders(): Promise<{
       remarks: o.remarks,
       attempt: o.attempt,
       screenshotUrl: o.screenshotUrl,
+      // `o.installationDate` is what was already stored; `appointments` carries
+      // anything read from an e-RF a moment ago, which the freshly-loaded row
+      // predates. Falling back the other way would show a dash on exactly the
+      // load that first discovered the date.
+      installationDate: appointments[o.id] ?? o.installationDate,
       docCount: Array.isArray(o.documents) ? (o.documents as unknown[]).length : 0,
       createdAt: o.createdAt.toISOString(),
       createdByEmail: superAdmin ? o.user?.email ?? null : null,
@@ -539,6 +558,75 @@ const SCRAPER_API_URL = process.env.SCRAPER_API_URL ?? "http://localhost:5000";
 const ORDER_TOKEN = process.env.ORDER_ENTRY_API_TOKEN ?? "";
 
 /**
+ * The raw order the scraper is given for one run.
+ *
+ * Shared by the single submit and the server-side batch runner so the two can
+ * never drift: a field added for one path but not the other would submit a
+ * different order depending on which button the agent pressed.
+ *
+ * The user id is deliberately NOT included — the scraper takes it from the
+ * authenticated `user_key`, so a request body can't redirect an upload into
+ * someone else's R2 namespace.
+ */
+function buildOrderJobRequest(
+  order: Prisma.OrderGetPayload<object>,
+  attempt: number,
+  offerGroups: Awaited<ReturnType<typeof mandatoryGroupsFor>>,
+  appointment: Awaited<ReturnType<typeof getAppointmentPolicy>>,
+) {
+  return {
+    offerGroups,
+    appointment,
+    id: order.id,
+    idType: order.idType,
+    idNumber: order.idNumber,
+    fullName: order.fullName,
+    gender: order.gender,
+    birthday: order.birthday,
+    race: order.race,
+    nationality: order.nationality,
+    mobilePrefix: order.mobilePrefix,
+    mobile: order.mobile,
+    email: order.email,
+    street: order.street,
+    postcode: order.postcode,
+    city: order.city,
+    state: order.state,
+    country: order.country,
+    addressId: order.addressId,
+    addressFull: order.addressFull,
+    serviceCategory: order.serviceCategory,
+    offerName: order.offerName,
+    offerCategory: order.offerCategory,
+    deviceCode: order.deviceCode,
+    deviceName: order.deviceName,
+    remarks: order.remarks,
+    documents: order.documents,
+    // Which run this is, so the scraper can file this attempt's captures against
+    // this order AND attempt (`id` above already identifies the order).
+    attempt,
+  };
+}
+
+/**
+ * Is this user's dealer session still good enough to start a run?
+ *
+ * Reads the stored expiry rather than calling the portal: it costs nothing and
+ * catches the common case (an agent who never reconnected today). A session that
+ * dies mid-run is still handled by the run itself.
+ */
+async function dealerSessionLive(userId: string): Promise<boolean> {
+  const dealer = await prisma.dealerAccount.findUnique({
+    where: { userId },
+    select: { sessionExpiresAt: true },
+  });
+  return !!dealer?.sessionExpiresAt && dealer.sessionExpiresAt.getTime() > Date.now();
+}
+
+const SESSION_EXPIRED_MSG =
+  "Your dealer session has expired. Reconnect on the Order Entry page, then submit again.";
+
+/**
  * Start a submit and return immediately with the scraper's job id.
  *
  * The run itself takes minutes; the browser follows it via
@@ -587,15 +675,8 @@ export async function startSubmit(id: string) {
   // Read the stored expiry rather than calling the portal: it costs nothing and
   // catches the common case (an agent who never reconnected today). A session
   // that dies mid-run is still handled by the run itself.
-  const dealer = await prisma.dealerAccount.findUnique({
-    where: { userId: session.user.id },
-    select: { sessionExpiresAt: true },
-  });
-  if (!dealer?.sessionExpiresAt || dealer.sessionExpiresAt.getTime() <= Date.now()) {
-    return fatal(
-      "checking_session",
-      "Your dealer session has expired. Reconnect on the Order Entry page, then submit again.",
-    );
+  if (!(await dealerSessionLive(session.user.id))) {
+    return fatal("checking_session", SESSION_EXPIRED_MSG);
   }
 
   const headers = {
@@ -622,41 +703,7 @@ export async function startSubmit(id: string) {
   const appointment = await getAppointmentPolicy();
 
   // Send the raw order; the Flask side maps it to a portal payload.
-  const reqOrder = {
-    offerGroups,
-    appointment,
-    id: order.id,
-    idType: order.idType,
-    idNumber: order.idNumber,
-    fullName: order.fullName,
-    gender: order.gender,
-    birthday: order.birthday,
-    race: order.race,
-    nationality: order.nationality,
-    mobilePrefix: order.mobilePrefix,
-    mobile: order.mobile,
-    email: order.email,
-    street: order.street,
-    postcode: order.postcode,
-    city: order.city,
-    state: order.state,
-    country: order.country,
-    addressId: order.addressId,
-    addressFull: order.addressFull,
-    serviceCategory: order.serviceCategory,
-    offerName: order.offerName,
-    offerCategory: order.offerCategory,
-    deviceCode: order.deviceCode,
-    deviceName: order.deviceName,
-    remarks: order.remarks,
-    documents: order.documents,
-    // Which run this is, so the scraper can file its page-1 screenshot against
-    // this order AND attempt (`id` above already identifies the order). The user
-    // id is deliberately NOT sent — the scraper takes it from the authenticated
-    // user_key, so a request body can't redirect an upload into someone else's
-    // R2 namespace.
-    attempt,
-  };
+  const reqOrder = buildOrderJobRequest(order, attempt, offerGroups, appointment);
 
   async function fail(message: string) {
     await prisma.order.update({
@@ -763,3 +810,236 @@ export async function getOrderHistory(id: string): Promise<{
   };
 }
 
+
+// ── Server-side batch submit ─────────────────────────────────────────────────
+/**
+ * Submitting several drafts, with the loop on the droplet instead of the tab.
+ *
+ * The batch loop used to live in `OrdersList.tsx`: the browser called
+ * `startSubmit` for each selected draft and polled each job to completion. A
+ * closed tab or a dropped connection mid-batch left every remaining order
+ * unsubmitted with nobody told, and it processed rows in filtered display order
+ * rather than by age.
+ *
+ * Now BizzFlow sorts, builds the payloads and hands the whole list to the
+ * droplet, which runs them one at a time — one dealer session cannot drive two
+ * portal flows at once, which is why the browser loop was sequential too.
+ */
+
+/**
+ * A job id BizzFlow allocates, rather than one the droplet returns.
+ *
+ * This is the seam that lets the batch reuse every existing per-order path
+ * unchanged: `Order.jobId` is written BEFORE the batch starts, so the progress
+ * route, `pollOrderProgress` and `reconcileStaleSubmits` all work on a batch
+ * member exactly as they do on a single submit. Waiting for the droplet to name
+ * the ids instead would leave each order unpollable until the batch status was
+ * fetched and matched back up.
+ *
+ * Hex, no dashes — the same shape as the `uuid4().hex` ids the scraper mints,
+ * so nothing downstream has to care which side allocated one.
+ */
+function newJobId(): string {
+  return crypto.randomUUID().replace(/-/g, "");
+}
+
+export async function startBatchSubmit(ids: string[]) {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
+  if (!ORDER_TOKEN) {
+    return { success: false as const, error: "Order service is not configured." };
+  }
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return { success: false as const, error: "No orders selected." };
+  }
+
+  const superAdmin = await isSuperAdmin(session.user.id);
+  const rows = await prisma.order.findMany({
+    where: {
+      id: { in: ids },
+      ...(superAdmin ? {} : { userId: session.user.id }),
+    },
+    // Oldest created FIRST. The browser loop ran rows in whatever order the
+    // filtered table happened to show them, so the same selection could run in
+    // a different order twice; age is the one ordering an agent can predict.
+    orderBy: { createdAt: "asc" },
+  });
+
+  // Only fresh drafts. A stranded order needs its own confirmation naming the
+  // portal order number, one at a time — sweeping one into a batch is how a
+  // real chargeable duplicate gets created without anyone deciding to.
+  const targets = rows.filter((o) => canSubmit(o));
+  if (targets.length === 0) {
+    return { success: false as const, error: "None of the selected orders can be submitted." };
+  }
+
+  // Checked ONCE for the whole batch rather than per order: every member runs
+  // under the same dealer session, so a dead session fails all of them
+  // identically and there is nothing to learn from finding that out ten times.
+  if (!(await dealerSessionLive(session.user.id))) {
+    return { success: false as const, error: SESSION_EXPIRED_MSG };
+  }
+
+  // Read once for the batch — the policy is per-install, not per-order.
+  const appointment = await getAppointmentPolicy();
+  // Cached per offer name: a batch of ten orders on one package would otherwise
+  // make ten identical lookups.
+  const groupCache = new Map<string, Awaited<ReturnType<typeof mandatoryGroupsFor>>>();
+
+  const batch = await prisma.batchRun.create({
+    data: {
+      userId: session.user.id,
+      orderIds: targets.map((o) => o.id),
+      status: "running",
+    },
+  });
+
+  const jobs: { jobId: string; order: ReturnType<typeof buildOrderJobRequest> }[] = [];
+  for (const order of targets) {
+    const key = order.offerName ?? "";
+    if (!groupCache.has(key)) groupCache.set(key, await mandatoryGroupsFor(order.offerName));
+    const attempt = order.attempt + 1;
+    const jobId = newJobId();
+    await prisma.order.update({
+      where: { id: order.id },
+      data: {
+        attempt,
+        jobId,
+        status: "submitting",
+        errorMessage: null,
+        errorCode: null,
+        // Cleared so this attempt gets its own email. The guard is per-send, not
+        // per-order-lifetime — a resubmitted order is news again.
+        notifiedAt: null,
+        stage: "creating_customer",
+        stageAt: new Date(),
+      },
+    });
+    await recordEvent({
+      orderId: order.id, attempt, status: "submitting", stage: "validating_draft",
+      message: `Submit started (batch of ${targets.length}).`,
+    });
+    jobs.push({ jobId, order: buildOrderJobRequest(order, attempt, groupCache.get(key)!, appointment) });
+  }
+
+  /** Put every member back where it was and close the batch out in words. */
+  const abort = async (message: string) => {
+    for (const order of targets) {
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { status: "failed", jobId: null, errorMessage: message },
+      });
+      await recordEvent({
+        orderId: order.id, attempt: order.attempt + 1, status: "failed",
+        stage: "creating_customer", message,
+      });
+    }
+    await prisma.batchRun.update({
+      where: { id: batch.id },
+      data: { status: "finished", finishedAt: new Date(), errorMessage: message, results: [] },
+    });
+    return { success: false as const, error: message };
+  };
+
+  try {
+    const res = await fetch(`${SCRAPER_API_URL}/orders/batch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Internal-Token": ORDER_TOKEN },
+      cache: "no-store",
+      // Same 10s bound as `startSubmit`: starting a batch is a payload handoff
+      // and a thread spawn, never a long call. Without it, Node's fetch waits
+      // forever and a wedged droplet surfaces as a platform timeout instead of
+      // an error the agent can read.
+      signal: AbortSignal.timeout(10_000),
+      body: JSON.stringify({
+        batch_id: batch.id,
+        user_key: session.user.id,
+        full_order: true,
+        dry_run: false,
+        do_pay: process.env.ORDER_ENTRY_DO_PAY === "true",
+        jobs,
+      }),
+    });
+    const started = (await res.json().catch(() => ({}))) as {
+      batch_job_id?: string;
+      message?: string;
+    };
+    if (!res.ok || !started.batch_job_id) {
+      return abort(started.message || "Couldn't start the batch on the order service.");
+    }
+    await prisma.batchRun.update({
+      where: { id: batch.id },
+      data: { scraperBatchId: started.batch_job_id },
+    });
+    return { success: true as const, batchRunId: batch.id, count: targets.length };
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      return abort(
+        "The order service didn't respond within 10 seconds — it may be overloaded. Nothing was submitted.",
+      );
+    }
+    return abort(e instanceof Error ? e.message : "Order service unreachable.");
+  }
+}
+
+/**
+ * One poll of a running batch, for the UI.
+ *
+ * Deliberately reconcile-only: it never decides that a batch is over. The
+ * droplet's webhook is what closes a batch out and sends the summary, so a
+ * closed tab changes nothing — this just refreshes what the open tab shows, and
+ * marks the batch finished if every member is already terminal (which covers a
+ * webhook that never arrived).
+ */
+export async function pollBatch(batchRunId: string) {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
+
+  const superAdmin = await isSuperAdmin(session.user.id);
+  const batch = await prisma.batchRun.findFirst({
+    where: { id: batchRunId, ...(superAdmin ? {} : { userId: session.user.id }) },
+    select: { id: true, status: true, orderIds: true, errorMessage: true },
+  });
+  if (!batch) return { success: false as const, error: "Batch not found." };
+
+  const reconciled = await reconcileBatch(batch.id);
+  const outcomes = reconciled?.outcomes ?? [];
+  const done = batch.status === "finished" || !!reconciled?.allDone;
+
+  // Only closes a batch the DROPLET has stopped reporting on. `allDone` means
+  // every member is terminal, which is the same conclusion the webhook reaches;
+  // doing it here as well is what stops a lost webhook leaving a finished batch
+  // stuck on "running" forever. The summary email is NOT sent from here — a
+  // browser poll must not become a second, tab-dependent trigger.
+  if (done && batch.status === "running") {
+    await finishBatch(batch.id);
+  }
+
+  return {
+    success: true as const,
+    status: done ? "finished" : "running",
+    errorMessage: batch.errorMessage,
+    results: outcomes,
+    total: batchOrderIds(batch.orderIds).length,
+    /** The member currently in flight, so the UI can highlight its row. */
+    currentOrderId: outcomes.find((o) => o.status === "submitting")?.orderId ?? null,
+  };
+}
+
+/**
+ * The batch this user still has running, if any.
+ *
+ * Read on page load so a tab opened after the batch started — or reopened after
+ * being closed — picks the progress display back up. The run survived the tab;
+ * the UI should too.
+ */
+export async function activeBatch() {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
+  const batch = await prisma.batchRun.findFirst({
+    where: { userId: session.user.id, status: "running" },
+    orderBy: { startedAt: "desc" },
+    select: { id: true },
+  });
+  return { success: true as const, batchRunId: batch?.id ?? null };
+}

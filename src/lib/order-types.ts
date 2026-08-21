@@ -401,6 +401,18 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
       "the device on it. Nothing about the customer or the address is wrong.",
     fix: "Edit the order, choose a different device, then resubmit.",
   },
+  voice_number_taken: {
+    title: "Every voice number offered was already taken",
+    subtext:
+      "The Voice tab picks its number out of the portal's shared pool, and the " +
+      "portal refused each one it offered with \u201cthe number is taken by " +
+      "another order\u201d. The run tries ten different numbers before giving " +
+      "up, so this means the pool was heavily contended at that moment \u2014 " +
+      "nothing about the customer, address or package is wrong.",
+    fix:
+      "Submit again in a few minutes. The order already exists in the portal, " +
+      "so check it there before creating a second one.",
+  },
   pay_page_not_ready: {
     title: "Pay page never finished loading",
     subtext:
@@ -420,6 +432,20 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
     fix:
       "Check this order in the Unifi portal before doing anything else. Only " +
       "resubmit once you have confirmed it was NOT paid.",
+  },
+  customer_ic_name_mismatch: {
+    title: "That ID number belongs to a different customer",
+    subtext:
+      "Unifi already has this ID number registered, under a different name from " +
+      "the one on this draft. One ID number belongs to one customer, so the run " +
+      "stopped rather than finish an order it would have billed to the " +
+      "registered customer's own account. The message below names both names.",
+    fix:
+      "Check the ID number on the draft first \u2014 a typo is the usual cause. If " +
+      "the number is right, the customer is registered at Unifi under the other " +
+      "name, so correct the name on the draft to match it. Either way the portal " +
+      "already holds a part-made order under the number above: void it there " +
+      "before submitting again.",
   },
   erf_not_downloaded: {
     title: "No e-RF (registration form)",
@@ -802,6 +828,11 @@ export interface OrderListItem {
   // R2 key of the latest attempt's page-1 screenshot — presence means evidence
   // exists; every other frame is read per attempt from the status trail.
   screenshotUrl: string | null;
+  // The installation appointment as the order's e-RF prints it
+  // ("2026-08-20 09:30-12:00"), read from the PDF. Only completed orders have
+  // one — nothing before Pay produces an e-RF — so this is null on every draft,
+  // every failure, and every run that stopped part-way.
+  installationDate: string | null;
   docCount: number;
   createdAt: string;
   createdByEmail?: string | null; // only populated for superadmins (all-drafts view)

@@ -385,3 +385,53 @@ export async function testWifibizzConnection() {
     return { success: false, error: `Connection failed: ${message}` };
   }
 }
+
+// ── Notification email ───────────────────────────────────────────────────────
+/**
+ * Where this user's order notifications go.
+ *
+ * One address per user. `notificationEmail` is nullable and a blank field means
+ * "use my login email", resolved at send time by `resolveRecipient` — so the
+ * form returns the login address separately, to show what blank actually means
+ * rather than making the user guess.
+ */
+export async function getNotificationSettings() {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false as const, error: "Unauthorized", data: null };
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { email: true, notificationEmail: true },
+  });
+  const { notificationsConfigured } = await import("@/lib/notifications/resend");
+  return {
+    success: true as const,
+    data: {
+      notificationEmail: user?.notificationEmail ?? "",
+      loginEmail: user?.email ?? null,
+      // False means nothing will actually be delivered, whatever is saved here.
+      // Surfaced rather than hidden: a form that silently saves an address into
+      // a system that cannot send is how a missing key goes unnoticed until an
+      // agent asks why they never got told about a failed order.
+      configured: notificationsConfigured(),
+    },
+  };
+}
+
+export async function saveNotificationEmail(raw: string) {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
+
+  const value = raw.trim();
+  const { isValidEmail } = await import("@/lib/notifications/recipient");
+  // Empty is a legitimate value — it clears the override and falls back to the
+  // login email. Only a non-empty, malformed address is refused.
+  if (value && !isValidEmail(value)) {
+    return { success: false as const, error: "That doesn't look like an email address." };
+  }
+  await prisma.user.update({
+    where: { id: session.user.id },
+    data: { notificationEmail: value || null },
+  });
+  return { success: true as const, notificationEmail: value };
+}

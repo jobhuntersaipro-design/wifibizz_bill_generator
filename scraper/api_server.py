@@ -200,8 +200,17 @@ def _redact_order_result(result):
 def _run_order_job(job_id: str, payload: dict, dry_run: bool, user_key: str = None,
                    stop_after_customer_fill: bool = False,
                    stop_after_customer_create: bool = False,
-                   full_order: bool = False, do_pay: bool = False):
-    """Background runner for enter_order()/enter_full_order(); logs to logs/<job_id>.log."""
+                   full_order: bool = False, do_pay: bool = False,
+                   notify_order_id: str = None):
+    """Background runner for enter_order()/enter_full_order(); logs to logs/<job_id>.log.
+
+    `notify_order_id` is BizzFlow's own Order id. When set, this job POSTs an
+    `order_finished` event once it reaches a terminal state, which is what makes
+    the result email arrive even though the browser tab is closed.
+
+    Batch members pass None: the batch summary covers them, and one email per
+    order inside a batch is exactly what the summary exists to avoid.
+    """
     import asyncio
 
     from order_entry import InfraError, enter_order
@@ -327,6 +336,41 @@ def _run_order_job(job_id: str, payload: dict, dry_run: bool, user_key: str = No
                 )
                 JOBS[job_id] = job
 
+        # Outside every except: a run that errored is just as finished as one
+        # that succeeded, and a failed submit is the result an agent most needs
+        # told about.
+        if notify_order_id:
+            _notify_bizzflow({"event": "order_finished", "orderId": notify_order_id,
+                              "jobId": job_id})
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Completion webhooks — the droplet telling BizzFlow a run finished.
+#
+# The droplet deliberately holds NO email credentials and renders no templates:
+# it reports completion and BizzFlow (which can read customer names out of its
+# own database) decides what to send. Delivery failure is logged and dropped —
+# BizzFlow's polling still reconciles every order, so a lost event costs the
+# email, never the result.
+# ───────────────────────────────────────────────────────────────────────────
+def _webhook_send(url, headers, body):
+    """One HTTP POST, returning its status code. Split out so the retry logic in
+    batch_runner can be tested without a network."""
+    import requests
+
+    return requests.post(url, headers=headers, json=body, timeout=10).status_code
+
+
+def _notify_bizzflow(body: dict) -> bool:
+    from batch_runner import post_webhook
+
+    return post_webhook(
+        os.environ.get("BIZZFLOW_WEBHOOK_URL"),
+        os.environ.get("SCRAPER_WEBHOOK_SECRET"),
+        body,
+        _webhook_send,
+    )
+
 
 @app.post("/orders")
 def create_order():
@@ -402,13 +446,202 @@ def create_order():
             "params": {"dry_run": dry_run, "kind": "order_entry"},
         }
 
+    # Report this run's completion to BizzFlow so the result email arrives with
+    # the tab closed. Only for a REAL submit: a dry run places nothing, and
+    # mailing an agent about it would train them to ignore the ones that count.
+    notify_order_id = None
+    if not dry_run and isinstance(payload.get("order_ref"), dict):
+        notify_order_id = payload["order_ref"].get("order_id")
+
     Thread(
         target=_run_order_job,
         args=(job_id, payload, dry_run, user_key, stop_after_customer_fill,
-              stop_after_customer_create, full_order, do_pay),
+              stop_after_customer_create, full_order, do_pay, notify_order_id),
         daemon=True,
     ).start()
     return jsonify({"job_id": job_id, "status": "queued", "dry_run": dry_run}), 202
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Batch submit — AUTH-GATED.
+#
+# BizzFlow hands over the whole selection at once, already sorted oldest-created
+# first, with a job id allocated per order. The loop runs HERE rather than in the
+# browser so a closed tab cannot strand the remaining orders, and so there is one
+# place that knows the whole run is over and can trigger the summary email.
+#
+# Members go through the SAME single-order machinery, sequentially: one dealer
+# session cannot drive two portal flows at once.
+# ───────────────────────────────────────────────────────────────────────────
+def _run_batch_job(batch_job_id: str, batch_id: str, jobs, dry_run: bool,
+                   user_key: str, full_order: bool, do_pay: bool):
+    """Background runner for a whole batch. One member at a time, never stopping
+    on a failure."""
+    from batch_runner import run_batch
+    from order_to_payload import order_to_payload
+
+    def _progress(index, job_id):
+        with JOBS_LOCK:
+            job = JOBS.get(batch_job_id)
+            if job is None:
+                return
+            job["current_index"] = index
+            job["current_job_id"] = job_id
+            JOBS[batch_job_id] = job
+
+    def _run_one(job_id, order):
+        payload = order_to_payload(order)
+        # Same stamping rule as the single route: the R2 prefix comes from the
+        # AUTHENTICATED user, never from anything in the request body.
+        if user_key and isinstance(payload.get("order_ref"), dict):
+            payload["order_ref"]["user_id"] = user_key
+        # Called inline, not in a thread: the batch thread IS the worker, and a
+        # second thread per member would run two portal flows at once.
+        #
+        # notify_order_id is None on purpose — the batch summary covers these,
+        # and a per-member email is what the summary exists to replace.
+        _run_order_job(job_id, payload, dry_run, user_key,
+                       full_order=full_order, do_pay=do_pay)
+
+    with JOBS_LOCK:
+        job = JOBS.get(batch_job_id, {})
+        job.update(status="running", started_at=datetime.utcnow().isoformat())
+        JOBS[batch_job_id] = job
+
+    try:
+        results = run_batch(jobs, _run_one, on_progress=_progress)
+    except Exception as e:  # noqa: BLE001 — the batch itself must still close out
+        results = []
+        with JOBS_LOCK:
+            job = JOBS.get(batch_job_id, {})
+            job.update(error=str(e), error_kind="batch_unexpected")
+            JOBS[batch_job_id] = job
+
+    with JOBS_LOCK:
+        job = JOBS.get(batch_job_id, {})
+        job.update(
+            status="done",
+            finished_at=datetime.utcnow().isoformat(),
+            results=results,
+            current_index=None,
+            current_job_id=None,
+        )
+        JOBS[batch_job_id] = job
+        # Any member still `queued` never ran — only reachable if run_batch
+        # itself died. Left as-is it would look in-flight forever and block the
+        # next /orders call with JOB_IN_PROGRESS, so it is failed explicitly
+        # rather than abandoned.
+        for job_id, _order in jobs:
+            member = JOBS.get(job_id)
+            if member and member.get("status") == "queued":
+                member.update(
+                    status="error",
+                    finished_at=datetime.utcnow().isoformat(),
+                    error="The batch ended before this order ran.",
+                    error_kind="batch_aborted",
+                )
+                JOBS[job_id] = member
+
+    # BizzFlow re-derives every outcome from its own reconciliation, so `results`
+    # here is a log of what ran, not the verdict. The event is what matters.
+    _notify_bizzflow({"event": "batch_finished", "batchId": batch_id,
+                      "results": results})
+
+
+@app.post("/orders/batch")
+def create_order_batch():
+    """Start a batch of Order Entry runs (auth-gated, non-blocking).
+
+    Body: {"batch_id", "user_key", "jobs": [{"jobId", "order"}, ...],
+           "dry_run", "full_order", "do_pay"}
+
+    `jobs` arrives ALREADY SORTED (oldest order first) and each `jobId` is
+    allocated by BizzFlow — both are preserved here, never re-derived.
+
+    Returns 202 {"batch_job_id"}. Poll GET /orders/batch/<id> for batch progress;
+    each member stays pollable at GET /jobs/<jobId> exactly as a single submit is,
+    so the existing per-order progress UI keeps working unchanged.
+    """
+    if not _order_entry_authorized(request):
+        if not os.environ.get("ORDER_ENTRY_API_TOKEN"):
+            return jsonify({"success": False, "error": "ORDER_ENTRY_DISABLED",
+                            "message": "ORDER_ENTRY_API_TOKEN not configured on server."}), 503
+        return jsonify({"success": False, "error": "UNAUTHORIZED"}), 401
+
+    from batch_runner import BatchRequestError, normalize_batch_jobs
+
+    data = request.get_json(silent=True) or {}
+    batch_id = data.get("batch_id")
+    if not isinstance(batch_id, str) or not batch_id:
+        return jsonify({"success": False, "error": "BATCH_ID_REQUIRED",
+                        "message": "Body must include a `batch_id`."}), 400
+    try:
+        jobs = normalize_batch_jobs(data.get("jobs"))
+    except BatchRequestError as e:
+        return jsonify({"success": False, "error": "INVALID_JOBS", "message": str(e)}), 400
+
+    user_key = data.get("user_key") or None
+    dry_run = data.get("dry_run", True)
+    if not isinstance(dry_run, bool):
+        return jsonify({"success": False, "error": "INVALID_DRY_RUN",
+                        "message": "`dry_run` must be a boolean."}), 400
+    full_order = bool(data.get("full_order", False))
+    do_pay = bool(data.get("do_pay", False))
+
+    # Same single-browser rule as /orders. Registering every member as `queued`
+    # up front is deliberate: it makes GET /jobs/<id> answer from the moment the
+    # batch starts (BizzFlow has already written those ids onto its orders), and
+    # it makes a lone /orders call correctly refuse while a batch is mid-run.
+    with JOBS_LOCK:
+        for job in JOBS.values():
+            if job.get("status") in ("queued", "running"):
+                return jsonify({"success": False, "error": "JOB_IN_PROGRESS",
+                                "message": "The server can only run one browser job at a time."}), 409
+        for job_id, _order in jobs:
+            if job_id in JOBS:
+                return jsonify({"success": False, "error": "JOB_ID_TAKEN",
+                                "message": f"Job id {job_id} is already known."}), 409
+        batch_job_id = uuid.uuid4().hex
+        JOBS[batch_job_id] = {
+            "status": "queued",
+            "created_at": datetime.utcnow().isoformat(),
+            "params": {"dry_run": dry_run, "kind": "order_batch", "batch_id": batch_id,
+                       "total": len(jobs)},
+        }
+        for job_id, _order in jobs:
+            JOBS[job_id] = {
+                "status": "queued",
+                "created_at": datetime.utcnow().isoformat(),
+                "params": {"dry_run": dry_run, "kind": "order_entry",
+                           "batch_job_id": batch_job_id},
+            }
+
+    Thread(
+        target=_run_batch_job,
+        args=(batch_job_id, batch_id, jobs, dry_run, user_key, full_order, do_pay),
+        daemon=True,
+    ).start()
+    return jsonify({"batch_job_id": batch_job_id, "status": "queued",
+                    "total": len(jobs)}), 202
+
+
+@app.get("/orders/batch/<batch_job_id>")
+def batch_status(batch_job_id):
+    """Progress of one batch, for BizzFlow's UI poll."""
+    if not _order_entry_authorized(request):
+        return _internal_unauthorized_response()
+    with JOBS_LOCK:
+        job = JOBS.get(batch_job_id)
+        if not job or job.get("params", {}).get("kind") != "order_batch":
+            return jsonify({"success": False, "error": "NOT_FOUND"}), 404
+        return jsonify({
+            "status": job.get("status"),
+            "total": job.get("params", {}).get("total"),
+            "current_index": job.get("current_index"),
+            "current_job_id": job.get("current_job_id"),
+            "results": job.get("results", []),
+            "error": job.get("error"),
+        })
 
 
 # ───────────────────────────────────────────────────────────────────────────

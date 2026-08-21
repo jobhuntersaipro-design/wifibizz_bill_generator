@@ -14,6 +14,7 @@ import {
   needsVoiding,
   type OrderListItem,
 } from "@/lib/order-types";
+import { installationParts } from "@/lib/erf-appointment";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
@@ -446,6 +447,38 @@ function CreatedAt({ iso }: { iso: string }) {
   );
 }
 
+/**
+ * The booked installation appointment, date over arrival window.
+ *
+ * Stacked like Created At, and for the same reason: the day is what the column
+ * is scanned for, and the window only matters once the day has been found.
+ *
+ * A dash here is the normal case, not a gap in the data — an order only has an
+ * appointment once it has been paid for and the portal has issued its e-RF.
+ */
+function InstallationDate({ value }: { value: string | null }) {
+  const parts = installationParts(value);
+  if (!parts) return <span className="text-[12px] text-[#8792A2]">—</span>;
+  return (
+    <span
+      className="block whitespace-nowrap text-[12px] leading-tight tabular-nums text-[#425466]"
+      title={`Installation appointment, as printed on the e-RF: ${value}`}
+    >
+      {parts.date}
+      {parts.time && (
+        <span className="mt-0.5 block text-[11px] text-[#8792A2]">{parts.time}</span>
+      )}
+    </span>
+  );
+}
+
+/** The same value on one line, for the card: "20-08-2026 09:30-12:00". */
+function formatInstallation(value: string | null): string | null {
+  const parts = installationParts(value);
+  if (!parts) return null;
+  return [parts.date, parts.time].filter(Boolean).join(" ");
+}
+
 function NeedsVoiding() {
   return (
     <span
@@ -543,6 +576,10 @@ export function OrderRow({
         <CreatedAt iso={o.createdAt} />
       </TableCell>
 
+      <TableCell className="hidden max-w-[130px] px-4 py-4 align-middle lg:table-cell">
+        <InstallationDate value={o.installationDate} />
+      </TableCell>
+
       <TableCell className="px-4 py-4 align-middle">
         <StatusBadge o={o} />
         {needsVoiding(o) && <NeedsVoiding />}
@@ -618,6 +655,10 @@ export function OrderCard({
         <Field label="Device" value={o.deviceName} />
         <Field label="Address" value={address || null} />
         <Field label="Created At" value={formatCreated(o.createdAt)} />
+        {/* Formatted, not raw. The e-RF prints YYYY-MM-DD and Created At sits
+            directly above this at DD-MM-YYYY — two date orders on one card is
+            how "08-09" becomes genuinely ambiguous. */}
+        <Field label="Installation" value={formatInstallation(o.installationDate)} />
         {isSuperAdmin && <Field label="Made by" value={o.createdByEmail ?? null} />}
         <div className="flex gap-2">
           <dt className="w-20 shrink-0 text-[#8792A2]">Order No.</dt>

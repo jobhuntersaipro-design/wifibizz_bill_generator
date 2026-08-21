@@ -43,6 +43,12 @@ const COLUMNS: { key: string; label: string; at: string | null; align?: string }
     { key: "device", label: "Device", at: "2xl" },
     { key: "address", label: "Installation Address", at: "xl" },
     { key: "created", label: "Created At", at: "2xl" },
+    // Only completed orders have one, so this column is mostly dashes — and it
+    // sits beside Status and Order No. deliberately, where the rows that do
+    // have a date are the rows the eye is already on. `lg`, not `2xl`: an
+    // installation date is what an agent chases a customer about, so it must
+    // survive further into the narrow widths than Created At does.
+    { key: "installation", label: "Installation Date", at: "lg" },
     { key: "status", label: "Status", at: null },
     { key: "orderNo", label: "Order No.", at: "lg" },
     { key: "actions", label: "", at: null, align: "text-right" },

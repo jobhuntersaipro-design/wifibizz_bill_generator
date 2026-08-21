@@ -24,12 +24,26 @@ MSR_OFFLINE_APPROVAL = "msr_offline_approval"
 LOGIN_ID_INVALID = "login_id_invalid"
 LOGIN_ID_TAKEN = "login_id_taken"
 VOBB_UNAVAILABLE = "vobb_unavailable"
+# Every voice number the run offered was already reserved by another order:
+#   [40330227]: The number is taken by another order, please choose another number.
+# Distinct from VOBB_UNAVAILABLE (an empty pool) — here the portal HAS numbers,
+# they are just spoken for, so the advice is "run it again", not "the pool is
+# dry". Only reported after the whole retry budget is spent; a single collision
+# is handled in the flow and never reaches BizzFlow.
+VOICE_NUMBER_TAKEN = "voice_number_taken"
 DEVICE_OUT_OF_STOCK = "device_out_of_stock"
 # An order is not finished until its registration form is in hand. This is the
 # only code here NOT matched from portal wording — the portal never says it. It
 # is our own completeness check: a submit that produced no e-RF is incomplete,
 # whether it stopped at the Pay gate or paid and then failed to fetch the form.
 ERF_NOT_DOWNLOADED = "erf_not_downloaded"
+# The ID number is already registered at Unifi under a DIFFERENT name. Like
+# ERF_NOT_DOWNLOADED this is our own check, not portal wording — the portal is
+# perfectly happy to hand its record for that IC to the order and bill it. One
+# IC is one customer, so a name that disagrees means the draft and the CRM
+# describe two different people, and only a human can say which is wrong.
+# See customer_match.py for what happened while this went ungated.
+CUSTOMER_IC_NAME_MISMATCH = "customer_ic_name_mismatch"
 UNKNOWN_ERROR = "unknown_error"
 
 # ── Substring → code rules (matched against .modal-message, case-insensitive) ──
@@ -61,6 +75,10 @@ _RULES: list[tuple[str, str]] = [
     ("customer id limit", MSR_CUSTOMER_ID_LIMIT),
     ("offline approve", MSR_OFFLINE_APPROVAL),
     ("offline approval", MSR_OFFLINE_APPROVAL),
+    # Voice number pool. Must stay ABOVE the login-id rules: the collision
+    # wording is about a NUMBER, and "taken" alone would file it as a login id.
+    ("taken by another order", VOICE_NUMBER_TAKEN),
+    ("choose another number", VOICE_NUMBER_TAKEN),
     # Broadband login id
     ("login id already", LOGIN_ID_TAKEN),
     ("login id is taken", LOGIN_ID_TAKEN),

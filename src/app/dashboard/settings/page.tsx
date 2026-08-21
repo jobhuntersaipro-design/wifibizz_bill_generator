@@ -11,6 +11,8 @@ import {
   getGoogleSheetSettings,
   saveGoogleSheetId,
   syncCasesToSheet,
+  getNotificationSettings,
+  saveNotificationEmail,
 } from "@/actions/settings";
 import { toast } from "sonner";
 
@@ -32,6 +34,13 @@ export default function SettingsPage() {
   const [syncing, setSyncing] = useState(false);
   const [serviceAccountEmail, setServiceAccountEmail] = useState<string | null>(null);
   const [showGuide, setShowGuide] = useState(false);
+  // Order notifications. `loginEmail` is carried so the blank field can say
+  // WHICH address it falls back to instead of just "your login email".
+  const [notifyEmail, setNotifyEmail] = useState("");
+  const [savedNotifyEmail, setSavedNotifyEmail] = useState("");
+  const [loginEmail, setLoginEmail] = useState<string | null>(null);
+  const [notifyConfigured, setNotifyConfigured] = useState(true);
+  const [savingNotify, setSavingNotify] = useState(false);
 
   useEffect(() => {
     getWifibizzCredentials().then((result) => {
@@ -53,7 +62,33 @@ export default function SettingsPage() {
         setServiceAccountEmail(result.data.serviceAccountEmail);
       }
     });
+    getNotificationSettings().then((result) => {
+      if (result.success && result.data) {
+        setNotifyEmail(result.data.notificationEmail);
+        setSavedNotifyEmail(result.data.notificationEmail);
+        setLoginEmail(result.data.loginEmail);
+        setNotifyConfigured(result.data.configured);
+      }
+    });
   }, []);
+
+  async function handleSaveNotifyEmail(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingNotify(true);
+    const res = await saveNotificationEmail(notifyEmail);
+    setSavingNotify(false);
+    if (res.success) {
+      setSavedNotifyEmail(res.notificationEmail);
+      setNotifyEmail(res.notificationEmail);
+      toast.success(
+        res.notificationEmail
+          ? `Notifications will go to ${res.notificationEmail}`
+          : "Notifications will go to your login email",
+      );
+    } else {
+      toast.error(res.error ?? "Couldn't save the notification email");
+    }
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -296,6 +331,60 @@ export default function SettingsPage() {
               </div>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* Order notifications */}
+      <div className="max-w-xl animate-fade-in-up" style={{ animationDelay: "250ms" }}>
+        <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden">
+          <div className="px-6 py-4 border-b border-[#E3E8EF]">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-[#F6F9FC] flex items-center justify-center">
+                <MailIcon className="w-4 h-4 text-[#635BFF]" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-[#0A2540]">Notification email</h2>
+                <p className="text-xs text-[#697386] mt-0.5">
+                  Where order submit results and batch summaries are sent
+                </p>
+              </div>
+            </div>
+          </div>
+          <form onSubmit={handleSaveNotifyEmail} className="px-6 py-5 space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="notifyEmail" className="text-[13px] font-medium text-[#425466]">
+                Send notifications to
+              </Label>
+              <Input
+                id="notifyEmail"
+                type="email"
+                value={notifyEmail}
+                onChange={(e) => setNotifyEmail(e.target.value)}
+                placeholder={loginEmail ?? "you@example.com"}
+                className="text-[13px]"
+              />
+              <p className="text-xs text-[#697386]">
+                One email per single submit, and one summary per batch. Leave blank to use
+                your login email{loginEmail ? ` (${loginEmail})` : ""}.
+              </p>
+            </div>
+            {/* Said plainly rather than hidden: with no mail provider configured
+                nothing is delivered, and an agent who never hears about a failed
+                order should not have to guess why. */}
+            {!notifyConfigured && (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                Email sending isn&apos;t configured on this environment yet, so nothing will
+                be delivered until it is. Your address is still saved.
+              </p>
+            )}
+            <Button
+              type="submit"
+              disabled={savingNotify || notifyEmail.trim() === savedNotifyEmail.trim()}
+              className="bg-[#635BFF] hover:bg-[#0A2540] text-white text-[13px]"
+            >
+              {savingNotify ? "Saving…" : "Save"}
+            </Button>
+          </form>
         </div>
       </div>
 
@@ -546,6 +635,15 @@ function SheetIcon({ className }: { className?: string }) {
       <path d="M3 9h18" />
       <path d="M3 15h18" />
       <path d="M9 3v18" />
+    </svg>
+  );
+}
+
+function MailIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
     </svg>
   );
 }

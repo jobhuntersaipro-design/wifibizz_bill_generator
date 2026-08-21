@@ -2,6 +2,9 @@
 
 # dependencies
 /node_modules
+# …at any depth: `npx vitest` run from scraper/ leaves a node_modules/.vite
+# cache there, which the root-anchored rule above does not cover.
+node_modules/
 /.pnp
 .pnp.*
 .yarn/*

@@ -17,11 +17,17 @@ model User {
   caseLimit       Int                 @default(10) @map("case_limit")
   orderEntryEnabled Boolean           @default(false) @map("order_entry_enabled")
   isSuperAdmin    Boolean             @default(false) @map("is_super_admin")
+  // Where submit-result and batch-summary emails go. Null falls back to `email`
+  // (the login address) at send time — kept as a separate, nullable column so a
+  // blank field means "use my login email" rather than silently copying it and
+  // then drifting when the login address changes.
+  notificationEmail String?           @map("notification_email")
   wifibizzUser    WifibizzUser?
   dealerAccount   DealerAccount?
   orders          Order[]
   caseUsageLogs   CaseUsageLog[]
   limitChangeLogs CaseLimitChangeLog[]
+  batchRuns       BatchRun[]
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
 }
@@ -109,6 +115,31 @@ model Order {
   // the history can show attempt 1 vs attempt 3 rather than one flat stream.
   attempt        Int       @default(0)
 
+  // When the single-submit result email for this order was sent. The exactly-
+  // once guard: the webhook retries up to 3 times, and the handler claims this
+  // with a conditional update (WHERE notified_at IS NULL) BEFORE sending, so a
+  // retry that arrives after a success can never send a second email.
+  //
+  // Deliberately not reset by a resubmit: a resubmit that reaches a terminal
+  // state clears it explicitly at start, so each attempt gets exactly one email.
+  notifiedAt     DateTime? @map("notified_at")
+
+  // Installation appointment, read out of the e-RF PDF the portal issues after
+  // Pay ("Installation Appointment Date : 2026-08-20 09:30-12:00"), stored
+  // VERBATIM as the document prints it. Not a DateTime: the value is a date
+  // plus a two-ended arrival WINDOW, and collapsing that to an instant would
+  // invent a precision the appointment does not have.
+  //
+  // Filled lazily the first time a submitted order is listed, because the only
+  // record of the booked slot for orders placed before this existed is the PDF
+  // itself — the scraper picks the slot and then discards it.
+  installationDate      String?   @map("installation_date")
+  // When the e-RF was last read for the field above. Null-vs-set is what
+  // separates "never looked" from "looked, and this order has no appointment"
+  // (a self-install e-RF prints no such line). Without it, every list load
+  // re-downloads the PDF of every order that legitimately has no date.
+  installationCheckedAt DateTime? @map("installation_checked_at")
+
   statusEvents   OrderStatusEvent[]
 
   createdAt      DateTime  @default(now()) @map("created_at")
@@ -116,6 +147,46 @@ model Order {
 
   @@index([userId, status])
   @@map("orders")
+}
+
+/**
+ * One server-side batch submit.
+ *
+ * The batch loop lives on the droplet, not in the browser, so a closed tab
+ * cannot strand the remaining orders. This row is BizzFlow's side of that run:
+ * what was sent, in what order, what came back, and whether the one summary
+ * email has been sent yet.
+ */
+model BatchRun {
+  id             String    @id @default(cuid())
+  userId         String    @map("user_id")
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Ordered array of Order.id, oldest-created FIRST. This is the run order the
+  // droplet was given and preserves; the UI reads progress against it.
+  orderIds       Json      @map("order_ids")
+
+  // Per-order outcome once the run finishes:
+  // [{ orderId, reference, fullName, outcome, errorCode?, portalOrderNo? }]
+  // Denormalised on purpose — the summary email must describe the run as it
+  // happened, and an order edited or deleted afterwards must not rewrite it.
+  results        Json?
+
+  status         String    @default("running") // running | finished
+  // The droplet's own batch job id, for polling GET /orders/batch/<id>.
+  scraperBatchId String?   @map("scraper_batch_id")
+  // Set when the batch could not even be started (droplet unreachable), so a
+  // finished-with-nothing-run row explains itself instead of looking empty.
+  errorMessage   String?   @map("error_message")
+
+  startedAt      DateTime  @default(now()) @map("started_at")
+  finishedAt     DateTime? @map("finished_at")
+  // Exactly-once guard for the summary email — same conditional-claim rule as
+  // Order.notifiedAt above.
+  notifiedAt     DateTime? @map("notified_at")
+
+  @@index([userId, status])
+  @@map("batch_runs")
 }
 
 // Append-only history of what a submit did, one row per stage transition and

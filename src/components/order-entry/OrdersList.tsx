@@ -2,7 +2,16 @@
 
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
-import { listOrders, startSubmit, deleteOrder, cancelOrder } from "@/actions/order";
+import {
+  listOrders,
+  startSubmit,
+  deleteOrder,
+  cancelOrder,
+  startBatchSubmit,
+  pollBatch,
+  activeBatch,
+} from "@/actions/order";
+import { getNotificationSettings } from "@/actions/settings";
 import {
   EMPTY_FILTERS,
   canCancel,
@@ -23,6 +32,7 @@ import LottieSpot from "./LottieSpot";
 import { ResubmitDialog } from "./ResubmitDialog";
 import { CancelOrderDialog } from "./CancelOrderDialog";
 import { DeleteOrderDialog } from "./DeleteOrderDialog";
+import { BatchSubmitDialog } from "./BatchSubmitDialog";
 
 /** One poll's view of an in-flight submit, as returned by the progress route. */
 interface ProgressState {
@@ -51,6 +61,13 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   const [filters, setFilters] = useState<OrderFilters>(EMPTY_FILTERS);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [batchRunning, setBatchRunning] = useState(false);
+  // Set when the confirmation dialog is open, holding the ids it will submit —
+  // captured at open time so a filter change behind the dialog can't silently
+  // change what "Start batch" submits.
+  const [batchConfirmIds, setBatchConfirmIds] = useState<string[] | null>(null);
+  // Where a summary email would go. Shown in the dialog so the promise it makes
+  // is checkable before the agent walks away from the tab.
+  const [notifyTo, setNotifyTo] = useState<string | null>(null);
   // Rows whose submit checklist is open. Opens itself when a submit starts.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // What the portal resolved per step, per order, for the live checklist. Kept
@@ -98,6 +115,35 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     return () => {
       active = false;
     };
+  }, []);
+
+  // Rejoin a batch that is already running, and learn where its summary goes.
+  //
+  // The batch outlives the tab by design, so a page opened (or reopened) while
+  // one is in flight must pick the progress display back up — otherwise the
+  // rows sit on "Submitting" with no indication anything is still happening.
+  useEffect(() => {
+    let active = true;
+    getNotificationSettings()
+      .then((res) => {
+        if (!active || !res.success || !res.data) return;
+        const to = res.data.notificationEmail || res.data.loginEmail;
+        // No point promising an email the environment cannot send.
+        setNotifyTo(res.data.configured ? to || null : null);
+      })
+      .catch(() => {});
+    activeBatch()
+      .then((res) => {
+        if (!active || !res.success || !res.batchRunId) return;
+        void followBatch(res.batchRunId);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+    // Mount only: followBatch closes over setState alone, and re-running this
+    // would start a second poll loop against the same batch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function reload() {
@@ -170,17 +216,23 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     .map((o) => o.id)
     .join(",");
   useEffect(() => {
+    // Held back during a batch. Every member sits in `submitting` from the
+    // moment the batch starts, so following them all would mean one poll loop
+    // per order — a ten-order batch would put ~5 requests a second on a 1GB
+    // droplet that is mid-submit, and the progress display would become the
+    // thing that wedges the run it is reporting on. followBatch follows the one
+    // member that is actually running instead.
+    if (batchRunning) return;
     for (const id of submittingIds ? submittingIds.split(",") : []) {
       if (followingRef.current.has(id)) continue;
       followingRef.current.add(id);
-      // set-state-in-effect can't see that followProgress awaits a 2s sleep
-      // before it ever calls setOrders — nothing here renders synchronously.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+      // Nothing here renders synchronously: followProgress awaits a 2s sleep
+      // before it ever calls setOrders.
       void followProgress(id).finally(() => followingRef.current.delete(id));
     }
     // Keyed on the id list only: followProgress closes over setOrders alone, so
     // re-running on every render would just churn.
-  }, [submittingIds]);
+  }, [submittingIds, batchRunning]);
 
   // Core submit for one order. Returns true on success (used by both the per-row
   // button and the batch runner). Toasts show the customer name + detail.
@@ -253,30 +305,101 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     reload();
   }
 
-  // Batch: submit the selected drafts ONE AT A TIME. A single dealer session
-  // can't safely run concurrent order flows, so we process sequentially and
-  // stop early if the session dies.
+  // ── Batch submit ───────────────────────────────────────────────────────────
+  // The loop used to live HERE: this component called startSubmit for each
+  // selected draft and polled each job to completion. A closed tab or a dropped
+  // connection mid-batch left every remaining order unsubmitted with nobody
+  // told, and rows ran in filtered display order rather than by age.
   //
-  // Only `canSubmit` rows are ever selectable, so this can never sweep up a
-  // stranded order — those need their own confirmation, one at a time.
-  async function handleSubmitSelected() {
-    const targets = filtered.filter((o) => selected.has(o.id) && canSubmit(o));
-    if (targets.length === 0) return;
-    if (!window.confirm(`Submit ${targets.length} order${targets.length === 1 ? "" : "s"} one by one?`)) {
-      return;
-    }
+  // Now the whole selection goes to the droplet in one call and the loop runs
+  // there. What is left here is a progress poll — pure display, which the batch
+  // does not depend on. Abandoning it costs the live view, not the run.
+
+  /** Follow a server-side batch until it reports finished. Display only. */
+  async function followBatch(id: string) {
     setBatchRunning(true);
-    let ok = 0;
-    for (const o of targets) {
-      setBusyId(o.id);
-      const success = await runSubmit(o.id, o.fullName);
-      if (success) ok += 1;
+    // ~40 minutes at 3s. A ten-order batch of full portal runs is genuinely
+    // long; running out here stops the polling, never the batch.
+    for (let i = 0; i < 800; i++) {
+      await sleep(3000);
+      let res: Awaited<ReturnType<typeof pollBatch>>;
+      try {
+        res = await pollBatch(id);
+      } catch {
+        continue; // transient — the run is the droplet's to finish
+      }
+      if (!res.success) break;
+      // Push each member's latest state into its row. The per-order checklist
+      // keeps working on its own, through the same progress route as a single
+      // submit — batch members carry a real job id from the moment they start.
+      setOrders((list) =>
+        list.map((x) => {
+          const r = res.success ? res.results.find((o) => o.orderId === x.id) : undefined;
+          return r
+            ? {
+                ...x,
+                status: r.status,
+                orderId: r.portalOrderNo,
+                errorMessage: r.errorMessage,
+                errorCode: r.errorCode,
+              }
+            : x;
+        }),
+      );
+      setBusyId(res.currentOrderId);
+      // Follow only the member the droplet is actually running, so the
+      // step-by-step checklist still fills in without one poll loop per order.
+      // `followingRef` keeps this to a single loop per member across the batch.
+      const running = res.currentOrderId;
+      if (running && !followingRef.current.has(running)) {
+        followingRef.current.add(running);
+        void followProgress(running).finally(() => followingRef.current.delete(running));
+      }
+      if (res.status === "finished") {
+        const ok = res.results.filter((r) => r.status === "submitted").length;
+        if (res.errorMessage) toast.error("Batch stopped", { description: res.errorMessage });
+        else toast.message(`Batch finished: ${ok}/${res.total} submitted.`);
+        break;
+      }
     }
     setBusyId(null);
     setBatchRunning(false);
-    setSelected(new Set());
-    toast.message(`Batch complete: ${ok}/${targets.length} submitted.`);
     reload();
+  }
+
+  /**
+   * Hand the selection to the droplet.
+   *
+   * Only `canSubmit` rows are ever selectable, and `startBatchSubmit` filters
+   * again server-side — a stranded order needs its own confirmation naming its
+   * portal order number, one at a time, because a second run against an
+   * un-voided order creates a real duplicate.
+   */
+  async function handleStartBatch(ids: string[]) {
+    setBatchRunning(true);
+    const res = await startBatchSubmit(ids);
+    if (!res.success) {
+      setBatchRunning(false);
+      toast.error("Couldn't start the batch", { description: res.error });
+      reload();
+      return;
+    }
+    setSelected(new Set());
+    // Open every member's checklist: the batch runs unattended, so the one thing
+    // a watching agent wants is to see which step each order reached.
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+    toast.message(`Batch started: ${res.count} order${res.count === 1 ? "" : "s"}.`);
+    await followBatch(res.batchRunId);
+  }
+
+  function handleSubmitSelected() {
+    const targets = filtered.filter((o) => selected.has(o.id) && canSubmit(o));
+    if (targets.length === 0) return;
+    setBatchConfirmIds(targets.map((o) => o.id));
   }
 
   function toggleOne(id: string) {
@@ -453,6 +576,19 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
           onConfirm={() => {
             setCancelId(null);
             handleCancelOrder(cancelOrderRow.id);
+          }}
+        />
+      )}
+
+      {batchConfirmIds && (
+        <BatchSubmitDialog
+          count={batchConfirmIds.length}
+          recipient={notifyTo}
+          onCancel={() => setBatchConfirmIds(null)}
+          onConfirm={() => {
+            const ids = batchConfirmIds;
+            setBatchConfirmIds(null);
+            handleStartBatch(ids);
           }}
         />
       )}

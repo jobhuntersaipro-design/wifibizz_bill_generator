@@ -1,84 +1,247 @@
 # Current Feature
 
-## OTP Silent-Portal Detection
+## Email Notifications (Resend) + Server-Side Batch Submit
 
 ## Status
 
-In Progress — deploying, then one live production submit.
+In Progress — code complete on branch `feature/email-notifications-batch-submit`.
+Build, lint, 279 vitest and 203 scraper tests pass. Settings card and the webhook
+verified live locally; the batch UI and any real email are NOT yet verified (see
+"What is and isn't verified" below).
+
+Spec: [docs/superpowers/specs/2026-08-20-email-notifications-batch-submit-design.md](../docs/superpowers/specs/2026-08-20-email-notifications-batch-submit-design.md)
+(approved design, full detail lives there — this file carries the summary)
 
 ## Goals
 
-Stop the dealer login waiting 300 silent seconds for an OTP the portal never
-sent. Detect the silent case early and say what is actually happening.
+- Email the user when a submit reaches a terminal state (Submitted / Order
+  Entered / Failed), via Resend, to an address they set in Settings.
+- Move batch submit off the browser and onto the droplet, so a batch survives
+  the tab closing, runs oldest-created first, and never stops on a failure.
+- Exactly **one email per single submit, one summary email per batch** — a
+  10-order batch produces 1 email listing all 10 results.
 
 ## Notes
 
-### What happened (2026-08-19)
-
-A login sat on "Reading the OTP from email automatically" until it timed out.
-Diagnosed live on the droplet:
+### Shape
 
 ```
-06:46:44Z  Requesting OTP...
-06:46:46Z  [GET] 200 .../portal/api/prod/genCaptcha     <- portal said OK
-06:46:47Z  Waiting for OTP email ... to nexion.eform@gmail.com
-06:50:34Z    Skipping old email (from 2082s ago)        <- 14:15 code, 35 min stale
-06:51:17Z  OTP not found after 300 seconds
+Browser -> startBatchSubmit(ids) -> Vercel sorts by createdAt asc,
+  POST /orders/batch -> droplet runs orders one by one (existing job machinery)
+  droplet -> POST /api/hooks/scraper (bearer, 3 retries) -> Vercel reconciles
+             + sends the email
 ```
 
-Everything we built was healthy: forwarding works (8 Unifi OTPs reached
-`jobhunters.ai.pro@gmail.com` in 7 days with the `To:` header preserved), the
-Gmail token was valid, and the reader correctly refused a 35-minute-old code.
-**The portal returned 200 and then sent nothing.** Newest mail in the box was
-31 minutes older than the request, and still nothing 11 minutes later.
+- **All email sending lives on Vercel.** The droplet never holds the Resend key
+  and never renders a template; it only reports completion.
+- **The webhook, not the browser poll, triggers emails** — so they send with the
+  tab closed. The browser poll stays the UI's progress source, unchanged.
+- Rejected: droplet-sends-email (splits secrets/templates, can't read Prisma);
+  Vercel-orchestrated batch (serverless can't hold an hour-long loop).
 
-Most likely Unifi's own OTP throttle — six codes had been issued to that address
-in the preceding hours while the scraper made only one request, so the rest came
-from manual portal logins. Same limit as the known `46410045 "Access to otp code
-is too frequent"`, except returned as **200**, which `_capture_auth_api` cannot
-see: it only raises on non-2xx.
+### Build surface
 
-### Approach
+- **Migration** (hand-authored + `migrate deploy`; `migrate dev`'s shadow DB
+  fails here — see project memory): `User.notificationEmail String?`, new
+  `BatchRun` model, `Order.notifiedAt DateTime?`.
+- `notifiedAt` is the exactly-once guard on both — set via a conditional update
+  (`WHERE notifiedAt IS NULL`) **before** sending, so a webhook retry that
+  arrives after a success cannot send a second email.
+- Droplet: `POST /orders/batch`, `GET /orders/batch/<id>`, background thread,
+  continue-on-failure, webhook POST with 3 retries.
+- Vercel: `POST /api/hooks/scraper` (API route, needs bearer auth),
+  `src/lib/notifications/` (resend client, templates, recipient resolution =
+  `notificationEmail ?? user.email`), `startBatchSubmit` + `pollBatch` in
+  `src/actions/order.ts`.
+- UI: Settings notification-email field; `handleSubmitSelected` stops looping in
+  the browser; batch progress resumes on page load from an unfinished `BatchRun`.
 
-A 200-that-sends-nothing is indistinguishable from success at request time, so
-it can only be caught by the *absence* of mail afterwards. `get_latest_otp` now
-raises `OtpNeverSent` once `silent_after` seconds pass with no message newer
-than the wait start.
+### Prerequisites the user owns
 
-Two guards against crying wolf, because reporting "the portal is throttling you"
-for mail that was merely slow is worse than the wait it replaces:
+1. **Resend domain is not yet verified** — until it is, Resend only delivers to
+   the account owner's own address.
+2. Env: `RESEND_API_KEY`, `NOTIFY_FROM_EMAIL`, `SCRAPER_WEBHOOK_SECRET` (Vercel
+   + droplet), `BIZZFLOW_WEBHOOK_URL` (droplet).
+3. `sendEmail` no-ops with a logged warning when `RESEND_API_KEY` is unset, so
+   local dev works without keys.
 
-- The silent clock runs from a separate `wait_began`, NOT `start_time` — which
-  is deliberately backdated 60s, so reusing it would fire every threshold a
-  full minute early.
-- It needs `SILENT_MIN_POLLS` successful Gmail queries first, so a Gmail outage
-  or an auth failure is never reported as portal silence.
+### Deploy state carried in
 
-The login is not aborted. The UI drops to manual entry exactly as it does on
-timeout, so a late code can still be typed — we are reporting a likely cause,
-not asserting a certainty.
+Unchanged from the OTP entry below and still the gate on any live test: **the
+droplet runs `scraper-v2026.08.17-2` (`12fa534`)**. Shipping this ships
+everything undeployed behind it — Phase 5, Phase 6, the shell-dialog fix and the
+OTP silent-portal detection. The deploy is a bigger event than this feature.
+Scraper edits also need an `api_server` restart, not just a deploy.
 
-## Deploy state (carried over from the shell-dialog fix, merged as `b07d100`)
+Live verification costs real money: a live submit mints a real, chargeable
+portal order. Void unintended ones.
 
-This is the operational context the next deploy has to clear, and it is why the
-OTP work cannot be tested on production without deploying first.
+### What is and isn't verified
 
-- **The droplet is running `scraper-v2026.08.17-2` (`12fa534`).** Phase 5, Phase
-  6 (including the verified-pay work) and the shell-dialog fix have **never been
-  deployed**. Production submits are running pre-Phase-5 code.
-- The shell-dialog fix (`scraper/shell_modal.py`) is code complete and
-  live-verified against the real portal, but ships for the first time here. It
-  stops the portal's "Your Password is Expiring Soon" Ant dialog silently eating
-  the first click into the order form — the cause of four consecutive submits
-  dying at "Creating customer profile" and being misreported as portal load.
+**Verified live, locally in the browser / over HTTP:**
 
-### Open
+- Settings "Notification email" card renders, names the login-email fallback,
+  saves, persists across a reload, and clears back to the fallback with the
+  right toast. The amber "sending isn't configured" banner shows correctly with
+  `RESEND_API_KEY` unset.
+- `POST /api/hooks/scraper` against the running app: 401 with no bearer, 401 with
+  a wrong one, 200 with the right one, `503` when the secret is unset, and the
+  four malformed-body cases. An `order_finished` event on the real ORD-0016 ran
+  the whole chain — reconciled (no status change), resolved the recipient to the
+  address just saved in Settings, built the subject `✅ Order submitted — TUCK
+  KEE LEE`, no-opped on the missing key, and **released the claim** so
+  `notified_at` went back to null.
+- The migration is applied on the dev branch (`notification_email`,
+  `notified_at`, `batch_runs` all present).
 
-- **The dealer password is genuinely expiring.** "Later" defers it; when it
-  hard-expires, login breaks entirely, not just order entry. Worth changing
-  deliberately and updating the stored credential.
+**NOT verified:**
+
+- **The batch UI.** The Orders table only renders with a live dealer session (or
+  for a superadmin), and this account had neither — connecting burns a real OTP
+  cycle. The confirmation dialog, batch progress and tab-close resume have never
+  been seen in a browser.
+- **Any real email.** No Resend key locally and the domain is unverified, so no
+  message has actually been delivered — only the render and the send-path
+  plumbing are proven, by unit tests and the no-op log line.
+- **The droplet, for all of it.** `POST /orders/batch`, `GET /orders/batch/<id>`
+  and the outgoing webhook have never run on the real service. The batch loop and
+  the retry logic rest on `scraper/tests/test_batch_runner.py` (23 checks, no
+  portal, no network), not on a run.
+
+### Notable decisions taken while building
+
+- **BizzFlow allocates the member job ids, not the droplet.** `Order.jobId` is
+  written before the batch starts, so the progress route, `pollOrderProgress` and
+  `reconcileStaleSubmits` all work on a batch member exactly as on a single
+  submit — no second reconciliation path was needed.
+- **The webhook is keyed on BizzFlow's order id, not the job id.** A browser poll
+  that finalized the run first has already cleared `Order.jobId`, so a job-keyed
+  event would match nothing and silently send no email.
+- **A failed send releases the `notifiedAt` claim.** Without that, a failed send
+  leaves the row claiming an email that never went out — which is exactly the
+  state the "delivered but email lost" check reads as healthy.
+- **Bounded the batch poll fan-out.** Every member sits in `submitting` from the
+  moment a batch starts, so the existing pick-up effect would have started one
+  poll loop per order — ~5 requests a second at a 1GB droplet mid-submit for a
+  ten-order batch, making the progress display the thing that wedges the run it
+  reports on. The per-order checklist now follows only the member the droplet
+  says is running.
+- **Four outcome buckets became three, decided on the order NUMBER.** A `warning`
+  carrying a portal order number and an `order_entered` are the same situation to
+  a reader (Unifi has a real order this run didn't finish); a `warning` with no
+  number is a plain failure. Labels reuse `STATUS_LABELS`, so an email and the
+  Orders table can't disagree.
+- `startSubmit`'s payload builder and dealer-session check were extracted and
+  shared with the batch, so a field added to one path can't go missing from the
+  other.
+
+### Also on this branch — Installation Date column (Orders table)
+
+The Orders table gains an **Installation Date** column, showing the appointment
+the customer was actually booked for. Date over arrival window, stacked like
+Created At (`20-08-2026` / `09:30-12:00`), DD-MM-YYYY and never `toLocaleString`.
+
+**Read from the e-RF PDF**, because that is the only record there is: the scraper
+picks the slot (`_set_appointment` returns it) and then keeps nothing but the
+step's status, so for every order placed so far the document in R2 is the sole
+source. The e-RF prints one line — `Installation Appointment Date : 2026-08-20
+09:30-12:00` — and the value is stored **verbatim**: it is a date plus a
+two-ended window, not an instant, and reshaping it into a `DateTime` would
+invent a precision the appointment does not have.
+
+- **No PDF dependency.** These are text PDFs; the value sits in a plain string
+  literal one `Tj` after its label, so `src/lib/erf-appointment.ts` inflates the
+  content streams and reads the literals. The value must match a date SHAPE, so
+  a portal that reorders these fields yields a dash rather than confidently
+  reporting the neighbouring label as an appointment.
+- **Migration** (hand-authored + `migrate deploy`): `Order.installationDate
+  String?` and `Order.installationCheckedAt DateTime?`. Two columns, because an
+  e-RF with no appointment line (self-install) is a real answer — with only the
+  value column it is indistinguishable from "not read yet" and the PDF is
+  re-downloaded on every page load, forever.
+- **Filled lazily in `listOrders`**, once per order, same best-effort contract as
+  `reconcileStaleSubmits`: R2 being unreachable costs a column, never the page.
+- **Scoped to `submitted`.** That status is decided ON `erf_key` in the first
+  place, so it is exactly the set of orders that has a document; probing R2 for
+  an `order_entered` or `warning` row is a guaranteed miss on every load.
+- Column at `lg` (Created At is at `2xl`) — an installation date is what an agent
+  chases a customer about, so it survives further into the narrow widths.
+
+**Verified live in the browser** against the real dealer session at 1600 / 1024 /
+900 / 375: ORD-0016 renders `20-08-2026 / 09:30-12:00` with the e-RF value in its
+tooltip, every other row a dash, the column hides below `lg`, the card shows it
+formatted, and the page body never scrolls horizontally at any width. The parser
+was run against **all three real e-RFs in R2** and read all three correctly.
+19 new unit tests (298 vitest); build and lint clean.
+
+**Two findings worth keeping:**
+
+- ORD-0001 is `submitted` but predates e-RF capture, so no PDF exists for it. The
+  first version left such rows unmarked "in case the run was still finishing" —
+  which would have re-probed R2 on every page load forever. It cannot be still
+  finishing: `submitted` is set from `erf_key`. Absent now means absent, and the
+  row is marked checked.
+- The table already overflowed its container by ~519px at 1600px (Status and
+  Order No. sit past the fold, Actions pinned right). This column adds 116px to
+  that. Not introduced here, but worsened — worth a column-density pass at some
+  point.
+
+**Not done, deliberately:** the scraper still discards the slot it picked. It
+was not changed, because the e-RF covers future runs and old ones alike, and a
+second source would only be something for the two to disagree about.
+
+### Also on this branch — Voice number "taken by another order" retry
+
+ORD-0018 attempt 6 (order `2608000121894804`) died with a Playwright timeout
+reading `<div class="modal-backdrop in"> intercepts pointer events` on the TV
+tab's Service Number. The screenshot explains it: the portal had answered the
+VOICE number picker's OK with `[40330227]: The number is taken by another
+order, please choose another number.` — a beat AFTER the picker closed.
+`_pick_voice_number` never looked, so it reported the number as chosen, the
+dialog stayed up, and every click on the next tab bounced off its backdrop. The
+order was already minted, so it stranded.
+
+- `_pick_voice_number` now **reads the dialog after the OK** (which dismisses
+  it) and re-picks on a collision: re-open the picker, re-Query, take the next
+  card whose number is not already burned this run, **up to 10 numbers**.
+  Picking by index would re-offer the number just refused, since the pool
+  re-queries in the same order — so the choice is by NUMBER, via the pure
+  `next_number_card()`.
+- An unexpected (non-collision) popup is dismissed, recorded on the tab result
+  and the run carries on: the order id exists by now, and whatever genuinely
+  blocks resurfaces at the Next, which does check.
+- Belt and braces in `fill_subproduct_tabs`: a dialog left over before any tab
+  is read and cleared, so a leftover popup can never again surface as an opaque
+  locator timeout that names neither the tab nor the portal's complaint.
+- New `VOICE_NUMBER_TAKEN` = `voice_number_taken` in `oe_errors.py` (rules above
+  the login-id ones, since "taken" alone would file a number as a login) with
+  BizzFlow copy in `SUBMIT_ERROR_CODES`. Exhaustion returns that code, not a
+  step-local name — `submitErrorCopy` looks the result's `error` up verbatim.
+- 12 new checks (`scraper/tests/test_number_taken.py`); 229 scraper tests, 298
+  vitest, build and lint clean.
+
+**NOT verified live** — like the rest of this branch, it has never run against
+the real portal, and the collision needs a contended pool to reproduce.
+**Not built:** a collision that surfaces at the sub-product Next instead (the
+way RESERVELOGIN does) is classified and reported but not retried; the live
+evidence puts this dialog right after the picker's OK.
+
+## Still the user's to do
+
+1. **Verify a Resend sending domain** (SPF + DKIM). Until then Resend delivers
+   only to the account owner's own address.
+2. Set `RESEND_API_KEY`, `NOTIFY_FROM_EMAIL`, `BIZZFLOW_APP_URL` and
+   `SCRAPER_WEBHOOK_SECRET` on Vercel; `SCRAPER_WEBHOOK_SECRET` (same value) and
+   `BIZZFLOW_WEBHOOK_URL` on the droplet. All documented in `.env.example`.
+3. **Run the migration against the production branch** — it has only been applied
+   to dev.
+4. Deploy, and **restart `api_server`** on the droplet — a deploy alone leaves the
+   old imports loaded.
 
 ## History
+
+- **OTP Silent-Portal Detection — CODE MERGED (`817e51d`), LIVE-UNVERIFIED (displaced 2026-08-21)**: Stop the dealer login waiting 300 silent seconds for an OTP the portal never sent. Diagnosed live on the droplet: the portal returned **200** on `/portal/api/prod/genCaptcha` and then sent nothing — newest mail in the box was 31 minutes older than the request and nothing arrived 11 minutes later. Everything we built was healthy (forwarding worked, the token was valid, the reader correctly refused a 35-minute-old code); most likely Unifi's own OTP throttle, the same limit as the known `46410045 "Access to otp code is too frequent"` but returned as 200, which `_capture_auth_api` cannot see because it only raises on non-2xx. A 200-that-sends-nothing is indistinguishable from success at request time, so it can only be caught by the **absence** of mail afterwards: `get_latest_otp` now raises `OtpNeverSent` once `silent_after` seconds pass with no message newer than the wait start. Two guards against crying wolf — the silent clock runs from a separate `wait_began`, NOT `start_time` (which is deliberately backdated 60s, so reusing it would fire every threshold a full minute early), and it needs `SILENT_MIN_POLLS` successful Gmail queries first, so a Gmail outage or an auth failure is never reported as portal silence. The login is **not** aborted: the UI drops to manual entry exactly as on timeout, so a late code can still be typed — this reports a likely cause, not a certainty. Files: `scraper/gmail_otp_reader.py`, `scraper/dealer_login_service.py`, `scraper/tests/test_otp_never_sent.py`. **Outstanding: deploy to the droplet + one live production login** — it has never run against the real portal. Also open: **the dealer password is genuinely expiring** — "Later" defers it, but when it hard-expires login breaks entirely, not just order entry; worth changing deliberately and updating the stored credential.
+
 
 - **Order Tab in the Details Panel — VERIFIED LIVE** (2026-08-20): Merged as `95cbc42` / `49fb4b5` + fix `272fbaf`, Vercel-only. The details panel gains a third tab, **Order**, showing the full draft read-only, grouped as the form asks it: Customer (name, ID + expiry, gender, birthday, race), Contact (phone, email), Installation address, Package (offer, device `#code`), Other (remarks, doc count, reference, created, created-by for superadmins). Missing values render as a dash — a hidden row reads as "not applicable", which is a different claim. `listOrders` now maps email/gender/birthday/race/idExpiry (always loaded by `findMany`, never surfaced) into `OrderListItem`. **Regression found live and fixed:** the cancel feature's trailing `info` event flipped Attempt 6's History chip from Submitted to Running — `groupByAttempt` read only the LAST event for terminality; it now takes the last TERMINAL event, since info notes legitimately trail finished runs (this was latent since ORD-0016's manual correction note). Regression test with the exact real sequence; 214 vitest. **Verified live on production**: Order tab shows all fields for ORD-0009 (auto-derived Gender/Birthday/Race included), and Attempt 6 reads Submitted again.
 

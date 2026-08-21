@@ -52,3 +52,23 @@ export async function getFromR2(
   );
   return (res.Body?.transformToWebStream() as ReadableStream) ?? null;
 }
+
+/**
+ * The whole object as bytes, or null when the key does not exist.
+ *
+ * A missing key is an ordinary outcome for callers that DERIVE a key rather
+ * than reading one back from the database — an e-RF is only there if the run
+ * that would have produced it got as far as Pay — so it is reported as absence
+ * rather than raised.
+ */
+export async function getBytesFromR2(key: string): Promise<Uint8Array | null> {
+  try {
+    const res = await R2.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+    const bytes = await res.Body?.transformToByteArray();
+    return bytes ?? null;
+  } catch (e) {
+    const name = (e as { name?: string })?.name;
+    if (name === "NoSuchKey" || name === "NotFound") return null;
+    throw e;
+  }
+}
