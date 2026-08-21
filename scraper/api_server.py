@@ -851,6 +851,51 @@ def dealer_address_search():
     return jsonify(result), status
 
 
+@app.post("/dealer/feasibility-probe")
+def dealer_feasibility_probe():
+    """Ask the portal what it OFFERS at one address id, using the user's saved
+    dealer session. Read-only — no customer profile and no order is created.
+
+    This is the difference between "the address exists" (which
+    /dealer/address-search answers) and "TM sells something here", which only a
+    filled Subscription Plan List proves.
+
+    Headers: X-Internal-Token: <ORDER_ENTRY_API_TOKEN>
+    Body: {user_key, state, address_id}
+    Returns {success, serviceable, offers:[...], matched, message}.
+    """
+    if not _order_entry_authorized(request):
+        return _internal_unauthorized_response()
+
+    data = request.get_json(silent=True) or {}
+    user_key = (data.get("user_key") or "").strip()
+    state = (data.get("state") or "").strip()
+    address_id = str(data.get("address_id") or "").strip()
+    if not user_key or not state or not address_id:
+        return jsonify({"success": False, "error": "MISSING_FIELDS",
+                        "message": "user_key, state and address_id are required."}), 400
+
+    import asyncio
+
+    import dealer_login_service
+    from dealer_feasibility_probe import probe_offers
+    from order_entry import InfraError
+
+    session_path = f"sessions/dealer_{dealer_login_service._safe_key(user_key)}.json"
+    if not os.path.exists(session_path):
+        return jsonify({"success": False, "error": "NOT_CONNECTED",
+                        "message": "No dealer session for this user — connect first."}), 409
+    try:
+        result = asyncio.run(probe_offers(session_path, state, address_id))
+    except InfraError as e:
+        return jsonify({"success": False, "error": "SESSION_EXPIRED", "message": str(e)}), 502
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"success": False, "error": "PROBE_FAILED", "message": str(e)}), 500
+
+    status = 200 if result.get("success") else 422
+    return jsonify(result), status
+
+
 @app.get("/health/browser")
 def health_browser():
     import asyncio
