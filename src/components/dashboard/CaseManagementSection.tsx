@@ -14,14 +14,14 @@ import {
 import {
   SearchIcon, EmptyIcon, CloseIcon, ExternalLinkIcon, SortIcon,
   InternetBillIcon, UtilityBillIcon, DownloadIcon, CheckCircleIcon,
-  MessageSquareIcon, SyncSheetIcon,
+  MessageSquareIcon, AuthLetterIcon, SyncSheetIcon,
 } from "./icons";
 import ChatImageGenerator from "./ChatImageGenerator";
 import { syncCasesToSheet } from "@/actions/settings";
 
 // ── Case Detail Panel ──
 
-function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatLoading }: { caseData: CaseRow; onClose: () => void; cacheBuster: number; onGenerateChat: (c: CaseRow) => void; chatLoading: boolean }) {
+function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatLoading, onGenerateLetter, letterLoading }: { caseData: CaseRow; onClose: () => void; cacheBuster: number; onGenerateChat: (c: CaseRow) => void; chatLoading: boolean; onGenerateLetter: (caseNo: string) => void; letterLoading: boolean }) {
   // The Sheet owns Escape, outside-click, the focus trap and scroll lock, all of
   // which the old hand-rolled panel declared via markup and never implemented.
   // It also owns the enter/exit transitions — but the parent mounts this panel
@@ -150,9 +150,32 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
             )}
           </div>
 
+          {/* Authorization Letter */}
+          <div className="border-t border-[#E3E8EF] my-5 panel-item-in"  style={{ animationDelay: "780ms" }} />
+          <div className="panel-item-in" style={{ animationDelay: "800ms" }}>
+            <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">Authorization Letter</h3>
+            <button
+              onClick={() => onGenerateLetter(caseData.case_no)}
+              disabled={letterLoading}
+              className="inline-flex items-center gap-2 text-sm font-medium text-[#0E9384] hover:text-[#0A2540] transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {letterLoading ? (
+                <>
+                  <span className="w-3.5 h-3.5 rounded-full border-2 border-[#0E9384] border-t-transparent animate-spin" />
+                  Generating…
+                </>
+              ) : (
+                <>
+                  <AuthLetterIcon className="w-3.5 h-3.5" />Download Authorization Letter
+                </>
+              )}
+            </button>
+            <p className="mt-2 text-xs text-[#697386]">Generated fresh each time and not stored. The property owner is generated; the resident is this customer.</p>
+          </div>
+
           {/* Generate Chat */}
-          <div className="border-t border-[#E3E8EF] my-5 panel-item-in"  style={{ animationDelay: "800ms" }} />
-          <div className="panel-item-in" style={{ animationDelay: "850ms" }}>
+          <div className="border-t border-[#E3E8EF] my-5 panel-item-in"  style={{ animationDelay: "860ms" }} />
+          <div className="panel-item-in" style={{ animationDelay: "880ms" }}>
             <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">Closing Script</h3>
             <button
               onClick={() => onGenerateChat(caseData)}
@@ -213,6 +236,8 @@ export default function CaseManagementSection() {
   const [chatCase, setChatCase] = useState<CaseRow | null>(null);
   // Case whose installation address is being fetched before the chat opens.
   const [chatLoadingCase, setChatLoadingCase] = useState<string | null>(null);
+  // Case whose authorization letter is being generated.
+  const [letterCase, setLetterCase] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<"success" | "error" | null>(null);
   const [syncCount, setSyncCount] = useState(0);
@@ -455,6 +480,38 @@ export default function CaseManagementSection() {
       setChatCase(c);
     } finally {
       setChatLoadingCase(null);
+    }
+  }
+
+  /**
+   * The authorization letter is generated on demand and never stored, so it is
+   * fetched as a blob rather than opened in a tab: a 400 (a case with no ID
+   * number) would otherwise render raw JSON where the agent expected a PDF.
+   */
+  async function handleAuthorizationLetter(caseNo: string) {
+    if (letterCase) return;
+    setLetterCase(caseNo);
+    try {
+      const res = await fetch(`/api/bills/authorization-letter?case_no=${encodeURIComponent(caseNo)}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        toast.error(body?.error || "Couldn't generate the authorization letter.");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `authorization_letter_${caseNo}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Authorization letter failed:", err);
+      toast.error("Couldn't generate the authorization letter.");
+    } finally {
+      setLetterCase(null);
     }
   }
 
@@ -837,6 +894,17 @@ export default function CaseManagementSection() {
                               ? <span className="w-3.5 h-3.5 rounded-full border-2 border-[#FF6B35] border-t-transparent animate-spin" />
                               : <UtilityBillIcon className="w-4 h-4" />}
                           </button>
+                          <button
+                            title="Generate Authorization Letter"
+                            aria-label={`Generate authorization letter for ${c.case_no}`}
+                            disabled={letterCase === c.case_no}
+                            onClick={() => handleAuthorizationLetter(c.case_no)}
+                            className="w-7 h-7 flex items-center justify-center rounded-md transition-colors text-[#0E9384] hover:bg-[#E6FAF7] disabled:cursor-not-allowed"
+                          >
+                            {letterCase === c.case_no
+                              ? <span className="w-3.5 h-3.5 rounded-full border-2 border-[#0E9384] border-t-transparent animate-spin" />
+                              : <AuthLetterIcon className="w-4 h-4" />}
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -872,7 +940,7 @@ export default function CaseManagementSection() {
 
       {/* Slide-in detail panel */}
       {selectedCase && createPortal(
-        <CaseDetailPanel caseData={selectedCase} onClose={() => setSelectedCase(null)} cacheBuster={billCacheBuster} onGenerateChat={handleGenerateChat} chatLoading={chatLoadingCase === selectedCase.case_no} />,
+        <CaseDetailPanel caseData={selectedCase} onClose={() => setSelectedCase(null)} cacheBuster={billCacheBuster} onGenerateChat={handleGenerateChat} chatLoading={chatLoadingCase === selectedCase.case_no} onGenerateLetter={handleAuthorizationLetter} letterLoading={letterCase === selectedCase.case_no} />,
         document.body
       )}
 
