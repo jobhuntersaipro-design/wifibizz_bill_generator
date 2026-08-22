@@ -2,63 +2,15 @@
 
 ## Status
 
-Implemented — verified locally, awaiting commit approval
+Not Started
 
 ## Goals
 
-Fix the utility bill's ALAMAT POS / ALAMAT PREMIS address block, which overflows its
-knock-out box (the masked-name X's run past the column divider) and silently drops the
-last line (usually the state) when the address needs more lines than the template has slots.
-
-Decisions taken with the user before implementing:
-
-1. **Fixed short mask** — the masked name is drawn at a constant width regardless of the
-   real name's length. The mask carries no information, so preserving the real length buys
-   nothing and is precisely what overflows.
-2. **Measure real glyph widths** — wrapping counted characters and never measured width.
-   `X` is 685/1000 em in Tahoma-Bold against 313 for a space, so a 40-character line of X's
-   is far wider than a 40-character line of address text. Widths come from the template
-   PDF's own embedded `/Widths` arrays, so they are the widths the viewer actually uses.
-3. **Protect the locality block** — postcode, city and state merge onto one line that is
-   always drawn. Street/sublocality lines give way instead. A missing street detail reads
-   as normal; a missing state reads as fake.
-4. **City-name bug is out of scope** (user's call) — see Notes.
+<!-- What success looks like -->
 
 ## Notes
 
-Line budget is the knock-out box, not the page: text drawn outside the white box sits on
-un-erased template content, which is what "overlap" looks like. Page 1 ALAMAT POS box is
-180pt wide from x=34 with text at x=36 (178pt usable, 5 slots incl. the name); page 2
-ALAMAT PREMIS is 152pt (150pt usable, 5 slots).
-
-The internet bill shares `normalizeAddress` but draws with different fonts and its own
-55-char budget; its path is deliberately left on character counting so this change cannot
-regress it.
-
-### Verification
-
-Measured the column divider out of the rendered page rather than trusting the constants:
-it sits at **216pt**, and the knock-out box ends at 214pt, so the 178pt budget stops inside
-both. Rendered the reported address through `qlmanage` (the same CoreGraphics engine as
-Preview) before and after: before, the X's cross the divider and `SELANGOR` is absent;
-after, the mask stops short of the divider and the line reads `63000 CYBERJAYA, SELANGOR`.
-Page 2 checked the same way. Internet bill output is byte-identical before and after.
-
-`npm run build` passes, eslint reports 0 errors (8 warnings, all pre-existing), and the
-suite is 351 passing with 20 new cases in `src/lib/__tests__/bill-address-layout.test.ts`.
-The 4 failing test *files* are `e2e/*.spec.ts` — Playwright specs vitest tries to collect,
-failing identically on main.
-
-**Cosmetic change, accepted:** the reported address previously fitted `...CYBERSQUARE TOWER 1`
-on one line at 179.0pt, 1pt over the new 178pt budget, so it now wraps as `...TOWER` /
-`1 CYBER 5`. Correct and inside the box, but the break reads slightly worse than before.
-
-**Known bug, deliberately not fixed here:** the state matcher removes the *first* occurrence
-of a state name found anywhere in the address, so a city containing the state name is
-mangled — `81200 JOHOR BAHRU JOHOR` becomes `81200 BAHRU JOHOR`. Because the local parse
-then holds both a postcode and a state, Google Geocoding is never called to correct it.
-Same trap for MELAKA, PULAU PINANG and Kuala Kangsar/PERAK. It affects **internet bills
-too** (`81200 BAHRU JOHOR JOHOR`), so it is a wider fix than this branch.
+<!-- Context, constraints, details from spec -->
 
 ## History
 
@@ -123,3 +75,5 @@ too** (`81200 BAHRU JOHOR JOHOR`), so it is a wider fix than this branch.
 - **Notification Emails — Case Details + Batch Card Layout** (2026-08-22): Merged as `138f008` / `51b66fe`, Vercel-only. Both emails said which customer and what outcome and nothing else, so acting on a stranded order meant opening the app to find out which package and address it was. They now repeat the case back — ID, phone, email, installation address, package, device, installation date — captured by `caseDetailsFrom` at reconcile time and **frozen onto the `BatchRun`** with the rest of the result, so an order edited afterwards cannot rewrite what the reader was told. The batch summary gains a colour-coded three-up totals strip and renders each member as a **card, not a table row**: four columns cannot hold the detail that makes a row actionable without wrapping into an unreadable mess on a phone. **Two defects came out of rendering both emails against a real finished batch rather than fixtures** — the HTML had no `<meta charset>`, so the masked ID and the em dash arrived as `â€¢â€¢…` in any client that guesses the encoding; and one Playwright locator dump (~2,000 chars) filled the entire email and buried the other two orders' results beneath it, taking the summary to 3,020px (`shortErrorMessage` now collapses whitespace, caps at 320 chars and **marks** the truncation — a sentence cut mid-word with no ellipsis reads as the portal having stopped mid-sentence; 1,800px after). **The ID is masked to its last four digits**: email is forwarded, indexed and kept, four digits are enough to tell two customers apart, and the full number stays in the app behind a login — phone, email and address are shown in full because those are what make a row actionable. A field with no value is **omitted, never dashed**, because these blocks also render for runs recorded before the details existed, where a dash would claim the order has no package. Verified: `next build`, lint clean, **331 unit tests** (11 new), and both emails rendered from the real 3-order batch and inspected as images. **NOT verified: in a mail client.** Every render is Chromium; nothing has been opened in Gmail or Outlook, and no app-generated email has been delivered at all (see the entry above). **Noted, not fixed:** all three orders in that batch have `reference: null`, so the emails show only the customer name — drafts created by the bulk script get no ORD-xxxx.
 
 - **Bulk-Create Drafts From Given Customers** (2026-08-22): Merged as `58991c6` / `51b66fe`. `scripts/bulk_create_order/` — the other half of `seed-orders.ts`: that one invents customers and asks the portal which addresses are serviceable, this one takes the customer data and address as given, makes **no portal call**, and writes the rows as typed — whether the address sells is decided by the submit, which is the thing under test. Per row it validates the address with the app's own `validateMalaysianAddress` (a row that fails it could never be re-saved from the order form), **derives** gender/birthday from the MyKad and postcode/city/state from the address rather than trusting hand-typed values (a typed value that disagreed would be a row saying one thing and a submit doing another), uploads the given document to R2 once per document type under the same key scheme the order form uses, and writes one `draft`. It never submits. One draft per ID number unless `--force`, so re-running after a half-finished run tops the set up instead of doubling it — a duplicate ID sends a submit down the multiple-customer path instead of the one being tested. `--dry-run` validates and prints without uploading or writing. Ships with `orders.json` (four test customers at Eco Majestic Semenyih), `ic_upload.png` and a README. Verified by `tsc`, lint, and a dry run against the real database; **a live write and the R2 uploads have not been run**. Also in this branch: `pickOffer` now filters the plan grid's **category header rows** ("unifi Home Bundle Sale Catg"), which the row reader returns looking exactly like offers — writing one into `Order.offerName` produces a draft naming a package that does not exist, discovered only at the plan step.
+
+- **Fix — Utility Bill Address Overflowed Its Box and Lost the State** (2026-08-22): Merged as `574ebfd` / `c32adee`, Vercel-only. Two defects in one block, both reported off a real bill. **The overlap:** wrapping counted **characters** and never measured **width** — there was no glyph-width function anywhere in the generator. `X` is 685/1000 em in Tahoma-Bold against 313 for a space, so a 40-character line of X's is far wider than 40 characters of address text, and the 40-char budget had been calibrated on address text; that is the whole reason address lines looked fine and the mask did not. The mask compounded it by never being wrapped at all — `'X'.repeat(name.length)` is unbounded, and a 36-character name measures 197.3pt against a 178pt box. **The missing address:** a silent truncation — the formatter emitted as many lines as it needed, the page draws 5 fixed Y positions, and the drawing loop stopped at 5 and discarded the rest. The discarded line was the last one pushed, the **state**; the reported bill generated `SELANGOR` and never drew it. **Fixes:** new `font-metrics.ts` carrying advance widths **extracted from the template PDF's own embedded `/Widths` arrays**, so they are the widths the viewer itself lays text out with rather than an approximation that can drift; wrapping measures points, budgeted to the **white knock-out box rather than the page**, since text wider than the box sits on un-erased template content — the divider was measured out of the rendered page at **216pt** against a box ending at 214pt, so 178pt stops inside both, and the generator passes its own overlay constants down so coordinates and wrap budget cannot drift apart; the name mask is a **fixed width for every bill** (the mask conveys nothing, so preserving the real length bought nothing and was precisely what overflowed); postcode + city + state **merge onto one reserved line that always draws** with street lines yielding instead, which also freed a slot since those took two lines before; and splitting now breaks **only when text genuinely does not fit** — the old version broke at every street keyword regardless of width, which is how `XXX XXX,` ended up alone on a line and pushed the state past the last slot. The internet bill shares `normalizeAddress` but is deliberately left on character counting, and its output is **byte-identical** before and after. **Verified** by rendering the reported address through `qlmanage` (the same CoreGraphics engine as Preview): before, the X's cross the divider and `SELANGOR` is absent; after, the mask stops short and the line reads `63000 CYBERJAYA, SELANGOR`; page 2 checked the same way. Build passes, eslint 0 errors (8 warnings, all pre-existing), 351 tests with 20 new ones asserting no line exceeds its box, no block exceeds its slots, and the locality line always survives. **Cosmetic change accepted:** the reported address previously fitted `...CYBERSQUARE TOWER 1` on one line at 179.0pt, 1pt over the new budget, so it now wraps as `...TOWER` / `1 CYBER 5` — correct and inside the box, but the break reads slightly worse; widening 2pt to reach the divider would restore it at the cost of drawing marginally outside the white box. **Known bug left alone by the user's explicit call:** the state matcher removes the **first** occurrence of a state name found anywhere, so a city containing the state name is mangled — `81200 JOHOR BAHRU JOHOR` becomes `81200 BAHRU JOHOR`; because the local parse then holds both a postcode and a state, Google Geocoding is never called to correct it. Same trap for MELAKA, PULAU PINANG and Kuala Kangsar/PERAK, and it **affects internet bills too** (`81200 BAHRU JOHOR JOHOR`), so it is a wider fix than this branch. **Also still open from the 2026-08-14 internet-bill fix:** bills delivered before that fix still have an invisible address until a backfill regenerates them.
