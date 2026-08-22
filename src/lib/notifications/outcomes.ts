@@ -23,6 +23,107 @@ export interface OrderOutcome {
   portalOrderNo: string | null;
   errorCode: string | null;
   errorMessage: string | null;
+  /** The customer and package this run was for. Absent on pre-existing rows. */
+  details?: OrderCaseDetails;
+}
+
+/**
+ * The case details an email repeats back, frozen at the moment the run finished.
+ *
+ * Every field is optional because a BatchRun written before these existed still
+ * has to render: a summary that threw on an old row would lose the results it
+ * was sent to report. The template omits what it doesn't have rather than
+ * printing a dash per missing field, which would read as "this order has no
+ * package" instead of "this run predates the detail."
+ */
+export interface OrderCaseDetails {
+  idType?: string | null;
+  /** RAW id — masked at render time, never stored masked (see maskIdNumber). */
+  idNumber?: string | null;
+  /** Display form including the country code, e.g. +60148893212. */
+  mobile?: string | null;
+  email?: string | null;
+  /** The installation address as the portal will read it. */
+  address?: string | null;
+  offerName?: string | null;
+  deviceName?: string | null;
+  /** Verbatim from the e-RF: a date plus a two-ended window, not an instant. */
+  installationDate?: string | null;
+}
+
+/**
+ * An ID with everything but its last four digits hidden.
+ *
+ * Email is not a private channel — it sits in an inbox, gets forwarded, and is
+ * indexed by the provider. The last four digits are enough for the reader to
+ * tell two customers apart, which is the only thing the number is doing in a
+ * notification; the full MyKad is in the app, behind a login, for anyone who
+ * genuinely needs it.
+ */
+export function maskIdNumber(value: string | null | undefined): string {
+  const raw = String(value ?? "").replace(/[^A-Za-z0-9]/g, "");
+  if (!raw) return "";
+  if (raw.length <= 4) return raw;
+  const tail = raw.slice(-4);
+  // A 12-digit MyKad keeps its familiar shape, so a reader recognises it as an
+  // IC rather than as a truncated something-else.
+  if (raw.length === 12) return `••••••-••-${tail}`;
+  return `${"•".repeat(raw.length - 4)}${tail}`;
+}
+
+/**
+ * Build the frozen detail block from an Order row.
+ *
+ * One function for both emails so a single submit and a batch member can never
+ * describe the same order differently — and pure, so it belongs beside the
+ * rules rather than in either caller.
+ */
+export function caseDetailsFrom(o: {
+  idType?: string | null;
+  idNumber?: string | null;
+  mobilePrefix?: string | null;
+  mobile?: string | null;
+  email?: string | null;
+  street?: string | null;
+  offerName?: string | null;
+  deviceName?: string | null;
+  installationDate?: string | null;
+}): OrderCaseDetails {
+  return {
+    idType: o.idType ?? null,
+    idNumber: o.idNumber ?? null,
+    mobile: o.mobile ? `+${o.mobilePrefix ?? "60"}${o.mobile}` : null,
+    email: o.email ?? null,
+    address: o.street ?? null,
+    offerName: o.offerName ?? null,
+    deviceName: o.deviceName ?? null,
+    installationDate: o.installationDate ?? null,
+  };
+}
+
+/**
+ * How much of a failure message an email carries.
+ *
+ * The portal's own sentence is short. A Playwright timeout is not: one real
+ * failure produced a 2,000-character locator dump that filled the entire email
+ * and buried the other two orders' results under it. The opening of the message
+ * is the part that names the order and the cause, so it is the part kept.
+ */
+export const MAX_ERROR_CHARS = 320;
+
+/**
+ * A failure message trimmed to something a reader will actually read.
+ *
+ * Whitespace runs are collapsed first — the dumps arrive full of newlines and
+ * indentation, which spend the budget on nothing. Truncation is MARKED, because
+ * a sentence cut mid-word with no ellipsis reads as the portal having stopped
+ * mid-sentence, which is a different and more alarming claim.
+ */
+export function shortErrorMessage(value: string | null | undefined): string | null {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  if (text.length <= MAX_ERROR_CHARS) return text;
+  return `${text.slice(0, MAX_ERROR_CHARS).trimEnd()}… (truncated — the full message is on the order's history)`;
 }
 
 /**

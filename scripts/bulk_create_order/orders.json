@@ -1,0 +1,46 @@
+{
+  "defaults": {
+    "idType": "MyKad",
+    "mobilePrefix": "60",
+    "offerName": "Unifi Home 500Mbps Premium Value With Device (36M)",
+    "docTypes": ["im_conversation", "mykad"],
+    "remarks": "TEST DRAFT — bulk-created test data, not a real customer."
+  },
+  "orders": [
+    {
+      "label": "Testing Order 1",
+      "idNumber": "920505034434",
+      "fullName": "Phong Kone Lee",
+      "mobile": "148893212",
+      "email": "jjllac213@gmail.com",
+      "offerName": "Unifi Home 500Mbps Premium Value With Device (36M)",
+      "street": "C-30-11 JALAN ECO MAJESTIC 3A/5 30 RESIDENSI SELANGORKU BEGONIA BLOK C ECO MAJESTIC SEMENYIH SELANGOR MALAYSIA 43500"
+    },
+    {
+      "label": "Testing Order 2",
+      "idNumber": "991201062433",
+      "fullName": "Zainuddeen bin Abdul Baari",
+      "mobile": "165665120",
+      "email": "zai1322@gmail.com",
+      "street": "C-30-2 JALAN ECO MAJESTIC 3A/5 30 RESIDENSI SELANGORKU BEGONIA BLOK C ECO MAJESTIC SEMENYIH SELANGOR MALAYSIA 43500"
+    },
+    {
+      "label": "Testing Order 3",
+      "idNumber": "880901034221",
+      "fullName": "Lee Ah Mong",
+      "mobile": "148893310",
+      "email": "leeam@gmail.com",
+      "offerName": "Unifi Home 500Mbps Premium Value With Device (36M)",
+      "street": "C-30-10 JALAN ECO MAJESTIC 3A/5 30 RESIDENSI SELANGORKU BEGONIA BLOK C ECO MAJESTIC SEMENYIH SELANGOR MALAYSIA 43500"
+    },
+    {
+      "label": "Testing Order 4",
+      "idNumber": "940811034224",
+      "fullName": "Lee Ming Hua",
+      "mobile": "124296610",
+      "email": "minghua312s@gmail.com",
+      "offerName": "Unifi Home 500Mbps Premium Value With Device (36M)",
+      "street": "C-30-14 JALAN ECO MAJESTIC 3A/5 30 RESIDENSI SELANGORKU BEGONIA BLOK C ECO MAJESTIC SEMENYIH SELANGOR MALAYSIA 43500"
+    }
+  ]
+}
