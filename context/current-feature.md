@@ -1,16 +1,49 @@
-# Current Feature
+# Current Feature: Generate Authorization Letter
 
 ## Status
 
-Not Started
+In Progress — built and verified live, awaiting review and commit
 
 ## Goals
 
-<!-- What success looks like -->
+- A third document button in the Bills column of the case list (plus a matching button in the detail panel) that generates a one-page TM authorization letter PDF for a single case and downloads it immediately.
+- The letter names the case customer as the **resident**, and a **generated property owner** (English given name + Chinese surname, e.g. Kelly Lam, Martin Goh) who vouches for them at the case's installation address.
+- Every field is filled — nothing is left blank for hand-filling. Owner IC is generated in valid Malaysian format; the resident's IC comes from the case's `id_no`.
+- Both signature blocks carry a **drawn** signature — one continuous pen path, not text. An opening gesture, a run of three to six connected strokes whose amplitude decays until they stop resembling letters, a large flourish (ellipse around the mark, serpentine beneath it, falling loop, or rising hairline), and sometimes a stroke driven through the writing. Nothing spells the name; it is seeded on it, so one person always signs the same way.
+- The letter date is the generation date; the effective date is never later than it.
+- The same case always produces the same property owner — name, IC and effective date are seeded from a hash of `case_no`, not `Math.random()`.
+- Nothing is stored (no R2 object, no DB column, no migration) and nothing is charged against the case limit.
+- Verified by unit tests for the pure logic and by rendering the output PDF through `qlmanage`.
 
 ## Notes
 
-<!-- Context, constraints, details from spec -->
+Full spec: [context/features/generate-authorization-letter.md](features/generate-authorization-letter.md). Layout and wording come verbatim from `Sample Authorization Letter Template.pdf`.
+
+**New files**
+- `src/lib/bill-generator/authorization-letter.ts` — `generateAuthorizationLetter(caseData)`, built from scratch with `pdf-lib` (no template PDF to overlay)
+- `src/lib/bill-generator/owner-identity.ts` — seeded owner name + IC generation, IC formatting. Pure.
+- `src/lib/bill-generator/signature.ts` — `drawSignature(page, name, opts)` plus `signaturePaths()`, which returns the raw path data the tests assert on
+- `src/app/api/bills/authorization-letter/route.ts` — `GET ?case_no=…`, auth-scoped, streams `application/pdf`
+
+**Changed**
+- `src/components/dashboard/CaseManagementSection.tsx` — third Bills-cell icon + detail-panel button, each with a per-row spinner
+
+**Constraints carried over from past bugs**
+- Text is **measured** with `font.widthOfTextAtSize` against the 451pt content width, never character-counted — that is what overflowed the utility bill's address box.
+- pdf-lib's standard fonts cannot encode non-Latin-1 characters; sanitise them out rather than throwing.
+- A case with no `id_no` is rejected with a clear error rather than producing a letter with a blank resident IC.
+- Effective date: random day in `1 … min(10, today)` of the current month; on the 1st or 2nd, roll back to a random day 1–10 of the previous month.
+
+**Signatures went through three superseded attempts** before landing on a drawn path: an abstract squiggle (no identity, one hand for everyone), the name set in a script face (legible but unmistakably typeset), and the same with per-letter jitter (handwritten-looking, still text). The font files and `@pdf-lib/fontkit` were removed with the third. Two things make the drawn version work: a **shear** applied to every point (cursive leans; rotating the finished mark tips the baseline instead), and a **floor on stroke width** with rare ascenders (narrow tall strokes produced an EKG trace). Two exported constants — `SIGNATURE_ASCENT` and `FLOURISH_DESCENT` — bound the mark, are clamped at the point of drawing, and are what the letter block reserves room against; both were added after an actual overrun.
+
+**Changed during implementation** (all three found by the first real case, not by the synthetic ones):
+- A fourth lib file, `letter-dates.ts`, holds the date rules — they are not identity, and the effective-date boundary is worth testing alone.
+- The postcode table (`malaysia-postcodes.json`) now supplies city and state. It replaces the parsed city only when the parse is a fragment of it (`KINABALU` of `KOTA KINABALU`), so `71010 LUKUT` is not rewritten to `PORT DICKSON`. This means the letter escapes the inherited state-matcher bug; **the bills still have it**.
+- Letterhead lines are wrapped, and the city/state/country tail is peeled off the street text. Portal addresses have no commas and put the postcode last, so the first build printed a line that ran off the page and repeated the state twice.
+
+**Out of scope**: bulk generation, ZIP download, any edit-before-download form.
+
+**Open risk**: the letter asserts a residence arrangement with an invented property owner and carries invented signatures, and it is submitted to a third party.
 
 ## History
 
