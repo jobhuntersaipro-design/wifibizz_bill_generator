@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import { isValidEmail, resolveRecipient } from "@/lib/notifications/recipient";
 import {
   bucketOf,
+  caseDetailsFrom,
   describeOutcome,
   formatDuration,
+  maskIdNumber,
   outcomeSubject,
+  shortErrorMessage,
   summarize,
   type OrderOutcome,
 } from "@/lib/notifications/outcomes";
@@ -239,5 +242,113 @@ describe("batchSummaryEmail", () => {
       finishedAt: new Date("2026-08-21T01:00:30Z"),
     });
     expect(html).not.toMatch(/without finishing/);
+  });
+});
+
+describe("maskIdNumber", () => {
+  it("keeps a MyKad recognisable while hiding all but the last four", () => {
+    // Email is forwarded, indexed and kept — the last four are all a reader
+    // needs to tell two customers apart, and the app holds the rest.
+    expect(maskIdNumber("920505034434")).toBe("••••••-••-4434");
+    expect(maskIdNumber("920505-03-4434")).toBe("••••••-••-4434");
+  });
+
+  it("masks a passport-shaped ID too, and never invents digits", () => {
+    expect(maskIdNumber("A1234567")).toBe("••••4567");
+    expect(maskIdNumber("")).toBe("");
+    expect(maskIdNumber(null)).toBe("");
+  });
+});
+
+describe("caseDetailsFrom", () => {
+  it("builds the phone from the prefix the order carries", () => {
+    const d = caseDetailsFrom({ mobilePrefix: "60", mobile: "148893212" });
+    expect(d.mobile).toBe("+60148893212");
+  });
+
+  it("reports a missing phone as absent rather than as a bare country code", () => {
+    // "+60" in an email reads as a phone number that is wrong, not as one that
+    // was never captured.
+    expect(caseDetailsFrom({ mobilePrefix: "60", mobile: null }).mobile).toBeNull();
+  });
+});
+
+describe("case details in the emails", () => {
+  const details = {
+    idType: "MyKad",
+    idNumber: "920505034434",
+    mobile: "+60148893212",
+    email: "jjllac213@gmail.com",
+    address: "C-30-11 JALAN ECO MAJESTIC SEMENYIH SELANGOR 43500",
+    offerName: "Unifi Home 500Mbps Premium Value With Device (36M)",
+    deviceName: "Apple 11-inch iPad Wi-Fi 256GB",
+    installationDate: "2026-08-25 09:30-12:00",
+  };
+
+  it("repeats the case back, with the ID masked", () => {
+    const { html } = singleResultEmail(outcome({ details }));
+    expect(html).toContain("MyKad");
+    expect(html).toContain("••••••-••-4434");
+    expect(html).not.toContain("920505034434");
+    expect(html).toContain("+60148893212");
+    expect(html).toContain("ECO MAJESTIC");
+    expect(html).toContain("500Mbps");
+    expect(html).toContain("2026-08-25 09:30-12:00");
+  });
+
+  it("shows the details on every row of a batch", () => {
+    const { html } = batchSummaryEmail({
+      results: [outcome({ details }), outcome({ orderId: "b", fullName: "SECOND", details })],
+      startedAt: new Date("2026-08-21T01:00:00Z"),
+      finishedAt: new Date("2026-08-21T01:10:00Z"),
+    });
+    expect(html.match(/••••••-••-4434/g)).toHaveLength(2);
+  });
+
+  it("omits a field it has no value for, rather than printing a dash", () => {
+    // A dash reads as "this order has no package". These blocks also render for
+    // runs recorded before the details existed, where that would be a lie.
+    const { html } = singleResultEmail(outcome({ details: { offerName: "Unifi Home 100Mbps" } }));
+    expect(html).toContain("Unifi Home 100Mbps");
+    expect(html).not.toContain("Address");
+    expect(html).not.toContain("Phone");
+  });
+
+  it("still renders a result recorded before details existed", () => {
+    const { html } = singleResultEmail(outcome({ details: undefined }));
+    expect(html).toContain("AISYAH BINTI RAHIM");
+    expect(html).not.toContain("Case details");
+  });
+});
+
+describe("shortErrorMessage", () => {
+  it("leaves a portal sentence alone", () => {
+    const portalSays = '[40300338]: Sorry, the SAMSUNG TV 55" is currently out of stock.';
+    expect(shortErrorMessage(portalSays)).toBe(portalSays);
+  });
+
+  it("cuts a locator dump down and says that it did", () => {
+    // A real failure produced a 2,000-character Playwright dump that filled the
+    // whole email and buried the other orders' results beneath it.
+    const dump = "Timeout 6000ms exceeded. Call log: " + "- waiting for locator ".repeat(200);
+    const out = shortErrorMessage(dump)!;
+    expect(out.length).toBeLessThan(420);
+    expect(out).toContain("Timeout 6000ms exceeded");
+    expect(out).toContain("truncated");
+  });
+
+  it("collapses the whitespace a dump is padded with", () => {
+    expect(shortErrorMessage("a\n\n   b")).toBe("a b");
+    expect(shortErrorMessage("   ")).toBeNull();
+    expect(shortErrorMessage(null)).toBeNull();
+  });
+});
+
+describe("email encoding", () => {
+  it("declares utf-8, so the masked ID and the em dash are not mojibake", () => {
+    // Rendered without this, "••••••-••-4434" arrives as "â€¢â€¢…" in any client
+    // that guesses the encoding.
+    const { html } = singleResultEmail(outcome({ details: { idNumber: "920505034434" } }));
+    expect(html).toContain('<meta charset="utf-8"/>');
   });
 });

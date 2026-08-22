@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { resolveRecipient } from "./recipient";
 import { sendEmail } from "./resend";
 import { batchSummaryEmail, singleResultEmail } from "./templates";
-import type { OrderOutcome } from "./outcomes";
+import { caseDetailsFrom, type OrderOutcome } from "./outcomes";
 
 /**
  * Sending a notification exactly once.
@@ -54,6 +54,9 @@ export async function notifyOrderResult(orderId: string): Promise<void> {
     select: {
       id: true, reference: true, fullName: true, status: true,
       orderId: true, errorCode: true, errorMessage: true,
+      idType: true, idNumber: true, mobilePrefix: true, mobile: true,
+      email: true, street: true, offerName: true, deviceName: true,
+      installationDate: true,
       user: { select: { email: true, notificationEmail: true } },
     },
   });
@@ -77,6 +80,7 @@ export async function notifyOrderResult(orderId: string): Promise<void> {
     portalOrderNo: order.orderId,
     errorCode: order.errorCode,
     errorMessage: order.errorMessage,
+    details: caseDetailsFrom(order),
   };
   const { subject, html } = singleResultEmail(outcome);
   const res = await sendEmail({ to, subject, html });

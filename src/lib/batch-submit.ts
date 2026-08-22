@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { pollOrderProgress } from "@/lib/order-submit";
-import type { OrderOutcome } from "@/lib/notifications/outcomes";
+import { caseDetailsFrom, type OrderOutcome } from "@/lib/notifications/outcomes";
 
 /**
  * BizzFlow's half of a server-side batch submit.
@@ -57,6 +57,12 @@ export async function reconcileBatch(batchRunId: string): Promise<{
       select: {
         id: true, reference: true, fullName: true, status: true,
         orderId: true, errorCode: true, errorMessage: true,
+        // Repeated back in the summary so a reader can act on a row without
+        // opening the app. Frozen onto the BatchRun with the rest of the
+        // result: an order edited afterwards must not rewrite what was sent.
+        idType: true, idNumber: true, mobilePrefix: true, mobile: true,
+        email: true, street: true, offerName: true, deviceName: true,
+        installationDate: true,
       },
     });
     // A member deleted mid-run: recorded as gone rather than dropped, so the
@@ -78,6 +84,7 @@ export async function reconcileBatch(batchRunId: string): Promise<{
       portalOrderNo: o.orderId,
       errorCode: o.errorCode,
       errorMessage: o.errorMessage,
+      details: caseDetailsFrom(o),
     });
   }
   return { outcomes, allDone };

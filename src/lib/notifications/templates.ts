@@ -1,10 +1,15 @@
 import { submitErrorCopy } from "@/lib/order-types";
 import {
+  bucketOf,
   describeOutcome,
   formatDuration,
+  maskIdNumber,
   outcomeSubject,
+  shortErrorMessage,
   summarize,
+  type OrderCaseDetails,
   type OrderOutcome,
+  type OutcomeBucket,
 } from "./outcomes";
 
 /**
@@ -13,6 +18,9 @@ import {
  * Plain, inline-styled HTML on the Stripe palette the dashboard uses. No React
  * Email, no external stylesheet: mail clients strip <style> blocks and none of
  * them fetch anything, so inline attributes are the only styling that survives.
+ * Layout is `<table>` for the same reason — flex and grid are unreliable in
+ * Outlook, and a broken layout in a mail client is not something a reader can
+ * work around.
  *
  * These functions are pure — they take values and return `{ subject, html }` —
  * so the wording and the aggregation can be tested without sending anything.
@@ -59,11 +67,23 @@ const ordersUrl = (): string | null => {
   return base ? `${base}/dashboard/order-entry?tab=drafts` : null;
 };
 
+/** Pill colours per outcome — the one visual carrying the whole verdict. */
+const PILL: Record<OutcomeBucket, { fg: string; bg: string; border: string }> = {
+  submitted: { fg: "#0F7B4F", bg: "#E7F6EE", border: "#B7E3CC" },
+  order_entered: { fg: "#8A5A00", bg: "#FEF6E7", border: "#F5D9A8" },
+  failed: { fg: "#B4232C", bg: "#FDECEE", border: "#F5C2C7" },
+};
+
+function pill(bucket: OutcomeBucket, label: string): string {
+  const c = PILL[bucket];
+  return `<span style="display:inline-block;padding:3px 10px;border-radius:999px;background:${c.bg};border:1px solid ${c.border};color:${c.fg};font-size:12px;font-weight:600;line-height:1.5;white-space:nowrap;">${esc(label)}</span>`;
+}
+
 function shell(title: string, body: string): string {
   const link = ordersUrl();
   return `<!doctype html>
-<html><body style="margin:0;padding:24px;background:${SURFACE};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Arial,sans-serif;color:${INK};">
-  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:600px;margin:0 auto;background:#ffffff;border:1px solid ${LINE};border-radius:12px;">
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head><body style="margin:0;padding:24px;background:${SURFACE};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Arial,sans-serif;color:${INK};">
+  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid ${LINE};border-radius:12px;">
     <tr><td style="padding:24px 24px 8px;">
       <div style="font-size:12px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:${BRAND};">BizzFlow</div>
       <h1 style="margin:8px 0 0;font-size:18px;font-weight:600;line-height:1.3;color:${INK};">${title}</h1>
@@ -85,6 +105,56 @@ function row(label: string, value: string): string {
   </tr>`;
 }
 
+/** A section heading inside the card. */
+function heading(text: string): string {
+  return `<div style="margin:20px 0 6px;font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:${MUTED};">${esc(text)}</div>`;
+}
+
+/**
+ * The case details, as label/value rows.
+ *
+ * A field with no value is OMITTED, not dashed. These blocks are also rendered
+ * for runs recorded before the details existed, and a column of dashes there
+ * would read as "this order has no package and no address" — a claim about the
+ * order rather than about what the run recorded.
+ *
+ * The ID is masked. Email is not a private channel: it is forwarded, indexed and
+ * kept, and the last four digits are all a reader needs to tell two customers
+ * apart. The full number stays in the app behind a login.
+ */
+function detailRows(d: OrderCaseDetails | undefined, opts: { address?: boolean } = {}): string {
+  if (!d) return "";
+  const parts: string[] = [];
+  const id = maskIdNumber(d.idNumber);
+  if (id) parts.push(row(d.idType || "ID", esc(id)));
+  if (d.mobile) parts.push(row("Phone", esc(d.mobile)));
+  if (d.email) parts.push(row("Email", esc(d.email)));
+  if (opts.address !== false && d.address) parts.push(row("Address", esc(d.address)));
+  if (d.offerName) parts.push(row("Package", esc(d.offerName)));
+  if (d.deviceName) parts.push(row("Device", esc(d.deviceName)));
+  if (d.installationDate) parts.push(row("Installation", esc(d.installationDate)));
+  return parts.join("");
+}
+
+/**
+ * The failure box: the portal's own sentence, verbatim.
+ *
+ * `submitErrorCopy` supplies the title and the remedy for a classified code and
+ * nothing for an unclassified one, in which case the raw message still shows —
+ * an unmapped failure must never produce an empty box, which reads as "no
+ * reason given" when the reason was right there.
+ */
+function problemBox(o: Pick<OrderOutcome, "errorCode" | "errorMessage">): string {
+  const copy = submitErrorCopy(o.errorCode);
+  const message = shortErrorMessage(o.errorMessage);
+  if (!copy && !message) return "";
+  return `<div style="margin-top:12px;padding:12px 14px;background:${SURFACE};border:1px solid ${LINE};border-radius:8px;">
+      ${copy ? `<div style="font-size:13px;font-weight:600;color:${INK};">${esc(copy.title)}</div>` : ""}
+      ${message ? `<div style="margin-top:4px;font-size:13px;line-height:1.5;color:${INK};word-break:break-word;">${esc(message)}</div>` : ""}
+      ${copy ? `<div style="margin-top:8px;font-size:13px;color:${MUTED};">${esc(copy.fix)}</div>` : ""}
+    </div>`;
+}
+
 /**
  * The result of ONE submit.
  *
@@ -94,32 +164,35 @@ function row(label: string, value: string): string {
  */
 export function singleResultEmail(o: OrderOutcome): { subject: string; html: string } {
   const { label, detail } = describeOutcome(o);
-  const copy = submitErrorCopy(o.errorCode);
-  const facts = [
-    row("Customer", esc(o.fullName)),
+  const bucket = bucketOf(o);
+
+  const orderFacts = [
     o.reference ? row("Reference", esc(o.reference)) : "",
-    row("Outcome", esc(label)),
     o.portalOrderNo ? row("Portal order no.", esc(o.portalOrderNo)) : "",
   ].join("");
-
-  const problem =
-    copy || o.errorMessage
-      ? `<div style="margin-top:16px;padding:12px 14px;background:${SURFACE};border:1px solid ${LINE};border-radius:8px;">
-           ${copy ? `<div style="font-size:13px;font-weight:600;color:${INK};">${esc(copy.title)}</div>` : ""}
-           ${o.errorMessage ? `<div style="margin-top:4px;font-size:13px;color:${INK};">${esc(o.errorMessage)}</div>` : ""}
-           ${copy ? `<div style="margin-top:8px;font-size:13px;color:${MUTED};">${esc(copy.fix)}</div>` : ""}
-         </div>`
-      : "";
 
   return {
     subject: outcomeSubject(o, o.fullName),
     html: shell(
-      label,
-      `<p style="margin:0 0 14px;color:${MUTED};">${esc(detail)}</p>
-       <table role="presentation" cellpadding="0" cellspacing="0">${facts}</table>
-       ${problem}`,
+      esc(o.fullName),
+      `<div style="margin:0 0 12px;">${pill(bucket, label)}</div>
+       <p style="margin:0 0 14px;color:${MUTED};">${esc(detail)}</p>
+       ${orderFacts ? `<table role="presentation" cellpadding="0" cellspacing="0" width="100%">${orderFacts}</table>` : ""}
+       ${problemBox(o)}
+       ${detailRows(o.details) ? `${heading("Case details")}<table role="presentation" cellpadding="0" cellspacing="0" width="100%">${detailRows(o.details)}</table>` : ""}`,
     ),
   };
+}
+
+/** One count in the summary's three-up totals strip. */
+function tile(count: number, label: string, bucket: OutcomeBucket): string {
+  const c = PILL[bucket];
+  return `<td width="33%" style="padding:0 4px;">
+    <div style="padding:12px 10px;background:${c.bg};border:1px solid ${c.border};border-radius:8px;text-align:center;">
+      <div style="font-size:22px;font-weight:600;line-height:1.1;color:${c.fg};">${count}</div>
+      <div style="margin-top:2px;font-size:11px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:${c.fg};">${esc(label)}</div>
+    </div>
+  </td>`;
 }
 
 /**
@@ -127,7 +200,12 @@ export function singleResultEmail(o: OrderOutcome): { subject: string; html: str
  *
  * A ten-order batch that emailed per order would train the reader to ignore the
  * lot, which loses the two rows that actually need someone in the portal. So the
- * per-order results are rows in this table, in the order they ran.
+ * per-order results are cards in this email, in the order they ran.
+ *
+ * Cards rather than table rows because the details are what make a row
+ * actionable — the reader can tell WHICH customer stranded, on which package, at
+ * which address, without opening the app. A four-column table cannot hold that
+ * without wrapping into an unreadable mess on a phone.
  */
 export function batchSummaryEmail(batch: {
   results: OrderOutcome[];
@@ -135,23 +213,29 @@ export function batchSummaryEmail(batch: {
   finishedAt: Date;
 }): { subject: string; html: string } {
   const t = summarize(batch.results);
-  const base = appBaseUrl();
 
-  const rows = batch.results
+  const cards = batch.results
     .map((r, i) => {
       const { label } = describeOutcome(r);
-      const right = r.portalOrderNo
-        ? esc(r.portalOrderNo)
-        : esc(submitErrorCopy(r.errorCode)?.title ?? r.errorMessage ?? "—");
-      return `<tr>
-        <td style="padding:8px 8px 8px 0;font-size:13px;color:${MUTED};vertical-align:top;">${i + 1}</td>
-        <td style="padding:8px 8px 8px 0;font-size:13px;color:${INK};vertical-align:top;">
-          <div style="font-weight:600;">${esc(r.fullName)}</div>
-          ${r.reference ? `<div style="color:${MUTED};font-size:12px;">${esc(r.reference)}</div>` : ""}
-        </td>
-        <td style="padding:8px 8px 8px 0;font-size:13px;color:${INK};vertical-align:top;white-space:nowrap;">${esc(label)}</td>
-        <td style="padding:8px 0;font-size:13px;color:${MUTED};vertical-align:top;">${right}</td>
-      </tr>`;
+      const bucket = bucketOf(r);
+      const details = detailRows(r.details);
+      const failure = bucket === "failed" || bucket === "order_entered" ? problemBox(r) : "";
+      return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:12px;border:1px solid ${LINE};border-radius:8px;">
+        <tr><td style="padding:12px 14px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+            <tr>
+              <td style="font-size:14px;font-weight:600;color:${INK};vertical-align:top;">
+                ${i + 1}. ${esc(r.fullName)}
+                ${r.reference ? `<span style="margin-left:6px;font-size:12px;font-weight:400;color:${MUTED};">${esc(r.reference)}</span>` : ""}
+              </td>
+              <td align="right" style="vertical-align:top;">${pill(bucket, label)}</td>
+            </tr>
+          </table>
+          ${r.portalOrderNo ? `<div style="margin-top:6px;font-size:13px;color:${INK};">Portal order no. <strong>${esc(r.portalOrderNo)}</strong></div>` : ""}
+          ${details ? `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:6px;">${details}</table>` : ""}
+          ${failure}
+        </td></tr>
+      </table>`;
     })
     .join("");
 
@@ -165,8 +249,8 @@ export function batchSummaryEmail(batch: {
   ].join(" · ");
 
   const needsAttention = t.orderEntered > 0
-    ? `<p style="margin:14px 0 0;padding:12px 14px;background:#FEF6E7;border:1px solid #F5D9A8;border-radius:8px;font-size:13px;color:${INK};">
-         ${t.orderEntered} order${t.orderEntered === 1 ? "" : "s"} reached the Unifi portal without finishing. Each one exists there and needs to be resubmitted or voided by hand${base ? "" : ""}.
+    ? `<p style="margin:14px 0 0;padding:12px 14px;background:${PILL.order_entered.bg};border:1px solid ${PILL.order_entered.border};border-radius:8px;font-size:13px;color:${INK};">
+         ${t.orderEntered} order${t.orderEntered === 1 ? "" : "s"} reached the Unifi portal without finishing. Each one exists there and needs to be resubmitted or voided by hand.
        </p>`
     : "";
 
@@ -174,16 +258,22 @@ export function batchSummaryEmail(batch: {
     subject: `Batch submit finished: ${t.submitted}/${t.total} submitted`,
     html: shell(
       `Batch finished — ${totals}`,
-      `<table role="presentation" cellpadding="0" cellspacing="0">
+      `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:4px 0 16px;">
+         <tr>
+           ${tile(t.submitted, "Submitted", "submitted")}
+           ${tile(t.orderEntered, "Order entered", "order_entered")}
+           ${tile(t.failed, "Failed", "failed")}
+         </tr>
+       </table>
+       <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
          ${row("Orders", String(t.total))}
          ${row("Started", esc(batch.startedAt.toISOString().replace("T", " ").slice(0, 19) + " UTC"))}
          ${row("Finished", esc(batch.finishedAt.toISOString().replace("T", " ").slice(0, 19) + " UTC"))}
          ${row("Duration", esc(formatDuration(batch.finishedAt.getTime() - batch.startedAt.getTime())))}
        </table>
        ${needsAttention}
-       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:18px;border-top:1px solid ${LINE};">
-         ${rows}
-       </table>`,
+       ${heading("Orders in this batch")}
+       ${cards}`,
     ),
   };
 }
