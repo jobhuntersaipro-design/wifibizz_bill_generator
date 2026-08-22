@@ -10,6 +10,8 @@
  * is preserved to avoid the API rewriting street names.
  */
 
+import { measureText, fitRepeatCount, type BillFont } from './font-metrics';
+
 // ── Malaysian state names ─────────────────────────────────────────
 
 const STATES = [
@@ -45,6 +47,23 @@ interface UtilityAddressResult {
   alamat_pos: string[];
   alamat_premis: string[];
   components: AddressComponents;
+}
+
+/**
+ * Geometry of one address block on the utility bill template.
+ *
+ * `widthPt` is the width of the white knock-out box, not the page: text drawn wider than
+ * the box sits on top of un-erased template content, which is exactly what the overlapping
+ * masked name looked like. `slots` is how many fixed Y positions the page actually draws —
+ * lines produced beyond it were previously discarded in silence, and the discarded one was
+ * the state.
+ */
+interface UtilityBlockLayout {
+  widthPt: number;
+  slots: number;
+  fontSize: number;
+  addrFont: BillFont;
+  nameFont: BillFont;
 }
 
 // ── Step 1: Pre-clean ─────────────────────────────────────────────
@@ -310,6 +329,77 @@ function wrap(text: string, maxChars: number): string[] {
   return lines;
 }
 
+/**
+ * Word-wrap `text` so no line exceeds `widthPt` when measured in the given font.
+ *
+ * A single word wider than the budget is broken mid-word rather than allowed to overhang —
+ * running off the knock-out box is the failure being fixed here, so overflowing is never
+ * the lesser evil.
+ */
+function wrapToWidth(text: string, widthPt: number, font: BillFont, fontSize: number): string[] {
+  if (!text) return [];
+  if (measureText(text, font, fontSize) <= widthPt) return [text];
+
+  const lines: string[] = [];
+  let current = '';
+
+  const pushWord = (word: string) => {
+    let rest = word;
+    while (measureText(rest, font, fontSize) > widthPt) {
+      let cut = rest.length - 1;
+      while (cut > 1 && measureText(rest.slice(0, cut), font, fontSize) > widthPt) cut--;
+      lines.push(rest.slice(0, cut));
+      rest = rest.slice(cut);
+    }
+    current = rest;
+  };
+
+  for (const word of text.split(' ')) {
+    if (!current) {
+      pushWord(word);
+      continue;
+    }
+    const candidate = `${current} ${word}`;
+    if (measureText(candidate, font, fontSize) <= widthPt) {
+      current = candidate;
+    } else {
+      lines.push(current);
+      pushWord(word);
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+/**
+ * Split `text` to fit `widthPt`, preferring a break at a street keyword.
+ *
+ * Unlike the character-based `smartSplit`, this only breaks when the text genuinely does
+ * not fit. The old version broke at every keyword regardless of width, which is how
+ * "XXX XXX," ended up alone on a line and pushed the state past the last slot.
+ */
+function smartSplitToWidth(text: string, widthPt: number, font: BillFont, fontSize: number): string[] {
+  if (!text) return [];
+  if (measureText(text, font, fontSize) <= widthPt) return [text];
+
+  const kwPattern = new RegExp(`\\b(?:${STREET_KEYWORDS.join('|')})\\b`, 'gi');
+  let bestSplit: number | null = null;
+  let m: RegExpExecArray | null;
+  while ((m = kwPattern.exec(text)) !== null) {
+    if (m.index === 0) continue;
+    const head = text.slice(0, m.index).trim().replace(/,$/, '').trim();
+    if (head && measureText(head, font, fontSize) <= widthPt) bestSplit = m.index;
+  }
+
+  if (bestSplit !== null) {
+    const head = text.slice(0, bestSplit).trim().replace(/,$/, '').trim();
+    const tail = text.slice(bestSplit).trim();
+    return [head, ...smartSplitToWidth(tail, widthPt, font, fontSize)];
+  }
+
+  return wrapToWidth(text, widthPt, font, fontSize);
+}
+
 function buildStreetLine(components: AddressComponents): string {
   const parts: string[] = [];
   if (components.route) parts.push(components.route);
@@ -351,52 +441,78 @@ function formatInternetAddress(components: AddressComponents, unitPrefix: string
 
 // ── Utility Bill Formatting ─────────────────────────────────────
 
-function formatUtilityAlamatPos(components: AddressComponents, unitPrefix: string | null, fullName = '', maxChars = 40): string[] {
-  const maskedName = 'X'.repeat(Math.max(fullName.length, 12));
-  const route = components.route || '';
-  const sublocality = components.sublocality || '';
+/**
+ * Postcode, city and state on ONE line: "63000 CYBERJAYA, SELANGOR".
+ *
+ * These used to occupy two of the five slots, and the state — pushed last — was the line
+ * the drawing loop dropped when the address ran long. Merging them frees a slot and keeps
+ * the block that a reader actually checks the bill against intact.
+ */
+function buildLocalityLine(components: AddressComponents): string {
   const postcodeCity = buildPostcodeCity(components, false);
   const state = components.state || '';
-
-  const lines = [maskedName];
-
-  if (unitPrefix) {
-    lines.push(...smartSplit(`XXX XXX,${route}`, maxChars));
-    if (sublocality) lines.push(...smartSplit(sublocality, maxChars));
-  } else {
-    lines.push(...smartSplit(`XXX XXX, ${route}`, maxChars));
-    if (sublocality) lines.push(...smartSplit(sublocality, maxChars));
-  }
-
-  lines.push(postcodeCity);
-  if (state) lines.push(state);
-
-  return lines;
+  if (postcodeCity && state) return `${postcodeCity}, ${state}`;
+  return postcodeCity || state;
 }
 
-function formatUtilityAlamatPremis(components: AddressComponents, unitPrefix: string | null, maxChars = 33): string[] {
+/**
+ * Lay out one utility-bill address block within its knock-out box and slot count.
+ *
+ * The locality line is reserved first and always survives; street and sublocality lines
+ * take whatever slots are left. If they still do not fit, the trailing street lines are
+ * dropped — a bill missing a street detail reads as ordinary, one missing its state reads
+ * as fabricated.
+ */
+function layoutUtilityBlock(
+  components: AddressComponents,
+  unitPrefix: string | null,
+  layout: UtilityBlockLayout,
+  maskName: boolean,
+): string[] {
+  const { widthPt, fontSize, addrFont, nameFont } = layout;
   const route = components.route || '';
   const sublocality = components.sublocality || '';
-  const postcodeCity = buildPostcodeCity(components, false);
-  const state = components.state || '';
 
   const lines: string[] = [];
+  let available = layout.slots;
 
-  if (unitPrefix) {
-    lines.push(...smartSplit(`XXX XXX,${route}`, maxChars));
-    if (sublocality) lines.push(...smartSplit(sublocality, maxChars));
-  } else {
-    lines.push(...smartSplit(`XXX XXX, ${route}`, maxChars));
-    if (sublocality) lines.push(...smartSplit(sublocality, maxChars));
+  if (maskName) {
+    // Fixed-width mask. The old mask was 'X'.repeat(fullName.length), so a long name drew a
+    // long row of X's — and X is the widest common glyph in Tahoma-Bold — straight past the
+    // box and over the column divider. The mask conveys nothing, so its length is free to
+    // be whatever fits.
+    lines.push('X'.repeat(fitRepeatCount('X', nameFont, fontSize, widthPt)));
+    available -= 1;
   }
 
-  lines.push(postcodeCity);
-  if (state) lines.push(state);
+  const localityLines = wrapToWidth(buildLocalityLine(components), widthPt, addrFont, fontSize);
+  const streetBudget = Math.max(0, available - localityLines.length);
 
+  const streetHead = unitPrefix ? `XXX XXX,${route}` : `XXX XXX, ${route}`;
+  const streetLines = [
+    ...smartSplitToWidth(streetHead, widthPt, addrFont, fontSize),
+    ...smartSplitToWidth(sublocality, widthPt, addrFont, fontSize),
+  ];
+
+  lines.push(...streetLines.slice(0, streetBudget), ...localityLines);
   return lines;
 }
 
 // ── High-level normalize function ─────────────────────────────────
+
+/**
+ * Geometry for both utility blocks. The generator passes its own overlay constants so the
+ * page coordinates and the wrapping budget cannot drift apart; this is the fallback.
+ */
+interface UtilityLayout {
+  alamatPos: UtilityBlockLayout;
+  alamatPremis: UtilityBlockLayout;
+}
+
+const DEFAULT_UTILITY_LAYOUT: UtilityLayout = {
+  alamatPos: { widthPt: 178, slots: 5, fontSize: 8, addrFont: '/F0301', nameFont: '/F0201' },
+  alamatPremis: { widthPt: 150, slots: 5, fontSize: 8, addrFont: '/F0301', nameFont: '/F0201' },
+};
 
 export async function normalizeAddress(
   rawAddress: string,
@@ -404,7 +520,9 @@ export async function normalizeAddress(
   fullName = '',
   maxChars?: number,
   apiKey?: string,
+  utilityLayout?: UtilityLayout,
 ): Promise<string[] | UtilityAddressResult> {
+  void fullName; // the utility name line is a fixed-width mask now, so the real name is unused
   if (!apiKey) {
     apiKey = process.env.GOOGLE_MAPS_API_KEY;
   }
@@ -429,11 +547,12 @@ export async function normalizeAddress(
     return formatInternetAddress(components, unitPrefix, mc);
   }
 
+  const layout = utilityLayout || DEFAULT_UTILITY_LAYOUT;
   return {
-    alamat_pos: formatUtilityAlamatPos(components, unitPrefix, fullName, 40),
-    alamat_premis: formatUtilityAlamatPremis(components, unitPrefix, maxChars || 33),
+    alamat_pos: layoutUtilityBlock(components, unitPrefix, layout.alamatPos, true),
+    alamat_premis: layoutUtilityBlock(components, unitPrefix, layout.alamatPremis, false),
     components,
   };
 }
 
-export type { AddressComponents, UtilityAddressResult };
+export type { AddressComponents, UtilityAddressResult, UtilityLayout, UtilityBlockLayout };

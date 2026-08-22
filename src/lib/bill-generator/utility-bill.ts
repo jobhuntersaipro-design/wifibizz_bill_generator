@@ -18,7 +18,7 @@ import {
   appendOverlayToPage,
   registerStandardFont,
 } from './pdf-utils';
-import { normalizeAddress, type UtilityAddressResult } from './address-normalizer';
+import { normalizeAddress, type UtilityAddressResult, type UtilityLayout } from './address-normalizer';
 import type { CaseData } from './internet-bill';
 
 // ── Original values from utility_bill_template.pdf ────────────────
@@ -80,8 +80,8 @@ const PAGE1_OVERLAY = {
   boxW: 180,
   boxH: 55,
   fontSize: 8.0,
-  nameFont: '/F0201',   // Tahoma-Bold
-  addrFont: '/F0301',   // Tahoma
+  nameFont: '/F0201' as const,   // Tahoma-Bold
+  addrFont: '/F0301' as const,   // Tahoma
   maxChars: 40,
 };
 
@@ -98,7 +98,7 @@ const PAGE2_OVERLAY = {
   boxW: 152,
   boxH: 53,
   fontSize: 8.0,
-  addrFont: '/F0301',
+  addrFont: '/F0301' as const,
   maxChars: 33,
 };
 
@@ -338,10 +338,33 @@ export async function generateUtilityBill(caseData: CaseData): Promise<Buffer> {
   const vals = computeValues();
 
   // Normalize address
+  // Wrapping budget is the knock-out box itself, so overlay text can never extend past the
+  // white area onto template content. `slots` is the number of Y positions each page draws
+  // below; anything more would be discarded without trace.
+  const addrLayout: UtilityLayout = {
+    alamatPos: {
+      widthPt: PAGE1_OVERLAY.boxX + PAGE1_OVERLAY.boxW - PAGE1_OVERLAY.x,
+      slots: 5,
+      fontSize: PAGE1_OVERLAY.fontSize,
+      addrFont: PAGE1_OVERLAY.addrFont,
+      nameFont: PAGE1_OVERLAY.nameFont,
+    },
+    alamatPremis: {
+      widthPt: PAGE2_OVERLAY.boxX + PAGE2_OVERLAY.boxW - PAGE2_OVERLAY.x,
+      slots: 5,
+      fontSize: PAGE2_OVERLAY.fontSize,
+      addrFont: PAGE2_OVERLAY.addrFont,
+      nameFont: PAGE1_OVERLAY.nameFont,
+    },
+  };
+
   const addrResult = await normalizeAddress(
     caseData.full_address,
     'utility',
     caseData.full_name,
+    undefined,
+    undefined,
+    addrLayout,
   ) as UtilityAddressResult;
 
   const addrLinesP1 = addrResult.alamat_pos;

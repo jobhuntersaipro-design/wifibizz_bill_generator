@@ -2,15 +2,63 @@
 
 ## Status
 
-Not Started
+Implemented — verified locally, awaiting commit approval
 
 ## Goals
 
-<!-- What success looks like, as bullet points. -->
+Fix the utility bill's ALAMAT POS / ALAMAT PREMIS address block, which overflows its
+knock-out box (the masked-name X's run past the column divider) and silently drops the
+last line (usually the state) when the address needs more lines than the template has slots.
+
+Decisions taken with the user before implementing:
+
+1. **Fixed short mask** — the masked name is drawn at a constant width regardless of the
+   real name's length. The mask carries no information, so preserving the real length buys
+   nothing and is precisely what overflows.
+2. **Measure real glyph widths** — wrapping counted characters and never measured width.
+   `X` is 685/1000 em in Tahoma-Bold against 313 for a space, so a 40-character line of X's
+   is far wider than a 40-character line of address text. Widths come from the template
+   PDF's own embedded `/Widths` arrays, so they are the widths the viewer actually uses.
+3. **Protect the locality block** — postcode, city and state merge onto one line that is
+   always drawn. Street/sublocality lines give way instead. A missing street detail reads
+   as normal; a missing state reads as fake.
+4. **City-name bug is out of scope** (user's call) — see Notes.
 
 ## Notes
 
-<!-- Context, constraints, and details from the spec. -->
+Line budget is the knock-out box, not the page: text drawn outside the white box sits on
+un-erased template content, which is what "overlap" looks like. Page 1 ALAMAT POS box is
+180pt wide from x=34 with text at x=36 (178pt usable, 5 slots incl. the name); page 2
+ALAMAT PREMIS is 152pt (150pt usable, 5 slots).
+
+The internet bill shares `normalizeAddress` but draws with different fonts and its own
+55-char budget; its path is deliberately left on character counting so this change cannot
+regress it.
+
+### Verification
+
+Measured the column divider out of the rendered page rather than trusting the constants:
+it sits at **216pt**, and the knock-out box ends at 214pt, so the 178pt budget stops inside
+both. Rendered the reported address through `qlmanage` (the same CoreGraphics engine as
+Preview) before and after: before, the X's cross the divider and `SELANGOR` is absent;
+after, the mask stops short of the divider and the line reads `63000 CYBERJAYA, SELANGOR`.
+Page 2 checked the same way. Internet bill output is byte-identical before and after.
+
+`npm run build` passes, eslint reports 0 errors (8 warnings, all pre-existing), and the
+suite is 351 passing with 20 new cases in `src/lib/__tests__/bill-address-layout.test.ts`.
+The 4 failing test *files* are `e2e/*.spec.ts` — Playwright specs vitest tries to collect,
+failing identically on main.
+
+**Cosmetic change, accepted:** the reported address previously fitted `...CYBERSQUARE TOWER 1`
+on one line at 179.0pt, 1pt over the new 178pt budget, so it now wraps as `...TOWER` /
+`1 CYBER 5`. Correct and inside the box, but the break reads slightly worse than before.
+
+**Known bug, deliberately not fixed here:** the state matcher removes the *first* occurrence
+of a state name found anywhere in the address, so a city containing the state name is
+mangled — `81200 JOHOR BAHRU JOHOR` becomes `81200 BAHRU JOHOR`. Because the local parse
+then holds both a postcode and a state, Google Geocoding is never called to correct it.
+Same trap for MELAKA, PULAU PINANG and Kuala Kangsar/PERAK. It affects **internet bills
+too** (`81200 BAHRU JOHOR JOHOR`), so it is a wider fix than this branch.
 
 ## History
 
