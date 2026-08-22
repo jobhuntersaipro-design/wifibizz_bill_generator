@@ -4,7 +4,13 @@ import { validateMalaysianAddress } from "@/lib/malaysia-address";
 import { parseMykad } from "@/lib/mykad";
 import { keywordCandidates } from "@/lib/seed-address-keywords";
 import { SEED_REMARK, seedCustomer, seedIdNumber } from "@/lib/seed-customer";
-import { cheapestDevice, isWithDevice, offerCategoryFor, pickOffer } from "@/lib/seed-offer";
+import {
+  cheapestDevice,
+  isOfferCategoryRow,
+  isWithDevice,
+  offerCategoryFor,
+  pickOffer,
+} from "@/lib/seed-offer";
 
 describe("seedIdNumber", () => {
   it("always produces an ID the app can parse", () => {
@@ -75,6 +81,26 @@ describe("pickOffer", () => {
     const picked = pickOffer(["Unifi Home 500Mbps Premium Value With Device (36M)"]);
     expect(picked?.offerName).toContain("With Device");
     expect(picked?.deviceCode).toBeTruthy();
+  });
+
+  it("never picks a grid category header as the package", () => {
+    // Seen live: the portal's plan grid returns its group headers looking exactly
+    // like offers. Picking one writes a package that does not exist into the
+    // draft, and the submit only finds out at the plan step.
+    const withHeaders = [
+      "unifi Biz Bundle Sale Catg",
+      "Unifi Business 300Mbps (MESH6)",
+      "unifi Home Bundle Sale Catg",
+      "Unifi Home 1Gbps Broadband",
+    ];
+    expect(pickOffer(withHeaders)?.offerName).toBe("Unifi Business 300Mbps (MESH6)");
+    expect(isOfferCategoryRow("unifi Home Bundle Sale Catg")).toBe(true);
+    expect(isOfferCategoryRow("VOF Sales Catg")).toBe(true);
+    expect(isOfferCategoryRow("Unifi Home 1Gbps Broadband")).toBe(false);
+  });
+
+  it("returns null when a grid held nothing but category headers", () => {
+    expect(pickOffer(["unifi Home Bundle Sale Catg"])).toBeNull();
   });
 
   it("returns null when the portal listed nothing", () => {

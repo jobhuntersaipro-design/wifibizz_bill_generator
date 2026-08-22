@@ -64,3 +64,6 @@ next-env.d.ts
 # above would drop them from a fresh clone and leave the suite failing.
 !scraper/tests/fixtures/
 !scraper/tests/fixtures/*.html
+
+# Seeding input for scripts/seed-orders.ts — holds real customer addresses.
+addresses.txt

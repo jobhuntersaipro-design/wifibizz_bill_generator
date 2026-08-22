@@ -21,6 +21,23 @@ export interface PickedOffer {
 
 const norm = (s: string) => (s || "").replace(/\s+/g, " ").trim().toLowerCase();
 
+/**
+ * True for a grid row that is a CATEGORY header, not a purchasable offer.
+ *
+ * The portal's Subscription Plan List groups its rows, and the group headers
+ * ("unifi Home Bundle Sale Catg") come back from the row reader looking exactly
+ * like offers — they carry a title cell like everything else. Writing one into
+ * `Order.offerName` produces a draft naming a package that does not exist, and
+ * the submit would only discover that at the plan step.
+ */
+export function isOfferCategoryRow(name: string): boolean {
+  const n = norm(name);
+  return (
+    Object.values(OFFER_CATEGORIES).some((c) => norm(c) === n) ||
+    /\bcatg\b$/.test(n)
+  );
+}
+
 /** True when an offer name says it ships hardware. */
 export function isWithDevice(offerName: string): boolean {
   return /\bwith device\b/i.test(offerName || "");
@@ -53,7 +70,10 @@ export function offerCategoryFor(offerName: string): string {
  * address rather than substitute a package of its own.
  */
 export function pickOffer(offers: string[], withDevice = false): PickedOffer | null {
-  const usable = (offers || []).map((o) => (o || "").trim()).filter(Boolean);
+  const usable = (offers || [])
+    .map((o) => (o || "").trim())
+    .filter(Boolean)
+    .filter((o) => !isOfferCategoryRow(o));
   if (usable.length === 0) return null;
 
   const wanted = usable.filter((o) => isWithDevice(o) === withDevice);
