@@ -164,3 +164,70 @@ def test_skip_if_set_still_sets_a_field_that_differs():
             return type(e).__name__
 
     assert _run(PLAIN_FORM, probe) == "RuntimeError"
+
+
+# ── The real cause of the reported screen ────────────────────────────────────
+# Live probe of the portal (2026-08-23), buttons of the Personal Customer dialog
+# in DOM order: .close, .js-read-card ("Read Card"), a slide-toggle, .js-ok
+# ("OK"), .js-add-cancel ("Cancel"). The dialog has NO .modal-footer.
+#
+# _await_customer_create_result used to end by clicking the first `button.btn`
+# in any visible dialog — which on the timeout path (no outcome dialog at all)
+# is `.js-read-card`. That is why every timed-out create finished by opening the
+# MyKad reader and its "Fail to read card!" error.
+CUSTOMER_DIALOG_NO_OUTCOME = """
+<div class="ui-dialog" style="display:block">
+  <div class="ui-dialog-title">Personal Customer</div>
+  <button class="close"></button>
+  <button class="btn btn-primary js-read-card" id="read-card-btn">Read Card</button>
+  <button class="btn btn-default js-slide-toggle-btn"></button>
+  <form class="js-cust-form"><input name="custName"></form>
+  <button class="btn btn-primary js-ok" id="ok-btn">OK</button>
+  <button class="btn btn-default js-add-cancel">Cancel</button>
+</div>
+<script>
+  document.getElementById('read-card-btn').onclick =
+    () => document.body.setAttribute('data-read-card-pressed', '1');
+</script>
+"""
+
+# The same dialog with a real outcome popup over it — that one SHOULD be
+# dismissed, so the fix must not simply stop clicking.
+WITH_OUTCOME_DIALOG = CUSTOMER_DIALOG_NO_OUTCOME + """
+<div class="ui-dialog" id="warn" style="display:block">
+  <div class="ui-dialog-title">Warning</div>
+  <div class="modal-message">The data is incomplete, Please check and input again.</div>
+  <div class="modal-footer"><button class="btn btn-danger" id="warn-ok">OK</button></div>
+</div>
+<script>
+  document.getElementById('warn-ok').onclick =
+    () => document.getElementById('warn').style.display = 'none';
+</script>
+"""
+
+
+def test_timeout_cleanup_never_presses_read_card():
+    from order_entry import _await_customer_create_result
+
+    async def probe(frame):
+        result = await _await_customer_create_result(frame, timeout_s=1)
+        pressed = await frame.locator("body").get_attribute("data-read-card-pressed")
+        return result, pressed
+
+    result, pressed = _run(CUSTOMER_DIALOG_NO_OUTCOME, probe)
+    assert result["error"] == "customer_create_timeout"
+    assert pressed is None, "the cleanup click pressed Read Card"
+    # And it says what was on screen instead of only "no dialog appeared".
+    assert "Personal Customer" in result["message"]
+
+
+def test_a_real_outcome_dialog_is_still_dismissed():
+    from order_entry import _await_customer_create_result
+
+    async def probe(frame):
+        result = await _await_customer_create_result(frame, timeout_s=1)
+        return result, await frame.locator("#warn").is_visible()
+
+    result, still_open = _run(WITH_OUTCOME_DIALOG, probe)
+    assert result["error"] == "customer_data_incomplete"
+    assert still_open is False
