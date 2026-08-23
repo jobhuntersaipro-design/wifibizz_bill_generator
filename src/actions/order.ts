@@ -688,6 +688,13 @@ export async function startSubmit(id: string) {
     data: {
       status: "submitting",
       errorMessage: null,
+      errorCode: null,
+      // Cleared so this attempt gets its own email, exactly as the batch path
+      // does. The guard is per-send, not per-order-lifetime — a resubmitted
+      // order is news again. Without this, an order that has been notified once
+      // stays silent forever: the webhook still arrives and still answers 200,
+      // but `claimOrder` matches no row and the send is skipped without a trace.
+      notifiedAt: null,
       stage: "creating_customer",
       stageAt: new Date(),
     },
