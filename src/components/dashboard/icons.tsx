@@ -56,3 +56,9 @@ export function DownloadIcon({ className }: { className?: string }) {
 export function SyncSheetIcon({ className }: { className?: string }) {
   return (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18" /><path d="M3 15h18" /><path d="M9 3v18" /></svg>);
 }
+export function MergeIcon({ className }: { className?: string }) {
+  return (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m8 6 4-4 4 4" /><path d="M12 2v10" /><path d="m8 18 4 4 4-4" /><path d="M12 22v-4" /><path d="M4 14h16" /></svg>);
+}
+export function GripIcon({ className }: { className?: string }) {
+  return (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className}><circle cx="9" cy="6" r="1.4" /><circle cx="15" cy="6" r="1.4" /><circle cx="9" cy="12" r="1.4" /><circle cx="15" cy="12" r="1.4" /><circle cx="9" cy="18" r="1.4" /><circle cx="15" cy="18" r="1.4" /></svg>);
+}

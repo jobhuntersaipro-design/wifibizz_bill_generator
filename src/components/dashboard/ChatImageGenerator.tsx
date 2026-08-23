@@ -131,8 +131,8 @@ function getTerms(provider: string | null): string[] {
     ];
   }
   return [
-    "I hereby consent to subscribed the service with subscription contract of 36 months.",
-    "I agree to pay advance payment of RM100 for Malaysian and RM 500 for foreigner within 10 days after installation complete.",
+    "I hereby consent to subscribed the service with subscription contract of 24/27/30/36 months.",
+    "I agree to pay advance payment of RM100 for Malaysian within 10 days after installation complete or Deposit RM500 for foreigner before installation",
     "I have been informed on the Terms & Condition as at https://unifi.com.my/personal/home/fibre-broadband/tnc and Privacy Notice of TM",
     "I hereby consent TM representative to proceed and process my order. Kindly notify me if there is any issues pertaining to my request.",
     "I acknowledge that the package order cannot be cancelled once the order has been submitted. Where applicable, I agree to bear any device penalty or related charges arising from cancellation, including where the device has already been processed for delivery.",
@@ -170,7 +170,7 @@ interface ChatRandomization {
 
 // Generates all randomized display values together. Called outside render
 // (lazy state init / event handlers) so the component tree stays pure.
-function makeRandomization(): ChatRandomization {
+export function makeRandomization(): ChatRandomization {
   return {
     wallpaper: pickWallpaper(),
     time: getTimeString(),
@@ -184,7 +184,7 @@ const S = {
   muted: { color: "#8696A0" } as React.CSSProperties,
 };
 
-function WhatsAppChat({
+export function WhatsAppChat({
   caseData,
   wallpaper,
   time,
@@ -339,13 +339,28 @@ function WhatsAppChat({
               Terms & Conditions:
             </div>
 
-            {/* T&C items with green checkmarks */}
-            {terms.map((term, i) => (
-              <div key={i} style={{ display: "flex", gap: 3, marginTop: 1 }}>
-                <span style={{ flexShrink: 0, fontSize: 14.2, lineHeight: 1.4 }}>✅</span>
-                <TextWithLinks text={term} style={S.text} />
-              </div>
-            ))}
+            {/* T&C items with green checkmarks.
+                INLINE, not one flex row per clause, because of how the PNG is
+                rasterised: html-to-image copies each element's measured height
+                onto its clone but re-lays the text out, and the raster fits
+                slightly more per line than the DOM does. A clause whose last DOM
+                line held one orphan word rasterised a line shorter than the box
+                reserved for it, and the spare line showed as a blank gap between
+                two clauses (seen live between the advance-payment clause and the
+                one after it, and again before the final authorisation clause).
+                A non-replaced inline element's computed height is `auto`, so
+                nothing is reserved and the raster's own wrap decides the height.
+                Wrapped lines now return to the left margin instead of hanging
+                under the text — which is what real WhatsApp does anyway. */}
+            <div style={{ ...S.text }}>
+              {terms.map((term, i) => (
+                <span key={i}>
+                  <span style={{ fontSize: 14.2, lineHeight: 1.4 }}>✅ </span>
+                  <TextWithLinks text={term} style={S.text} />
+                  {i < terms.length - 1 && <br />}
+                </span>
+              ))}
+            </div>
 
             {/* Consent statement */}
             <div style={{ ...S.text, marginTop: 14 }}>

@@ -2,17 +2,99 @@
 
 ## Status
 
-Not Started
+In Progress — Combine a Case's Documents into One PDF
 
 ## Goals
 
-<!-- What success looks like -->
+Give the agent a way to take **one case's** documents and download them as a
+single combined PDF, instead of four separate downloads they then merge by hand.
+
+Scope:
+
+- A sixth **Combine** button in the case row's Bills column, and a matching
+  *Combine into one PDF* action in the case detail panel.
+- A dialog for that one case: tick which documents to include — **Internet Bill**,
+  **Utility Bill**, **Authorization Letter**, **TIME Invoice**, **Closing Script
+  (Chat)** — reorder them, and download the result as
+  `documents_<case_no>_<date>.pdf`.
+- Every button in the Bills column gains a **visible text label** under its icon
+  (Chat, Internet, Utility, Letter, TIME, Combine), so the five documents no
+  longer have to be told apart by hovering for a tooltip.
+- Merging happens **entirely in the browser** with `pdf-lib` (already a dependency).
+
+Explicitly **not** in scope: combining documents across several cases. Merging is
+per case only.
 
 ## Notes
 
-<!-- Context, constraints, details from spec -->
+### Where the documents come from
+
+| Document | Source | Stored? |
+| --- | --- | --- |
+| Internet Bill | `GET /api/bills/download?case_no=…&type=internet` | R2, must already be generated |
+| Utility Bill | `GET /api/bills/download?case_no=…&type=utility` | R2, must already be generated |
+| Authorization Letter | `GET /api/bills/authorization-letter?case_no=…` | generated per request, nothing stored |
+| TIME Invoice | `GET /api/bills/time-invoice?case_no=…` | generated per request, nothing stored |
+| Closing Script (Chat) | **no endpoint** — the WhatsApp chat is rasterised from the DOM in the browser | nothing stored |
+
+No new API route is needed — every document already has an endpoint that streams
+PDF bytes to an authenticated caller, scoped to the caller's own WifiBizz user.
+
+### Deliberate decisions
+
+- **Combining never generates a bill.** A case whose internet/utility bill has not
+  been generated shows that document as *Not generated yet* and excludes it.
+  Combining is therefore free: no R2 object, no `CaseUsageLog` row, no case-limit
+  charge, no migration. The combined file is not persisted either — it exists only
+  in the browser and in the user's downloads folder.
+- **Client-side, not a server route.** `pdf-lib` is already installed and the bytes
+  are already reachable from the browser, so a server route would only add an
+  upload/round-trip for no gain.
+- **The chat is an image, so it gets a page built for it.** It captures at
+  414×1035 (a 1:2.5 column), which no page is shaped like, so `pngToPdfPage` puts
+  it on its own **A4 page, centred and scaled to fit** inside a 40pt margin — the
+  whole script stays visible and every page in the bundle stays A4. Scaling is
+  down-only, so a small capture is never blown up into a blurry full-page render.
+  `MergePdfDialog` reuses `WhatsAppChat` from `ChatImageGenerator` (exported for
+  this) rather than duplicating the script markup, and captures it from an
+  off-screen render mounted only when the chat is ticked.
+- **The chat's installation address is looked up before capture.** A list-only
+  crawl stores no address, and the chat prints one; ticking Chat triggers the same
+  lazy `POST /api/cases/address` fill the row button does, the merge button stays
+  disabled while it runs, and a resolved address is written back to the table row
+  and any open detail panel. A lookup that fails warns and the chat prints without
+  an address rather than blocking the merge.
+- **A failed document does not fail the merge.** It is named in a warning toast and
+  skipped, and the rest still merge. If *every* document fails there is an error
+  toast and no download — a zero-page PDF would look like the feature worked.
+- Order defaults to Internet → Utility → Letter → TIME; drag-and-drop (and ↑/↓
+  buttons, since drag is not reachable from a keyboard) overrides it. Ticking a new
+  type re-derives the default order **until** the agent reorders or removes
+  something, after which their arrangement is preserved and new rows append to it.
+
+### Files
+
+- `src/lib/bill-generator/merge-pdfs.ts` — new. Pure: `Uint8Array[]` → `Uint8Array`.
+- `src/lib/bill-generator/merge-plan.ts` — new. Pure: document list, URLs,
+  availability, reordering. The chat's URL is deliberately `null`: it has no
+  endpoint, and a caller that fetched one would get the dashboard's HTML.
+- `src/lib/bill-generator/image-page.ts` — new. `fitWithin` (pure geometry) and
+  `pngToPdfPage`, which turns a capture into a one-page A4 PDF so the merge itself
+  never has to know one of its inputs was a screenshot.
+- `src/components/dashboard/MergePdfDialog.tsx` — new.
+- `src/components/dashboard/ChatImageGenerator.tsx` — `WhatsAppChat` and
+  `makeRandomization` exported for reuse. No behaviour change.
+- `src/components/dashboard/CaseManagementSection.tsx` — row button, panel action,
+  and the labels under every Bills-column icon.
+
+### Testing
+
+- vitest on the merge and plan modules.
+- `npm run build` and `npm run lint`.
+- Browser check against real cases before committing.
 
 ## History
+
 
 - **OTP Silent-Portal Detection — CODE MERGED (`817e51d`), LIVE-UNVERIFIED (displaced 2026-08-21)**: Stop the dealer login waiting 300 silent seconds for an OTP the portal never sent. Diagnosed live on the droplet: the portal returned **200** on `/portal/api/prod/genCaptcha` and then sent nothing — newest mail in the box was 31 minutes older than the request and nothing arrived 11 minutes later. Everything we built was healthy (forwarding worked, the token was valid, the reader correctly refused a 35-minute-old code); most likely Unifi's own OTP throttle, the same limit as the known `46410045 "Access to otp code is too frequent"` but returned as 200, which `_capture_auth_api` cannot see because it only raises on non-2xx. A 200-that-sends-nothing is indistinguishable from success at request time, so it can only be caught by the **absence** of mail afterwards: `get_latest_otp` now raises `OtpNeverSent` once `silent_after` seconds pass with no message newer than the wait start. Two guards against crying wolf — the silent clock runs from a separate `wait_began`, NOT `start_time` (which is deliberately backdated 60s, so reusing it would fire every threshold a full minute early), and it needs `SILENT_MIN_POLLS` successful Gmail queries first, so a Gmail outage or an auth failure is never reported as portal silence. The login is **not** aborted: the UI drops to manual entry exactly as on timeout, so a late code can still be typed — this reports a likely cause, not a certainty. Files: `scraper/gmail_otp_reader.py`, `scraper/dealer_login_service.py`, `scraper/tests/test_otp_never_sent.py`. **Outstanding: deploy to the droplet + one live production login** — it has never run against the real portal. Also open: **the dealer password is genuinely expiring** — "Later" defers it, but when it hard-expires login breaks entirely, not just order entry; worth changing deliberately and updating the stored credential.
 

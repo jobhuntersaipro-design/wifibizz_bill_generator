@@ -14,14 +14,15 @@ import {
 import {
   SearchIcon, EmptyIcon, CloseIcon, ExternalLinkIcon, SortIcon,
   InternetBillIcon, UtilityBillIcon, DownloadIcon, CheckCircleIcon,
-  MessageSquareIcon, AuthLetterIcon, SyncSheetIcon, TimeBillIcon,
+  MessageSquareIcon, AuthLetterIcon, SyncSheetIcon, TimeBillIcon, MergeIcon,
 } from "./icons";
 import ChatImageGenerator from "./ChatImageGenerator";
+import MergePdfDialog from "./MergePdfDialog";
 import { syncCasesToSheet } from "@/actions/settings";
 
 // ── Case Detail Panel ──
 
-function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatLoading, onGenerateLetter, letterLoading }: { caseData: CaseRow; onClose: () => void; cacheBuster: number; onGenerateChat: (c: CaseRow) => void; chatLoading: boolean; onGenerateLetter: (caseNo: string) => void; letterLoading: boolean }) {
+function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatLoading, onGenerateLetter, letterLoading, onCombine }: { caseData: CaseRow; onClose: () => void; cacheBuster: number; onGenerateChat: (c: CaseRow) => void; chatLoading: boolean; onGenerateLetter: (caseNo: string) => void; letterLoading: boolean; onCombine: (c: CaseRow) => void }) {
   // The Sheet owns Escape, outside-click, the focus trap and scroll lock, all of
   // which the old hand-rolled panel declared via markup and never implemented.
   // It also owns the enter/exit transitions — but the parent mounts this panel
@@ -173,6 +174,19 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
             <p className="mt-2 text-xs text-[#697386]">Generated fresh each time and not stored. The property owner is generated; the resident is this customer.</p>
           </div>
 
+          {/* Combine documents */}
+          <div className="border-t border-[#E3E8EF] my-5 panel-item-in" style={{ animationDelay: "820ms" }} />
+          <div className="panel-item-in" style={{ animationDelay: "840ms" }}>
+            <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">Combine Documents</h3>
+            <button
+              onClick={() => onCombine(caseData)}
+              className="inline-flex items-center gap-2 text-sm font-medium text-[#635BFF] hover:text-[#0A2540] transition-colors duration-200"
+            >
+              <MergeIcon className="w-3.5 h-3.5" />Combine into one PDF
+            </button>
+            <p className="mt-2 text-xs text-[#697386]">Pick which of this case&rsquo;s documents to combine, in the order you want them.</p>
+          </div>
+
           {/* Generate Chat */}
           <div className="border-t border-[#E3E8EF] my-5 panel-item-in"  style={{ animationDelay: "860ms" }} />
           <div className="panel-item-in" style={{ animationDelay: "880ms" }}>
@@ -230,6 +244,8 @@ export default function CaseManagementSection() {
   const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0, type: "" });
   const [downloadConfirm, setDownloadConfirm] = useState<{ type: "internet" | "utility"; withBills: number; total: number } | null>(null);
   const [billCacheBuster, setBillCacheBuster] = useState(0);
+  // The case whose documents are being combined into one PDF.
+  const [mergeCase, setMergeCase] = useState<CaseRow | null>(null);
   // Per-row single-bill generation in flight, keyed `${caseNo}:${type}`.
   const [generatingCell, setGeneratingCell] = useState<string | null>(null);
   const [statuses, setStatuses] = useState<string[]>([]);
@@ -889,17 +905,18 @@ export default function CaseManagementSection() {
                       <td className="px-4 py-3 text-[13px] text-[#697386] tabular-nums whitespace-nowrap">{formatDateTime(c.case_created_at)}</td>
                       <td className="px-4 py-3 text-[13px] text-[#697386] tabular-nums whitespace-nowrap hidden lg:table-cell">{formatDateTime(c.updated_at)}</td>
                       <td className="px-3 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center gap-1 border-l border-[#E3E8EF] pl-2">
+                        <div className="flex items-start gap-1 border-l border-[#E3E8EF] pl-2">
                           <button
                             title="Generate Chat"
                             aria-label={`Generate closing script chat for ${c.case_no}`}
                             disabled={chatLoadingCase === c.case_no}
                             onClick={() => handleGenerateChat(c)}
-                            className="w-7 h-7 flex items-center justify-center rounded-md transition-colors text-[#25D366] hover:bg-[#E8FFF3] disabled:cursor-not-allowed"
+                            className="w-14 flex flex-col items-center gap-0.5 rounded-md py-1 transition-colors text-[#25D366] hover:bg-[#E8FFF3] disabled:cursor-not-allowed"
                           >
                             {chatLoadingCase === c.case_no
-                              ? <span className="w-3.5 h-3.5 rounded-full border-2 border-[#25D366] border-t-transparent animate-spin" />
+                              ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#25D366] border-t-transparent animate-spin" />
                               : <MessageSquareIcon className="w-4 h-4" />}
+                            <span className="text-[10px] leading-none font-medium text-[#697386]">Chat</span>
                           </button>
                           <button
                             title={c.internet_bill_url ? "Download Internet Bill" : "Generate Internet Bill"}
@@ -908,11 +925,12 @@ export default function CaseManagementSection() {
                             onClick={() => c.internet_bill_url
                               ? window.open(`/api/bills/download?case_no=${c.case_no}&type=internet&t=${billCacheBuster}`, "_blank")
                               : handleGenerateSingle(c.case_no, "internet")}
-                            className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed ${c.internet_bill_url ? "text-[#635BFF] hover:bg-[#F0EEFF]" : "text-[#9CA3AF] hover:text-[#635BFF] hover:bg-[#F0EEFF]"}`}
+                            className={`w-14 flex flex-col items-center gap-0.5 rounded-md py-1 transition-colors disabled:cursor-not-allowed ${c.internet_bill_url ? "text-[#635BFF] hover:bg-[#F0EEFF]" : "text-[#9CA3AF] hover:text-[#635BFF] hover:bg-[#F0EEFF]"}`}
                           >
                             {generatingCell === `${c.case_no}:internet`
-                              ? <span className="w-3.5 h-3.5 rounded-full border-2 border-[#635BFF] border-t-transparent animate-spin" />
+                              ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#635BFF] border-t-transparent animate-spin" />
                               : <InternetBillIcon className="w-4 h-4" />}
+                            <span className="text-[10px] leading-none font-medium text-[#697386]">Internet</span>
                           </button>
                           <button
                             title={c.utility_bill_url ? "Download Utility Bill" : "Generate Utility Bill"}
@@ -921,33 +939,45 @@ export default function CaseManagementSection() {
                             onClick={() => c.utility_bill_url
                               ? window.open(`/api/bills/download?case_no=${c.case_no}&type=utility&t=${billCacheBuster}`, "_blank")
                               : handleGenerateSingle(c.case_no, "utility")}
-                            className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed ${c.utility_bill_url ? "text-[#FF6B35] hover:bg-[#FFF0EB]" : "text-[#9CA3AF] hover:text-[#FF6B35] hover:bg-[#FFF0EB]"}`}
+                            className={`w-14 flex flex-col items-center gap-0.5 rounded-md py-1 transition-colors disabled:cursor-not-allowed ${c.utility_bill_url ? "text-[#FF6B35] hover:bg-[#FFF0EB]" : "text-[#9CA3AF] hover:text-[#FF6B35] hover:bg-[#FFF0EB]"}`}
                           >
                             {generatingCell === `${c.case_no}:utility`
-                              ? <span className="w-3.5 h-3.5 rounded-full border-2 border-[#FF6B35] border-t-transparent animate-spin" />
+                              ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#FF6B35] border-t-transparent animate-spin" />
                               : <UtilityBillIcon className="w-4 h-4" />}
+                            <span className="text-[10px] leading-none font-medium text-[#697386]">Utility</span>
                           </button>
                           <button
                             title="Generate Authorization Letter"
                             aria-label={`Generate authorization letter for ${c.case_no}`}
                             disabled={letterCase === c.case_no}
                             onClick={() => handleAuthorizationLetter(c.case_no)}
-                            className="w-7 h-7 flex items-center justify-center rounded-md transition-colors text-[#0E9384] hover:bg-[#E6FAF7] disabled:cursor-not-allowed"
+                            className="w-14 flex flex-col items-center gap-0.5 rounded-md py-1 transition-colors text-[#0E9384] hover:bg-[#E6FAF7] disabled:cursor-not-allowed"
                           >
                             {letterCase === c.case_no
-                              ? <span className="w-3.5 h-3.5 rounded-full border-2 border-[#0E9384] border-t-transparent animate-spin" />
+                              ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#0E9384] border-t-transparent animate-spin" />
                               : <AuthLetterIcon className="w-4 h-4" />}
+                            <span className="text-[10px] leading-none font-medium text-[#697386]">Letter</span>
                           </button>
                           <button
                             title="Generate TIME Invoice"
                             aria-label={`Generate TIME invoice for ${c.case_no}`}
                             disabled={timeCase === c.case_no}
                             onClick={() => handleTimeInvoice(c.case_no)}
-                            className="w-7 h-7 flex items-center justify-center rounded-md transition-colors text-[#EC008C] hover:bg-[#FFEBF6] disabled:cursor-not-allowed"
+                            className="w-14 flex flex-col items-center gap-0.5 rounded-md py-1 transition-colors text-[#EC008C] hover:bg-[#FFEBF6] disabled:cursor-not-allowed"
                           >
                             {timeCase === c.case_no
-                              ? <span className="w-3.5 h-3.5 rounded-full border-2 border-[#EC008C] border-t-transparent animate-spin" />
+                              ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#EC008C] border-t-transparent animate-spin" />
                               : <TimeBillIcon className="w-4 h-4" />}
+                            <span className="text-[10px] leading-none font-medium text-[#697386]">TIME</span>
+                          </button>
+                          <button
+                            title="Combine this case's documents into one PDF"
+                            aria-label={`Combine documents for ${c.case_no} into one PDF`}
+                            onClick={() => setMergeCase(c)}
+                            className="w-14 flex flex-col items-center gap-0.5 rounded-md py-1 transition-colors text-[#0A2540] hover:bg-[#EEF0FF] hover:text-[#635BFF]"
+                          >
+                            <MergeIcon className="w-4 h-4" />
+                            <span className="text-[10px] leading-none font-medium text-[#697386]">Combine</span>
                           </button>
                         </div>
                       </td>
@@ -984,13 +1014,28 @@ export default function CaseManagementSection() {
 
       {/* Slide-in detail panel */}
       {selectedCase && createPortal(
-        <CaseDetailPanel caseData={selectedCase} onClose={() => setSelectedCase(null)} cacheBuster={billCacheBuster} onGenerateChat={handleGenerateChat} chatLoading={chatLoadingCase === selectedCase.case_no} onGenerateLetter={handleAuthorizationLetter} letterLoading={letterCase === selectedCase.case_no} />,
+        <CaseDetailPanel caseData={selectedCase} onClose={() => setSelectedCase(null)} cacheBuster={billCacheBuster} onGenerateChat={handleGenerateChat} chatLoading={chatLoadingCase === selectedCase.case_no} onGenerateLetter={handleAuthorizationLetter} letterLoading={letterCase === selectedCase.case_no} onCombine={setMergeCase} />,
         document.body
       )}
 
       {/* Chat image generator modal */}
       {chatCase && (
         <ChatImageGenerator caseData={chatCase} onClose={() => setChatCase(null)} />
+      )}
+
+      {/* Combine one case's documents into a single PDF */}
+      {mergeCase && (
+        <MergePdfDialog
+          caseData={mergeCase}
+          // An address the dialog had to look up for the chat is written back,
+          // so the table and any open panel stop showing a blank one.
+          onAddressResolved={(caseNo, address) => {
+            setCases((prev) => prev.map((r) => (r.case_no === caseNo ? { ...r, full_address: address } : r)));
+            setSelectedCase((prev) => (prev && prev.case_no === caseNo ? { ...prev, full_address: address } : prev));
+            setMergeCase((prev) => (prev && prev.case_no === caseNo ? { ...prev, full_address: address } : prev));
+          }}
+          onClose={() => setMergeCase(null)}
+        />
       )}
     </>
   );
