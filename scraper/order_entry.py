@@ -40,6 +40,7 @@ from oe_helpers import (
     select_grid_row,
     set_combobox,
 )
+from portal_states import to_portal_state
 from read_card_modal import dismiss_read_card
 from shell_modal import (
     clear_shell_dialog,
@@ -686,7 +687,7 @@ async def select_address(frame, address: dict) -> dict:
     # Customer Type + State are required comboboxes.
     if address.get("customer_type"):
         await set_combobox(frame, "custType", address["customer_type"])
-    await set_combobox(frame, "state", address["state"])
+    await set_combobox(frame, "state", to_portal_state(address["state"]))
 
     # Search type tabs (default: By keyword).
     search_type = address.get("search_type", "By keyword")

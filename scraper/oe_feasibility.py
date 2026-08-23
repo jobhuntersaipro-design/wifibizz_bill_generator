@@ -25,6 +25,7 @@ from oe_errors import (CUSTOMER_IC_NAME_MISMATCH, DEVICE_OUT_OF_STOCK,
                        ERF_NOT_DOWNLOADED, UNKNOWN_ERROR, VOICE_NUMBER_TAKEN,
                        map_error, portal_code)
 from oe_helpers import set_combobox
+from portal_states import to_portal_state
 from order_entry import ORDER_ENTRY_URL, _frame, ensure_on_order_entry
 from shell_modal import describe_blocking_dialog, read_shell_dialog
 
@@ -262,9 +263,11 @@ async def select_address(frame, addr: dict) -> dict:
     await _open_address_modal(frame)
     await asyncio.sleep(1.5)
     await set_combobox(frame, "custType", addr.get("customer_type", "Consumer"))
-    # The Select-Address state combobox options are UPPERCASE ("SELANGOR"); the
-    # BizzFlow draft may store title-case ("Selangor"), so normalise here.
-    await set_combobox(frame, "state", (addr["state"] or "").upper())
+    # The Select-Address state combobox options are UPPERCASE ("SELANGOR"), and
+    # the three federal territories carry a W.P. prefix the draft never does
+    # ("Wilayah Persekutuan Kuala Lumpur" -> "W.P. KUALA LUMPUR"). Uppercasing
+    # alone left every KL / Putrajaya / Labuan order failing at this combobox.
+    await set_combobox(frame, "state", to_portal_state(addr["state"]))
 
     address_id = addr.get("address_id")
     if address_id:
