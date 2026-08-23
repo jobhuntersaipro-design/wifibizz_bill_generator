@@ -9,8 +9,11 @@
  */
 
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
-import { normalizeAddress, type UtilityAddressResult } from './address-normalizer';
-import postcodeTable from '../malaysia-postcodes.json';
+import {
+  resolveAddressParts,
+  sanitize,
+  type AddressParts,
+} from './address-parts';
 import { generateOwner, formatIcDashed, icDigits } from './owner-identity';
 import { effectiveDate, longDate, ordinalDate, slashDate } from './letter-dates';
 import { drawSignature, FLOURISH_DESCENT, SIGNATURE_ASCENT } from './signature';
@@ -34,25 +37,10 @@ const TM_BLOCK = [
 
 const SUBJECT = 'Subject: Authorization Letter to confirm on the Residence Information';
 
-/**
- * pdf-lib's standard fonts encode Latin-1 only, and a character outside it
- * throws. Map the punctuation that actually turns up in portal addresses to its
- * ASCII equivalent and drop anything else, so a stray en-dash costs a character
- * rather than the whole letter.
- */
-export function sanitize(text: string): string {
-  return (text || '')
-    .replace(/[‘’‛]/g, "'")
-    .replace(/[“”]/g, '"')
-    .replace(/[–—−]/g, '-')
-    .replace(/…/g, '...')
-    .replace(/ /g, ' ')
-    .split('')
-    .filter((c) => c.charCodeAt(0) >= 32 && c.charCodeAt(0) <= 255)
-    .join('')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+// `sanitize` lives in ./address-parts now that the invoice needs it too. It stays
+// exported from here because callers and tests already import it from this module.
+export { sanitize };
+export type { AddressParts };
 
 /**
  * Break text to a measured width. Measured, never character-counted — counting
@@ -98,57 +86,11 @@ export interface LetterAddress {
  * letter.
  */
 export async function buildLetterAddress(rawAddress: string, fullName: string): Promise<LetterAddress> {
-  const raw = sanitize(rawAddress);
-  if (!raw) return { block: [], inline: '' };
-
-  let components: UtilityAddressResult['components'] = {};
-  try {
-    const result = (await normalizeAddress(raw, 'utility', fullName)) as UtilityAddressResult;
-    components = result.components ?? {};
-  } catch {
-    // A geocoding failure must not cost the letter — fall through to the raw string.
-  }
-
-  // The postcode table is the authority on city and state; the address parser is
-  // only the fallback. On a real portal address ("… KOTA KINABALU SABAH MALAYSIA
-  // 88450") the parser returned the city as "KINABALU", which both mislabelled
-  // the locality line and stranded a lone "KOTA" at the end of the street.
-  const postcode = components.postal_code || raw.match(/\b\d{5}\b/)?.[0];
-  const fromTable = postcode ? (postcodeTable as Record<string, string[]>)[postcode] : undefined;
-
-  // The table's city REPLACES the parsed one only when the parse is missing or is
-  // a fragment of it ("KINABALU" of "KOTA KINABALU"). A parsed city that simply
-  // differs is kept: 71010 is LUKUT in the address and PORT DICKSON in the table,
-  // and the letter should say what the customer's address says.
-  const parsedLocality = components.locality?.trim();
-  const tableLocality = fromTable?.[0];
-  const locality =
-    !parsedLocality || (tableLocality && isFragmentOf(parsedLocality, tableLocality))
-      ? tableLocality ?? parsedLocality
-      : parsedLocality;
-
-  // The state, unlike the city, is unambiguous for a given postcode, and the
-  // parser is known to mangle it when a city name contains a state name.
-  const state = fromTable?.[1] ?? components.state;
-
-  let streetPart = raw;
-  let hasTail = false;
-  if (postcode && raw.includes(postcode)) {
-    // The portal writes the postcode LAST and uses no commas at all —
-    // "A-2-2 LORONG MALAWA COURT KOTA KINABALU SABAH MALAYSIA 88450" — so
-    // slicing at the postcode is not enough: the city, state and country are
-    // still sitting in the street text, and the letterhead would print each of
-    // them twice.
-    streetPart = raw.replace(new RegExp(`\\b${escapeRegExp(postcode)}\\b`), ' ');
-    streetPart = stripTrailingLocality(streetPart, [locality, state]);
-    hasTail = true;
-  }
-  streetPart = dropEmptySegments(streetPart);
-
-  const streetSegments = streetPart
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const { streetSegments, postcode, locality, state, hasTail } = await resolveAddressParts(
+    rawAddress,
+    fullName,
+  );
+  if (streetSegments.length === 0 && !hasTail) return { block: [], inline: '' };
 
   const block: string[] = packStreetLines(streetSegments);
   const inlineParts = [...streetSegments];
@@ -168,53 +110,9 @@ export async function buildLetterAddress(rawAddress: string, fullName: string): 
   return { block: block.map((l) => l.toUpperCase()), inline: inlineParts.join(', ').toUpperCase() };
 }
 
-/** True when `part` is a whole-word fragment of `whole` — "KINABALU" of "KOTA KINABALU". */
-function isFragmentOf(part: string, whole: string): boolean {
-  const p = part.trim().toUpperCase();
-  const w = whole.trim().toUpperCase();
-  if (p === w) return true;
-  return new RegExp(`(^|\\s)${escapeRegExp(p)}($|\\s)`).test(w);
-}
 
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
-/**
- * Peel the city, state and country off the end of the street text.
- *
- * Repeated because they stack — `… KOTA KINABALU SABAH MALAYSIA` sheds three
- * tails, and stopping after one leaves the letterhead printing the state twice.
- */
-function stripTrailingLocality(text: string, tails: (string | undefined)[]): string {
-  const candidates = ['MALAYSIA', ...tails].filter((t): t is string => Boolean(t && t.trim()));
-  let out = text.trim();
 
-  for (let pass = 0; pass < candidates.length + 1; pass++) {
-    const before = out;
-    for (const tail of candidates) {
-      out = out.replace(new RegExp(`[,\\s-]*${escapeRegExp(tail.trim())}[,\\s-]*$`, 'i'), '');
-    }
-    out = out.trim();
-    if (out === before) break;
-  }
-  return out;
-}
-
-/**
- * Portal addresses carry placeholder dashes where a segment was left blank
- * ("12 JALAN MIRI BYPASS - - KAMPUNG …"). They are not punctuation and must not
- * reach the letter.
- */
-function dropEmptySegments(text: string): string {
-  return text
-    .split(/\s+/)
-    .filter((token) => token !== '-' && token !== '--' && token !== ',')
-    .join(' ')
-    .replace(/\s*,\s*/g, ', ')
-    .replace(/(^[,\s-]+)|([,\s-]+$)/g, '')
-    .trim();
-}
 
 // A segment starting with one of these names a housing area rather than a street,
 // and the sample letter starts a new line there: "80, JALAN BESAR LUKUT, BATU 4"

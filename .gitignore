@@ -65,5 +65,12 @@ next-env.d.ts
 !scraper/tests/fixtures/
 !scraper/tests/fixtures/*.html
 
+# …and except the bill templates. Every generator reads one at runtime, so the
+# blanket *.pdf above would leave a fresh clone (and any deploy built from one)
+# throwing on a missing file. The four older templates predate that rule and are
+# already tracked; this keeps the next one from being dropped silently.
+!bill_generator/template/
+!bill_generator/template/*.pdf
+
 # Seeding input for scripts/seed-orders.ts — holds real customer addresses.
 addresses.txt

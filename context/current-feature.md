@@ -1,16 +1,36 @@
-# Current Feature
+# Current Feature: Generate TIME Invoice
 
 ## Status
 
-Not Started
+In Progress
 
 ## Goals
 
-<!-- What success looks like -->
+- A fourth icon button in the case list's **Bills** column generates a four-page TIME (TT dotCom) invoice for a case and downloads it — row icon only, no detail-panel button, no bulk button.
+- The case's customer is the billed subscriber at their installation address, always on **TIME Fibre Home Broadband 200Mbps at RM99.00/month** (no speed mapping from the Unifi package).
+- **Nothing is stored, nothing is charged** — no R2 object, no new column, no migration, no `CaseUsageLog` row. It streams straight to the browser, like the authorization letter.
+- Every injected value renders **completely**, including names and addresses containing `C F G J K P Q U V W X Z`, digits and punctuation.
+- The four pages never contradict each other: one pure module computes every value, so the summary box, bill summary, payment slip and page-3 detail all agree.
+- Barcodes and QR codes are replaced with random artwork that decodes to nothing (deliberate).
+- The internet and utility bill generators produce byte-identical output after this branch.
 
 ## Notes
 
-<!-- Context, constraints, details from spec -->
+Full spec: [context/features/generate-time-invoice.md](features/generate-time-invoice.md). Template source: the sample `time.pdf` provided 2026-08-23.
+
+**The font problem drives the whole design.** All five embedded fonts are subsets with unused glyph *outlines stripped* — verified by parsing each `FontFile2`'s `cmap → loca → glyf` for zero-length outlines, not by reading `/Widths`. The bold face carrying the **customer name** has no `C F G J K P Q U V W X Z`, no digits and no punctuation; the address face is missing `C F G K N Q V X Z 2 3 8 9 . /`. The sample renders only by luck of its own content. So **every injected value is drawn in a font we control**: built-in Helvetica/Helvetica-Bold for the customer block (metrically Arial-compatible, no embedding), bundled Work Sans + `@pdf-lib/fontkit` for everything else. pdf-lib's subsetter is known to drop characters silently while passing structural checks, so the embedding must be proved by **rendering** through `qlmanage`, never by asserting on bytes.
+
+**Delete-and-redraw, not white-out-and-cover.** Every text run is a plain `(literal)Tj` with an explicit `Tm` — no kerned `TJ` arrays — so the original literal is removed from the content stream and the new value redrawn at the recorded coordinates. This avoids the failure mode the utility-bill fix chased on 2026-08-22, where text wider than its knock-out box landed on un-erased template content. Right-aligned values get `x` recomputed from measured glyph widths; character counting is never used for placement or wrapping.
+
+**Money and dates are pinned by the sample.** `99 × 3 ÷ 31 = 9.5806 → 9.58` reproduces the template's prorated line exactly, confirming the proration rule. The tax figure does **not** settle rounding vs truncation (`6.5148` gives `6.51` either way), so half-up is a stated choice, not an inference. Identity values (account, invoice, service no) and dates are seeded on `case_no` — nothing is stored, so an unseeded random would hand out a different account number on every download of the same case.
+
+**The locality line is reserved** in the customer block: postcode + city + state always draws, street content yields — carrying forward the utility-bill fix where a formatter emitted more lines than the page had slots and silently dropped the last one, which was the state.
+
+**Risk recorded on the page, not discovered later:** the document reproduces TT dotCom's real company details and tax registration number verbatim, and asserts an invoice for a service the recipient did not buy.
+
+**Settled during implementation:** the locality line does **not** inherit the state-matcher bug. It uses the authorization letter's postcode-table resolution, which never runs the matcher that mangles `81200 JOHOR BAHRU JOHOR`. That logic was extracted to `address-parts.ts` and is now shared by both documents, so a future fix lands once — verified live: `88450 KOTA KINABALU SABAH` keeps its city, `71010 LUKUT` is not rewritten to PORT DICKSON.
+
+**Found only by rendering, not by reading:** two replaced fields (`Total Outstanding Charges` and the due date) are drawn `1 1 1 rg` inside the black summary box — redrawn in the default black they vanished entirely on the first render. Every replaced field was then swept for a non-black colour operator.
 
 ## History
 
