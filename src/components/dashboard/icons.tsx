@@ -42,6 +42,11 @@ export function FileTextIcon({ className }: { className?: string }) {
 export function AuthLetterIcon({ className }: { className?: string }) {
   return (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><path d="M7 17c1.2-2.6 2.1-3.9 2.8-3.9.9 0 .5 3.4 1.5 3.4.8 0 1.2-2.2 2.1-2.2.7 0 .9 1.4 1.8 1.4.6 0 1.1-.5 1.8-1.5" /></svg>);
 }
+// A statement with a currency mark — the TIME invoice, the fourth document button
+// in the Bills cell and distinct from the two bill icons beside it.
+export function TimeBillIcon({ className }: { className?: string }) {
+  return (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><path d="M9 12h6" /><path d="M9 16h6" /><path d="M12 10.5v7" /></svg>);
+}
 export function MessageSquareIcon({ className }: { className?: string }) {
   return (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>);
 }

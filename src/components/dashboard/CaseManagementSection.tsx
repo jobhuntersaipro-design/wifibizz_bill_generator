@@ -14,7 +14,7 @@ import {
 import {
   SearchIcon, EmptyIcon, CloseIcon, ExternalLinkIcon, SortIcon,
   InternetBillIcon, UtilityBillIcon, DownloadIcon, CheckCircleIcon,
-  MessageSquareIcon, AuthLetterIcon, SyncSheetIcon,
+  MessageSquareIcon, AuthLetterIcon, SyncSheetIcon, TimeBillIcon,
 } from "./icons";
 import ChatImageGenerator from "./ChatImageGenerator";
 import { syncCasesToSheet } from "@/actions/settings";
@@ -238,6 +238,7 @@ export default function CaseManagementSection() {
   const [chatLoadingCase, setChatLoadingCase] = useState<string | null>(null);
   // Case whose authorization letter is being generated.
   const [letterCase, setLetterCase] = useState<string | null>(null);
+  const [timeCase, setTimeCase] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<"success" | "error" | null>(null);
   const [syncCount, setSyncCount] = useState(0);
@@ -484,35 +485,67 @@ export default function CaseManagementSection() {
   }
 
   /**
-   * The authorization letter is generated on demand and never stored, so it is
-   * fetched as a blob rather than opened in a tab: a 400 (a case with no ID
-   * number) would otherwise render raw JSON where the agent expected a PDF.
+   * Fetch a generated document as a blob and save it.
+   *
+   * Deliberately not a plain link or a new tab: these documents are generated on
+   * demand and can legitimately answer 400 — a case with no ID number, or none
+   * with an address — and a tab would render that raw JSON where the agent
+   * expected a PDF.
    */
-  async function handleAuthorizationLetter(caseNo: string) {
-    if (letterCase) return;
-    setLetterCase(caseNo);
+  async function downloadDocument(opts: {
+    caseNo: string;
+    endpoint: string;
+    filePrefix: string;
+    failureMessage: string;
+    setBusy: (caseNo: string | null) => void;
+    busy: string | null;
+  }) {
+    if (opts.busy) return;
+    opts.setBusy(opts.caseNo);
     try {
-      const res = await fetch(`/api/bills/authorization-letter?case_no=${encodeURIComponent(caseNo)}`);
+      const res = await fetch(`${opts.endpoint}?case_no=${encodeURIComponent(opts.caseNo)}`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        toast.error(body?.error || "Couldn't generate the authorization letter.");
+        toast.error(body?.error || opts.failureMessage);
         return;
       }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `authorization_letter_${caseNo}.pdf`;
+      a.download = `${opts.filePrefix}_${opts.caseNo}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
     } catch (err) {
-      console.error("Authorization letter failed:", err);
-      toast.error("Couldn't generate the authorization letter.");
+      console.error(`${opts.filePrefix} failed:`, err);
+      toast.error(opts.failureMessage);
     } finally {
-      setLetterCase(null);
+      opts.setBusy(null);
     }
+  }
+
+  function handleAuthorizationLetter(caseNo: string) {
+    return downloadDocument({
+      caseNo,
+      endpoint: "/api/bills/authorization-letter",
+      filePrefix: "authorization_letter",
+      failureMessage: "Couldn't generate the authorization letter.",
+      setBusy: setLetterCase,
+      busy: letterCase,
+    });
+  }
+
+  function handleTimeInvoice(caseNo: string) {
+    return downloadDocument({
+      caseNo,
+      endpoint: "/api/bills/time-invoice",
+      filePrefix: "time_invoice",
+      failureMessage: "Couldn't generate the TIME invoice.",
+      setBusy: setTimeCase,
+      busy: timeCase,
+    });
   }
 
   function handleDownloadClick(type: "internet" | "utility") {
@@ -904,6 +937,17 @@ export default function CaseManagementSection() {
                             {letterCase === c.case_no
                               ? <span className="w-3.5 h-3.5 rounded-full border-2 border-[#0E9384] border-t-transparent animate-spin" />
                               : <AuthLetterIcon className="w-4 h-4" />}
+                          </button>
+                          <button
+                            title="Generate TIME Invoice"
+                            aria-label={`Generate TIME invoice for ${c.case_no}`}
+                            disabled={timeCase === c.case_no}
+                            onClick={() => handleTimeInvoice(c.case_no)}
+                            className="w-7 h-7 flex items-center justify-center rounded-md transition-colors text-[#EC008C] hover:bg-[#FFEBF6] disabled:cursor-not-allowed"
+                          >
+                            {timeCase === c.case_no
+                              ? <span className="w-3.5 h-3.5 rounded-full border-2 border-[#EC008C] border-t-transparent animate-spin" />
+                              : <TimeBillIcon className="w-4 h-4" />}
                           </button>
                         </div>
                       </td>
