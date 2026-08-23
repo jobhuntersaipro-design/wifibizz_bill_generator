@@ -44,6 +44,7 @@ async def set_combobox(
     nth: int = 0,
     hidden_selector: str | None = None,
     scope=None,
+    skip_if_set: bool = False,
 ) -> None:
     """
     Set a `---Please select---` combobox by its hidden input's `name`.
@@ -108,6 +109,21 @@ async def set_combobox(
         print(f"  ↳ '{field_name}' has no visible combobox (hidden/plain field) — skipping.")
         return
 
+    # Opt-in: leave a field alone when it already reads what we want. Used at the
+    # customer form's ID Type, whose row carries the portal's "Read Card" button —
+    # the fewer clicks that land in that row, the better (read_card_modal.py).
+    # Opt-in and not the default because selecting a value also FIRES the portal's
+    # change handler, and elsewhere a downstream field depends on that firing.
+    if skip_if_set:
+        try:
+            current = (await disp.input_value()).strip()
+            if (await hidden.input_value()).strip() and \
+                    current.casefold() == option_text.strip().casefold():
+                print(f"  ↳ '{field_name}' already reads {option_text!r} — not touching it.")
+                return
+        except Exception:
+            pass
+
     # Selecting an upstream combobox (e.g. ID Type) re-renders the form, so the
     # next field's widget may not be wired yet. Wait for the display input to be
     # enabled before interacting.
@@ -134,6 +150,19 @@ async def set_combobox(
     vis_menu = frame.locator("ul.combobox-dropdown:visible").last
     menu = None
     last_err: Exception | None = None
+
+    # Aim the caret precisely. The caret lives INSIDE `.ui-combobox-fish` (the
+    # display input's own parent); the wrapper we anchored on is shared with
+    # whatever else the row carries. On the customer form's ID Type row that is
+    # the portal's "Read Card" button, and a force-click on it opens the
+    # card-reader dialog over the form. Fall back to the wrapper-wide caret when
+    # the row does not have the documented shape.
+    try:
+        fish = disp.locator("xpath=..").locator("span.input-group-addon").first
+        if await fish.count() > 0:
+            caret = fish
+    except Exception:
+        pass
     for attempt in range(8):
         try:
             if await vis_menu.count() > 0:

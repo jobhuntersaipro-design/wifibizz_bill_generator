@@ -40,6 +40,7 @@ from oe_helpers import (
     select_grid_row,
     set_combobox,
 )
+from read_card_modal import dismiss_read_card
 from shell_modal import (
     clear_shell_dialog,
     describe_blocking_dialog,
@@ -396,6 +397,23 @@ def personal_customer_dialog(frame):
         has=frame.locator("form.js-cust-form")).last
 
 
+async def _clear_read_card(frame, when: str) -> bool:
+    """Get the card-reader dialog off the customer form; say what happened.
+
+    Returns True only when a reader dialog was there AND is now gone with the
+    customer form intact — the caller uses that to decide whether a retry has
+    any chance of behaving differently.
+    """
+    result = await dismiss_read_card(frame)
+    if not result.get("seen"):
+        return False
+    if result.get("dismissed"):
+        print(f"  ↳ card-reader dialog dismissed ({when}): {', '.join(result['closed'])}.")
+        return True
+    print(f"  ⚠ card-reader dialog ({when}): {result.get('error')}")
+    return False
+
+
 async def fill_and_submit_personal_customer(frame, customer: dict,
                                             fill_only: bool = False,
                                             on_filled=None) -> dict:
@@ -414,8 +432,26 @@ async def fill_and_submit_personal_customer(frame, customer: dict,
     dlg = personal_customer_dialog(frame)
     await dlg.wait_for(state="visible", timeout=15000)
 
+    # The portal's MyKad card-reader dialog can be sitting over this form before
+    # we touch anything (its applet connects a beat after the form renders). We
+    # type the ID number; there is no reader on the droplet and never will be.
+    await _clear_read_card(frame, "form opened")
+
     # --- Basic Information (form.js-cust-form) ---
-    await set_combobox(frame, "certTypeId", customer["id_type"], scope=dlg)
+    # ID Type carries the "Read Card" button in its own row, so skip_if_set keeps
+    # us off that widget entirely on the common order (MyKad is the default). If
+    # the set fails anyway, the reader dialog is the first suspect — clear it and
+    # try once more before giving up.
+    try:
+        await set_combobox(frame, "certTypeId", customer["id_type"], scope=dlg,
+                           skip_if_set=True)
+    except Exception as e:
+        cleared = await _clear_read_card(frame, "ID Type failed")
+        if not cleared:
+            raise
+        print(f"  ↳ retrying ID Type after clearing the card reader ({type(e).__name__}).")
+        await set_combobox(frame, "certTypeId", customer["id_type"], scope=dlg,
+                           skip_if_set=True)
     await dlg.locator('input[name="certNbr"]').first.fill(customer["id_number"])
     await dlg.locator('input[name="custName"]').first.fill(customer["name"])
 
