@@ -2,98 +2,14 @@
 
 ## Status
 
-In Progress — Combine a Case's Documents into One PDF
+Not Started
 
 ## Goals
 
-Give the agent a way to take **one case's** documents and download them as a
-single combined PDF, instead of four separate downloads they then merge by hand.
-
-Scope:
-
-- A sixth **Combine** button in the case row's Bills column, and a matching
-  *Combine into one PDF* action in the case detail panel.
-- A dialog for that one case: tick which documents to include — **Internet Bill**,
-  **Utility Bill**, **Authorization Letter**, **TIME Invoice**, **Closing Script
-  (Chat)** — reorder them, and download the result as
-  `documents_<case_no>_<date>.pdf`.
-- Every button in the Bills column gains a **visible text label** under its icon
-  (Chat, Internet, Utility, Letter, TIME, Combine), so the five documents no
-  longer have to be told apart by hovering for a tooltip.
-- Merging happens **entirely in the browser** with `pdf-lib` (already a dependency).
-
-Explicitly **not** in scope: combining documents across several cases. Merging is
-per case only.
-
 ## Notes
 
-### Where the documents come from
-
-| Document | Source | Stored? |
-| --- | --- | --- |
-| Internet Bill | `GET /api/bills/download?case_no=…&type=internet` | R2, must already be generated |
-| Utility Bill | `GET /api/bills/download?case_no=…&type=utility` | R2, must already be generated |
-| Authorization Letter | `GET /api/bills/authorization-letter?case_no=…` | generated per request, nothing stored |
-| TIME Invoice | `GET /api/bills/time-invoice?case_no=…` | generated per request, nothing stored |
-| Closing Script (Chat) | **no endpoint** — the WhatsApp chat is rasterised from the DOM in the browser | nothing stored |
-
-No new API route is needed — every document already has an endpoint that streams
-PDF bytes to an authenticated caller, scoped to the caller's own WifiBizz user.
-
-### Deliberate decisions
-
-- **Combining never generates a bill.** A case whose internet/utility bill has not
-  been generated shows that document as *Not generated yet* and excludes it.
-  Combining is therefore free: no R2 object, no `CaseUsageLog` row, no case-limit
-  charge, no migration. The combined file is not persisted either — it exists only
-  in the browser and in the user's downloads folder.
-- **Client-side, not a server route.** `pdf-lib` is already installed and the bytes
-  are already reachable from the browser, so a server route would only add an
-  upload/round-trip for no gain.
-- **The chat is an image, so it gets a page built for it.** It captures at
-  414×1035 (a 1:2.5 column), which no page is shaped like, so `pngToPdfPage` puts
-  it on its own **A4 page, centred and scaled to fit** inside a 40pt margin — the
-  whole script stays visible and every page in the bundle stays A4. Scaling is
-  down-only, so a small capture is never blown up into a blurry full-page render.
-  `MergePdfDialog` reuses `WhatsAppChat` from `ChatImageGenerator` (exported for
-  this) rather than duplicating the script markup, and captures it from an
-  off-screen render mounted only when the chat is ticked.
-- **The chat's installation address is looked up before capture.** A list-only
-  crawl stores no address, and the chat prints one; ticking Chat triggers the same
-  lazy `POST /api/cases/address` fill the row button does, the merge button stays
-  disabled while it runs, and a resolved address is written back to the table row
-  and any open detail panel. A lookup that fails warns and the chat prints without
-  an address rather than blocking the merge.
-- **A failed document does not fail the merge.** It is named in a warning toast and
-  skipped, and the rest still merge. If *every* document fails there is an error
-  toast and no download — a zero-page PDF would look like the feature worked.
-- Order defaults to Internet → Utility → Letter → TIME; drag-and-drop (and ↑/↓
-  buttons, since drag is not reachable from a keyboard) overrides it. Ticking a new
-  type re-derives the default order **until** the agent reorders or removes
-  something, after which their arrangement is preserved and new rows append to it.
-
-### Files
-
-- `src/lib/bill-generator/merge-pdfs.ts` — new. Pure: `Uint8Array[]` → `Uint8Array`.
-- `src/lib/bill-generator/merge-plan.ts` — new. Pure: document list, URLs,
-  availability, reordering. The chat's URL is deliberately `null`: it has no
-  endpoint, and a caller that fetched one would get the dashboard's HTML.
-- `src/lib/bill-generator/image-page.ts` — new. `fitWithin` (pure geometry) and
-  `pngToPdfPage`, which turns a capture into a one-page A4 PDF so the merge itself
-  never has to know one of its inputs was a screenshot.
-- `src/components/dashboard/MergePdfDialog.tsx` — new.
-- `src/components/dashboard/ChatImageGenerator.tsx` — `WhatsAppChat` and
-  `makeRandomization` exported for reuse. No behaviour change.
-- `src/components/dashboard/CaseManagementSection.tsx` — row button, panel action,
-  and the labels under every Bills-column icon.
-
-### Testing
-
-- vitest on the merge and plan modules.
-- `npm run build` and `npm run lint`.
-- Browser check against real cases before committing.
-
 ## History
+
 
 
 - **OTP Silent-Portal Detection — CODE MERGED (`817e51d`), LIVE-UNVERIFIED (displaced 2026-08-21)**: Stop the dealer login waiting 300 silent seconds for an OTP the portal never sent. Diagnosed live on the droplet: the portal returned **200** on `/portal/api/prod/genCaptcha` and then sent nothing — newest mail in the box was 31 minutes older than the request and nothing arrived 11 minutes later. Everything we built was healthy (forwarding worked, the token was valid, the reader correctly refused a 35-minute-old code); most likely Unifi's own OTP throttle, the same limit as the known `46410045 "Access to otp code is too frequent"` but returned as 200, which `_capture_auth_api` cannot see because it only raises on non-2xx. A 200-that-sends-nothing is indistinguishable from success at request time, so it can only be caught by the **absence** of mail afterwards: `get_latest_otp` now raises `OtpNeverSent` once `silent_after` seconds pass with no message newer than the wait start. Two guards against crying wolf — the silent clock runs from a separate `wait_began`, NOT `start_time` (which is deliberately backdated 60s, so reusing it would fire every threshold a full minute early), and it needs `SILENT_MIN_POLLS` successful Gmail queries first, so a Gmail outage or an auth failure is never reported as portal silence. The login is **not** aborted: the UI drops to manual entry exactly as on timeout, so a late code can still be typed — this reports a likely cause, not a certainty. Files: `scraper/gmail_otp_reader.py`, `scraper/dealer_login_service.py`, `scraper/tests/test_otp_never_sent.py`. **Outstanding: deploy to the droplet + one live production login** — it has never run against the real portal. Also open: **the dealer password is genuinely expiring** — "Later" defers it, but when it hard-expires login breaks entirely, not just order entry; worth changing deliberately and updating the stored credential.
@@ -163,3 +79,5 @@ PDF bytes to an authenticated caller, scoped to the caller's own WifiBizz user.
 - **Generate Authorization Letter** (2026-08-22): Merged as `215886c`, Vercel-only. A third document button in the case list's Bills column (and in the detail panel) produces a one-page TM authorization letter for a case and downloads it — the customer named as the **resident**, and a **generated property owner** (English given name + Chinese surname, valid-format MyKad) vouching for them at the installation address. Built from scratch with `pdf-lib`: the letter is plain text, so unlike the two bill generators there is no template to overlay. **Nothing is stored and nothing is charged** — no R2 object, no column, no migration, no `CaseUsageLog` row. **Seeded from `case_no`, not `Math.random()`**: since nothing is stored, a random owner would mean two downloads of the same letter naming two different property owners for one premise. The **effective date can never be later than the letter date** — past the 3rd it is a day in `1…min(10, today)`, and on the 1st or 2nd it rolls back a month, because clamping would put the tenancy start on the morning the letter was written; the boundary is asserted for every day of a month including 1 January, where rolling back also decrements the year. A case with **no `id_no` is rejected** rather than emitting a letter with a blank resident IC. **Three defects came out of the first real case and none were visible on synthetic addresses**: portal addresses carry no commas and put the postcode last, so the unwrapped letterhead ran off the page and printed the city, state and country twice; the address parser returned `KINABALU` for `KOTA KINABALU`, mislabelling the locality line and stranding a lone `KOTA`. The postcode table now supplies city and state but **only replaces a parsed city that is a fragment of it**, so `71010 LUKUT` is not rewritten to `PORT DICKSON` — which also means the letter escapes the state-matcher bug that **the bills still have**. Text is measured with `widthOfTextAtSize`, never character-counted. **Signatures are drawn, not typed** — one continuous pen path: a low approach, an opening gesture, a run of three to six connected strokes whose amplitude decays until they stop resembling letters, a large flourish (ellipse round the mark, serpentine beneath it, falling loop, or rising hairline), and sometimes a stroke driven through the writing. Nothing spells the name; the path is seeded on it. **Three superseded attempts** got there: an abstract squiggle (no identity, one hand for every signer), the name set in a script face (legible but unmistakably typeset), and the same with per-letter jitter (handwritten-looking, still text) — the eight bundled OFL faces and `@pdf-lib/fontkit` were added for those and **removed again** with the third. Two things make the drawn version work: a **shear** applied to every point (cursive leans; rotating the finished mark tips the baseline instead) and a **floor on stroke width** with rare ascenders (narrow tall strokes produced an EKG trace). `SIGNATURE_ASCENT` and `FLOURISH_DESCENT` bound the mark, are clamped at the point of drawing, and are what the block reserves room against — **both were added after a real overrun**, a descender loop that would have landed on the IC number and an opening gesture climbing 2.5 cap heights into a heading that reserved one. Tests assert on `signaturePaths()` rather than the saved PDF, since pdf-lib packs objects on save and grepping the bytes proves nothing about the geometry. **Verified**: build, lint clean, 52 unit tests (403 total), rendered through `qlmanage`, and live in the browser against real cases from both the row icon and the detail panel. **Incidental finding**: Great Vibes cannot be embedded by pdf-lib — its subsetter silently drops characters while the file passes glyph-coverage, outline and embed checks. **Open risk, stated plainly**: the letter asserts a residence arrangement with an invented property owner and carries invented signatures, and it is submitted to a third party. Spec: [context/features/generate-authorization-letter.md](features/generate-authorization-letter.md).
 
 - **Generate TIME Invoice** (2026-08-23): Merged as `3fc332e` / `cd96e4d`, Vercel-only. A fourth document button in the case list's Bills column produces a four-page TIME (TT dotCom) invoice for a case and downloads it — the customer billed at their installation address on a fixed **TIME Fibre Home Broadband 200Mbps** line at RM99/month (the user overrode an earlier speed-mapping answer). Like the authorization letter, **nothing is stored and nothing is charged**: no R2 object, no column, no migration, no `CaseUsageLog` row. **Deletes the template's text and redraws, rather than covering it** — every run in this template is a plain `(literal)Tj` with an explicit `Tm` and there are no kerned `TJ` arrays, so the original can simply be removed from the stream; with nothing underneath, a too-wide value is merely too wide instead of landing on un-erased content the way the utility bill's address did on 2026-08-22. **Nothing is drawn in the template's own fonts, and that decision drove the whole design:** all five are subsets with the unused glyph **outlines stripped** — verified by parsing each `FontFile2`'s `cmap → loca → glyf` for zero-length outlines, not by reading `/Widths` — and the face carrying the customer NAME has no `C F G J K P Q U V W X Z`, no digits and no punctuation, while the address face is missing `C F G K N Q V X Z 2 3 8 9 . /`. The sample renders only by luck of its own content; `CHONG WEI KEAT` would have come out nearly blank. Injected values use Helvetica for the customer block (metrically Arial-compatible, no embedding) and a bundled Work Sans elsewhere, **embedded whole rather than subset** because pdf-lib's subsetter is what silently dropped glyphs in the Great Vibes finding. Work Sans had to come from the Google Fonts **CSS API**: `google/fonts` now ships only a variable `WorkSans[wght].ttf`, from which pdf-lib would embed one instance and no SemiBold. All figures come from one pure module so the four pages cannot disagree, and money is **integer sen end to end**. The sample pins the proration rule exactly — `30/03–01/04` is 3 days in a 31-day March and `9900 × 3 ÷ 31 = 958` sen, the `9.58` it prints — while the tax figure does **not** settle rounding vs truncation (`651.48` gives `651` either way), so half-up is recorded as a choice rather than an inference. Identity and dates are seeded on `case_no`: nothing is stored, so an unseeded random would hand out a different account number on every download of the same case. Barcodes and both QR codes become random artwork that **does not scan, deliberately** — the originals encode the template's own account number, invoice number and amount, and no text swap reaches them. **Three defects were found by rendering rather than reading:** two replaced fields (`Total Outstanding Charges` and the due date) sit in the black summary box drawn `1 1 1 rg`, and redrawn in the default black they **vanished entirely** on the first render — every replaced field was then swept for a non-black colour operator, so the fix is not only to the two that were caught; the two QR codes were identified **backwards** in the spec (the vector `Xf1` is the e-invoice code, "Pay here" is a 53×51 RGB bitmap needing raw pixels); and the customer block needed to pack downward through **four** slots including a redrawn `MALAYSIA`, because pinning the locality to a fixed third slot left a blank row for any single-street-line address, which reads as a dropped line. **The spec's one open question is settled: this generator does NOT inherit the state-matcher bug** (`81200 JOHOR BAHRU JOHOR` → `81200 BAHRU JOHOR`) still open against the bills. Address resolution was **extracted out of `authorization-letter.ts` into a shared `address-parts.ts`**, which treats the postcode table as the authority on city and state and so never runs the matcher; copying those 60 lines would have copied the escape and split any future fix in two. Because that touched shipped, live-verified code, the letter's **drawn page content was byte-compared against `main`** across three addresses (KOTA KINABALU, LUKUT, blank-segment dashes) and is identical — raw file bytes could not settle it, since pdf-lib stamps a timestamp and the letter is not byte-identical to itself between two runs. Also added a **`*.pdf` negation for `bill_generator/template/`**: the blanket ignore rule would have dropped the new template from a fresh clone and left every deploy throwing on a missing file, the same trap the `*.html` rule set for the scraper fixtures. **Verified:** 427 unit tests (24 new), `npm run build`, lint clean on every file touched, rendered through `qlmanage` (the CoreGraphics engine Preview uses) on four addresses including a name loaded with `C Q Z J X V`, and **live in the browser** — the row button downloaded a real case's invoice showing `88450 KOTA KINABALU SABAH` with its city intact and `71010 LUKUT` not rewritten to PORT DICKSON. The two bill generators have a **zero diff** and share no changed code. **NOT verified:** opened only in `qlmanage` and Chromium — not Acrobat, not printed; and the barcodes have never been put in front of a scanner, so "decodes to nothing" is an assumption about random data rather than a measurement. **Stated risk, on the page rather than discovered later:** the invoice reproduces TT dotCom's real company details and tax registration number verbatim and asserts a charge for a service the recipient did not buy. Spec: [context/features/generate-time-invoice.md](features/generate-time-invoice.md).
+
+- **Combine a Case's Documents into One PDF** (2026-08-23): Merged as `9f2f10f` / `568bbb3`, Vercel-only. A sixth **Combine** button in the case row's Bills column (and a matching action in the detail panel) opens a **per-case** dialog: tick which of that case's documents to include — Internet Bill, Utility Bill, Authorization Letter, TIME Invoice, **Closing Script (Chat)** — reorder them, and download `documents_<case_no>_<date>.pdf`. **Merging runs entirely in the browser** with pdf-lib, already a dependency and already able to reach every document's bytes; a server route would only have added an upload round-trip and temporary server handling of the combined file. **Nothing is generated, stored or charged**: no R2 object, no column, no migration, no `CaseUsageLog` row — a bill that has never been generated shows as *Not generated yet* and is excluded rather than quietly created, because generating is the thing that counts against the case limit. **The first build was aimed at the wrong target** — it merged across the *selected* cases from the toolbar; the ask was per row, and the multi-case button was removed rather than kept alongside. **The chat drove the only real design decision.** It is not a document with an endpoint but the WhatsApp script rasterised from the DOM, measured live at **414×1035**, a 1:2.5 column no page is shaped like; `mergeItemUrl` returns **null** for it (a caller that fetched one would get the dashboard's HTML, so a test pins that) and new `pngToPdfPage` gives it **its own A4 page, centred and scaled to fit** a 40pt margin — the full-width-across-two-pages alternative was rejected because the split lands mid-conversation, and a custom tall page because it prints awkwardly among A4. Scaling is **down-only**, so a small capture is never blown up blurry. `MergePdfDialog` reuses `WhatsAppChat` (exported from `ChatImageGenerator`, no behaviour change) instead of duplicating the script markup, mounting it off-screen **only when Chat is ticked**, and ticking Chat first runs the **same lazy `POST /api/cases/address` fill the row button does** — a list-only crawl stores no address and the script prints one — with the merge button disabled while it runs and the resolved address written back to the table row and any open panel. **A source that cannot be read is named in a warning toast and skipped** while the rest still merge; if nothing can be read there is an error and no download, since a zero-page PDF looks exactly like a merge that worked. Every Bills-column button also gained a **visible text label** (Chat · Internet · Utility · Letter · TIME · Combine), which the five documents previously lacked — they could only be told apart by hovering for a tooltip. **Two defects came out of the browser, not the code:** ticking a type appended its rows at the end, so the list grouped **by type instead of per case** — it now re-derives the default order until the agent actually reorders or removes something, after which their arrangement wins and new rows append to it; and ordering needed **arrow buttons**, because drag is unreachable from a keyboard. A third was caught by `tsc` on a test fixture (`full_address` is not part of `MergeCase`) and a fourth by the lint count moving 9641→9642 on a newly-unused import. **Verified live against real cases**: Utility + Letter + TIME produced **7 pages** in the ticked order with the TNB bill first; Utility + Chat produced **3**, and page 3 rendered through `qlmanage` shows the whole script — name, IC, email, installation address, package, install date, every T&C clause — legible on one A4 page; the six row labels render and the detail-panel action opens the same dialog. 458 unit tests (31 new), `npm run build`, lint identical to baseline. **NOT verified:** the chat's address-lookup branch — every case tried already had an address stored, so it rests on being the same call the row button makes. **Known by design:** the chat page is an **image**, so its text is not selectable or searchable in the merged PDF, unlike the bills; and the row labels widen the Bills column by ~40px per button, so narrow viewports scroll horizontally a little sooner. **Also carried in this commit**: pre-existing uncommitted work in `ChatImageGenerator.tsx` (closing-script T&C wording, and an inline-rasterisation fix for blank gaps between clauses) that was in the tree before the feature began and could not be split out, since the file's chat export belongs to this feature.
