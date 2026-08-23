@@ -311,7 +311,7 @@ async def _invalid_address_fields(frame) -> list[str]:
         return []
 
 
-async def _upload_id_documents(frame, customer: dict, root=None) -> None:
+async def _upload_id_documents(frame, customer: dict, root=None) -> bool:
     """Upload the required "Customer ID copy" attachment (doctypeid="2").
 
     Files come from a local path (customer["id_doc_path"], for testing) or the
@@ -331,7 +331,7 @@ async def _upload_id_documents(frame, customer: dict, root=None) -> None:
 
     if not files:
         print("  ↳ no ID-copy document provided — attachment left empty.")
-        return
+        return False
 
     file_input = (root or frame).locator(
         'li.js-attach-item[doctypeid="2"] input[type="file"].fileupload-select'
@@ -349,6 +349,7 @@ async def _upload_id_documents(frame, customer: dict, root=None) -> None:
             pass
         await asyncio.sleep(0.5)
     print(f"  ↳ uploaded {len(files)} ID-copy file(s).")
+    return True
 
 
 async def create_personal_customer(frame, customer: dict, fill_only: bool = False,
@@ -542,7 +543,7 @@ async def fill_and_submit_personal_customer(frame, customer: dict,
     # The row has a real <input type=file class=fileupload-select multiple>, so we
     # set files directly. Source: a local path (id_doc_path, for testing) or the
     # order's R2 keys (id_doc_keys) downloaded on the fly.
-    await _upload_id_documents(frame, customer, root=dlg)
+    has_id_doc = await _upload_id_documents(frame, customer, root=dlg)
 
     if on_filled:
         try:
@@ -558,7 +559,17 @@ async def fill_and_submit_personal_customer(frame, customer: dict,
     # the app's validation — an incomplete form shows a "data is incomplete"
     # Warning and creates nothing; a complete one shows "...successfully created".
     await dlg.locator(".js-ok").first.click()
-    return await _await_customer_create_result(frame)
+    result = await _await_customer_create_result(frame)
+
+    # The form marks "Customer ID copy" required. BizzFlow made documents
+    # optional at order entry, so an order can reach here with none — and the
+    # portal then refuses in a way that says nothing about attachments. Name it
+    # on any non-success, because "the data is incomplete" sends the agent
+    # hunting through fields that are all filled in.
+    if result.get("status") != "ok" and not has_id_doc:
+        result["message"] = (result.get("message", "") + " This order has no ID-copy "
+                             "document attached, and the form marks it required.").strip()
+    return result
 
 
 async def _await_customer_create_result(frame, timeout_s: int = 40) -> dict:
@@ -601,17 +612,57 @@ async def _await_customer_create_result(frame, timeout_s: int = 40) -> dict:
         await asyncio.sleep(0.5)
 
     if outcome is None:
+        # Say what IS on the screen. "No dialog appeared" is true and useless: the
+        # portal also refuses through top-centre TOASTS, which are not dialogs at
+        # all, so the one thing this path must not do is stay silent about the
+        # screen it gave up on.
         outcome = {"status": "error", "stage": stage, "error": "customer_create_timeout",
-                   "message": "No success or validation dialog appeared after clicking OK."}
+                   "message": "No success or validation dialog appeared after clicking OK. "
+                              + await _describe_screen(frame)}
 
-    # Dismiss the outcome dialog (OK button) so the app returns to a clean state.
+    # Dismiss the outcome dialog — and ONLY an outcome dialog.
+    #
+    # This used to click the first `button.btn` in any visible .ui-dialog. On the
+    # timeout path there is no outcome dialog, so the first match was the first
+    # button of the Personal Customer form itself: `.js-read-card`. That is the
+    # whole reported bug — every timed-out create ended by pressing Read Card,
+    # which opened the MyKad reader dialog and its "Fail to read card!" error over
+    # the form. An outcome dialog is one carrying a `.modal-message`; anything
+    # else is the form, and the form's buttons are not ours to press blindly.
     try:
-        await frame.locator(
-            ".ui-dialog:visible .modal-footer button, .ui-dialog:visible button.btn"
-        ).first.click(timeout=3000)
+        dlg = frame.locator(".ui-dialog:visible, .modal.in:visible").filter(
+            has=frame.locator(".modal-message")).last
+        if await dlg.count() > 0 and await dlg.is_visible():
+            await dlg.locator(".modal-footer button, .btn-danger").first.click(timeout=3000)
     except Exception:
         pass
     return outcome
+
+
+async def _describe_screen(frame) -> str:
+    """Read the visible dialogs and toasts, verbatim, for a failure message."""
+    parts: list[str] = []
+    try:
+        dialogs = frame.locator(".ui-dialog:visible, .modal.in:visible")
+        for i in range(min(await dialogs.count(), 4)):
+            text = (await dialogs.nth(i).inner_text()).strip()
+            text = " ".join(text.split())
+            if text:
+                parts.append(f"dialog: {text[:200]}")
+    except Exception:
+        pass
+    try:
+        # The portal's own toast/notification containers (top centre).
+        toasts = frame.locator(
+            '.toast:visible, .alert:visible, [class*="notice"]:visible, '
+            '[class*="message"]:visible[role], [class*="notification"]:visible')
+        for i in range(min(await toasts.count(), 3)):
+            text = " ".join((await toasts.nth(i).inner_text()).strip().split())
+            if text:
+                parts.append(f"toast: {text[:200]}")
+    except Exception:
+        pass
+    return ("On screen: " + " | ".join(parts)) if parts else "Nothing readable was on screen."
 
 
 # ─────────────────────────────────────────────────────────────────────────────
