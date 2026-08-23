@@ -2,45 +2,14 @@
 
 ## Status
 
-Completed — fix/read-card-dialog
+Not Started
 
 ## Goals
 
-**Fix — "Fail to read card!" blocks customer-profile creation.** A live submit died at
-"Creating customer profile" with the portal's MyKad card-reader dialog open over the
-Personal Customer form ("Device is reconnecting" + Error "Fail to read card!"). The run
-died at the **ID Type step** (confirmed by the user), which is the first thing the fill
-touches: `set_combobox(certTypeId)`.
-
-Two orderings can produce that screen and the fix must survive both:
-
-1. Our own clicks opened it. `set_combobox` force-clicks the caret / display input up to
-   8 times when the dropdown doesn't open, and the ID Type row is the one row on this form
-   that has a **Read Card button sitting next to the combobox**.
-2. The portal opened it itself (the reader applet auto-connects when the form renders) and
-   its overlay ate every click, so the dropdown never opened.
-
-Fix:
-
-- **Don't touch the ID Type widget at all when it already reads the value we want.**
-  New opt-in `skip_if_set=` on `set_combobox`, used only at the certTypeId call site —
-  MyKad is the portal's default, so the common order needs no click there. Opt-in because
-  a blanket skip could suppress a cascade another field relies on.
-- **Aim the caret precisely.** Prefer the caret inside `.ui-combobox-fish` (the documented
-  shape) over any `.input-group-addon` in the shared wrapper, so a neighbouring button can
-  never be force-clicked.
-- **Dismiss the reader dialog if it appears** (`read_card_modal.py`): OK the "Fail to read
-  card!" error, Cancel the reader, poll for its appearance rather than sampling once, and
-  verify the customer form survived. Never click "Read Card". Runs once when the form
-  opens, and again as a retry if the ID Type set fails.
-
 ## Notes
 
-- Not verifiable without the live portal: the fixtures prove the dismissal and the skip,
-  not the real DOM. One live submit is needed.
-- `api_server` holds its imports from startup — the droplet needs a restart, not just a deploy.
-
 ## History
+
 
 
 
