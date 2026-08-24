@@ -41,6 +41,7 @@ import {
   validateMalaysianAddress,
 } from "../../src/lib/malaysia-address";
 import { isValidEmail, parseMykad } from "../../src/lib/mykad";
+import { hasIdentityDocument } from "../../src/lib/order-types";
 import { uploadToR2 } from "../../src/lib/r2";
 import { isWithDevice, pickOffer } from "../../src/lib/seed-offer";
 
@@ -169,6 +170,13 @@ function resolveSpec(spec: OrderSpec, defaults: Partial<OrderSpec>) {
   const docTypes = (merged.docTypes ?? []).filter((t) => t in DOC_SLUG);
   for (const t of merged.docTypes ?? []) {
     if (!(t in DOC_SLUG)) problems.push(`unknown document type "${t}"`);
+  }
+  // The same rule saveOrder enforces. This script writes through prisma directly
+  // rather than through the action, so the gate does not run here — and a row
+  // written without an ID copy produces a draft the order form then refuses to
+  // re-save, which is a worse outcome than refusing to write it now.
+  if (!hasIdentityDocument(docTypes.map((type) => ({ type })))) {
+    problems.push("no ID document — add \"mykad\" or \"passport\" to docTypes");
   }
 
   return {

@@ -10,6 +10,19 @@ export interface OrderDocument {
   filename: string;
 }
 
+// The document types that count as the customer's ID copy. The portal's Personal
+// Customer form marks the ID copy required, so a draft without one is a draft
+// that cannot be submitted — `hasIdentityDocument` is the single rule enforced in
+// the order form, in saveOrder, and in the bulk-create script.
+//
+// "other" is deliberately NOT here. It used to satisfy the form's hint, which
+// meant a tenancy agreement filed under Others read as an attached MyKad.
+export const IDENTITY_DOC_TYPES = ["mykad", "passport", "id"] as const;
+
+export function hasIdentityDocument(docs: readonly { type: string }[] | null | undefined): boolean {
+  return (docs ?? []).some((d) => (IDENTITY_DOC_TYPES as readonly string[]).includes(d.type));
+}
+
 // Exact `state` values the portal accepts (Select Address modal combobox).
 export const ADDRESS_SEARCH_STATES = [
   "SELANGOR", "PAHANG", "KELANTAN", "JOHOR", "KEDAH", "MELAKA",
