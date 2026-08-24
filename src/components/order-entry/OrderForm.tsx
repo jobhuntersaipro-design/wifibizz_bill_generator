@@ -12,7 +12,22 @@ import {
   lookupPostcode,
   getOrder,
 } from "@/actions/order";
-import { MAX_DOCS, type OrderDocument } from "@/lib/order-types";
+import { MAX_DOCS, IDENTITY_DOC_TYPES, hasIdentityDocument, type OrderDocument } from "@/lib/order-types";
+import { GENERATED_DOCS, docSpec, isDocTypeAttached, missingFieldsFor, type GeneratedDocType } from "@/lib/order-documents";
+import {
+  COMBINED_DOC_LABEL,
+  COMBINED_DOC_TYPE,
+  MIN_COMBINE,
+  applyCombine,
+  canCombine,
+  isImageDocument,
+  mergeLabel,
+  moveDoc,
+} from "@/lib/order-merge";
+import { mergePdfs } from "@/lib/bill-generator/merge-pdfs";
+import { pngToPdfPage } from "@/lib/bill-generator/image-page";
+import { contentTypeFor, imageBytesToPng } from "@/lib/browser-image";
+import GenerateDocRunner from "./GenerateDocRunner";
 import { getPublishedPlans, getPlanOffer, type OfferItemView } from "@/actions/plans";
 import { parseMykad, inferRace, formatMykad, isCompleteMykad, isValidEmail } from "@/lib/mykad";
 import {
@@ -41,6 +56,13 @@ const inputCls =
 const selectCls =
   "select-chevron w-full pl-3 h-10 rounded-lg border border-[#CBD2DC] bg-white text-sm text-[#0A2540] hover:border-[#635BFF] focus:border-[#635BFF] focus:outline-none cursor-pointer transition-colors";
 const labelCls = "text-xs font-medium text-[#425466]";
+// The two ways a supporting document reaches an order. `short` is used below
+// 640px, where "Generate from order" wraps to two lines and leaves the two tabs
+// at different heights.
+const DOC_SOURCES = [
+  { id: "upload" as const, label: "Upload a file", short: "Upload" },
+  { id: "generate" as const, label: "Generate from order", short: "Generate" },
+];
 const cardCls = "bg-white rounded-lg border border-[#E3E8EF]";
 const headCls = "px-6 py-3 border-b border-[#E3E8EF] text-sm font-semibold text-[#0A2540]";
 
@@ -197,7 +219,22 @@ export function OrderForm({
   const [docType, setDocType] = useState("im_conversation");
   const [otherLabel, setOtherLabel] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [dragActive, setDragActive] = useState(false);
+  // Which drop zone is currently under a drag. Two zones share one flag because
+  // only one can be hovered at a time, and a boolean would highlight both.
+  const [dragZone, setDragZone] = useState<"identity" | "supporting" | null>(null);
+  // The document currently being generated. It attaches itself and clears — the
+  // spinner shows on the button that started it.
+  const [genDoc, setGenDoc] = useState<GeneratedDocType | null>(null);
+  // `collapsingKeys` and `arrivedKey` exist only to drive the animation: a
+  // combine replaces rows the agent is looking at, so the merged ones collapse
+  // in place and the file that takes their position announces itself once.
+  const [collapsingKeys, setCollapsingKeys] = useState<string[]>([]);
+  const [arrivedKey, setArrivedKey] = useState<string | null>(null);
+  const [combining, setCombining] = useState(false);
+  // Which of the two ways to add a document is showing. Upload leads because it
+  // is the one an agent arrives with a file in hand for; generating is the
+  // alternative you reach for when you do not have one.
+  const [docSource, setDocSource] = useState<"upload" | "generate">("upload");
 
   const [saving, setSaving] = useState(false);
 
@@ -224,25 +261,40 @@ export function OrderForm({
     if (!stateVal) missing.push("State");
     if (!city.trim()) missing.push("City");
     if (!offerName) missing.push("Package");
+    // The ID copy is required by the portal's Personal Customer form, so it is a
+    // save-blocker like any other required field rather than a nice-to-have.
+    if (!hasIdentityDocument(documents)) missing.push("MyKad / Passport");
     return missing;
-  }, [isMykadLike, idNumber, fullName, emailValid, street, postcode, stateVal, city, offerName]);
+  }, [isMykadLike, idNumber, fullName, emailValid, street, postcode, stateVal, city, offerName, documents]);
 
-  // Documents are OPTIONAL — nothing here blocks a save. IM Conversation is the
-  // default type and the ID document follows the chosen ID Type (MyKad /
-  // Passport). The two flags below only drive the ticks in the card's hint, so
-  // an agent can see at a glance which of the usual pair they have attached.
-  // The scraper already tolerates an order with no attachments at all
-  // (`im_paths`/`id_paths` default to empty and each attach step is guarded).
+  // The ID copy follows the chosen ID Type and lives in its own card, so it is
+  // NOT one of the Supporting card's select options — the card is the type.
   const idDocType = isMykadLike ? "mykad" : idType === "Passport" ? "passport" : "id";
   const idDocLabel = isMykadLike ? "MyKad" : idType === "Passport" ? "Passport" : "ID Document";
   const docTypeOptions = [
     { value: "im_conversation", label: "IM Conversation" },
-    { value: idDocType, label: idDocLabel },
     { value: "other", label: "Others" },
     { value: "utility_bill", label: "Utility Bill" },
   ];
-  const hasImDoc = documents.some((d) => d.type === "im_conversation");
-  const hasIdentityDoc = documents.some((d) => ["mykad", "passport", "id", "other"].includes(d.type));
+  // "other" is deliberately not an identity document — see hasIdentityDocument.
+  const hasIdentityDoc = hasIdentityDocument(documents);
+  const identityDocs = documents.filter((d) => IDENTITY_DOC_TYPES.includes(d.type as never));
+  const supportingDocs = documents.filter((d) => !IDENTITY_DOC_TYPES.includes(d.type as never));
+  const docsFull = documents.length >= MAX_DOCS;
+
+
+  // What each generator reads off the form. Held in one object so the buttons,
+  // the dialog and the route all see the same values.
+  const genSource = {
+    fullName: fullName.trim(),
+    idNumber: idNumber.trim(),
+    fullAddress: street.trim(),
+    mobile: `${mobilePrefix}${mobile}`.trim(),
+    offerName,
+    idType,
+    email: email.trim(),
+    serviceCategory,
+  };
 
   // Derive gender + birthday during the change (no effect needed).
   function applyMykad(ic: string) {
@@ -481,13 +533,16 @@ export function OrderForm({
     }
   }
 
-  async function addDoc(file: File | undefined, side?: "front" | "back") {
+  // `type` is explicit rather than read from the `docType` select: the Identity
+  // card has no select — it always uploads the ID copy for the chosen ID Type —
+  // and the Supporting card passes whatever the select says.
+  async function addDoc(file: File | undefined, type: string, side?: "front" | "back") {
     if (!file) return;
     if (!idNumber.trim()) {
       toast.error("Enter the ID number before uploading documents.");
       return;
     }
-    if (docType === "other" && !otherLabel.trim()) {
+    if (type === "other" && !otherLabel.trim()) {
       toast.error('Enter a document type name for "Other".');
       return;
     }
@@ -495,15 +550,15 @@ export function OrderForm({
       toast.error(`Up to ${MAX_DOCS} files only.`);
       return;
     }
-    const seq = documents.filter((d) => d.type === docType).length + 1;
+    const seq = documents.filter((d) => d.type === type).length + 1;
     setUploading(true);
     const fd = new FormData();
     if (side) fd.append("side", side);
     fd.append("file", file);
     fd.append("idNumber", idNumber);
     fd.append("idType", idType);
-    fd.append("docType", docType);
-    if (docType === "other") fd.append("otherLabel", otherLabel.trim());
+    fd.append("docType", type);
+    if (type === "other") fd.append("otherLabel", otherLabel.trim());
     fd.append("seq", String(seq));
     // try/finally, not a bare await: `uploading` disables the drop zone with
     // pointer-events-none, and a Server Action THROWS on a transport failure
@@ -526,17 +581,118 @@ export function OrderForm({
   }
 
   // Drag-and-drop: upload dropped files one at a time (respects MAX_DOCS).
-  async function addDocs(files: FileList | File[]) {
+  async function addDocs(files: FileList | File[], type: string) {
     for (const f of Array.from(files)) {
       if (documents.length >= MAX_DOCS) break;
-      await addDoc(f);
+      await addDoc(f, type);
     }
   }
 
-  function handleDrop(e: React.DragEvent) {
-    e.preventDefault();
-    setDragActive(false);
-    if (e.dataTransfer.files?.length) addDocs(e.dataTransfer.files);
+  // Reordering acts on the SUPPORTING rows the agent can see, then writes the
+  // result back into the single `documents` list the order actually stores —
+  // the identity documents keep their places untouched.
+  function moveSupporting(index: number, delta: -1 | 1) {
+    const reordered = moveDoc(supportingDocs, index, delta);
+    setDocuments((docs) => {
+      const identity = docs.filter((d) => IDENTITY_DOC_TYPES.includes(d.type as never));
+      return [...identity, ...reordered];
+    });
+  }
+
+  /**
+   * Merge EVERY supporting document into one PDF, attach it, and drop the files
+   * it replaced so exactly one is left.
+   *
+   * The order in which those happen is the whole safety of this: the sources are
+   * removed only AFTER the combined file has uploaded, so a failed merge or a
+   * failed upload leaves the order exactly as it was. Nothing here deletes from
+   * R2 — the originals remain, they simply stop being attached.
+   */
+  async function handleCombine() {
+    const chosen = [...supportingDocs];
+    if (!canCombine(chosen) || combining) return;
+
+    setCombining(true);
+    try {
+      const sources: { label: string; bytes: Uint8Array }[] = [];
+      const unreadable: string[] = [];
+
+      for (const doc of chosen) {
+        try {
+          const res = await fetch(doc.url);
+          if (!res.ok) throw new Error(String(res.status));
+          const bytes = new Uint8Array(await res.arrayBuffer());
+          if (isImageDocument(doc.filename)) {
+            // Images become a page of their own. Normalizing through the canvas
+            // first is what lets a BMP or WEBP take part at all — pdf-lib embeds
+            // only PNG and JPEG, and an unembeddable source would be dropped.
+            const png = await imageBytesToPng(bytes, contentTypeFor(doc.filename));
+            sources.push({ label: mergeLabel(doc), bytes: await pngToPdfPage(png) });
+          } else {
+            sources.push({ label: mergeLabel(doc), bytes });
+          }
+        } catch {
+          unreadable.push(mergeLabel(doc));
+        }
+      }
+
+      if (sources.length === 0) {
+        toast.error("None of the documents could be read — nothing was changed.");
+        return;
+      }
+
+      const merged = await mergePdfs(sources);
+      // mergePdfs reports what it could not parse; the fetch loop reports what it
+      // could not read. Both are named, because a combined file quietly missing a
+      // page looks exactly like a combine that worked.
+      const skipped = [...unreadable, ...merged.failed];
+
+      const seq = documents.filter((d) => d.type === COMBINED_DOC_TYPE).length + 1;
+      const file = new File([merged.bytes as unknown as BlobPart], `combined_${seq}.pdf`, {
+        type: "application/pdf",
+      });
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("idNumber", idNumber);
+      fd.append("idType", idType);
+      fd.append("docType", COMBINED_DOC_TYPE);
+      fd.append("otherLabel", COMBINED_DOC_LABEL);
+      fd.append("seq", String(seq));
+
+      const res = await uploadOrderDocument(fd);
+      if (!res.success) {
+        toast.error(res.error ?? "The combined PDF could not be attached — nothing was changed.");
+        return;
+      }
+
+      // Only the documents that actually made it into the PDF are replaced. One
+      // that could not be read is still on the order, because its pages are not
+      // in the combined file and removing it would lose it for nothing.
+      const skippedSet = new Set(skipped);
+      const replaced = chosen.filter((d) => !skippedSet.has(mergeLabel(d))).map((d) => d.key);
+      const combined = { type: res.type, url: res.url, key: res.key, filename: res.filename };
+
+      setCollapsingKeys(replaced);
+      // Let the collapse play before the rows leave the tree — removing them in
+      // the same frame would swap the list with no animation at all.
+      await new Promise((r) => setTimeout(r, 260));
+      setDocuments((docs) => applyCombine(docs, replaced, combined));
+      setCollapsingKeys([]);
+      setArrivedKey(res.key);
+      setTimeout(() => setArrivedKey((k) => (k === res.key ? null : k)), 900);
+
+      if (skipped.length > 0) {
+        toast.warning(
+          `Combined ${merged.pageCount} pages. Could not read ${skipped.join(", ")} — left attached.`,
+        );
+      } else {
+        toast.success(`Combined ${replaced.length} documents into one ${merged.pageCount}-page PDF.`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? `Combine failed: ${e.message}` : "Combine failed. Try again.");
+    } finally {
+      setCombining(false);
+    }
   }
 
   function handleNameBlur() {
@@ -603,6 +759,12 @@ export function OrderForm({
     // ("select one offer in the Smart Device group") without one.
     if (isWithDevice && !deviceCode) {
       toast.error("This package includes a device — pick a device.");
+      return;
+    }
+    // The ID copy is required. saveOrder refuses it too — this check only saves
+    // the agent a round trip and names the card rather than the field path.
+    if (!hasIdentityDoc) {
+      toast.error(`Attach a copy of the customer's ${idDocLabel} before saving.`);
       return;
     }
     setSaving(true);
@@ -1150,95 +1312,377 @@ export function OrderForm({
         </div>
       </div>
 
-      {/* Documents */}
+      {/* ── Identity Document (required) ───────────────────────────────────────
+          Its own card because the portal's Personal Customer form marks the ID
+          copy required: a draft without one dies mid-submit with every field
+          filled and nothing on screen saying which one was missing. There is no
+          Type select here — the card IS the type, following the chosen ID Type. */}
       <div className={`${cardCls} overflow-hidden`}>
-        <div className={headCls}>Documents <span className="text-[#697386] font-normal">({documents.length}/{MAX_DOCS})</span></div>
+        <div className={headCls}>
+          {idDocLabel}
+          <span className="ml-1.5 text-[#DF1B41] font-normal">*</span>
+          {hasIdentityDoc && <span className="ml-2 text-[11px] font-normal text-green-700">Attached ✓</span>}
+        </div>
         <div className="p-6 space-y-4">
           <p className="text-[11px] text-[#697386]">
-            {"Optional — usually "}
-            <span className={hasImDoc ? "text-green-700" : ""}>IM Conversation{hasImDoc ? " ✓" : ""}</span>
-            {" and one of "}
-            <span className={hasIdentityDoc ? "text-green-700" : ""}>
-              MyKad / Passport / Others{hasIdentityDoc ? " ✓" : ""}
-            </span>
-            {". Up to "}{MAX_DOCS} files, max 5MB each (JPG/PNG/PDF/WEBP).
-            Saved as {idNumber || "{id}"}_
-            {docType === "utility_bill"
-              ? "utilitybill"
-              : docType === "im_conversation"
-                ? "imconversation"
-                : docType === "other"
-                  ? (otherLabel.trim().toLowerCase().replace(/[^a-z0-9]+/g, "") || "doc")
-                  : idType.toLowerCase()}
-            _n.
+            Required — the portal will not accept the customer profile without a copy of the
+            customer&apos;s {idDocLabel}. Add both sides as two files if you have them.
+            Saved as {idNumber || "{id}"}_{isMykadLike ? "mykad" : idType.toLowerCase()}_n.
           </p>
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="space-y-1.5">
-              <Label className={labelCls}>Type</Label>
-              <select value={docType} onChange={(e) => setDocType(e.target.value)} className={selectCls}>
-                {docTypeOptions.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
-              </select>
-            </div>
-            {docType === "other" && (
-              <div className="space-y-1.5">
-                <Label className={labelCls}>Document Name</Label>
-                <Input
-                  value={otherLabel}
-                  onChange={(e) => setOtherLabel(e.target.value)}
-                  className={inputCls}
-                  placeholder="e.g. tenancy agreement"
-                />
-              </div>
-            )}
-            {uploading && <span className="text-[11px] text-[#697386] pb-2">Uploading…</span>}
-            {!uploading && documents.length >= MAX_DOCS && (
-              <span className="text-[11px] text-[#697386] pb-2">
-                {MAX_DOCS} files attached — remove one to add another.
-              </span>
-            )}
-          </div>
 
-          {/* Drag-and-drop zone (also click-to-browse). `multiple` lets any doc
-              type take 2+ files (e.g. MyKad front + back) under the same Type. */}
           <label
-            onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-            onDragLeave={() => setDragActive(false)}
-            onDrop={handleDrop}
+            onDragOver={(e) => { e.preventDefault(); setDragZone("identity"); }}
+            onDragLeave={() => setDragZone(null)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragZone(null);
+              if (e.dataTransfer.files?.length) addDocs(e.dataTransfer.files, idDocType);
+            }}
             className={`flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-4 py-6 text-center cursor-pointer transition-colors ${
-              dragActive ? "border-[#635BFF] bg-[#635BFF]/5" : "border-[#CBD2DC] hover:border-[#635BFF]/60"
-            } ${uploading || documents.length >= MAX_DOCS ? "opacity-50 pointer-events-none" : ""}`}
+              dragZone === "identity"
+                ? "border-[#635BFF] bg-[#635BFF]/5"
+                : hasIdentityDoc
+                  ? "border-[#CBD2DC] hover:border-[#635BFF]/60"
+                  : "border-[#DF1B41]/50 bg-[#DF1B41]/[0.03] hover:border-[#DF1B41]"
+            } ${uploading || docsFull ? "opacity-50 pointer-events-none" : ""}`}
           >
             <LottieSpot name="dropzone" size={52} className="-mb-1" fallback={null} />
             <span className="text-[13px] font-medium text-[#425466]">
-              Drag &amp; drop files here, or <span className="text-[#635BFF]">browse</span>
+              Drag &amp; drop the {idDocLabel} here, or <span className="text-[#635BFF]">browse</span>
             </span>
-            <span className="text-[11px] text-[#697386]">JPG, PNG, PDF, WEBP · max 5MB each · add 2+ files for the same type</span>
+            <span className="text-[11px] text-[#697386]">JPG, PNG, PDF, WEBP · max 5MB each</span>
             <input
               type="file"
               multiple
               accept=".jpg,.jpeg,.png,.bmp,.pdf,.webp,.jfif"
-              disabled={uploading || documents.length >= MAX_DOCS}
-              onChange={(e) => { if (e.target.files) addDocs(e.target.files); e.target.value = ""; }}
+              disabled={uploading || docsFull}
+              onChange={(e) => { if (e.target.files) addDocs(e.target.files, idDocType); e.target.value = ""; }}
               className="hidden"
             />
           </label>
 
-          {documents.length > 0 && (
+          {identityDocs.length > 0 && (
             <div className="space-y-1.5">
-              {documents.map((d, i) => (
-                <div key={i} className="flex items-center justify-between rounded-lg bg-[#F6F9FC] px-3 py-2">
+              {identityDocs.map((d) => (
+                <div key={d.key} className="flex items-center justify-between rounded-lg bg-[#F6F9FC] px-3 py-2">
                   <a href={d.url} target="_blank" rel="noreferrer" className="text-[12px] text-[#0A2540] truncate hover:text-[#635BFF]">
                     {d.filename}
                   </a>
-                  <button type="button" onClick={() => setDocuments((docs) => docs.filter((_, j) => j !== i))} className="ml-3 shrink-0 text-[11px] text-[#DF1B41] hover:underline">
+                  <button type="button" onClick={() => setDocuments((docs) => docs.filter((x) => x.key !== d.key))} className="ml-3 shrink-0 text-[11px] text-[#DF1B41] hover:underline cursor-pointer">
                     Remove
                   </button>
                 </div>
               ))}
             </div>
           )}
+
+          {!hasIdentityDoc && (
+            <p className="text-[11px] font-medium text-[#DF1B41]">
+              The order cannot be saved until this is attached.
+            </p>
+          )}
         </div>
       </div>
+
+      {/* ── Supporting Documents (optional) ──────────────────────────────────
+          There are two ways to put a document on an order and they used to sit
+          stacked under one thin divider, which read as one long form rather than
+          a choice — the generate row looked like a toolbar above the "real"
+          upload controls. A segmented control makes it a choice and lets each
+          panel own its full width. */}
+      <div className={`${cardCls} overflow-hidden`}>
+        <div className={`${headCls} flex items-center justify-between`}>
+          <span>Supporting Documents</span>
+          <span className="text-[#697386] font-normal text-xs tabular-nums">
+            {documents.length}/{MAX_DOCS} total
+          </span>
+        </div>
+        <div className="p-6 space-y-5">
+          {/* Source picker. role=tablist so the two panels are announced as what
+              they are, and so arrow keys are expected to move between them. */}
+          <div
+            role="tablist"
+            aria-label="How to add a supporting document"
+            className="inline-flex w-full max-w-md rounded-lg border border-[#E3E8EF] bg-[#F6F9FC] p-1"
+          >
+            {DOC_SOURCES.map((s) => {
+              const active = docSource === s.id;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  aria-controls={`doc-panel-${s.id}`}
+                  id={`doc-tab-${s.id}`}
+                  onClick={() => setDocSource(s.id)}
+                  className={`flex-1 inline-flex items-center justify-center gap-2 min-h-10 rounded-md text-[13px] font-medium whitespace-nowrap transition-colors duration-200 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF] ${
+                    active
+                      ? "bg-white text-[#0A2540] shadow-[0_1px_2px_rgba(10,37,64,0.10)]"
+                      : "text-[#697386] hover:text-[#0A2540]"
+                  }`}
+                >
+                  {s.id === "upload" ? (
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" /></svg>
+                  ) : (
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M9.9 15.5A2 2 0 0 0 8.5 14.1l-6.1-1.6a.5.5 0 0 1 0-1L8.5 9.9A2 2 0 0 0 9.9 8.5l1.6-6.1a.5.5 0 0 1 1 0l1.6 6.1a2 2 0 0 0 1.4 1.4l6.1 1.6a.5.5 0 0 1 0 1l-6.1 1.6a2 2 0 0 0-1.4 1.4l-1.6 6.1a.5.5 0 0 1-1 0z" /></svg>
+                  )}
+                  <span className="sm:hidden">{s.short}</span>
+                  <span className="hidden sm:inline">{s.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* ── Upload panel ── */}
+          {docSource === "upload" && (
+            <div id="doc-panel-upload" role="tabpanel" aria-labelledby="doc-tab-upload" className="space-y-4">
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="space-y-1.5">
+                  <Label className={labelCls} htmlFor="doc-type">Type</Label>
+                  <select id="doc-type" value={docType} onChange={(e) => setDocType(e.target.value)} className={selectCls}>
+                    {docTypeOptions.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+                  </select>
+                </div>
+                {docType === "other" && (
+                  <div className="space-y-1.5">
+                    <Label className={labelCls} htmlFor="doc-name">Document Name</Label>
+                    <Input
+                      id="doc-name"
+                      value={otherLabel}
+                      onChange={(e) => setOtherLabel(e.target.value)}
+                      className={inputCls}
+                      placeholder="e.g. tenancy agreement"
+                    />
+                  </div>
+                )}
+                {uploading && <span className="text-[11px] text-[#697386] pb-3">Uploading…</span>}
+                {!uploading && docsFull && (
+                  <span className="text-[11px] text-[#697386] pb-3">
+                    {MAX_DOCS} files attached — remove one to add another.
+                  </span>
+                )}
+              </div>
+
+              <label
+                onDragOver={(e) => { e.preventDefault(); setDragZone("supporting"); }}
+                onDragLeave={() => setDragZone(null)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragZone(null);
+                  if (e.dataTransfer.files?.length) addDocs(e.dataTransfer.files, docType);
+                }}
+                className={`flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-4 py-6 text-center cursor-pointer transition-colors duration-200 ${
+                  dragZone === "supporting" ? "border-[#635BFF] bg-[#635BFF]/5" : "border-[#CBD2DC] hover:border-[#635BFF]/60"
+                } ${uploading || docsFull ? "opacity-50 pointer-events-none" : ""}`}
+              >
+                <LottieSpot name="dropzone" size={52} className="-mb-1" fallback={null} />
+                <span className="text-[13px] font-medium text-[#425466]">
+                  Drag &amp; drop files here, or <span className="text-[#635BFF]">browse</span>
+                </span>
+                <span className="text-[11px] text-[#697386]">JPG, PNG, PDF, WEBP · max 5MB each · add 2+ files for the same type</span>
+                <input
+                  type="file"
+                  multiple
+                  accept=".jpg,.jpeg,.png,.bmp,.pdf,.webp,.jfif"
+                  disabled={uploading || docsFull}
+                  onChange={(e) => { if (e.target.files) addDocs(e.target.files, docType); e.target.value = ""; }}
+                  className="hidden"
+                />
+              </label>
+
+              <p className="text-[11px] text-[#697386]">
+                Saved as {idNumber || "{id}"}_
+                {docType === "utility_bill"
+                  ? "utilitybill"
+                  : docType === "im_conversation"
+                    ? "imconversation"
+                    : (otherLabel.trim().toLowerCase().replace(/[^a-z0-9]+/g, "") || "doc")}
+                _n. Up to {MAX_DOCS} files in total across both cards.
+              </p>
+            </div>
+          )}
+
+          {/* ── Generate panel ──
+              All five stay visible and disabled rather than appearing as fields
+              fill: a set that silently grows leaves a document you expected
+              simply absent, with nothing saying why. */}
+          {docSource === "generate" && (
+            <div id="doc-panel-generate" role="tabpanel" aria-labelledby="doc-tab-generate" className="space-y-3">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {GENERATED_DOCS.map((g) => {
+                  const missing = missingFieldsFor(g.type, genSource);
+                  const blocked = missing.length > 0;
+                  const running = genDoc === g.type;
+                  // One of each kind per order, however it arrived. Removing the
+                  // row makes this available again.
+                  const already = isDocTypeAttached(g.type, documents);
+                  return (
+                    <button
+                      key={g.type}
+                      type="button"
+                      onClick={() => setGenDoc(g.type)}
+                      disabled={already || blocked || docsFull || genDoc !== null}
+                      title={
+                        already
+                          ? `Already attached — remove it below to generate a new ${g.label.toLowerCase()}.`
+                          : blocked
+                            ? `Fill in ${missing.join(", ")} first.`
+                            : undefined
+                      }
+                      aria-busy={genDoc === g.type}
+                      className={`group flex items-center gap-3 h-14 px-3 rounded-lg border text-left transition-colors duration-200 disabled:cursor-not-allowed cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF] ${
+                        already
+                          // Done, not unavailable. Dimming it to 50% like the
+                          // blocked cards would say the opposite of what happened.
+                          ? "border-[#0E9F6E]/30 bg-[#0E9F6E]/[0.04]"
+                          : "border-[#E3E8EF] bg-white hover:border-[#635BFF] hover:bg-[#635BFF]/[0.03] disabled:opacity-50 disabled:hover:border-[#E3E8EF] disabled:hover:bg-white"
+                      }`}
+                    >
+                      <span className={`shrink-0 flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-200 ${
+                        already ? "bg-[#0E9F6E]/10 text-[#0E9F6E]" : "bg-[#F6F9FC] text-[#635BFF] group-hover:bg-[#635BFF]/10 group-disabled:text-[#697386]"
+                      }`}>
+                        {running ? (
+                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />
+                        ) : already ? (
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                            <path d="M20 6 9 17l-5-5" />
+                          </svg>
+                        ) : (
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                            <path d="M14 2v6h6" />
+                          </svg>
+                        )}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-[13px] font-medium text-[#0A2540] truncate">{g.label}</span>
+                        {/* The blocking field is named on the face of the button,
+                            not only in a tooltip a keyboard user never sees. */}
+                        <span className="block text-[11px] text-[#697386] truncate">
+                          {running
+                            ? "Generating…"
+                            : already
+                              ? "Attached to this order"
+                              : blocked
+                                ? `Needs ${missing[0]}`
+                                : g.ext.toUpperCase()}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-[#697386]">
+                Built from this order&apos;s own details and attached straight away — it appears in the
+                list below, where you can open or remove it. Nothing here counts against your case limit.
+              </p>
+            </div>
+          )}
+
+          {/* ── Attached list + Combine ──
+              This block is outside both panels: what is attached does not depend
+              on how it got there, and hiding the list behind the Upload tab
+              would make a generated file look like it had not arrived. */}
+          <div className="pt-1 border-t border-[#E3E8EF]">
+            {supportingDocs.length === 0 ? (
+              <p className="pt-4 text-[12px] text-[#697386]">
+                No supporting documents yet — optional, but most orders carry the IM conversation.
+                Attach two or more and you can combine them into a single PDF.
+              </p>
+            ) : (
+              <div className="pt-4 space-y-1.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-1">
+                  <span className="text-xs font-medium text-[#425466]">
+                    Attached <span className="text-[#697386] tabular-nums">({supportingDocs.length})</span>
+                  </span>
+                  <Button
+                    type="button"
+                    onClick={handleCombine}
+                    disabled={!canCombine(supportingDocs) || combining || uploading}
+                    className="h-9 px-3 rounded-lg text-[12px] font-semibold bg-[#635BFF] hover:bg-[#0A2540] text-white transition-colors duration-200 disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    {combining
+                      ? "Combining…"
+                      : canCombine(supportingDocs)
+                        ? `Combine all ${supportingDocs.length} into one PDF`
+                        : "Combine into one PDF"}
+                  </Button>
+                </div>
+
+                {supportingDocs.map((d, i) => {
+                  const leaving = collapsingKeys.includes(d.key);
+                  const willMerge = combining && !leaving;
+                  return (
+                    <div
+                      key={d.key}
+                      className={`flex items-center gap-2 rounded-lg px-3 py-2 border transition-all duration-200 ${
+                        willMerge
+                          ? "bg-[#635BFF]/[0.06] border-[#635BFF]/40"
+                          : "bg-[#F6F9FC] border-transparent"
+                      } ${leaving ? "doc-collapsing" : ""} ${d.key === arrivedKey ? "doc-arriving" : ""}`}
+                    >
+                      {/* Every row goes in, so the accent marks "being merged"
+                          rather than "selected" — it appears while a combine runs
+                          and is the only thing that shows which rows are about to
+                          be replaced. */}
+                      <span
+                        aria-hidden
+                        className={`w-[3px] self-stretch rounded-full bg-[#635BFF] transition-all duration-200 ${
+                          willMerge ? "opacity-100 scale-y-100" : "opacity-0 scale-y-0"
+                        }`}
+                      />
+                      <span className="shrink-0 text-[10px] tabular-nums text-[#697386] w-4 text-center" aria-hidden>
+                        {i + 1}
+                      </span>
+                      <a href={d.url} target="_blank" rel="noreferrer" className="flex-1 text-[12px] text-[#0A2540] truncate hover:text-[#635BFF] transition-colors duration-200">
+                        {d.filename}
+                      </a>
+
+                      {/* Order is page order in the combined PDF. Arrows rather
+                          than drag — drag is unreachable from a keyboard. */}
+                      <span className="flex shrink-0 items-center">
+                        <button
+                          type="button"
+                          onClick={() => moveSupporting(i, -1)}
+                          disabled={i === 0}
+                          aria-label={`Move ${d.filename} up`}
+                          className="p-1 rounded text-[#697386] hover:text-[#0A2540] hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors duration-200"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m18 15-6-6-6 6" /></svg>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveSupporting(i, 1)}
+                          disabled={i === supportingDocs.length - 1}
+                          aria-label={`Move ${d.filename} down`}
+                          className="p-1 rounded text-[#697386] hover:text-[#0A2540] hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors duration-200"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m6 9 6 6 6-6" /></svg>
+                        </button>
+                      </span>
+
+                      <button type="button" onClick={() => setDocuments((docs) => docs.filter((x) => x.key !== d.key))} className="ml-1 shrink-0 text-[11px] text-[#DF1B41] hover:underline cursor-pointer">
+                        Remove
+                      </button>
+                    </div>
+                  );
+                })}
+
+                {/* The Combine button is present from the first attachment, so
+                    the feature is learned on arrival rather than discovered by
+                    accident at two files. It says what it is waiting for. */}
+                <p className="pt-1 text-[11px] text-[#697386]" aria-live="polite">
+                  {canCombine(supportingDocs)
+                    ? "Combining replaces all of these with a single PDF, in the order shown. Use the arrows to reorder."
+                    : `Attach at least ${MIN_COMBINE} documents to combine them into one PDF.`}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
 
       {/* Sticky action bar: the primary action rides the viewport bottom, so a
           six-card form never means scrolling back down to save. The summary is
@@ -1265,6 +1709,27 @@ export function OrderForm({
           </span>
         )}
       </div>
+
+      {/* Generates and attaches, then clears itself. Mounted only while running so
+          the chat's off-screen render target does not sit in the tree. */}
+      {genDoc && (
+        <GenerateDocRunner
+          type={genDoc}
+          source={genSource}
+          existingOfType={documents.filter((d) => d.type === docSpec(genDoc).attachAs).length}
+          onDone={({ doc, error }) => {
+            if (doc) {
+              setDocuments((docs) => [...docs, doc]);
+              setArrivedKey(doc.key);
+              setTimeout(() => setArrivedKey((k) => (k === doc.key ? null : k)), 900);
+              toast.success(`${docSpec(genDoc).label} attached to the order.`);
+            } else {
+              toast.error(error ?? "The document could not be generated.");
+            }
+            setGenDoc(null);
+          }}
+        />
+      )}
     </form>
   );
 }

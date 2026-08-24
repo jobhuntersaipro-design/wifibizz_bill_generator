@@ -7,6 +7,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { uploadToR2 } from "@/lib/r2";
 import {
   MAX_DOCS,
+  hasIdentityDocument,
   type OrderDocument,
   formatPhone,
   canSubmit,
@@ -203,7 +204,17 @@ const orderInputSchema = z.object({
   deviceCode: z.string().max(40).optional(),
   deviceName: z.string().max(255).optional(),
   remarks: z.string().max(2000).optional(),
-  documents: z.array(documentSchema).max(MAX_DOCS).optional(),
+  // The ID copy is required: the portal's Personal Customer form marks it so, and
+  // a draft without one dies mid-submit with the form filled and nothing saying
+  // why. Enforced here rather than only in the form because Server Actions are
+  // directly POST-able.
+  documents: z
+    .array(documentSchema)
+    .max(MAX_DOCS)
+    .optional()
+    .refine(hasIdentityDocument, {
+      message: "Attach the customer's MyKad or Passport before saving.",
+    }),
 });
 
 // Loose client-facing shape (friendly types at call sites). The zod schema

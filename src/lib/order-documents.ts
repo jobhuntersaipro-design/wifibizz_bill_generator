@@ -1,0 +1,204 @@
+// Generating documents from an ORDER DRAFT rather than a crawled WifiBizz case.
+//
+// The generators in src/lib/bill-generator/* already take a plain struct, not a
+// database row — it is the five /api/bills/* routes that are welded to
+// `wifibizz_cases`. An order draft carries every field those structs need, so
+// everything here is about routing and seeding, not about generation.
+//
+// Shared by the order form (which buttons are enabled), the generate-document
+// route (what to build) and the dialog (what to attach it as), so the three can
+// never disagree about what a document needs.
+
+/** The documents an order draft can produce. */
+export type GeneratedDocType =
+  | "chat"
+  | "internet_bill"
+  | "utility_bill"
+  | "authorization_letter"
+  | "time_invoice";
+
+/** The four the server renders. The chat is a client-side DOM capture. */
+export const SERVER_DOC_TYPES = [
+  "internet_bill",
+  "utility_bill",
+  "authorization_letter",
+  "time_invoice",
+] as const;
+
+export type ServerDocType = (typeof SERVER_DOC_TYPES)[number];
+
+export function isServerDocType(v: string): v is ServerDocType {
+  return (SERVER_DOC_TYPES as readonly string[]).includes(v);
+}
+
+/** The order-form fields a generator reads. */
+export interface GeneratorSource {
+  fullName: string;
+  idNumber: string;
+  fullAddress: string;
+  mobile: string;
+  offerName: string;
+}
+
+export interface GeneratedDocSpec {
+  type: GeneratedDocType;
+  label: string;
+  /** Form fields that must be non-empty, in the order they are reported. */
+  requires: { field: keyof GeneratorSource; label: string }[];
+  /**
+   * The upload `docType` this attaches under. No new document vocabulary is
+   * introduced: the scraper reads `im_paths` and `id_paths` and treats the rest
+   * generically, so inventing types here would mean changing that contract too.
+   */
+  attachAs: "im_conversation" | "utility_bill" | "other";
+  /** Filename slug for the `other` bucket, so the stored name stays readable. */
+  attachLabel?: string;
+  /**
+   * The slug this document's filename carries once stored, i.e. the middle part
+   * of `{idNumber}_{slug}_{n}.{ext}`. It mirrors `docSlug` in the upload action,
+   * which lives in a "use server" file and so cannot be imported here — the test
+   * suite pins the two together.
+   */
+  slug: string;
+  ext: "pdf" | "png";
+}
+
+const NAME = { field: "fullName", label: "Full Name" } as const;
+const ID = { field: "idNumber", label: "ID Number" } as const;
+const ADDR = { field: "fullAddress", label: "Installation Address" } as const;
+const MOBILE = { field: "mobile", label: "Phone Number" } as const;
+const PKG = { field: "offerName", label: "Package" } as const;
+
+export const GENERATED_DOCS: GeneratedDocSpec[] = [
+  {
+    type: "chat",
+    label: "Conversation Chat",
+    // The script prints the package and the install date alongside the customer,
+    // so a chat generated before a package is picked would show a dash where the
+    // thing being sold belongs.
+    requires: [NAME, ID, ADDR, MOBILE, PKG],
+    attachAs: "im_conversation",
+    slug: "imconversation",
+    ext: "png",
+  },
+  {
+    type: "internet_bill",
+    label: "Internet Bill",
+    requires: [NAME, ID, ADDR, MOBILE],
+    attachAs: "other",
+    attachLabel: "internetbill",
+    slug: "internetbill",
+    ext: "pdf",
+  },
+  {
+    type: "utility_bill",
+    label: "Utility Bill",
+    requires: [NAME, ID, ADDR, MOBILE],
+    attachAs: "utility_bill",
+    slug: "utilitybill",
+    ext: "pdf",
+  },
+  {
+    type: "authorization_letter",
+    label: "Authorization Letter",
+    requires: [NAME, ID, ADDR],
+    attachAs: "other",
+    attachLabel: "authorizationletter",
+    slug: "authorizationletter",
+    ext: "pdf",
+  },
+  {
+    type: "time_invoice",
+    label: "TIME Invoice",
+    requires: [NAME, ID, ADDR],
+    attachAs: "other",
+    attachLabel: "timeinvoice",
+    slug: "timeinvoice",
+    ext: "pdf",
+  },
+];
+
+export function docSpec(type: GeneratedDocType): GeneratedDocSpec {
+  const spec = GENERATED_DOCS.find((d) => d.type === type);
+  if (!spec) throw new Error(`Unknown generated document type: ${type}`);
+  return spec;
+}
+
+/**
+ * The fields this document needs that the form has not filled yet. Empty means
+ * the button is enabled. A button whose inputs are missing is disabled WITH the
+ * reason named — not hidden, and not enabled-then-failing.
+ */
+export function missingFieldsFor(
+  type: GeneratedDocType,
+  source: Partial<GeneratorSource>,
+): string[] {
+  return docSpec(type)
+    .requires.filter((r) => !String(source[r.field] ?? "").trim())
+    .map((r) => r.label);
+}
+
+/**
+ * The deterministic seed the generators take as `case_no`.
+ *
+ * Every generator derives its account number, invoice number, owner identity and
+ * dates from this, so it MUST be stable: regenerating has to produce the same
+ * document, or two downloads of one letter would name two different property
+ * owners for one premise (the reason the letter work rejected randomness).
+ *
+ * An order draft has no case_no. The alternatives all fail on a form that has
+ * never been saved — `reference` is assigned at save (and is null forever on
+ * bulk-created drafts) and the cuid does not exist yet — so the seed is the
+ * normalized ID number, which is required, present before generation is possible,
+ * and unchanged across save-and-reload.
+ *
+ * Accepted consequence: two orders for the same customer generate identical
+ * account and invoice numbers. For a utility bill naming one person at one
+ * premise that is arguably correct rather than a collision.
+ */
+export function documentSeed(idNumber: string): string {
+  return idNumber.replace(/[^A-Za-z0-9]/g, "");
+}
+
+/** Download filename for a generated document. */
+export function generatedFilename(type: GeneratedDocType, seed: string): string {
+  const spec = docSpec(type);
+  return `${type}_${seed || "order"}.${spec.ext}`;
+}
+
+/**
+ * The slug in a stored document's filename, or null if it is not shaped like one.
+ *
+ * Filenames are `{idNumber}_{slug}_{suffix}.{ext}` and the slug is always
+ * `[a-z0-9]+`, so the middle is everything between the first and last underscore.
+ * This is read back out rather than tracked in state because it is the only
+ * record that survives saving a draft and loading it again.
+ */
+export function slugFromFilename(filename: string): string | null {
+  const stem = filename.replace(/\.[^.]+$/, "");
+  const parts = stem.split("_");
+  if (parts.length < 3) return null;
+  return parts.slice(1, -1).join("_") || null;
+}
+
+/**
+ * Is a document of this kind already on the order?
+ *
+ * Each kind can be generated once, and "once" is measured against what is
+ * ATTACHED rather than what has ever been generated: removing the row makes it
+ * available again, which is both self-healing and visible on screen. It counts a
+ * manually uploaded utility bill too — the point is that the order should not
+ * carry two utility bills that disagree, and who made them does not change that.
+ *
+ * A consequence worth knowing: combining replaces every supporting document with
+ * a single PDF, so the individual slugs disappear and all five become available
+ * again. Generating one then leaves a copy both inside the combined file and
+ * beside it.
+ */
+export function isDocTypeAttached(
+  type: GeneratedDocType,
+  docs: readonly { filename: string }[],
+): boolean {
+  const slug = docSpec(type).slug;
+  return docs.some((d) => slugFromFilename(d.filename) === slug);
+}
