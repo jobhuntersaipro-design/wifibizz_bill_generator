@@ -17,6 +17,8 @@ Survive portal error `[40301147] "Slot has been taken"`: the appointment slot bo
 - New `appointment_slot_taken` code (scraper `oe_errors.py` + BizzFlow `SUBMIT_ERROR_CODES`) renders contention advice when the budget is spent.
 - NOT live-verified — needs droplet deploy + `api_server` restart, then a real contended submit.
 
+Also in this cycle (user ask off live order `2608000122524500`, same day): **attachments — "Others" is gone**. That order showed the portal's starred, REQUIRED IM Conversation container 1 empty while the combined PDF sat in an "Others" container (the draft had no chat capture). Now every non-ID document is an IM Conversation: the first fills the locked container 1 (a real chat capture wins when present — no dropdown interaction needed for it), each further one gets its own container typed "IM Conversation"; ID copies unchanged. Caveat: whether "IM Conversation" is offered in an ADDED container's dropdown is live-unverified (only orders with 2+ non-ID docs hit it); the single-combined-PDF case never touches a dropdown.
+
 <!-- Constraints, context, spec links. Populated by /feature load. -->
 
 ## History
