@@ -24,7 +24,6 @@ import {
   type OrderListItem,
   type StageDetails,
 } from "@/lib/order-types";
-import { OrderHistoryPanel } from "./OrderHistoryPanel";
 import type { RowActions } from "./OrderRow";
 import { OrdersTable } from "./OrdersTable";
 import { OrdersToolbar } from "./OrdersToolbar";
@@ -74,8 +73,6 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   // out of `orders` because it belongs to the RUN, not the draft: a refetched
   // list has no details, and merging them in would blank the checklist mid-run.
   const [stageDetails, setStageDetails] = useState<Record<string, StageDetails>>({});
-  // The order whose full status history panel is open, if any.
-  const [historyId, setHistoryId] = useState<string | null>(null);
   // The order awaiting a resubmit confirmation, if any.
   const [resubmitId, setResubmitId] = useState<string | null>(null);
   // …and the one awaiting a delete confirmation. Delete is irreversible and,
@@ -489,8 +486,6 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     );
   }
 
-  // Read live from `orders` so the panel updates as the run progresses.
-  const historyOrder = orders.find((o) => o.id === historyId) ?? null;
   // Re-read the same way: a row that finished mid-dialog must not be resubmitted
   // against a stale snapshot of itself.
   const resubmitOrder = orders.find((o) => o.id === resubmitId) ?? null;
@@ -518,7 +513,13 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     onEdit: () => onEdit(o.id),
     onCancelOrder: () => setCancelId(o.id),
     onDelete: () => setDeleteId(o.id),
-    onShowHistory: () => setHistoryId(o.id),
+    // Opens the full-page detail view in a new tab rather than a slide-in
+    // panel — a plain window.open works fine from inside a click handler and
+    // means the list tab's filters/scroll are never touched. The route lives
+    // OUTSIDE /dashboard on purpose: the detail tab shows no sidebar, no tab
+    // strip, no connection card — just the order.
+    onShowHistory: () =>
+      window.open(`/order-entry/orders/${o.id}`, "_blank", "noopener,noreferrer"),
   });
 
   return (
@@ -546,12 +547,6 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
         actionsFor={actionsFor}
         onToggleAll={toggleAll}
       />
-
-      {/* No scrim here any more: the Sheet portals its own backdrop above
-          everything, which is also what closes on outside-click and Escape. */}
-      {historyOrder && (
-        <OrderHistoryPanel order={historyOrder} onClose={() => setHistoryId(null)} />
-      )}
 
       {/* Re-checked at confirm time, not just at open time: the row may have
           been picked up by another tab's poll while the dialog sat open. */}

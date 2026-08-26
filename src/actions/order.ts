@@ -424,6 +424,92 @@ async function isSuperAdmin(userId: string): Promise<boolean> {
   return !!u?.isSuperAdmin;
 }
 
+/**
+ * Shapes one raw Prisma `Order` row into the `OrderListItem` the UI reads
+ * everywhere — the list, and now a single order's detail page. Kept as one
+ * function so the two callers can never drift into disagreeing about what a
+ * row looks like.
+ */
+function toOrderListItem(
+  o: Prisma.OrderGetPayload<{ include: { user: { select: { email: true } } } }>,
+  opts: { superAdmin: boolean; installationDateOverride?: string | null },
+): OrderListItem {
+  return {
+    id: o.id,
+    fullName: o.fullName,
+    idType: o.idType,
+    idNumber: o.idNumber,
+    phone: formatPhone(o.mobilePrefix, o.mobile),
+    email: o.email,
+    gender: o.gender,
+    birthday: o.birthday,
+    race: o.race,
+    idExpiry: o.idExpiry,
+    offerName: o.offerName,
+    street: o.street,
+    postcode: o.postcode,
+    city: o.city,
+    state: o.state,
+    addressFull: o.addressFull,
+    addressId: o.addressId,
+    status: o.status,
+    orderId: o.orderId,
+    errorMessage: o.errorMessage,
+    errorCode: o.errorCode,
+    stage: o.stage,
+    reference: o.reference,
+    deviceName: o.deviceName,
+    deviceCode: o.deviceCode,
+    remarks: o.remarks,
+    attempt: o.attempt,
+    screenshotUrl: o.screenshotUrl,
+    // `o.installationDate` is what was already stored; an override carries
+    // anything read from an e-RF a moment ago, which the freshly-loaded row
+    // predates. Falling back the other way would show a dash on exactly the
+    // load that first discovered the date.
+    installationDate: opts.installationDateOverride ?? o.installationDate,
+    docCount: Array.isArray(o.documents) ? (o.documents as unknown[]).length : 0,
+    documents: Array.isArray(o.documents)
+      ? (o.documents as unknown as OrderDocument[])
+      : [],
+    createdAt: o.createdAt.toISOString(),
+    createdByEmail: opts.superAdmin ? o.user?.email ?? null : null,
+  };
+}
+
+// Single order, already shaped as `OrderListItem` — what the detail page
+// (`/dashboard/order-entry/orders/[orderId]`) reads. Scoped identically to
+// `getOrder`/`getOrderHistory`: a superadmin can read any order, everyone
+// else only their own.
+export async function getOrderDetail(id: string): Promise<{
+  success: boolean;
+  error?: string;
+  data: OrderListItem | null;
+}> {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false, error: "Unauthorized", data: null };
+
+  const superAdmin = await isSuperAdmin(session.user.id);
+  const order = await prisma.order.findFirst({
+    where: superAdmin ? { id } : { id, userId: session.user.id },
+    include: { user: { select: { email: true } } },
+  });
+  if (!order) return { success: false, error: "Order not found.", data: null };
+
+  let installationDateOverride: string | null | undefined;
+  try {
+    const appointments = await fillMissingInstallationDates([order]);
+    installationDateOverride = appointments[order.id];
+  } catch (e) {
+    console.error("[getOrderDetail] installation-date fill failed (returning anyway):", e);
+  }
+
+  return {
+    success: true,
+    data: toOrderListItem(order, { superAdmin, installationDateOverride }),
+  };
+}
+
 export async function listOrders(): Promise<{
   success: boolean;
   error?: string;
@@ -469,44 +555,9 @@ export async function listOrders(): Promise<{
   return {
     success: true,
     isSuperAdmin: superAdmin,
-    data: orders.map((o) => ({
-      id: o.id,
-      fullName: o.fullName,
-      idType: o.idType,
-      idNumber: o.idNumber,
-      phone: formatPhone(o.mobilePrefix, o.mobile),
-      email: o.email,
-      gender: o.gender,
-      birthday: o.birthday,
-      race: o.race,
-      idExpiry: o.idExpiry,
-      offerName: o.offerName,
-      street: o.street,
-      postcode: o.postcode,
-      city: o.city,
-      state: o.state,
-      addressFull: o.addressFull,
-      addressId: o.addressId,
-      status: o.status,
-      orderId: o.orderId,
-      errorMessage: o.errorMessage,
-      errorCode: o.errorCode,
-      stage: o.stage,
-      reference: o.reference,
-      deviceName: o.deviceName,
-      deviceCode: o.deviceCode,
-      remarks: o.remarks,
-      attempt: o.attempt,
-      screenshotUrl: o.screenshotUrl,
-      // `o.installationDate` is what was already stored; `appointments` carries
-      // anything read from an e-RF a moment ago, which the freshly-loaded row
-      // predates. Falling back the other way would show a dash on exactly the
-      // load that first discovered the date.
-      installationDate: appointments[o.id] ?? o.installationDate,
-      docCount: Array.isArray(o.documents) ? (o.documents as unknown[]).length : 0,
-      createdAt: o.createdAt.toISOString(),
-      createdByEmail: superAdmin ? o.user?.email ?? null : null,
-    })),
+    data: orders.map((o) =>
+      toOrderListItem(o, { superAdmin, installationDateOverride: appointments[o.id] }),
+    ),
   };
 }
 

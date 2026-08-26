@@ -847,6 +847,11 @@ export interface OrderListItem {
   // every failure, and every run that stopped part-way.
   installationDate: string | null;
   docCount: number;
+  // The attached documents themselves, for the detail page's Documents section.
+  // Each `url` is the authenticated proxy path — note that route scopes to the
+  // CALLER's R2 namespace, so a superadmin viewing another user's order sees
+  // the list but cannot download the files (same as the edit form today).
+  documents: OrderDocument[];
   createdAt: string;
   createdByEmail?: string | null; // only populated for superadmins (all-drafts view)
 }

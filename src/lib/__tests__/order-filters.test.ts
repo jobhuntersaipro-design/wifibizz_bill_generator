@@ -43,6 +43,7 @@ function order(over: Partial<OrderListItem> = {}): OrderListItem {
     attempt: 0,
     screenshotUrl: null,
     docCount: 0,
+    documents: [],
     createdAt: "2026-08-18T10:00:00.000Z",
     createdByEmail: null,
     ...over,
