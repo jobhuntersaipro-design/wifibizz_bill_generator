@@ -5,7 +5,7 @@ import LottieSpot from "./LottieSpot";
 import {
   SUBMIT_STEPS,
   POINT_OF_NO_RETURN,
-  stepIndexForStage,
+  progressReading,
   type StageDetails,
 } from "@/lib/order-types";
 
@@ -22,6 +22,11 @@ interface Props {
   // What the portal resolved at each step, keyed by stage. A step without an
   // entry simply shows no second line — details arrive as the run reaches them.
   details?: StageDetails;
+  // Every stage this run has been seen at, in any order — the floor for "how far
+  // did it actually get". Only needed where `details` is not the record of that
+  // (the detail page reads the event history, not the progress poll); it falls
+  // back to the details' own keys.
+  observedStages?: (string | null | undefined)[];
 }
 
 const POINT_INDEX = SUBMIT_STEPS.findIndex((s) => s.key === POINT_OF_NO_RETURN);
@@ -114,21 +119,16 @@ export function SubmitProgress({
   errorCode,
   orderId,
   details,
+  observedStages,
 }: Props) {
-  const current = stepIndexForStage(stage);
-  const unknownStage = current === -1 && !!stage && !isTerminal(status);
-  const done =
-    status === "submitted" ? SUBMIT_STEPS.length : Math.max(current, 0);
-  const pct = Math.round((done / SUBMIT_STEPS.length) * 100);
-
-  // Which step the run is ON, 1-based. While it is moving that is the step it is
-  // working; once it stops that is the step it stopped on. "Step 11 of 16" tells
-  // an agent how far in they are in a way a bare percentage never does.
-  const stepNo = Math.min(Math.max(current, 0) + 1, SUBMIT_STEPS.length);
-  const heading =
-    status === "submitted"
-      ? `All ${SUBMIT_STEPS.length} steps complete`
-      : `Step ${stepNo} of ${SUBMIT_STEPS.length}`;
+  // The step arithmetic lives in progressReading (order-types) so it can be
+  // tested: this file has no test environment, and it is exactly this
+  // calculation that used to answer an unrecognised stage with "Step 1 of 17".
+  const { current, done, pct, heading, unknownStage } = progressReading(
+    stage,
+    status,
+    observedStages ?? Object.keys(details ?? {}),
+  );
 
   return (
     <div className="px-4 py-3 bg-[#F6F9FC] border-t border-[#E3E8EF]">

@@ -108,6 +108,9 @@ export function OrderDetailView({ order }: { order: OrderListItem }) {
                 errorMessage={order.errorMessage}
                 errorCode={order.errorCode}
                 orderId={order.orderId}
+                // This page reads the event history rather than the progress
+                // poll, so the run's own stages are the floor here.
+                observedStages={attempts?.[0]?.events.map((e) => e.stage)}
               />
             </div>
           </SectionCard>
