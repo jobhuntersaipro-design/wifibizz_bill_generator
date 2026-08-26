@@ -90,9 +90,10 @@ def order_to_payload(order: dict) -> dict:
         if isinstance(d, dict) and d.get("type") == "im_conversation" and d.get("key")
     ]
     # Everything else on the order — the combined PDF (type "other"), utility
-    # bills, and any future app-side type — goes to the portal as "Others", one
-    # attachment container each. Collected as NOT-id/im rather than as a type
-    # allowlist, so a new document type is uploaded rather than silently dropped.
+    # bills, and any future app-side type — uploads as "IM Conversation" (the
+    # first non-ID doc fills the portal's starred required IM slot). Collected
+    # as NOT-id/im rather than as a type allowlist, so a new document type is
+    # uploaded rather than silently dropped.
     other_doc_keys = [
         d.get("key") for d in docs
         if isinstance(d, dict) and d.get("key")

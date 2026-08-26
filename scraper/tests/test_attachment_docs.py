@@ -7,11 +7,14 @@ Pure logic only (no browser). Two halves:
   1. order_to_payload's doc-key split — ID documents to `id_doc_keys`, the IM
      Conversation to `im_doc_keys`, and EVERYTHING else (the combined PDF,
      utility bills, any future app-side type) to `other_doc_keys`, so a new
-     type is uploaded as "Others" rather than silently dropped (which is what
-     happened to every non-id/im document before 2026-08-26).
+     type is uploaded rather than silently dropped (which is what happened to
+     every non-id/im document before 2026-08-26).
   2. attachment_plan — container keys start at "2" (container 1 is the locked
-     IM slot), ID copies come first, and every other document is labelled
-     "Others".
+     IM slot, filled with the FIRST non-ID document before the plan runs), ID
+     copies come first, and every further non-ID document is labelled
+     "IM Conversation" — never "Others" (live order 2608000122524500 left the
+     starred required IM slot empty while the combined PDF sat in an Others
+     container; user's call 2026-08-26).
 
 Run from the scraper/ dir:
     pytest tests/test_attachment_docs.py
@@ -81,16 +84,23 @@ def test_attachment_plan_keys_start_at_2_ids_first():
     plan = attachment_plan(["/tmp/ic.png"], ["/tmp/combined.pdf", "/tmp/bill.pdf"])
     assert plan == [
         ("2", "ID copy", "/tmp/ic.png"),
-        ("3", "Others", "/tmp/combined.pdf"),
-        ("4", "Others", "/tmp/bill.pdf"),
+        ("3", "IM Conversation", "/tmp/combined.pdf"),
+        ("4", "IM Conversation", "/tmp/bill.pdf"),
     ]
 
 
-def test_attachment_plan_others_only_still_start_at_2():
-    # No ID document (bulk-created legacy drafts) — the other docs must not
+def test_attachment_plan_never_labels_others():
+    # "Others" left the starred required IM slot empty on a live order; every
+    # non-ID document is an IM Conversation now.
+    plan = attachment_plan(["/tmp/ic.png"], ["/tmp/a.pdf", "/tmp/b.pdf"])
+    assert all(label != "Others" for _, label, _ in plan)
+
+
+def test_attachment_plan_extra_im_only_still_start_at_2():
+    # No ID document (bulk-created legacy drafts) — the extra docs must not
     # collide with container 1 (the locked IM slot).
     plan = attachment_plan([], ["/tmp/combined.pdf"])
-    assert plan == [("2", "Others", "/tmp/combined.pdf")]
+    assert plan == [("2", "IM Conversation", "/tmp/combined.pdf")]
 
 
 def test_attachment_plan_empty_and_none():

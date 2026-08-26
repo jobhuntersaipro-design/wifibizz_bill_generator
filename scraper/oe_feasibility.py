@@ -1180,9 +1180,10 @@ async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = 
 
     stage = _stage_emitter(on_stage)
 
-    # Download the attachments from R2: IM Conversation + ID copy, plus every
-    # other order document (combined PDF, utility bill, …) which uploads as
-    # Attachment Type "Others".
+    # Download the attachments from R2: chat captures + ID copies, plus every
+    # other order document (combined PDF, utility bill, …) — non-ID documents
+    # all upload as IM Conversation, the first of them into the starred
+    # required container 1.
     im_paths, id_paths, other_paths = [], [], []
     if submit and not dry_run:
         try:
@@ -3404,15 +3405,18 @@ async def _select_attach_type(page, container_key: str, label_re: str) -> str:
     })""", container_key, label_re)
 
 
-def attachment_plan(id_paths: list, other_paths: list) -> list:
+def attachment_plan(id_paths: list, extra_im_paths: list) -> list:
     """Which attachment containers to ADD, in order: (container key, Attachment
     Type label, local file). Container 1 is the always-present locked IM
     Conversation slot, so added containers start at key "2" — ID copies first
-    (the required document), then every other order document (combined PDF,
-    utility bill, …) as "Others". Pure, so the key numbering and the ordering
-    are testable without a browser."""
+    (the required document), then every FURTHER non-ID document as
+    "IM Conversation". "Others" is not used at all (user's call, 2026-08-26):
+    non-ID documents are IM Conversation, and the FIRST of them fills the
+    locked container 1 before this plan even runs (see fill_customer_order_info),
+    so the starred required slot is never left empty while documents exist.
+    Pure, so the key numbering and the ordering are testable without a browser."""
     labelled = [("ID copy", p) for p in (id_paths or [])]
-    labelled += [("Others", p) for p in (other_paths or [])]
+    labelled += [("IM Conversation", p) for p in (extra_im_paths or [])]
     return [(str(i + 2), label, path) for i, (label, path) in enumerate(labelled)]
 
 
@@ -3421,9 +3425,13 @@ async def fill_customer_order_info(page, payload: dict,
                                    other_paths: list = None,
                                    on_stage=None) -> dict:
     """Fill the Customer Order Information page. im_paths/id_paths/other_paths
-    are local files (downloaded from R2). IM Conversation goes in container 1
-    (locked type); each ID file gets its own container with Attachment Type =
-    'ID copy'; every other order document gets its own container as 'Others'."""
+    are local files (downloaded from R2). Every non-ID document is an IM
+    Conversation: the first (a real chat capture when one exists, else the first
+    other document) goes in container 1 — the locked, starred, REQUIRED slot —
+    and each further one gets its own container with Attachment Type =
+    'IM Conversation'. Each ID file gets its own container as 'ID copy'.
+    'Others' is not used (live order 2608000122524500 showed the starred slot
+    empty while the combined PDF sat in an Others container)."""
     stage = _stage_emitter(on_stage)
 
     frame = _frame(page)
@@ -3471,18 +3479,22 @@ async def fill_customer_order_info(page, payload: dict,
 
     # ── Attachments ──────────────────────────────────────────────────────────
     stage("uploading_attachments")
-    # Container 1 is locked to IM Conversation. Set the IM file there.
-    if im_paths:
+    # Every non-ID document is an IM Conversation. Container 1 is the locked,
+    # starred, REQUIRED IM slot — fill it with the first of them (a real chat
+    # capture wins when one exists), so it is never left empty while the order
+    # carries documents.
+    im_all = im_paths + other_paths
+    if im_all:
         try:
-            await _set_attach_file(page, "1", im_paths[0])
+            await _set_attach_file(page, "1", im_all[0])
             steps["im_attach"] = "ok"
         except Exception as e:
             return {"status": "error", "error": "im_attach_failed",
                     "stage": "attachments", "message": str(e)}
     # Each further file: '+ Add' (new container) -> Attachment Type -> file.
-    # ID documents get 'ID copy'; every other order document (combined PDF,
-    # utility bill, …) gets 'Others'.
-    for key, type_label, path in attachment_plan(id_paths, other_paths):
+    # ID documents get 'ID copy'; every further non-ID document gets
+    # 'IM Conversation'.
+    for key, type_label, path in attachment_plan(id_paths, im_all[1:]):
         step_key = f"attach_{key}_{type_label.lower().replace(' ', '_')}"
         # The Attachment '+ Add' (`.js-order-add-icon`) needs a REAL Playwright
         # click (a JS .click() does not add a container).
