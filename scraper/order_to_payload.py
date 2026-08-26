@@ -89,9 +89,14 @@ def order_to_payload(order: dict) -> dict:
         d.get("key") for d in docs
         if isinstance(d, dict) and d.get("type") == "im_conversation" and d.get("key")
     ]
-    utility_doc_keys = [
+    # Everything else on the order — the combined PDF (type "other"), utility
+    # bills, and any future app-side type — goes to the portal as "Others", one
+    # attachment container each. Collected as NOT-id/im rather than as a type
+    # allowlist, so a new document type is uploaded rather than silently dropped.
+    other_doc_keys = [
         d.get("key") for d in docs
-        if isinstance(d, dict) and d.get("type") == "utility_bill" and d.get("key")
+        if isinstance(d, dict) and d.get("key")
+        and d.get("type") not in ("id", "mykad", "passport", "im_conversation")
     ]
 
     mykad = parse_mykad(id_number_raw) if mykad_like else {}
@@ -143,7 +148,7 @@ def order_to_payload(order: dict) -> dict:
         # submit time. id_doc_path is a local-file override for testing.
         "id_doc_keys": id_doc_keys,
         "im_doc_keys": im_doc_keys,
-        "utility_doc_keys": utility_doc_keys,
+        "other_doc_keys": other_doc_keys,
         "id_doc_path": None,
     }
 

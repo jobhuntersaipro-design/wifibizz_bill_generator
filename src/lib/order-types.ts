@@ -202,6 +202,11 @@ const CAPTURE_SLOTS: Record<string, { label: string; caption: string }> = {
     label: "Attachments",
     caption: "The documents the portal accepted.",
   },
+  appointment: {
+    label: "Appointment — calendar",
+    caption:
+      "The Appointment calendar with the chosen slot clicked, photographed at the moment of selection before OK.",
+  },
   delivery: {
     label: "Delivery terms",
     caption: "The terms and conditions the order was placed under.",
