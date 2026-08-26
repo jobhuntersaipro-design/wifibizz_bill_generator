@@ -46,7 +46,15 @@ const STATUS_STYLES: Record<string, string> = {
  */
 export function formatAddress(o: OrderListItem): string {
   if (o.addressFull?.trim()) return o.addressFull.trim();
-  return [o.street, [o.postcode, o.city].filter(Boolean).join(" "), o.state]
+  const street = o.street?.trim() ?? "";
+  // Since Confirm was removed, the agent pastes the portal's COMPLETE address
+  // into Full Address, so `street` usually already ends "... SELANGOR MALAYSIA
+  // 40100" and postcode/city/state are merely derived from it — appending them
+  // would repeat the string's own tail. The derived postcode already appearing
+  // in the paste is the tell; the rebuild below survives only for old drafts
+  // whose street really was just the street line.
+  if (o.postcode && street.includes(o.postcode)) return street;
+  return [street, [o.postcode, o.city].filter(Boolean).join(" "), o.state]
     .map((p) => p?.trim())
     .filter(Boolean)
     .join(", ");
