@@ -3,8 +3,12 @@ import { auth } from "@/auth";
 import { getFromR2 } from "@/lib/r2";
 
 // Content-type is derived from the (allowlisted) extension, never from what was
-// stored, and everything is served as an attachment with nosniff so a document
-// can't execute in the browser.
+// stored, and everything is served with nosniff so a document can't execute in
+// the browser. Default disposition is attachment; `view=1` opts into inline so
+// the detail page can render thumbnails and an iframe PDF preview — safe for
+// exactly the same reason the screenshot route serves inline: the allowlist
+// below holds only raster images and PDF (no SVG, no HTML), so there is nothing
+// a browser could execute when told to display one.
 const EXT_CONTENT_TYPE: Record<string, string> = {
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
@@ -21,7 +25,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  const key = new URL(request.url).searchParams.get("key") || "";
+  const url = new URL(request.url);
+  const key = url.searchParams.get("key") || "";
+  const inline = url.searchParams.get("view") === "1";
 
   // Scope to the caller's own namespace — orders/<userId>/... — so ID scans
   // can't be read (or MyKad-based filenames enumerated) across tenants.
@@ -41,11 +47,13 @@ export async function GET(request: Request) {
     if (!stream) {
       return NextResponse.json({ success: false, error: "Not found" }, { status: 404 });
     }
-    const filename = key.slice(prefix.length);
+    // Quotes/backslashes stripped so the filename cannot break out of the
+    // header value (same rule the screenshot route applies).
+    const filename = key.slice(prefix.length).replace(/["\\]/g, "");
     return new Response(stream, {
       headers: {
         "Content-Type": contentType,
-        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${filename}"`,
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "private, no-store",
       },

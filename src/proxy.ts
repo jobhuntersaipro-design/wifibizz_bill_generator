@@ -35,8 +35,10 @@ export const proxy = auth(async (req) => {
     return NextResponse.redirect(new URL("/auth/signin", req.nextUrl));
   }
 
-  // Redirect unauthenticated users away from dashboard
-  if (pathname.startsWith("/dashboard") && !isLoggedIn) {
+  // Redirect unauthenticated users away from signed-in pages. /order-entry is
+  // the standalone order-detail tab — same data as the dashboard, so it gets
+  // the same front door.
+  if ((pathname.startsWith("/dashboard") || pathname.startsWith("/order-entry")) && !isLoggedIn) {
     return NextResponse.redirect(new URL("/auth/signin", req.nextUrl));
   }
 
@@ -44,5 +46,13 @@ export const proxy = auth(async (req) => {
 });
 
 export const config = {
-  matcher: ["/", "/dashboard", "/dashboard/:path*", "/admin", "/admin/:path*"],
+  matcher: [
+    "/",
+    "/dashboard",
+    "/dashboard/:path*",
+    "/order-entry",
+    "/order-entry/:path*",
+    "/admin",
+    "/admin/:path*",
+  ],
 };
