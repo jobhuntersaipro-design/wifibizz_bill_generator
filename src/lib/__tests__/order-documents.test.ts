@@ -4,6 +4,7 @@ import {
   SERVER_DOC_TYPES,
   docSpec,
   documentSeed,
+  generatableDocTypes,
   generatedFilename,
   isDocTypeAttached,
   isServerDocType,
@@ -255,5 +256,53 @@ describe("spec slugs match what the uploader stores", () => {
   it("gives every kind a distinct slug", () => {
     const slugs = GENERATED_DOCS.map((g) => g.slug);
     expect(new Set(slugs).size).toBe(slugs.length);
+  });
+});
+
+describe("generatableDocTypes", () => {
+  const attached = (...names: string[]) => names.map((filename) => ({ filename }));
+
+  it("returns all five, in card order, for a filled form with nothing attached", () => {
+    expect(generatableDocTypes(FULL, [], 10)).toEqual([
+      "chat",
+      "internet_bill",
+      "utility_bill",
+      "authorization_letter",
+      "time_invoice",
+    ]);
+  });
+
+  it("skips kinds that are already attached, however they arrived", () => {
+    const docs = attached(
+      "920505034434_imconversation_1.png",
+      "920505034434_timeinvoice_1.pdf",
+    );
+    expect(generatableDocTypes(FULL, docs, 10)).toEqual([
+      "internet_bill",
+      "utility_bill",
+      "authorization_letter",
+    ]);
+  });
+
+  it("skips kinds whose required fields are missing", () => {
+    // No package: the chat needs it, the four PDFs that don't stay eligible.
+    const source = { ...FULL, offerName: "" };
+    expect(generatableDocTypes(source, [], 10)).toEqual([
+      "internet_bill",
+      "utility_bill",
+      "authorization_letter",
+      "time_invoice",
+    ]);
+  });
+
+  it("caps the queue to the attachment slots left", () => {
+    expect(generatableDocTypes(FULL, [], 2)).toEqual(["chat", "internet_bill"]);
+    expect(generatableDocTypes(FULL, [], 0)).toEqual([]);
+    // A negative slot count (more docs than the cap allows) must not throw.
+    expect(generatableDocTypes(FULL, [], -1)).toEqual([]);
+  });
+
+  it("returns empty when nothing can run at all", () => {
+    expect(generatableDocTypes({}, [], 10)).toEqual([]);
   });
 });

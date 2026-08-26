@@ -13,7 +13,7 @@ import {
   getOrder,
 } from "@/actions/order";
 import { MAX_DOCS, IDENTITY_DOC_TYPES, hasIdentityDocument, type OrderDocument } from "@/lib/order-types";
-import { GENERATED_DOCS, docSpec, isDocTypeAttached, missingFieldsFor, type GeneratedDocType } from "@/lib/order-documents";
+import { GENERATED_DOCS, docSpec, generatableDocTypes, isDocTypeAttached, missingFieldsFor, type GeneratedDocType } from "@/lib/order-documents";
 import {
   COMBINED_DOC_LABEL,
   COMBINED_DOC_TYPE,
@@ -225,6 +225,12 @@ export function OrderForm({
   // The document currently being generated. It attaches itself and clears — the
   // spinner shows on the button that started it.
   const [genDoc, setGenDoc] = useState<GeneratedDocType | null>(null);
+  // What "Generate all" still has to run after genDoc — sequential on purpose,
+  // since each stored filename's sequence counts the documents already attached.
+  const [genQueue, setGenQueue] = useState<GeneratedDocType[]>([]);
+  // Batch bookkeeping for the end-of-run summary. A ref, not state: it never
+  // drives a render of its own, and the renders genDoc causes read it fresh.
+  const genBatchRef = useRef({ active: false, total: 0, ok: 0, failed: [] as string[] });
   // `collapsingKeys` and `arrivedKey` exist only to drive the animation: a
   // combine replaces rows the agent is looking at, so the merged ones collapse
   // in place and the file that takes their position announces itself once.
@@ -295,6 +301,17 @@ export function OrderForm({
     email: email.trim(),
     serviceCategory,
   };
+
+  // What "Generate all" would run right now. Also the button's count, so the
+  // label and the queue it starts can never disagree.
+  const generateAllTypes = generatableDocTypes(genSource, documents, MAX_DOCS - documents.length);
+
+  function handleGenerateAll() {
+    if (generateAllTypes.length === 0 || genDoc !== null) return;
+    genBatchRef.current = { active: true, total: generateAllTypes.length, ok: 0, failed: [] };
+    setGenQueue(generateAllTypes.slice(1));
+    setGenDoc(generateAllTypes[0]);
+  }
 
   // Derive gender + birthday during the change (no effect needed).
   function applyMykad(ic: string) {
@@ -1509,6 +1526,31 @@ export function OrderForm({
               simply absent, with nothing saying why. */}
           {docSource === "generate" && (
             <div id="doc-panel-generate" role="tabpanel" aria-labelledby="doc-tab-generate" className="space-y-3">
+              {/* One click for the whole set. The count is the same eligibility
+                  test each card applies, so "all 4" says up front that an
+                  attached or blocked kind will be skipped rather than failing. */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[11px] text-[#697386]" aria-live="polite">
+                  {genBatchRef.current.active && genDoc
+                    ? `Generating ${genBatchRef.current.ok + genBatchRef.current.failed.length + 1} of ${genBatchRef.current.total}: ${docSpec(genDoc).label}…`
+                    : generateAllTypes.length > 0
+                      ? "Or generate every eligible document in one go:"
+                      : "Nothing eligible to generate — each card below says why."}
+                </span>
+                <Button
+                  type="button"
+                  onClick={handleGenerateAll}
+                  disabled={generateAllTypes.length === 0 || genDoc !== null}
+                  className="h-9 px-3 rounded-lg text-[12px] font-semibold bg-[#635BFF] hover:bg-[#0A2540] text-white transition-colors duration-200 disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  {genBatchRef.current.active && genDoc
+                    ? "Generating…"
+                    : generateAllTypes.length > 0
+                      ? `Generate all ${generateAllTypes.length}`
+                      : "Generate all"}
+                </Button>
+              </div>
+
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {GENERATED_DOCS.map((g) => {
                   const missing = missingFieldsFor(g.type, genSource);
@@ -1718,15 +1760,59 @@ export function OrderForm({
           source={genSource}
           existingOfType={documents.filter((d) => d.type === docSpec(genDoc).attachAs).length}
           onDone={({ doc, error }) => {
+            // Computed here rather than read back from state: setDocuments has
+            // not landed yet when the next step's eligibility is decided.
+            const nextDocuments = doc ? [...documents, doc] : documents;
             if (doc) {
-              setDocuments((docs) => [...docs, doc]);
+              setDocuments(nextDocuments);
               setArrivedKey(doc.key);
               setTimeout(() => setArrivedKey((k) => (k === doc.key ? null : k)), 900);
               toast.success(`${docSpec(genDoc).label} attached to the order.`);
             } else {
               toast.error(error ?? "The document could not be generated.");
             }
+
+            const batch = genBatchRef.current;
+            if (!batch.active) {
+              setGenDoc(null);
+              return;
+            }
+            if (doc) batch.ok += 1;
+            else batch.failed.push(docSpec(genDoc).label);
+
+            // Advance the queue, re-checking eligibility against the documents
+            // as they now stand — every attach consumes a slot. Filtering by the
+            // queue keeps its order and stops a just-failed kind being retried.
+            const remaining = generatableDocTypes(
+              genSource,
+              nextDocuments,
+              MAX_DOCS - nextDocuments.length,
+            ).filter((t) => genQueue.includes(t));
+            if (remaining.length > 0) {
+              setGenQueue(remaining.slice(1));
+              setGenDoc(remaining[0]);
+              return;
+            }
+
+            // Batch over. Anything still queued was skipped (the cap, usually) —
+            // said out loud, since a document you expected simply absent reads
+            // as a bug.
+            const skipped = genQueue
+              .filter((t) => !isDocTypeAttached(t, nextDocuments))
+              .map((t) => docSpec(t).label);
+            genBatchRef.current = { active: false, total: 0, ok: 0, failed: [] };
+            setGenQueue([]);
             setGenDoc(null);
+            if (skipped.length > 0) {
+              // Usually the 10-file cap; a required field cleared mid-run lands
+              // here too, so the message does not claim which.
+              toast.error(`Skipped — no longer possible: ${skipped.join(", ")}.`);
+            }
+            if (batch.failed.length > 0) {
+              toast.error(`${batch.ok} attached, ${batch.failed.length} failed: ${batch.failed.join(", ")}.`);
+            } else if (batch.ok > 1 && skipped.length === 0) {
+              toast.success(`All ${batch.ok} documents attached.`);
+            }
           }}
         />
       )}

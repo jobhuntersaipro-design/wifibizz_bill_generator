@@ -202,3 +202,23 @@ export function isDocTypeAttached(
   const slug = docSpec(type).slug;
   return docs.some((d) => slugFromFilename(d.filename) === slug);
 }
+
+/**
+ * What "Generate all" would run right now, in GENERATED_DOCS order: every
+ * generator that is not already attached and has its required fields, capped to
+ * the attachment slots left. This is the same test each card's button applies,
+ * held in one place so the button's count and the queue it starts cannot
+ * disagree — and the queue re-applies it before each step, since every attach
+ * consumes a slot and can change the answer.
+ */
+export function generatableDocTypes(
+  source: Partial<GeneratorSource>,
+  docs: readonly { filename: string }[],
+  slotsLeft: number,
+): GeneratedDocType[] {
+  return GENERATED_DOCS.filter(
+    (g) => !isDocTypeAttached(g.type, docs) && missingFieldsFor(g.type, source).length === 0,
+  )
+    .slice(0, Math.max(0, slotsLeft))
+    .map((g) => g.type);
+}
