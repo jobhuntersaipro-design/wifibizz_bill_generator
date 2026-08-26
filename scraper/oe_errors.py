@@ -32,6 +32,14 @@ VOBB_UNAVAILABLE = "vobb_unavailable"
 # is handled in the flow and never reaches BizzFlow.
 VOICE_NUMBER_TAKEN = "voice_number_taken"
 DEVICE_OUT_OF_STOCK = "device_out_of_stock"
+# The booked appointment slot was taken by another order between booking and the
+# pay-tail Next, where the portal re-validates it:
+#   [40301147]: Technical Error - Slot has been taken. Kindly refresh the page
+# The portal clears the appointment field ("Please input the appointment date.")
+# and blocks the Next. Handled in the flow by rebooking the next slot the admin
+# policy accepts; only reported after the rebook budget is spent, so reaching
+# BizzFlow means the calendar was contended, not that anything is wrong.
+APPOINTMENT_SLOT_TAKEN = "appointment_slot_taken"
 # An order is not finished until its registration form is in hand. This is the
 # only code here NOT matched from portal wording — the portal never says it. It
 # is our own completeness check: a submit that produced no e-RF is incomplete,
@@ -57,6 +65,9 @@ _RULES: list[tuple[str, str]] = [
     ("out of stock", DEVICE_OUT_OF_STOCK),
     ("no stock", DEVICE_OUT_OF_STOCK),
     ("stock is not available", DEVICE_OUT_OF_STOCK),
+    # Appointment slot race. Must stay ABOVE the generic "taken" rules below:
+    # "slot has been taken" would otherwise file as a login-id collision.
+    ("slot has been taken", APPOINTMENT_SLOT_TAKEN),
     # Feasibility / address.
     # This pair must stay ABOVE the "already has" rules: the portal's sentence
     # for an unserved address contains "services provided by TM", and a loose
@@ -121,3 +132,15 @@ def portal_code(message: str) -> str | None:
         return None
     m = _PORTAL_CODE_RE.search(message)
     return m.group(1) if m else None
+
+
+def is_slot_taken(message: str | None) -> bool:
+    """Is this dialog the appointment-slot race (40301147 / 'Slot has been taken')?
+
+    Checks the portal code as well as the wording: the live incident surfaced the
+    code in an Error dialog while the blocked Next itself reported only the
+    consequence ("Please input the appointment date."), so callers test every
+    message they can see.
+    """
+    return (map_error(message or "") == APPOINTMENT_SLOT_TAKEN
+            or portal_code(message or "") == "40301147")

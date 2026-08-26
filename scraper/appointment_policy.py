@@ -62,7 +62,7 @@ def _parse(slot: str):
         return None
 
 
-def choose_slot(slots, policy=None, now=None) -> dict:
+def choose_slot(slots, policy=None, now=None, exclude=None) -> dict:
     """Pick the slot to book.
 
     Returns either {"slot": "YYYY-MM-DD HH:MM:SS", "candidates": [...]} or
@@ -72,17 +72,28 @@ def choose_slot(slots, policy=None, now=None) -> dict:
     fall through to the next one when the portal rejects the first — without
     ever falling outside the policy.
 
+    `exclude` holds slots another order has already taken (portal error
+    40301147). They are dropped BEFORE the policy runs, because the calendar
+    can serve stale availability — "kindly refresh the page" — and re-offering
+    the very slot that just collided would loop the retry forever.
+
     Within a permitted day the EARLIEST slot always wins, which is what makes
     `fixed_date` = 31 Aug book 09:30-12:00 rather than an arbitrary one of that
     day's four.
     """
     pol = normalize_policy(policy)
     now = now or datetime.now()
+    excluded = {str(s).strip() for s in (exclude or [])}
 
     parsed = sorted(
-        (dt, s) for s in (slots or []) if (dt := _parse(s)) is not None
+        (dt, s) for s in (slots or [])
+        if s not in excluded and (dt := _parse(s)) is not None
     )
     if not parsed:
+        if excluded and any(_parse(s) for s in (slots or [])):
+            return {"error": "no_slots",
+                    "message": ("every slot the portal offered has already been "
+                                "taken by another order")}
         return {"error": "no_slots", "message": "the portal offered no slots"}
 
     if pol["strategy"] == FIXED_DATE:
