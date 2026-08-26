@@ -32,6 +32,7 @@ import {
 const STATUS_STYLES: Record<string, string> = {
   draft: "bg-[#E3E8EF] text-[#425466]",
   submitting: "bg-amber-100 text-amber-700",
+  cancelling: "bg-amber-100 text-amber-700",
   order_entered: "bg-green-100 text-green-700",
   submitted: "bg-green-100 text-green-700",
   warning: "bg-amber-100 text-amber-800",
@@ -69,6 +70,7 @@ const isVerified = (o: OrderListItem) => !!o.addressId?.trim();
 /** A row shows a way into its history once there is any history to show. */
 export const hasHistory = (o: OrderListItem) =>
   o.status === "submitting" ||
+  o.status === "cancelling" ||
   ((o.status === "failed" || o.status === "warning") && !!o.stage) ||
   // Order Entered is listed on its own rather than left to `attempt > 0`: it is
   // now the ONLY route to the portal number for such a row, since the Order No.
@@ -194,7 +196,7 @@ function StatusBadge({ o }: { o: OrderListItem }) {
         STATUS_STYLES[o.status] ?? STATUS_STYLES.draft
       }`}
     >
-      {o.status === "submitting" && (
+      {(o.status === "submitting" || o.status === "cancelling") && (
         <span className="inline-block h-2.5 w-2.5 animate-spin rounded-full border-2 border-amber-600 border-t-transparent" />
       )}
       {STATUS_LABELS[o.status] ?? o.status}
@@ -363,8 +365,9 @@ function RowMenu({ o, a }: { o: OrderListItem; a: RowActions }) {
   const showDetails = hasHistory(o);
   // A portal record is never ours to edit or delete — but it CAN be manually
   // marked Cancelled, which is the one-way door into a state where only
-  // Details and Delete remain.
-  const isPortalRecord = o.status === "submitted";
+  // Details and Delete remain. Cancelling is that same record with a droplet
+  // run in flight against it, so it gets the same protection.
+  const isPortalRecord = o.status === "submitted" || o.status === "cancelling";
   const isCancelled = o.status === "cancelled";
   const showCancel = canCancel(o);
   const showEdit = !isPortalRecord && !isCancelled && o.status !== "order_entered";

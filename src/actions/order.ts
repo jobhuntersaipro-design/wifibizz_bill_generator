@@ -11,6 +11,7 @@ import {
   type OrderDocument,
   formatPhone,
   canSubmit,
+  canPortalCancel,
   type OrderListItem,
 } from "@/lib/order-types";
 import { MALAYSIA_STATES } from "@/lib/malaysia-states";
@@ -18,6 +19,7 @@ import { ID_TYPES } from "@/lib/dealer-offers";
 import MY_POSTCODES from "@/lib/malaysia-postcodes.json";
 import { addressKey, validateMalaysianAddress } from "@/lib/malaysia-address";
 import { reconcileStaleSubmits } from "@/lib/order-submit";
+import { reconcileStaleCancels } from "@/lib/order-cancel";
 import { fillMissingInstallationDates } from "@/lib/installation-date";
 import { batchOrderIds, finishBatch, reconcileBatch } from "@/lib/batch-submit";
 import { mandatoryGroupsFor } from "@/actions/plans";
@@ -324,13 +326,19 @@ export async function saveOrder(rawInput: OrderInput) {
       where: { id: input.id },
       select: { status: true },
     });
-    if (existing?.status === "cancelled" || existing?.status === "submitted") {
+    if (
+      existing?.status === "cancelled" ||
+      existing?.status === "submitted" ||
+      existing?.status === "cancelling"
+    ) {
       return {
         success: false as const,
         error:
           existing.status === "cancelled"
             ? "This order is cancelled and can no longer be edited."
-            : "This order was submitted to the portal and can no longer be edited.",
+            : existing.status === "cancelling"
+              ? "A portal cancel is running for this order — it can't be edited right now."
+              : "This order was submitted to the portal and can no longer be edited.",
       };
     }
   }
@@ -530,6 +538,8 @@ export async function listOrders(): Promise<{
   // client that didn't know `jobId`), so it can never be allowed to again.
   try {
     await reconcileStaleSubmits(superAdmin ? null : session.user.id);
+    // Same repair for portal cancels whose dialog was closed mid-run.
+    await reconcileStaleCancels(superAdmin ? null : session.user.id);
   } catch (e) {
     console.error("[listOrders] reconcile failed (listing anyway):", e);
   }
@@ -602,6 +612,113 @@ export async function cancelOrder(id: string) {
     },
   });
   return { success: true as const };
+}
+
+/**
+ * Start a REAL portal cancel for a submitted order and return the job id.
+ *
+ * The order's status stays "submitted" while the droplet run is live — it only
+ * becomes "cancelled" once the portal confirms (pollCancelProgress). The job id
+ * rides `Order.jobId`, which is always free on a submitted row: every submit
+ * terminal path nulls it.
+ *
+ * The attempt counter is bumped so the cancel run is its own group on the
+ * timeline, with its stage rows and its confirmation/proof captures.
+ */
+export async function startPortalCancel(id: string) {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
+  if (!ORDER_TOKEN) {
+    return { success: false as const, error: "Order service is not configured." };
+  }
+  const superAdmin = await isSuperAdmin(session.user.id);
+  const order = await prisma.order.findFirst({
+    where: superAdmin ? { id } : { id, userId: session.user.id },
+  });
+  if (!order) return { success: false as const, error: "Order not found." };
+  if (!canPortalCancel(order)) {
+    return {
+      success: false as const,
+      error:
+        order.status !== "submitted"
+          ? "Only a submitted order can be cancelled."
+          : "This order has no portal order number, so there is nothing to aim the portal cancel at.",
+    };
+  }
+  if (order.jobId) {
+    return { success: false as const, error: "A cancel is already running for this order." };
+  }
+  // Same cheap gate as submit: a dead dealer session can only fail the run.
+  if (!(await dealerSessionLive(session.user.id))) {
+    return { success: false as const, error: SESSION_EXPIRED_MSG };
+  }
+
+  const attempt = order.attempt + 1;
+  // The portal shows MyKad-like IDs digits-only (order_to_payload does the same
+  // normalisation on the submit side).
+  const mykadLike = ["mykad", "mykas", "mytentera"].includes(
+    (order.idType || "").toLowerCase(),
+  );
+  const idNumber = mykadLike ? order.idNumber.replace(/\D/g, "") : order.idNumber;
+
+  try {
+    const startRes = await fetch(`${SCRAPER_API_URL}/orders/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Internal-Token": ORDER_TOKEN },
+      cache: "no-store",
+      // Starting a job is a thread-spawn — bounded like startSubmit.
+      signal: AbortSignal.timeout(10_000),
+      body: JSON.stringify({
+        order_no: order.orderId,
+        customer: {
+          id_type: order.idType,
+          id_number: idNumber,
+          full_name: order.fullName,
+        },
+        order_ref: { order_id: order.id, attempt },
+        user_key: session.user.id,
+      }),
+    });
+    const start = (await startRes.json().catch(() => ({}))) as {
+      job_id?: string;
+      message?: string;
+    };
+    if (!startRes.ok || !start.job_id) {
+      // Nothing was touched — the order is exactly as it was.
+      return { success: false as const, error: start.message || "Couldn't start the cancel job." };
+    }
+    // One write moves the row into the transient "cancelling" state the live
+    // checklist keys on. The status only ever leaves it via pollCancelProgress:
+    // "cancelled" on portal confirmation, back to "submitted" on anything else.
+    await prisma.order.update({
+      where: { id: order.id },
+      data: {
+        attempt,
+        jobId: start.job_id,
+        status: "cancelling",
+        stage: "opening_query",
+        stageAt: new Date(),
+        errorMessage: null,
+        errorCode: null,
+      },
+    });
+    await recordEvent({
+      orderId: order.id, attempt, status: "submitting", stage: null,
+      message: `Portal cancel started for order ${order.orderId}.`,
+    });
+    return { success: true as const, jobId: start.job_id };
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      return {
+        success: false as const,
+        error: "The order service didn't respond within 10 seconds — try again shortly.",
+      };
+    }
+    return {
+      success: false as const,
+      error: e instanceof Error ? e.message : "Order service unreachable.",
+    };
+  }
 }
 
 export async function deleteOrder(id: string) {

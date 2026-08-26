@@ -91,7 +91,9 @@ def _logs_dir():
 
 
 def _is_order_job(job) -> bool:
-    return bool(job) and job.get("params", {}).get("kind") == "order_entry"
+    # Cancel jobs search by customer name + IC, so they carry PII in their
+    # stages exactly as submits do — same auth gate.
+    return bool(job) and job.get("params", {}).get("kind") in ("order_entry", "order_cancel")
 
 
 @app.get("/jobs/<job_id>")
@@ -460,6 +462,139 @@ def create_order():
         daemon=True,
     ).start()
     return jsonify({"job_id": job_id, "status": "queued", "dry_run": dry_run}), 202
+
+
+def _run_cancel_job(job_id: str, payload: dict, user_key: str = None):
+    """Background runner for oe_cancel.run_cancel(); logs to logs/<job_id>.log.
+
+    Same shape as _run_order_job, deliberately smaller: a cancel needs no
+    dry-run, no pay gate and no completion email — the agent is watching the
+    dialog, and BizzFlow's reconcile covers a closed tab.
+    """
+    import asyncio
+
+    from oe_cancel import run_cancel
+    from order_entry import InfraError
+
+    # A cancel is one login + one query + a few clicks. Far shorter than a
+    # submit, but the portal's AJAX is slow, so leave headroom.
+    OVERALL_CANCEL_TIMEOUT = int(os.environ.get("OE_CANCEL_TIMEOUT", "240"))
+
+    def _set_stage(name, detail=None):
+        with JOBS_LOCK:
+            job = JOBS.get(job_id)
+            if job is None:
+                return
+            job["stage"] = name
+            stages = job.setdefault("stages", [])
+            if len(stages) < 200:
+                stages.append({
+                    "name": name,
+                    "detail": detail,
+                    # Explicit UTC — a bare isoformat is read as LOCAL by JS.
+                    "at": datetime.utcnow().isoformat() + "Z",
+                })
+            JOBS[job_id] = job
+
+    log_path = os.path.join(_logs_dir(), f"{job_id}.log")
+    with open(log_path, "w", buffering=1) as lf, redirect_stdout(lf), redirect_stderr(lf):
+        print(f"[{datetime.utcnow().isoformat()}] Cancel job {job_id} started")
+        with JOBS_LOCK:
+            job = JOBS.get(job_id, {})
+            job.update(status="running", started_at=datetime.utcnow().isoformat(),
+                       log_path=log_path)
+            JOBS[job_id] = job
+        try:
+            result = asyncio.run(asyncio.wait_for(
+                run_cancel(payload, user_key=user_key, on_stage=_set_stage),
+                timeout=OVERALL_CANCEL_TIMEOUT,
+            ))
+            print(f"[{datetime.utcnow().isoformat()}] run_cancel result: "
+                  f"{_redact_order_result(result)}")
+            with JOBS_LOCK:
+                job = JOBS.get(job_id, {})
+                job.update(status="done", finished_at=datetime.utcnow().isoformat(),
+                           result=result, log_path=log_path)
+                JOBS[job_id] = job
+        except asyncio.TimeoutError:
+            print(f"[{datetime.utcnow().isoformat()}] CANCEL TIMEOUT after "
+                  f"{OVERALL_CANCEL_TIMEOUT}s")
+            with JOBS_LOCK:
+                job = JOBS.get(job_id, {})
+                job.update(
+                    status="error",
+                    finished_at=datetime.utcnow().isoformat(),
+                    error=("The portal did not respond in time. The order was NOT "
+                           "confirmed cancelled — check it in the portal."),
+                    error_kind="portal_timeout",
+                    log_path=log_path,
+                )
+                JOBS[job_id] = job
+        except InfraError as e:
+            print(f"[{datetime.utcnow().isoformat()}] INFRA ERROR: {e!r}")
+            with JOBS_LOCK:
+                job = JOBS.get(job_id, {})
+                job.update(status="error", finished_at=datetime.utcnow().isoformat(),
+                           error=str(e), error_kind="infra", log_path=log_path)
+                JOBS[job_id] = job
+        except Exception as e:
+            print(f"[{datetime.utcnow().isoformat()}] UNEXPECTED ERROR: {e!r}")
+            with JOBS_LOCK:
+                job = JOBS.get(job_id, {})
+                job.update(status="error", finished_at=datetime.utcnow().isoformat(),
+                           error=str(e), error_kind="unexpected", log_path=log_path)
+                JOBS[job_id] = job
+
+
+@app.post("/orders/cancel")
+def cancel_order():
+    """
+    Cancel a provision order in the portal (auth-gated, non-blocking).
+
+    Headers: X-Internal-Token: <ORDER_ENTRY_API_TOKEN>
+    Body: {"order_no": "...", "customer": {"id_type", "id_number", "full_name"},
+           "order_ref": {"order_id", "attempt"}, "user_key": "..."}
+
+    Returns 202 {"job_id", "status"}. Poll GET /jobs/<job_id>; the terminal
+    result's status is "cancelled" or "error" (see oe_cancel.py for the codes).
+    """
+    if not _order_entry_authorized(request):
+        if not os.environ.get("ORDER_ENTRY_API_TOKEN"):
+            return jsonify({"success": False, "error": "ORDER_ENTRY_DISABLED",
+                            "message": "ORDER_ENTRY_API_TOKEN not configured on server."}), 503
+        return jsonify({"success": False, "error": "UNAUTHORIZED"}), 401
+
+    data = request.get_json(silent=True) or {}
+    order_no = str(data.get("order_no") or "").strip()
+    customer = data.get("customer")
+    if not order_no or not isinstance(customer, dict):
+        return jsonify({"success": False, "error": "PAYLOAD_REQUIRED",
+                        "message": "Body must include `order_no` and a `customer` object."}), 400
+
+    user_key = data.get("user_key") or None
+    payload = {"order_no": order_no, "customer": customer}
+    # Same stamping rule as /orders: the R2 prefix a capture lands under comes
+    # from the caller's identity, never from the request body.
+    if isinstance(data.get("order_ref"), dict):
+        payload["order_ref"] = dict(data["order_ref"])
+        if user_key:
+            payload["order_ref"]["user_id"] = user_key
+
+    # Single-browser global lock — a cancel drives the same dealer session.
+    with JOBS_LOCK:
+        for job in JOBS.values():
+            if job.get("status") in ("queued", "running"):
+                return jsonify({"success": False, "error": "JOB_IN_PROGRESS",
+                                "message": "The server can only run one browser job at a time."}), 409
+        job_id = uuid.uuid4().hex
+        JOBS[job_id] = {
+            "status": "queued",
+            "created_at": datetime.utcnow().isoformat(),
+            "params": {"kind": "order_cancel"},
+        }
+
+    Thread(target=_run_cancel_job, args=(job_id, payload, user_key), daemon=True).start()
+    return jsonify({"job_id": job_id, "status": "queued"}), 202
 
 
 # ───────────────────────────────────────────────────────────────────────────

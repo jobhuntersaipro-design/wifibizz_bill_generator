@@ -52,6 +52,25 @@ ERF_NOT_DOWNLOADED = "erf_not_downloaded"
 # describe two different people, and only a human can say which is wrong.
 # See customer_match.py for what happened while this went ungated.
 CUSTOMER_IC_NAME_MISMATCH = "customer_ic_name_mismatch"
+# ── Portal cancel (oe_cancel.py). Like ERF_NOT_DOWNLOADED these are OUR codes,
+# not portal wording — each names the exact point the cancel flow stopped, and
+# every one of them except CANCEL_UNCONFIRMED means nothing was cancelled.
+# Advanced Query found no account for the ID + name.
+CANCEL_CUSTOMER_NOT_FOUND = "cancel_customer_not_found"
+# The stored order number is not visible under any tried account. Deliberate:
+# the flow never cancels "the latest order" — the wrong provision order is
+# unrecoverable, so an invisible number fails with a screenshot instead.
+CANCEL_ORDER_NOT_FOUND = "cancel_order_not_found"
+# The "..." menu opened but offered no Cancel Order entry (or refused the click).
+CANCEL_OPTION_MISSING = "cancel_option_missing"
+# A dialog followed Cancel Order but carried no OK/Yes/Confirm — nothing was
+# clicked, because guessing at an unrecognised dialog is how the wrong thing
+# gets agreed to.
+CANCEL_CONFIRM_UNRECOGNISED = "cancel_confirm_unrecognised"
+# OK was clicked but the screen never showed a cancelled state. The one code
+# here where the portal MAY have acted — reported as unconfirmed, never as
+# success, for the same reason as pay_click_did_not_take.
+CANCEL_UNCONFIRMED = "cancel_unconfirmed"
 UNKNOWN_ERROR = "unknown_error"
 
 # ── Substring → code rules (matched against .modal-message, case-insensitive) ──

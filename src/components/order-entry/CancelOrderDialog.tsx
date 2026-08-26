@@ -1,7 +1,7 @@
 "use client";
 
 import { Ban } from "lucide-react";
-import type { OrderListItem } from "@/lib/order-types";
+import { canPortalCancel, type OrderListItem } from "@/lib/order-types";
 import {
   Dialog,
   DialogClose,
@@ -13,27 +13,33 @@ import {
 } from "@/components/ui/dialog";
 
 /**
- * The gate in front of manually cancelling a submitted order.
+ * The gate in front of cancelling a submitted order.
  *
- * Two things the agent must read before confirming, because both are
- * irreversible in different directions:
+ * Confirming "Cancel at Unifi" hands over to the ROW, not to this dialog: the
+ * row flips to Cancelling and shows the same live checklist a submit does,
+ * the run's stages and proof captures land on the order's timeline, and the
+ * row only ever becomes Cancelled once the portal itself confirmed. Anything
+ * less reverts it to Submitted.
  *
- * 1. Cancelling is terminal in BizzFlow — the row keeps Details and Delete and
- *    nothing else, forever. There is no un-cancel.
- * 2. Cancelling is ONLY BizzFlow bookkeeping. The order this row records still
- *    exists at Unifi, unchanged, and keeps progressing there (appointment,
- *    delivery, billing) until someone voids it on the portal — which is why
- *    the portal link is offered right here.
+ * The old bookkeeping-only cancel survives as the explicit secondary, with its
+ * honest "does NOT void at Unifi" warning attached to IT rather than to the
+ * whole dialog.
  */
 export function CancelOrderDialog({
   order,
-  onConfirm,
+  onPortalCancel,
+  onBookkeeping,
   onCancel,
 }: {
   order: OrderListItem;
-  onConfirm: () => void;
+  /** Start the real portal cancel; the row's checklist takes over. */
+  onPortalCancel: () => void;
+  /** The explicit fallback: mark cancelled in BizzFlow only. */
+  onBookkeeping: () => void;
   onCancel: () => void;
 }) {
+  const portalable = canPortalCancel(order);
+
   return (
     <Dialog open onOpenChange={(next) => !next && onCancel()}>
       <DialogContent
@@ -64,14 +70,15 @@ export function CancelOrderDialog({
               <span className="tabular-nums">{order.orderId}</span>
             </>
           )}
-          {" will be marked "}
-          <span className="font-medium text-[#0A2540]">Cancelled</span>
-          {". This cannot be undone: the row keeps its Details (history and captures) and can be deleted, but nothing else — no edit, no resubmit."}
+          {portalable
+            ? ". Cancel at Unifi drives the dealer portal for you: it finds this exact order number under the customer, clicks Cancel Order and confirms — photographing the confirmation and the result as proof on the timeline. The row follows the run live and becomes Cancelled only once the portal confirms; cancelling is terminal — no edit, no resubmit, ever."
+            : ". This order has no portal order number, so the portal cancel has nothing safe to aim at — only the bookkeeping cancel below is available."}
         </DialogDescription>
 
         <p className="rounded-lg bg-amber-50 px-3 py-2.5 text-[12px] leading-relaxed text-amber-900">
-          This does <span className="font-semibold">not</span> void the order at Unifi — the
-          portal order stays live until it is voided there.
+          &ldquo;Mark cancelled in BizzFlow only&rdquo; does{" "}
+          <span className="font-semibold">not</span> void the order at Unifi — the portal
+          order stays live until it is voided there.
           {order.orderId && (
             <>
               {" "}
@@ -94,12 +101,21 @@ export function CancelOrderDialog({
           </DialogClose>
           <button
             type="button"
-            onClick={onConfirm}
-            className="inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-[#C2740B] px-4 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-[#9A5C08] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C2740B]"
+            onClick={onBookkeeping}
+            className="inline-flex h-9 cursor-pointer items-center justify-center rounded-lg border border-amber-300 px-4 text-[13px] font-medium text-amber-900 transition-colors duration-150 hover:bg-amber-50"
           >
-            <Ban className="h-3.5 w-3.5" aria-hidden="true" />
-            Cancel order
+            Mark cancelled in BizzFlow only
           </button>
+          {portalable && (
+            <button
+              type="button"
+              onClick={onPortalCancel}
+              className="inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-[#C2740B] px-4 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-[#9A5C08] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C2740B]"
+            >
+              <Ban className="h-3.5 w-3.5" aria-hidden="true" />
+              Cancel at Unifi
+            </button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
