@@ -959,7 +959,7 @@ async def customer_dialog_open(frame) -> bool:
 async def run_feasibility(page, payload: dict, dry_run: bool = True,
                           continue_to_submit: bool = False, do_pay: bool = False,
                           im_paths: list = None, id_paths: list = None,
-                          on_stage=None) -> dict:
+                          other_paths: list = None, on_stage=None) -> dict:
     stage = _stage_emitter(on_stage)
 
     await ensure_on_order_entry(page)
@@ -1119,7 +1119,8 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
     # Full path: drive the whole New Connection detail flow -> Pay/Submit.
     await cancel_customer_popup(page)
     sub = await submit_new_connection(page, payload, im_paths=im_paths,
-                                      id_paths=id_paths, do_pay=do_pay, on_stage=on_stage,
+                                      id_paths=id_paths, other_paths=other_paths,
+                                      do_pay=do_pay, on_stage=on_stage,
                                       known_order_id=order_id)
     sub.setdefault("order_id", order_id)
     sub.setdefault("order_url", _order_detail_url(sub.get("order_id") or order_id))
@@ -1179,18 +1180,23 @@ async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = 
 
     stage = _stage_emitter(on_stage)
 
-    # Download the required attachments (IM Conversation + ID copy) from R2.
-    im_paths, id_paths = [], []
+    # Download the attachments from R2: IM Conversation + ID copy, plus every
+    # other order document (combined PDF, utility bill, …) which uploads as
+    # Attachment Type "Others".
+    im_paths, id_paths, other_paths = [], [], []
     if submit and not dry_run:
         try:
             import r2_download
             cust = payload.get("customer", {}) or {}
             im_keys = cust.get("im_doc_keys") or []
             id_keys = cust.get("id_doc_keys") or []
+            other_keys = cust.get("other_doc_keys") or []
             if im_keys:
                 im_paths = r2_download.download_many(im_keys)
             if id_keys:
                 id_paths = r2_download.download_many(id_keys)
+            if other_keys:
+                other_paths = r2_download.download_many(other_keys)
         except Exception as e:
             return {"status": "error", "error": "doc_download_failed",
                     "stage": "documents", "message": f"R2 download: {e}"}
@@ -1229,7 +1235,8 @@ async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = 
         result = await run_feasibility(
             page, payload, dry_run=dry_run,
             continue_to_submit=(submit and not dry_run), do_pay=do_pay,
-            im_paths=im_paths, id_paths=id_paths, on_stage=on_stage)
+            im_paths=im_paths, id_paths=id_paths, other_paths=other_paths,
+            on_stage=on_stage)
         if result.get("status") in ("submitted", "success"):
             stage("submitted")
         elif result.get("status") == "discovered":
@@ -3397,17 +3404,32 @@ async def _select_attach_type(page, container_key: str, label_re: str) -> str:
     })""", container_key, label_re)
 
 
+def attachment_plan(id_paths: list, other_paths: list) -> list:
+    """Which attachment containers to ADD, in order: (container key, Attachment
+    Type label, local file). Container 1 is the always-present locked IM
+    Conversation slot, so added containers start at key "2" — ID copies first
+    (the required document), then every other order document (combined PDF,
+    utility bill, …) as "Others". Pure, so the key numbering and the ordering
+    are testable without a browser."""
+    labelled = [("ID copy", p) for p in (id_paths or [])]
+    labelled += [("Others", p) for p in (other_paths or [])]
+    return [(str(i + 2), label, path) for i, (label, path) in enumerate(labelled)]
+
+
 async def fill_customer_order_info(page, payload: dict,
                                    im_paths: list = None, id_paths: list = None,
+                                   other_paths: list = None,
                                    on_stage=None) -> dict:
-    """Fill the Customer Order Information page. im_paths/id_paths are local files
-    (downloaded from R2). IM Conversation goes in container 1 (locked type); each
-    ID file gets its own container with Attachment Type = 'ID copy'."""
+    """Fill the Customer Order Information page. im_paths/id_paths/other_paths
+    are local files (downloaded from R2). IM Conversation goes in container 1
+    (locked type); each ID file gets its own container with Attachment Type =
+    'ID copy'; every other order document gets its own container as 'Others'."""
     stage = _stage_emitter(on_stage)
 
     frame = _frame(page)
     im_paths = im_paths or []
     id_paths = id_paths or []
+    other_paths = other_paths or []
     steps = {}
 
     # The Customer Order Information page is AJAX-heavy and can still be rendering
@@ -3457,8 +3479,11 @@ async def fill_customer_order_info(page, payload: dict,
         except Exception as e:
             return {"status": "error", "error": "im_attach_failed",
                     "stage": "attachments", "message": str(e)}
-    # Each ID file: '+ Add' (new container) -> Attachment Type 'ID copy' -> file.
-    for i, idp in enumerate(id_paths):
+    # Each further file: '+ Add' (new container) -> Attachment Type -> file.
+    # ID documents get 'ID copy'; every other order document (combined PDF,
+    # utility bill, …) gets 'Others'.
+    for key, type_label, path in attachment_plan(id_paths, other_paths):
+        step_key = f"attach_{key}_{type_label.lower().replace(' ', '_')}"
         # The Attachment '+ Add' (`.js-order-add-icon`) needs a REAL Playwright
         # click (a JS .click() does not add a container).
         add = frame.locator(
@@ -3467,17 +3492,17 @@ async def fill_customer_order_info(page, payload: dict,
         if not await add.count():
             add = frame.locator('.js-attachment-list .js-add').last
         if not await add.count():
-            steps[f"id_attach_{i}"] = "skipped: no attachment Add"
+            steps[step_key] = "skipped: no attachment Add"
             continue
         try:
             await add.click(timeout=6000)
         except Exception as e:
             return {"status": "error", "error": "attach_add_failed",
-                    "stage": "attachments", "message": f"id#{i}: {e}"}
+                    "stage": "attachments", "message": f"{step_key}: {e}"}
         await asyncio.sleep(1.5)
-        key = str(i + 2)  # container 1 = IM, so ID files start at key 2
         # Open the new container's Attachment Type dropdown via its CARET (the
-        # display input doesn't open it) and pick "ID copy" (attachType 15001).
+        # display input doesn't open it) and pick the type ("ID copy" is
+        # attachType 15001; "Others" is picked the same way, by its label).
         caret = frame.locator(
             f'.js-attchment-container[key="{key}"] '
             '.input-group-addon:has(.glyphicon-triangle-bottom)').first
@@ -3485,20 +3510,21 @@ async def fill_customer_order_info(page, payload: dict,
             await caret.click(timeout=5000)
             await asyncio.sleep(0.6)
             await frame.locator(
-                'ul.combobox-dropdown:visible li[title="ID copy"]').first.click(timeout=5000)
+                f'ul.combobox-dropdown:visible li[title="{type_label}"]'
+            ).first.click(timeout=5000)
         except Exception:
             try:
                 await frame.locator('ul.combobox-dropdown:visible li'
-                                    ).filter(has_text="ID copy").first.click(timeout=4000)
+                                    ).filter(has_text=type_label).first.click(timeout=4000)
             except Exception:
                 pass
         await asyncio.sleep(0.5)
         try:
-            await _set_attach_file(page, key, idp)
-            steps[f"id_attach_{i}"] = "ok"
+            await _set_attach_file(page, key, path)
+            steps[step_key] = "ok"
         except Exception as e:
-            return {"status": "error", "error": "id_attach_failed",
-                    "stage": "attachments", "message": f"id#{i}: {e}"}
+            return {"status": "error", "error": "doc_attach_failed",
+                    "stage": "attachments", "message": f"{step_key}: {e}"}
 
     # Which files the portal actually accepted — the upload widget shows the
     # accepted filenames, and nothing else records them.
@@ -3516,14 +3542,17 @@ async def fill_customer_order_info(page, payload: dict,
 
     # ── Appointment (slot chosen by the admin's booking policy) ──────────────
     stage("appointment")
-    appt = await _set_appointment(page, payload.get("appointment"))
+    appt = await _set_appointment(page, payload.get("appointment"),
+                                  payload=payload, stage=stage)
     steps["appointment"] = appt.get("status")
     if appt.get("status") not in ("ok", "skipped"):
         return {"status": "error", "error": "appointment_failed",
                 "stage": "appointment", "message": appt.get("message"), "steps": steps}
-    # No capture here. The booked slot is already recorded in the run's own
-    # result (appointment policy picked …) and the order_info frame below covers
-    # the page; two more JPEGs per attempt bought nothing the log didn't say.
+    # The "appointment" frame is captured INSIDE _set_appointment, with the
+    # calendar dialog open and the chosen slot clicked — the date being booked,
+    # photographed at the moment of selection (user ask, 2026-08-26; this
+    # reverses the earlier no-capture decision here). The order_info frame
+    # below still shows the booked row in the Appointment table.
 
     # ── Delivery details + order confirmation ────────────────────────────────
     stage("delivery_terms")
@@ -3818,7 +3847,7 @@ async def _tag_slot_event(page, slot: str) -> bool:
         return False
 
 
-async def _set_appointment(page, policy=None) -> dict:
+async def _set_appointment(page, policy=None, payload=None, stage=None) -> dict:
     """Appointment: Add (`.js-add-date`) -> Appointment dialog (a FullCalendar).
     Read the REAL available slots off the calendar, apply the admin's booking
     policy (`policy`: strategy / lead_hours / fixed_date — see
@@ -3920,6 +3949,12 @@ async def _set_appointment(page, policy=None) -> dict:
         except Exception:
             continue
         await asyncio.sleep(1.0)
+        # Photograph the calendar WITH the chosen slot clicked, before OK — the
+        # appointment date at the moment of selection. If this candidate is
+        # rejected the next attempt adds its own frame; the last one is the
+        # slot that actually booked. Best-effort like every capture.
+        if payload is not None and stage is not None:
+            await capture_and_report(page, payload, "appointment", stage)
         try:
             await frame.locator('.ui-dialog:visible .js-ok, '
                                 '.ui-dialog:visible button:has-text("OK")').last.click(timeout=6000)
@@ -4596,7 +4631,8 @@ async def _finish_on_erf_page(page, payload: dict, stage, advance_payment: str |
 # Orchestrator: the whole New Connection detail flow after the order id is minted.
 # ─────────────────────────────────────────────────────────────────────────────
 async def submit_new_connection(page, payload: dict, im_paths: list = None,
-                                id_paths: list = None, do_pay: bool = False,
+                                id_paths: list = None, other_paths: list = None,
+                                do_pay: bool = False,
                                 on_stage=None, known_order_id: str = None) -> dict:
     """page1 (contact/account/winback) -> device -> sub-tabs -> Next ->
     Customer Order Information -> Pay/Submit (gated). Returns the pay_and_submit
@@ -4675,7 +4711,8 @@ async def submit_new_connection(page, payload: dict, im_paths: list = None,
                 **({"dialog": nx["dialog"]} if nx.get("dialog") else {}),
                 "message": nx.get("message", "Next did not advance to Customer Order Information.")}
     r = await fill_customer_order_info(page, payload, im_paths=im_paths,
-                                       id_paths=id_paths, on_stage=on_stage)
+                                       id_paths=id_paths, other_paths=other_paths,
+                                       on_stage=on_stage)
     print(f"    ↳ customer_order_info: {r}", flush=True)
     if r.get("status") != "ok":
         return r
