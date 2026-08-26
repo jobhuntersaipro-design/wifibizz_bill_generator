@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented on `fix/appointment-slot-taken-rebook` — tests/build/lint pass, awaiting commit approval + droplet deploy + one live contended submit.
+DEPLOYED (merged to main as `26c43ea` / `8d8a168`, droplet `scraper-v2026.08.26-2` with the code confirmed inside the running container, Vercel via the main push). LIVE-UNVERIFIED — the rebook path only proves itself on a real contended submit.
 
 ## Goals
 
