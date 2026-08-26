@@ -538,27 +538,17 @@ export function OrderRow({
         </span>
       </TableCell>
 
+      {/* Third cell, matching COLUMNS. Kept next to the name so the status of
+          the row you are reading never scrolls out of view. */}
+      <TableCell className="px-4 py-4 align-middle">
+        <StatusBadge o={o} />
+        {needsVoiding(o) && <NeedsVoiding />}
+      </TableCell>
+
       <TableCell className="hidden px-4 py-4 align-middle lg:table-cell">
         <span className="whitespace-nowrap text-[12px] font-medium tabular-nums text-[#635BFF]">
           {o.reference ?? "—"}
         </span>
-      </TableCell>
-
-      <TableCell className="hidden max-w-[140px] px-4 py-4 align-middle xl:table-cell">
-        <OneLine
-          text={o.idNumber}
-          className="text-[12px] tabular-nums text-[#425466]"
-        />
-        <span className="mt-0.5 block text-[10px] uppercase tracking-wide text-[#8792A2]">
-          {o.idType}
-        </span>
-      </TableCell>
-
-      <TableCell className="hidden max-w-[150px] px-4 py-4 align-middle xl:table-cell">
-        <OneLine
-          text={o.phone}
-          className="text-[12px] tabular-nums text-[#425466]"
-        />
       </TableCell>
 
       {isSuperAdmin && (
@@ -586,11 +576,6 @@ export function OrderRow({
 
       <TableCell className="hidden max-w-[130px] px-4 py-4 align-middle lg:table-cell">
         <InstallationDate value={o.installationDate} />
-      </TableCell>
-
-      <TableCell className="px-4 py-4 align-middle">
-        <StatusBadge o={o} />
-        {needsVoiding(o) && <NeedsVoiding />}
       </TableCell>
 
       <TableCell className="hidden px-4 py-4 align-middle lg:table-cell">

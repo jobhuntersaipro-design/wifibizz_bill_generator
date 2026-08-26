@@ -31,9 +31,11 @@ const COLUMNS: { key: string; label: string; at: string | null; align?: string }
   [
     { key: "select", label: "", at: null },
     { key: "name", label: "Full Name", at: null },
+    // Status sits third, immediately after the pinned name, so the one thing
+    // every row is scanned for is readable without scrolling sideways — it used
+    // to sit near the right edge, behind the widest columns in the table.
+    { key: "status", label: "Status", at: null },
     { key: "reference", label: "BizzFlow Order ID", at: "lg" },
-    { key: "idNumber", label: "ID Number", at: "xl" },
-    { key: "phone", label: "Phone Number", at: "xl" },
     { key: "package", label: "Package", at: null },
     // Device drops to 2xl so the ADDRESS can come up to xl. Both cannot be at
     // xl: bounded at their max widths the row still overruns the ~1044px a
@@ -44,12 +46,11 @@ const COLUMNS: { key: string; label: string; at: string | null; align?: string }
     { key: "address", label: "Installation Address", at: "xl" },
     { key: "created", label: "Created At", at: "2xl" },
     // Only completed orders have one, so this column is mostly dashes — and it
-    // sits beside Status and Order No. deliberately, where the rows that do
-    // have a date are the rows the eye is already on. `lg`, not `2xl`: an
+    // sits beside Order No. deliberately, where the rows that do have a date
+    // are the rows the eye is already on. `lg`, not `2xl`: an
     // installation date is what an agent chases a customer about, so it must
     // survive further into the narrow widths than Created At does.
     { key: "installation", label: "Installation Date", at: "lg" },
-    { key: "status", label: "Status", at: null },
     { key: "orderNo", label: "Order No.", at: "lg" },
     { key: "actions", label: "", at: null, align: "text-right" },
   ];
@@ -107,7 +108,8 @@ export function OrdersTable({
   actionsFor: (o: OrderListItem) => RowActions;
   onToggleAll: (ids: string[], checked: boolean) => void;
 }) {
-  // "Made By" is a superadmin-only column sitting between Phone and Package.
+  // "Made By" is a superadmin-only column sitting between the reference and
+  // Package — it moved off Phone when that column was removed.
   //
   // It MUST be spliced at the same point the row renders it. This used to be
   // attached after Device while `OrderRow` emitted the cell before Package, so
@@ -116,7 +118,7 @@ export function OrdersTable({
   // headings lied. Changing either side alone re-breaks it.
   const columns = isSuperAdmin
     ? COLUMNS.flatMap((c) =>
-        c.key === "phone"
+        c.key === "reference"
           ? [c, { key: "madeBy", label: "Made By", at: "2xl" }]
           : [c],
       )
