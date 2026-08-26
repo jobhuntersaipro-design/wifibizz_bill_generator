@@ -431,6 +431,20 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
       "Submit again in a few minutes. The order already exists in the portal, " +
       "so check it there before creating a second one.",
   },
+  appointment_slot_taken: {
+    title: "Appointment slot taken by another order",
+    subtext:
+      "The portal re-checks the booked appointment slot on the way to Pay, and " +
+      "another dealer took it first (“Slot has been taken”). The run " +
+      "rebooks the next slot the admin booking policy accepts and retries up " +
+      "to three times before giving up, so seeing this means the calendar was " +
+      "heavily contended — nothing about the customer, address or package " +
+      "is wrong.",
+    fix:
+      "Submit again to book from the calendar's current availability. The " +
+      "order already exists in the portal, so check it there before creating " +
+      "a second one.",
+  },
   pay_page_not_ready: {
     title: "Pay page never finished loading",
     subtext:

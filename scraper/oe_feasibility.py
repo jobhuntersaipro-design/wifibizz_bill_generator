@@ -21,9 +21,9 @@ import re
 import dealer_web_login
 from appointment_policy import choose_slot, describe_read_failure
 from customer_match import (describe_ic_name_mismatch, may_attach_existing)
-from oe_errors import (CUSTOMER_IC_NAME_MISMATCH, DEVICE_OUT_OF_STOCK,
-                       ERF_NOT_DOWNLOADED, UNKNOWN_ERROR, VOICE_NUMBER_TAKEN,
-                       map_error, portal_code)
+from oe_errors import (APPOINTMENT_SLOT_TAKEN, CUSTOMER_IC_NAME_MISMATCH,
+                       DEVICE_OUT_OF_STOCK, ERF_NOT_DOWNLOADED, UNKNOWN_ERROR,
+                       VOICE_NUMBER_TAKEN, is_slot_taken, map_error, portal_code)
 from oe_helpers import set_combobox
 from portal_states import to_portal_state
 from order_entry import ORDER_ENTRY_URL, _frame, ensure_on_order_entry
@@ -3623,7 +3623,10 @@ async def fill_customer_order_info(page, payload: dict,
     # number, email, the confirmed-with-customer flag and any remarks.
     await capture_and_report(page, payload, "order_info", stage)
 
-    return {"status": "ok", "stage": "customer_order_info", "steps": steps}
+    # The booked slot rides along so the pay tail can exclude it if the portal
+    # later reports it taken (40301147) and has to rebook.
+    return {"status": "ok", "stage": "customer_order_info", "steps": steps,
+            "appointment_slot": appt.get("slot")}
 
 
 # Reads the Appointment FullCalendar and reports WHAT IT SAW, not just what it
@@ -3847,7 +3850,8 @@ async def _tag_slot_event(page, slot: str) -> bool:
         return False
 
 
-async def _set_appointment(page, policy=None, payload=None, stage=None) -> dict:
+async def _set_appointment(page, policy=None, payload=None, stage=None,
+                           exclude=None) -> dict:
     """Appointment: Add (`.js-add-date`) -> Appointment dialog (a FullCalendar).
     Read the REAL available slots off the calendar, apply the admin's booking
     policy (`policy`: strategy / lead_hours / fixed_date — see
@@ -3923,7 +3927,7 @@ async def _set_appointment(page, policy=None, payload=None, stage=None) -> dict:
         return {"status": "error", "stage": "appointment",
                 "message": describe_read_failure(diag), "calendar": diag}
 
-    picked = choose_slot(slots, policy)
+    picked = choose_slot(slots, policy, exclude=exclude)
     if "slot" not in picked:
         # The calendar was read fine; the POLICY excluded everything. Says which.
         return {"status": "error", "stage": "appointment",
@@ -3962,7 +3966,8 @@ async def _set_appointment(page, policy=None, payload=None, stage=None) -> dict:
             pass
         await asyncio.sleep(1.8)
         w = await _dismiss_popup_ok(frame, page, exclude_title_re=r"appoint|enter address")
-        if w and re.search(r"select at least|not available|invalid|please", w, re.I):
+        if w and re.search(r"select at least|not available|invalid|please|has been taken",
+                           w, re.I):
             continue  # slot not accepted — Appointment dialog stays open, try next
         if await frame.locator(
                 '.ui-dialog:visible:has(input[name="firstPreferredDatetime"])').count() == 0:
@@ -4267,7 +4272,8 @@ async def _read_advance_payment(frame) -> str | None:
 
 async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
                          payload: dict = None, on_stage=None,
-                         known_order_id: str = None) -> dict:
+                         known_order_id: str = None,
+                         booked_slot: str = None) -> dict:
     """From the Customer Order Information page: Next through Terms & Conditions
     (Bypass Acknowledge is default-checked) to the Pay page; then (if do_pay) Pay
     and Next to the 'Submit Successfully' page. Returns {status:'ready_to_pay',
@@ -4275,7 +4281,9 @@ async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
     advance_payment} after a real submit.
 
     `payload`/`on_stage` are only used to capture the two screens on this tail —
-    the terms the order was placed under, and the Pay screen before the click."""
+    the terms the order was placed under, and the Pay screen before the click.
+    `booked_slot` is the appointment the earlier step booked, so the slot-taken
+    rebook below can exclude it from the retry."""
     stage = _stage_emitter(on_stage)
     frame = _frame(page)
 
@@ -4283,7 +4291,15 @@ async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
     pay_loc = frame.locator(
         '.js-btn-pay:visible, .js-pay:visible, button:has-text("Pay"):visible')
     captured_terms = False
-    for step in range(max_next):
+    # The appointment slot is re-validated server-side on the way to Pay, and
+    # another dealer can take it between our booking and this Next (live,
+    # 2026-08-26: [40301147] "Slot has been taken", the portal clears the field
+    # and blocks the Next). That is contention, not a broken order — rebook the
+    # next slot the admin policy accepts and retry, up to 3 times per run.
+    taken_slots = {booked_slot} if booked_slot else set()
+    rebooks = 0
+    step = 0
+    while step < max_next:
         if await pay_loc.count():
             break
         on_terms = await _ensure_bypass_acknowledge(page)  # False unless on T&C
@@ -4307,6 +4323,42 @@ async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
         # the whole answer, so it goes in the message.
         if nx.get("status") != "ok":
             state = await _attachment_page_state(page)
+            # Slot-taken can hide behind the consequence: the blocked Next reads
+            # "Please input the appointment date." while the [40301147] Error
+            # dialog is still up behind it — visible only in the page state.
+            # Detection is read-only; the sweep that clears the screen runs only
+            # once we know this IS the slot race, so every other failure keeps
+            # its dialogs in the diagnostic dump exactly as before.
+            slot_msgs = [nx.get("message") or ""] + [
+                str(d) for d in (state.get("dialogs") or [])]
+            if any(is_slot_taken(m) for m in slot_msgs) and rebooks < 3:
+                for _ in range(3):
+                    if not await read_error_dialog(page, exclude_title_re=r"$^"):
+                        break
+                rebooks += 1
+                print(f"    ↳ appointment slot taken — rebooking the next "
+                      f"policy-acceptable slot and retrying Next ({rebooks}/3), "
+                      f"excluding {sorted(taken_slots)}", flush=True)
+                appt = await _set_appointment(
+                    page, (payload or {}).get("appointment"),
+                    payload=payload, stage=stage, exclude=taken_slots)
+                if appt.get("status") == "ok" and appt.get("slot"):
+                    taken_slots.add(appt["slot"])  # excluded if IT collides too
+                    continue  # retry the same Next; no budget step consumed
+                return {"status": "error", "error": APPOINTMENT_SLOT_TAKEN,
+                        "stage": "pay_tail", "portal_code": "40301147",
+                        "message": (f"The appointment slot was taken by another "
+                                    f"order, and rebooking failed: "
+                                    f"{appt.get('message') or appt.get('note') or appt.get('status')}. "
+                                    f"Slots already taken: {sorted(taken_slots)}.")}
+            if any(is_slot_taken(m) for m in slot_msgs):
+                return {"status": "error", "error": APPOINTMENT_SLOT_TAKEN,
+                        "stage": "pay_tail", "portal_code": "40301147",
+                        "message": (f"Every appointment slot this run booked was "
+                                    f"taken by another order before the portal "
+                                    f"accepted it ({sorted(taken_slots)} — "
+                                    f"{rebooks} rebooks tried). The calendar is "
+                                    f"contended; resubmit to try fresh slots.")}
             shot = await _debug_screenshot(page, f"pay_tail_next{step + 1}")
             # This is where the device stock refusal actually lands — the portal
             # validates stock on the way to Pay, not when the device is ticked.
@@ -4317,6 +4369,7 @@ async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
             print(f"    ↳ pay tail blocked at Next #{step + 1}: "
                   f"state={json.dumps(state, ensure_ascii=False)} shot={shot}", flush=True)
             return blocked_next_error(nx, step + 1, state, shot)
+        step += 1
         await asyncio.sleep(2)
     if not await pay_loc.count():
         state = await _attachment_page_state(page)
@@ -4719,7 +4772,8 @@ async def submit_new_connection(page, payload: dict, im_paths: list = None,
 
     stage("pay")
     r = await pay_and_submit(page, do_pay=do_pay, payload=payload, on_stage=on_stage,
-                             known_order_id=known_order_id)
+                             known_order_id=known_order_id,
+                             booked_slot=r.get("appointment_slot"))
     print(f"    ↳ pay_and_submit: {r}", flush=True)
     # A device substitution must survive to the very end: the order that gets
     # paid for is not the device the agent picked, and BizzFlow has to say so.

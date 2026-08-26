@@ -2,11 +2,20 @@
 
 ## Status
 
-Not Started
+Implemented on `fix/appointment-slot-taken-rebook` — tests/build/lint pass, awaiting commit approval + droplet deploy + one live contended submit.
 
 ## Goals
 
+Survive portal error `[40301147] "Slot has been taken"`: the appointment slot booked earlier in a submit run can be taken by another dealer before the pay-tail Next, where the portal re-validates it, clears the field ("Please input the appointment date.") and blocks the run — stranding a minted order (seen live on `2608000122520811`, 2026-08-26). Instead of failing, rebook the next slot the admin booking policy accepts (lead-hours rule intact) and retry the Next, up to 3 rebooks per run.
+
 ## Notes
+
+- Detection is read-only off the blocked Next's message + the `_attachment_page_state` dialog dump (where the live incident's Error dialog actually appeared); dialogs are only swept once the race is confirmed, so every other failure keeps its diagnostic dump.
+- `choose_slot(exclude=)` drops already-taken slots before the policy runs — the calendar can serve stale availability ("kindly refresh the page"), so re-offering the collided slot would loop forever. Each rebooked slot joins the exclude set.
+- `fixed_date` policy never books another day: all slots taken on the pinned date → fail (existing "a fixed date is an instruction" rule).
+- "has been taken" added to `_set_appointment`'s in-dialog rejection regex, so a slot taken at the moment of OK falls through to the next candidate.
+- New `appointment_slot_taken` code (scraper `oe_errors.py` + BizzFlow `SUBMIT_ERROR_CODES`) renders contention advice when the budget is spent.
+- NOT live-verified — needs droplet deploy + `api_server` restart, then a real contended submit.
 
 <!-- Constraints, context, spec links. Populated by /feature load. -->
 
