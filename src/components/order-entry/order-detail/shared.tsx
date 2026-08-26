@@ -22,6 +22,7 @@ export const OUTCOME_LABEL: Record<string, string> = {
   warning: "Needs checking",
   failed: "Failed",
   submitting: "Running",
+  cancelled: "Cancelled",
 };
 
 export function time(iso: string): string {
