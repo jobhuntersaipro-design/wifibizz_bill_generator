@@ -7,7 +7,6 @@ import {
   startSubmit,
   deleteOrder,
   cancelOrder,
-  startPortalCancel,
   startBatchSubmit,
   pollBatch,
   activeBatch,
@@ -210,7 +209,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   // another tab, or one still running when this page was opened. Without this,
   // such a row would sit on "Submitting" until a manual refresh.
   const submittingIds = orders
-    .filter((o) => o.status === "submitting" || o.status === "cancelling")
+    .filter((o) => o.status === "submitting")
     .map((o) => o.id)
     .join(",");
   useEffect(() => {
@@ -420,56 +419,6 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     });
   }
 
-  /**
-   * Run the REAL portal cancel, surfaced exactly like a submit: the row flips
-   * to "cancelling", its checklist opens, and the same progress pipeline
-   * follows the droplet run. The row only ever becomes "cancelled" when the
-   * portal confirmed; every other outcome puts it back to "submitted".
-   */
-  async function handlePortalCancel(id: string, name: string) {
-    followingRef.current.add(id);
-    setOrders((o) =>
-      o.map((x) =>
-        x.id === id
-          ? { ...x, status: "cancelling", stage: "opening_query", errorMessage: null }
-          : x,
-      ),
-    );
-    setExpanded((prev) => new Set(prev).add(id));
-
-    const res = await startPortalCancel(id);
-    if (!res.success) {
-      followingRef.current.delete(id);
-      // Nothing started — the order is untouched at Unifi and here.
-      setOrders((o) =>
-        o.map((x) => (x.id === id ? { ...x, status: "submitted", stage: null } : x)),
-      );
-      toast.error(name, { description: res.error ?? "Couldn't start the cancel." });
-      return;
-    }
-
-    const final = await followProgress(id).finally(() =>
-      followingRef.current.delete(id),
-    );
-    if (!final) {
-      toast.message(name, {
-        description: "Cancel still running — it finishes on its own; reopen the list to check.",
-      });
-      return;
-    }
-    if (final.status === "cancelled") {
-      toast.success(name, { description: "Cancelled at Unifi — proof is on the timeline." });
-      return;
-    }
-    // Reverted to submitted: the portal cancel did not complete.
-    const copy = submitErrorCopy(final.errorCode);
-    toast.error(copy ? `${name} — ${copy.title}` : name, {
-      description: copy
-        ? copy.fix
-        : final.errorMessage ?? "The portal cancel did not complete.",
-    });
-  }
-
   async function handleCancelOrder(id: string) {
     setBusyId(id);
     const res = await cancelOrder(id);
@@ -619,13 +568,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
         <CancelOrderDialog
           order={cancelOrderRow}
           onCancel={() => setCancelId(null)}
-          onPortalCancel={() => {
-            // The dialog closes and the ROW takes over: same live checklist,
-            // history and toasts a submit gets.
-            setCancelId(null);
-            void handlePortalCancel(cancelOrderRow.id, cancelOrderRow.fullName);
-          }}
-          onBookkeeping={() => {
+          onConfirm={() => {
             setCancelId(null);
             handleCancelOrder(cancelOrderRow.id);
           }}

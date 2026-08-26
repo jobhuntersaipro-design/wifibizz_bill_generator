@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment } from "react";
-import { CANCEL_STEPS, type OrderListItem, type StageDetails } from "@/lib/order-types";
+import type { OrderListItem, StageDetails } from "@/lib/order-types";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
@@ -143,8 +143,7 @@ export function OrdersTable({
         {orders.map((o) => (
           <Fragment key={o.id}>
             <OrderCard o={o} a={actionsFor(o)} isSuperAdmin={isSuperAdmin} />
-            {expanded.has(o.id) &&
-              (o.status === "submitting" || o.status === "cancelling") && (
+            {expanded.has(o.id) && o.status === "submitting" && (
               <li className="border-b border-[#E3E8EF] last:border-0">
                 <SubmitProgress
                   stage={o.stage}
@@ -153,7 +152,6 @@ export function OrdersTable({
                   errorCode={o.errorCode}
                   orderId={o.orderId}
                   details={stageDetails[o.id]}
-                  steps={o.status === "cancelling" ? CANCEL_STEPS : undefined}
                 />
               </li>
             )}
@@ -206,8 +204,7 @@ export function OrdersTable({
             {orders.map((o) => (
               <Fragment key={o.id}>
                 <OrderRow o={o} a={actionsFor(o)} isSuperAdmin={isSuperAdmin} />
-                {expanded.has(o.id) &&
-                  (o.status === "submitting" || o.status === "cancelling") && (
+                {expanded.has(o.id) && o.status === "submitting" && (
                   <TableRow className="border-b border-[#E3E8EF] hover:bg-transparent">
                     <TableCell colSpan={colSpan} className="p-0">
                       <SubmitProgress
@@ -217,7 +214,6 @@ export function OrdersTable({
                         errorCode={o.errorCode}
                         orderId={o.orderId}
                         details={stageDetails[o.id]}
-                        steps={o.status === "cancelling" ? CANCEL_STEPS : undefined}
                       />
                     </TableCell>
                   </TableRow>

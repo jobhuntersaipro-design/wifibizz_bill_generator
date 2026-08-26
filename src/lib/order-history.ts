@@ -129,10 +129,7 @@ export function groupByAttempt(events: StatusEventView[]): AttemptView[] {
     else byAttempt.set(e.attempt, [e]);
   }
 
-  // "cancelled" joined when the portal cancel became its own attempt-like run:
-  // its terminal event carries that status, and without it here a successful
-  // cancel's group would read as Running forever.
-  const TERMINAL = new Set(["submitted", "failed", "warning", "order_entered", "cancelled"]);
+  const TERMINAL = new Set(["submitted", "failed", "warning", "order_entered"]);
   return [...byAttempt.entries()]
     .sort((a, b) => b[0] - a[0])
     .map(([attempt, list]) => {

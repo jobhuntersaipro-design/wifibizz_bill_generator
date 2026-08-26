@@ -229,26 +229,6 @@ const CAPTURE_SLOTS: Record<string, { label: string; caption: string }> = {
     label: "e-RF (Registration Form)",
     caption: "The registration form the portal generated for this order, as a PDF.",
   },
-  // ── Portal cancel (oe_cancel.py) ──
-  cancel_query: {
-    label: "Cancel — customer search",
-    caption:
-      "The Advanced Query as it was submitted, with the accounts the portal listed for this customer.",
-  },
-  cancel_order_tab: {
-    label: "Cancel — Order tab",
-    caption:
-      "The orders the portal DOES show for this customer — taken when the stored order number was not among them.",
-  },
-  cancel_confirm: {
-    label: "Cancel — confirmation dialog",
-    caption:
-      "The portal's cancel confirmation exactly as it was about to be agreed to, before the OK click.",
-  },
-  cancel_proof: {
-    label: "Cancel — proof",
-    caption: "The screen after the cancellation was confirmed. This frame is the proof of the cancel.",
-  },
 };
 
 export function captureLabel(slot: string): string {
@@ -399,9 +379,6 @@ export function captureExpiry(
 export const STATUS_LABELS: Record<string, string> = {
   draft: "Draft",
   submitting: "Submitting",
-  // Transient like `submitting`: a portal cancel is running on the droplet.
-  // The order is STILL a live portal record until the portal confirms.
-  cancelling: "Cancelling",
   order_entered: "Order Entered",
   submitted: "Submitted",
   warning: "Warning",
@@ -516,55 +493,6 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
       "name, so correct the name on the draft to match it. Either way the portal " +
       "already holds a part-made order under the number above: void it there " +
       "before submitting again.",
-  },
-  cancel_customer_not_found: {
-    title: "Customer not found for the cancel",
-    subtext:
-      "The portal's Advanced Query listed no account for this order's ID number " +
-      "and customer name, so the cancel flow had nowhere to look for the order. " +
-      "Nothing was cancelled.",
-    fix:
-      "Check the ID number and name on the order match the portal's record, " +
-      "then try again — or cancel the order in the portal by hand.",
-  },
-  cancel_order_not_found: {
-    title: "Order not found under this customer",
-    subtext:
-      "The customer's accounts were opened, but none of them showed this " +
-      "order's number in the Order tab. The flow never cancels by position — " +
-      "an invisible number stops it — so nothing was cancelled. The screenshot " +
-      "shows which orders the portal does list.",
-    fix:
-      "Open the customer in the portal and check where this order actually " +
-      "sits; cancel it there by hand if needed.",
-  },
-  cancel_option_missing: {
-    title: "The portal offered no Cancel Order",
-    subtext:
-      "The order was found, but its “...” menu did not offer a Cancel " +
-      "Order entry — the portal may no longer allow cancelling this order (for " +
-      "example once provisioning has progressed). Nothing was cancelled.",
-    fix:
-      "Open the order in the portal and check its state. If it can no longer " +
-      "be cancelled there, contact Unifi support to void it.",
-  },
-  cancel_confirm_unrecognised: {
-    title: "Unrecognised confirmation dialog",
-    subtext:
-      "A dialog appeared after Cancel Order but offered no OK/Yes/Confirm " +
-      "button the flow recognises, so nothing was clicked and nothing was " +
-      "cancelled. The screenshot shows the dialog as it appeared.",
-    fix: "Cancel the order in the portal by hand, or try again.",
-  },
-  cancel_unconfirmed: {
-    title: "Cancellation unconfirmed",
-    subtext:
-      "The cancel was confirmed with OK, but the screen never showed a " +
-      "cancelled state afterwards. The order may or may not be cancelled — " +
-      "the portal never said.",
-    fix:
-      "Check this order in the Unifi portal before doing anything else. Only " +
-      "mark it cancelled here once the portal shows it cancelled.",
   },
   erf_not_downloaded: {
     title: "No e-RF (registration form)",
@@ -800,7 +728,7 @@ export function labelForStage(stage: string | null | undefined): string {
 export type RunTone = "running" | "submitted" | "warning" | "failed" | "draft" | "cancelled";
 
 export function toneForStatus(status: string): RunTone {
-  if (status === "submitting" || status === "cancelling") return "running";
+  if (status === "submitting") return "running";
   if (status === "submitted" || status === "order_entered") return "submitted";
   if (status === "warning") return "warning";
   if (status === "failed") return "failed";
@@ -812,21 +740,10 @@ export function toneForStatus(status: string): RunTone {
  * Only a fully submitted order can be manually cancelled, and cancelling is
  * terminal: nothing ever transitions out of "cancelled" — the row keeps
  * Details (the audit trail of a real paid order) and Delete, nothing else.
- * The dialog's default path now runs a REAL portal cancel on the droplet;
- * marking cancelled without touching Unifi survives as the explicit fallback.
+ * Cancelling here is BizzFlow bookkeeping only; it does NOT void the order at
+ * Unifi, which is why the confirm dialog links the portal record.
  */
 export const canCancel = (o: { status: string }): boolean => o.status === "submitted";
-
-/**
- * May the PORTAL cancel run for this order?
- *
- * A sibling of `canCancel`, not a loosening: the portal flow additionally needs
- * a real 16-digit order number to match in the Order tab — the scraper never
- * cancels by position, so without a number there is nothing safe to aim at.
- * Rows that fail this still get the bookkeeping-only fallback.
- */
-export const canPortalCancel = (o: { status: string; orderId?: string | null }): boolean =>
-  canCancel(o) && isPortalOrderNumber(o.orderId);
 
 /**
  * Up to two initials for the avatar.
@@ -930,57 +847,28 @@ export function progressReading(
   stage: string | null | undefined,
   status: string,
   observedStages: (string | null | undefined)[] = [],
-  steps: readonly { key: string; label: string }[] = SUBMIT_STEPS,
 ): ProgressReading {
-  // The default list keeps its alias resolution (coarse scraper stages map to
-  // the step they begin); a custom list — the cancel run's — is exact keys.
-  const indexFor = (s: string | null | undefined): number =>
-    steps === SUBMIT_STEPS
-      ? stepIndexForStage(s)
-      : s
-        ? steps.findIndex((x) => x.key === s)
-        : -1;
   const terminal =
-    status === "submitted" || status === "failed" || status === "warning" ||
-    status === "cancelled";
-  // The run finished cleanly: every step happened, whatever stage was last seen.
-  const complete = status === "submitted" || status === "cancelled";
-  const reported = indexFor(stage);
+    status === "submitted" || status === "failed" || status === "warning";
+  const reported = stepIndexForStage(stage);
   const unknownStage = reported === -1 && !!stage && !terminal;
-  let floor = -1;
-  for (const s of observedStages) {
-    const i = indexFor(s);
-    if (i > floor) floor = i;
-  }
+  const floor = stepsCompleted(observedStages) - 1;
   const current = Math.max(reported, floor);
-  const done = complete ? steps.length : Math.max(current, 0);
-  const stepNo = Math.min(Math.max(current, 0) + 1, steps.length);
+  const done = status === "submitted" ? SUBMIT_STEPS.length : Math.max(current, 0);
+  const stepNo = Math.min(Math.max(current, 0) + 1, SUBMIT_STEPS.length);
   return {
     current,
     done,
-    pct: Math.round((done / steps.length) * 100),
-    heading: complete
-      ? `All ${steps.length} steps complete`
-      : unknownStage && current < 0
-        ? "Working…"
-        : `Step ${stepNo} of ${steps.length}`,
+    pct: Math.round((done / SUBMIT_STEPS.length) * 100),
+    heading:
+      status === "submitted"
+        ? `All ${SUBMIT_STEPS.length} steps complete`
+        : unknownStage && current < 0
+          ? "Working…"
+          : `Step ${stepNo} of ${SUBMIT_STEPS.length}`,
     unknownStage,
   };
 }
-
-/**
- * The portal-cancel run's checklist — the same shape as SUBMIT_STEPS so
- * SubmitProgress renders both. Keys are oe_cancel.py's stage names, exactly.
- */
-export const CANCEL_STEPS: readonly { key: string; label: string }[] = [
-  { key: "opening_query", label: "Opening Advanced Query" },
-  { key: "querying_customer", label: "Searching for the customer" },
-  { key: "selecting_account", label: "Selecting the account" },
-  { key: "locating_order", label: "Finding the provision order" },
-  { key: "cancelling", label: "Opening the cancel menu" },
-  { key: "confirming", label: "Confirming the cancellation" },
-  { key: "capturing_proof", label: "Capturing proof" },
-];
 
 /**
  * Compact elapsed label ("4m 12s", "38s", "1h 2m").

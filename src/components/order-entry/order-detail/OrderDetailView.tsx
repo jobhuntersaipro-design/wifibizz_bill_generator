@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { ArrowLeft, FileText, History, ListChecks } from "lucide-react";
-import { CANCEL_STEPS, initialsFor, type OrderListItem } from "@/lib/order-types";
+import { initialsFor, type OrderListItem } from "@/lib/order-types";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SubmitProgress } from "../SubmitProgress";
@@ -20,7 +20,7 @@ import { SectionCard } from "./shared";
  */
 export function OrderDetailView({ order }: { order: OrderListItem }) {
   const router = useRouter();
-  const live = order.status === "submitting" || order.status === "cancelling";
+  const live = order.status === "submitting";
   const { attempts, error } = useOrderAttempts(order.id, live);
   const now = useTicker(live);
 
@@ -111,7 +111,6 @@ export function OrderDetailView({ order }: { order: OrderListItem }) {
                 // This page reads the event history rather than the progress
                 // poll, so the run's own stages are the floor here.
                 observedStages={attempts?.[0]?.events.map((e) => e.stage)}
-                steps={order.status === "cancelling" ? CANCEL_STEPS : undefined}
               />
             </div>
           </SectionCard>

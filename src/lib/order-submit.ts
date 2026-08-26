@@ -102,7 +102,7 @@ export interface ProgressState {
  * is a distinct outcome from a network blip and the caller must treat it as
  * such (see finalizeMissingJob).
  */
-export async function fetchJob(jobId: string): Promise<JobSnapshot | null | "unreachable"> {
+async function fetchJob(jobId: string): Promise<JobSnapshot | null | "unreachable"> {
   try {
     const res = await fetch(`${SCRAPER_API_URL}/jobs/${jobId}`, {
       headers: { "X-Internal-Token": ORDER_TOKEN },
@@ -170,7 +170,7 @@ function page1CaptureKey(details: StageDetails): string | null {
  * Idempotent by construction: stage rows are inserted only for stages not yet
  * seen on this attempt, and details only fill a row whose message is still null.
  */
-export async function drainStages(
+async function drainStages(
   id: string,
   attempt: number,
   stages: JobStage[] | undefined,

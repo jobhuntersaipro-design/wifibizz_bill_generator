@@ -27,24 +27,16 @@ interface Props {
   // (the detail page reads the event history, not the progress poll); it falls
   // back to the details' own keys.
   observedStages?: (string | null | undefined)[];
-  // The checklist to render against. Defaults to the submit run's steps; a
-  // portal cancel passes CANCEL_STEPS, so both runs read as the same object.
-  steps?: readonly { key: string; label: string }[];
 }
 
 const POINT_INDEX = SUBMIT_STEPS.findIndex((s) => s.key === POINT_OF_NO_RETURN);
 
 /** A terminal status means the run is over, whatever step it stopped on. */
 const isTerminal = (status: string) =>
-  status === "submitted" || status === "failed" || status === "warning" ||
-  status === "cancelled";
-
-/** The run finished cleanly — submit or portal cancel. */
-const isComplete = (status: string) =>
-  status === "submitted" || status === "cancelled";
+  status === "submitted" || status === "failed" || status === "warning";
 
 function stateFor(index: number, current: number, status: string): StepState {
-  if (isComplete(status)) return "done";
+  if (status === "submitted") return "done";
   if (index < current) return "done";
   if (index > current) return "pending";
   // The step the run is sitting on: still working, or the one it stopped on.
@@ -128,7 +120,6 @@ export function SubmitProgress({
   orderId,
   details,
   observedStages,
-  steps = SUBMIT_STEPS,
 }: Props) {
   // The step arithmetic lives in progressReading (order-types) so it can be
   // tested: this file has no test environment, and it is exactly this
@@ -137,7 +128,6 @@ export function SubmitProgress({
     stage,
     status,
     observedStages ?? Object.keys(details ?? {}),
-    steps,
   );
 
   return (
@@ -156,7 +146,7 @@ export function SubmitProgress({
               ? "text-red-700"
               : status === "warning"
                 ? "text-amber-700"
-                : isComplete(status)
+                : status === "submitted"
                   ? "text-[#0E9F6E]"
                   : "text-[#0A2540]"
           }`}
@@ -173,7 +163,7 @@ export function SubmitProgress({
                 ? "bg-red-500"
                 : status === "warning"
                   ? "bg-amber-500"
-                  : isComplete(status)
+                  : status === "submitted"
                     ? "bg-[#0E9F6E]"
                     : "bg-[#635BFF]"
             }`}
@@ -181,12 +171,12 @@ export function SubmitProgress({
           />
         </div>
         <span className="text-[10px] tabular-nums text-[#8792A2]">
-          {done}/{steps.length}
+          {done}/{SUBMIT_STEPS.length}
         </span>
       </div>
 
       <ol className="flex flex-col">
-        {steps.map((step, i) => {
+        {SUBMIT_STEPS.map((step, i) => {
           const detail = details?.[step.key];
           let state = stateFor(i, current, status);
           // A resolved step outranks position. The run moves on past a mandatory
@@ -199,7 +189,7 @@ export function SubmitProgress({
             // is normal, not a warning.
           }
           const reached = state !== "pending";
-          const last = i === steps.length - 1 && !unknownStage;
+          const last = i === SUBMIT_STEPS.length - 1 && !unknownStage;
           return (
             <li
               key={step.key}
@@ -278,10 +268,8 @@ export function SubmitProgress({
                 )}
 
                 {/* Everything below this line exists in the portal — a failure
-                    after it needs checking by hand, not resubmitting. Submit
-                    checklist only: a cancel has no point of no return short of
-                    its confirm click, which is the second-to-last step. */}
-                {i === POINT_INDEX && steps === SUBMIT_STEPS && (
+                    after it needs checking by hand, not resubmitting. */}
+                {i === POINT_INDEX && (
                   <div className="mt-2 flex items-center gap-2" aria-hidden="true">
                     <span className="text-[9px] uppercase tracking-wide text-[#8792A2]">
                       Order exists in portal

@@ -10,7 +10,6 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { pollOrderProgress } from "@/lib/order-submit";
-import { pollCancelProgress } from "@/lib/order-cancel";
 
 export async function GET(
   _req: Request,
@@ -30,16 +29,11 @@ export async function GET(
   });
   const order = await prisma.order.findFirst({
     where: me?.isSuperAdmin ? { id } : { id, userId: session.user.id },
-    select: { id: true, status: true },
+    select: { id: true },
   });
   if (!order) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // A cancelling row's job is a portal-cancel run — same pipeline, different
-  // finalizer (only the cancel poll may ever produce "cancelled").
-  const state =
-    order.status === "cancelling"
-      ? await pollCancelProgress(id)
-      : await pollOrderProgress(id);
+  const state = await pollOrderProgress(id);
   if (!state) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   return NextResponse.json(state, {
