@@ -320,6 +320,21 @@ export const PAGE_BREAK_STAGE = "page_break";
 export const isPageBreakStage = (stage: string | null | undefined): boolean =>
   stage === PAGE_BREAK_STAGE;
 
+/**
+ * May this stage become the order's CURRENT position?
+ *
+ * The scraper reports milestones, captures and page breaks down one channel,
+ * but only a milestone is a place in the run. Captures and page breaks are
+ * artefacts: they resolve to no step, and a pointer sitting on one made the live
+ * checklist read "Step 1 of 17" with an empty bar while the run was mid-flight —
+ * for as long as it took the next real stage to arrive.
+ *
+ * Kept as its own predicate so the rule is testable without a database: the
+ * caller that applies it (`pollOrderProgress`) needs prisma and a live job.
+ */
+export const movesStagePointer = (stage: string | null | undefined): boolean =>
+  !!stage && !isCaptureStage(stage) && !isPageBreakStage(stage);
+
 /** What a caller needs to know to render one frame's retention state. */
 export interface CaptureExpiry {
   days: number;
@@ -798,6 +813,61 @@ export function stepsCompleted(stages: (string | null | undefined)[]): number {
     if (i > furthest) furthest = i;
   }
   return furthest + 1;
+}
+
+/** How the live checklist should read, given what the run has reported. */
+export interface ProgressReading {
+  /** Step the run is on, 0-based; -1 when nothing has been observed yet. */
+  current: number;
+  /** Steps to paint as reached. */
+  done: number;
+  pct: number;
+  heading: string;
+  /** The reported stage resolved to no step this build knows. */
+  unknownStage: boolean;
+}
+
+/**
+ * Turn a reported stage into a position on the checklist.
+ *
+ * Pure, and separate from the component, because this arithmetic is where the
+ * bug lived and a React component with no test environment is where it could
+ * hide: `Math.max(stepIndexForStage(stage), 0) + 1` answered "I don't recognise
+ * this stage" with "Step 1 of 17" and a bar at zero — a confident wrong answer
+ * that made a mid-flight run look like it had restarted.
+ *
+ * Two rules fix it, both borrowed from `stepsCompleted`, which finished attempts
+ * have always used:
+ *   - an unknown stage HOLDS at the furthest step actually observed rather than
+ *     collapsing to the start;
+ *   - with nothing observed at all there is no honest step number, so the
+ *     heading says the run is working instead of naming one.
+ */
+export function progressReading(
+  stage: string | null | undefined,
+  status: string,
+  observedStages: (string | null | undefined)[] = [],
+): ProgressReading {
+  const terminal =
+    status === "submitted" || status === "failed" || status === "warning";
+  const reported = stepIndexForStage(stage);
+  const unknownStage = reported === -1 && !!stage && !terminal;
+  const floor = stepsCompleted(observedStages) - 1;
+  const current = Math.max(reported, floor);
+  const done = status === "submitted" ? SUBMIT_STEPS.length : Math.max(current, 0);
+  const stepNo = Math.min(Math.max(current, 0) + 1, SUBMIT_STEPS.length);
+  return {
+    current,
+    done,
+    pct: Math.round((done / SUBMIT_STEPS.length) * 100),
+    heading:
+      status === "submitted"
+        ? `All ${SUBMIT_STEPS.length} steps complete`
+        : unknownStage && current < 0
+          ? "Working…"
+          : `Step ${stepNo} of ${SUBMIT_STEPS.length}`,
+    unknownStage,
+  };
 }
 
 /**

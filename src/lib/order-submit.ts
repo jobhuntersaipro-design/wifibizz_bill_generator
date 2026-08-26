@@ -20,6 +20,7 @@ import {
   POINT_OF_NO_RETURN,
   isPortalOrderNumber,
   isScreenshotKey,
+  movesStagePointer,
   submitErrorCopy,
   type StageDetail,
   type StageDetails,
@@ -523,7 +524,14 @@ export async function pollOrderProgress(id: string): Promise<ProgressState | nul
   // Still running — move the order's pointer to the latest stage. The history
   // rows behind it were already written by drainStages, which sees every stage
   // rather than only the one a poll happened to land on.
-  if (job.stage && job.stage !== order.stage) {
+  //
+  // Only MILESTONES may move the pointer (see movesStagePointer). A capture
+  // taken during "Creating customer profile" used to land here and make the live
+  // view claim the run had gone back to step 1, where it stayed until the next
+  // real stage — nearly a minute on the run that reported it. The frames
+  // themselves are unaffected: drainStages recorded them above, on its own path,
+  // before this branch is ever reached.
+  if (job.stage && job.stage !== order.stage && movesStagePointer(job.stage)) {
     const o = await prisma.order.update({
       where: { id },
       data: { stage: job.stage, stageAt: new Date() },
