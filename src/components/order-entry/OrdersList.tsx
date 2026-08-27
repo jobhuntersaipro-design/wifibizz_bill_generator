@@ -24,7 +24,7 @@ import {
   type OrderListItem,
   type StageDetails,
 } from "@/lib/order-types";
-import type { RowActions } from "./OrderRow";
+import type { BusyKind, RowActions } from "./OrderRow";
 import { OrdersTable } from "./OrdersTable";
 import { OrdersToolbar } from "./OrdersToolbar";
 import LottieSpot from "./LottieSpot";
@@ -54,6 +54,10 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   // table, so a server-side failure never masquerades as "no drafts".
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // WHICH action is in flight on that row. The row's one button borrows the
+  // busy flag for its spinner, so without this a cancel or a delete rendered
+  // "Submitting…" — a submit is the one thing those two are not.
+  const [busyKind, setBusyKind] = useState<BusyKind>(null);
   // Search + the four filter dropdowns, as one value. One object rather than
   // five useStates so `filterOrders` takes exactly what the toolbar edits, and
   // adding a filter later cannot forget to wire itself into the predicate.
@@ -421,8 +425,10 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
 
   async function handleCancelOrder(id: string) {
     setBusyId(id);
+    setBusyKind("cancel");
     const res = await cancelOrder(id);
     setBusyId(null);
+    setBusyKind(null);
     if (res.success) {
       setOrders((list) =>
         list.map((x) => (x.id === id ? { ...x, status: "cancelled" } : x)),
@@ -435,8 +441,10 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
 
   async function handleDelete(id: string) {
     setBusyId(id);
+    setBusyKind("delete");
     const res = await deleteOrder(id);
     setBusyId(null);
+    setBusyKind(null);
     if (res.success) {
       setOrders((o) => o.filter((x) => x.id !== id));
       toast.success("Order deleted.");
@@ -505,6 +513,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
 
   const actionsFor = (o: OrderListItem): RowActions => ({
     busy: busyId === o.id,
+    busyKind: busyId === o.id ? busyKind : null,
     batchRunning,
     selected: selected.has(o.id),
     onToggleSelect: () => toggleOne(o.id),

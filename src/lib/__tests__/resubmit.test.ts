@@ -117,6 +117,18 @@ describe("a cancelled order is terminal", () => {
     expect(needsVoiding(cancelled)).toBe(false);
   });
 
+  // The blind spot this suite had: every case above carries an order number, so
+  // `canSubmit`'s `!o.orderId` test did all the work and nothing proved the
+  // status itself was refused. An order CAN reach "submitted" with no number —
+  // the capture of it can fail — and cancelling that row left it submittable,
+  // still showing a Submit button that read "Submitting…" while the cancel ran.
+  it("stays refused even when the portal number was never captured", () => {
+    const noNumber = { status: "cancelled", orderId: null };
+    expect(canSubmit(noNumber)).toBe(false);
+    expect(canResubmit(noNumber)).toBe(false);
+    expect(canCancel(noNumber)).toBe(false);
+  });
+
   it("has its own label, filter option and tone", () => {
     expect(STATUS_LABELS.cancelled).toBe("Cancelled");
     expect(STATUS_FILTERS).toContain("cancelled");

@@ -1,5 +1,40 @@
 # Current Feature
 
+## Fix — Cancel Rendered "Submitting…", and Pull-to-Refresh on Mobile
+
+**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `fix/cancel-shows-submitting`, not yet committed). Vercel-only — no scraper change.
+
+Two asks (2026-08-27), one bug and one feature.
+
+### 1. Cancelling an order showed "Submitting"
+
+**The shared busy flag was the mechanism, and `canSubmit` was the hole.** A row has ONE button, and it borrows `busyId` for its spinner — but the label is the *button's* own ("Submitting…"), so a cancel or a delete in flight announced a submit. That is only visible if a cancellable row HAS a button, and `canSubmit` is `!o.orderId && status !== "submitting"` — so it turns on the order number, not the status. An order can reach `submitted` with **no** number (the capture of it can fail; `isPortalOrderNumber` exists precisely because that happens), and such a row keeps its Submit button through the cancel and after it. Cancel is documented as a one-way door — "nothing transitions out of cancelled" — and `canSubmit` was the one predicate not enforcing it.
+
+- `canSubmit` now excludes `cancelled` **explicitly** rather than relying on the id test.
+- The busy label follows the action: new `BusyKind` on `RowActions`, so a cancel says *Cancelling…* and a delete *Deleting…*. An older caller that sends no kind keeps the button's own label — the worst case is the behaviour that shipped, not a blank button.
+
+**The suite had the blind spot too:** every `cancelled` case in `resubmit.test.ts` carried an order number, so `!o.orderId` did all the work and nothing proved the status itself was refused. The new case uses `orderId: null` and **was verified to fail without the fix**.
+
+**NOT reproduced, and stated plainly:** the user reports the **status pill** reading "Submitting" on a row that **does** have an order number. With a number, `canSubmit` and `canResubmit` are both false, `PrimaryAction` renders `null`, and `StatusBadge` reads `STATUS_LABELS[status]` — so the pill cannot say "Submitting". Every render path was read (row, mobile card, detail hero, batch bar, `pollOrderProgress`, `followBatch`, `cancelOrder`) and none produces it. A local repro needed a submitted-with-no-number row, which needed a DB write that was refused. What is fixed explains the report **only if the row had no number**; a screenshot of the row after cancelling is the outstanding evidence.
+
+### 2. Pull down to refresh (mobile)
+
+New `PullToRefresh`, wrapping both order-entry layouts — the dashboard one and the chrome-free detail one. Pull from the top, past 72px, release: the page reloads, with `processing.lottie` (self-hosted, previously unreferenced since the robot replaced it) spinning in a pill at the top. `LottieSpot` gives reduced-motion handling for free — a static `RefreshCw` instead of a loop.
+
+**`location.reload()` is deliberate, not lazy:** the orders list fetches through a client `useEffect`, which `router.refresh()` would not re-run, so the honest implementation of "refresh the page" is to refresh the page.
+
+**Three things a browser found that reading would not have:**
+- **The scroller is not the window.** The dashboard scrolls an inner `<main class="flex-1 overflow-y-auto">`, so `window.scrollY` is pinned at 0 forever and a check against it would arm the pull in the middle of a scrolled list. `scrollerFor()` walks up from the touched node to the first ancestor that genuinely scrolls.
+- **`position: fixed` did not pin to the viewport.** The indicator measured **y=883 on an 844px screen** — off the bottom — because an ancestor carries `animate-fade-in-up`, whose `fill-mode: both` leaves an identity `matrix(1,0,0,1,0,0)`, and *any* transform makes `fixed` resolve against that element. **The same trap this codebase hit once before** (the package/device dropdowns, 2026-08-14). Fixed by portalling the indicator to `<body>`.
+- **The gesture ran at desktop widths while the indicator was `md:hidden`**, so a touchscreen laptop would have swallowed a swipe and shown nothing for it. The listener now checks the same 768px breakpoint the class does.
+
+Guards, all verified: a pull inside a **scrolled** list scrolls; a **sideways-dominant** swipe disarms outright (the orders table scrolls horizontally, and stealing that would break the only route to the pinned Actions column); an **upward** drag never arms; a short pull released below threshold clears without navigating. Chrome-on-Android's own pull-to-refresh is suppressed with `overscroll-behavior-y: contain`, set on mount and **restored on unmount**.
+
+**Verified in the browser** at 390×844 against a real signed-in session, by dispatching real touch sequences: *Pull to refresh* → *Release to refresh* → reload (observed twice, on both the drafts list and the standalone detail page), all four guards, and the indicator screenshotted in place. At 1280 nothing arms and `preventDefault` is not called. `npm run build`, `tsc` (no new errors — two pre-existing ones unchanged), lint identical to baseline (9642), 544 vitest passing against a 543 baseline.
+
+**NOT verified:** a real phone — every touch above is synthetic, and iOS Safari's rubber-band is not reproducible in a desktop Chromium; the reduced-motion fallback; and the cancel fix in the UI, which needs a row shape the local DB does not hold.
+
+
 ## Fix — the Billing Account Was Never Created, and the Step Said "ok" Anyway
 
 **Status:** CODE COMPLETE, LIVE-UNVERIFIED (branch `fix/billing-account-required-fields`, not yet committed). Scraper-only — no Vercel change. Needs a droplet deploy **and an `api_server` restart**.
