@@ -82,8 +82,19 @@ const portalUrl = (orderId: string) =>
   `https://dealer.unifi.com.my/esales/h5/onBoarding/OrderDetails?custOrderId=${orderId}&custOrderNbr=${orderId}`;
 
 /** Everything a row needs to act, passed down from OrdersList. */
+/**
+ * Which action is currently running on a row.
+ *
+ * The row has ONE button and it borrows the busy flag for its spinner, so a
+ * cancel or a delete used to render the submit button's own label —
+ * "Submitting…" — on a row where nothing was being submitted. Naming the action
+ * is what keeps the label honest.
+ */
+export type BusyKind = "submit" | "cancel" | "delete" | null;
+
 export interface RowActions {
   busy: boolean;
+  busyKind?: BusyKind;
   batchRunning: boolean;
   selected: boolean;
   onToggleSelect: () => void;
@@ -298,6 +309,18 @@ function Address({ o }: { o: OrderListItem }) {
  * it is a different act from submitting a fresh draft and must not be reachable
  * by muscle memory.
  */
+/**
+ * What the busy button says. `whenSubmitting` is the button's own wording; a
+ * cancel or a delete in flight says what it is actually doing instead. An older
+ * caller that sends no kind keeps the button's own label, so the worst case is
+ * the behaviour that shipped rather than a blank button.
+ */
+function busyLabel(a: RowActions, whenSubmitting: string): string {
+  if (a.busyKind === "cancel") return "Cancelling…";
+  if (a.busyKind === "delete") return "Deleting…";
+  return whenSubmitting;
+}
+
 function PrimaryAction({ o, a }: { o: OrderListItem; a: RowActions }) {
   if (canSubmit(o)) {
     return (
@@ -310,7 +333,7 @@ function PrimaryAction({ o, a }: { o: OrderListItem; a: RowActions }) {
         {a.busy ? (
           <>
             <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
-            Submitting…
+            {busyLabel(a, "Submitting…")}
           </>
         ) : (
           "Submit"
@@ -330,7 +353,7 @@ function PrimaryAction({ o, a }: { o: OrderListItem; a: RowActions }) {
         {a.busy ? (
           <>
             <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-[#C2740B] border-t-transparent" />
-            Submitting…
+            {busyLabel(a, "Submitting…")}
           </>
         ) : (
           "Resubmit"

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { hasOrderEntryAccess } from "@/actions/settings";
+import PullToRefresh from "@/components/order-entry/PullToRefresh";
 
 /**
  * Chrome-free shell for standalone Order Entry pages (the order detail tab).
@@ -18,5 +19,9 @@ export default async function StandaloneOrderEntryLayout({
   if (!(await hasOrderEntryAccess())) {
     redirect("/dashboard");
   }
-  return <div className="min-h-screen bg-[#F6F9FC]">{children}</div>;
+  return (
+    <div className="min-h-screen bg-[#F6F9FC]">
+      <PullToRefresh>{children}</PullToRefresh>
+    </div>
+  );
 }

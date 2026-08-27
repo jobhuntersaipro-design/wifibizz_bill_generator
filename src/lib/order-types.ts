@@ -652,11 +652,19 @@ export const needsVoiding = (o: {
  * Submittable until we actually have a portal order id — a customer profile may
  * be "entered" without the order id yet, so it must stay submittable. Only an
  * in-flight run or one that already has an order id is locked.
+ *
+ * `cancelled` is excluded EXPLICITLY rather than left to the order id. Cancel is
+ * a one-way door and nothing transitions out of it, but the id test only
+ * enforced that for rows the portal had numbered — and an order can reach
+ * `submitted` with no number when the capture of it failed. Such a row kept its
+ * Submit button after being cancelled, and while the cancel was in flight that
+ * button read "Submitting…", which is what a cancel appeared to start.
  */
 export const canSubmit = (o: {
   status: string;
   orderId?: string | null;
-}): boolean => !o.orderId && o.status !== "submitting";
+}): boolean =>
+  !o.orderId && o.status !== "submitting" && o.status !== "cancelled";
 
 /**
  * A stranded order: the portal minted a number, then the run failed.
