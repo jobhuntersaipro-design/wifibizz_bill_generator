@@ -1034,6 +1034,12 @@ export default function CaseManagementSection() {
             setSelectedCase((prev) => (prev && prev.case_no === caseNo ? { ...prev, full_address: address } : prev));
             setMergeCase((prev) => (prev && prev.case_no === caseNo ? { ...prev, full_address: address } : prev));
           }}
+          // Bills generated on the way to a merge are real, stored bills: the
+          // table's icons and the case's own row are otherwise a step behind.
+          onBillsGenerated={async () => {
+            setBillCacheBuster((prev) => prev + 1);
+            await fetchCases();
+          }}
           onClose={() => setMergeCase(null)}
         />
       )}
