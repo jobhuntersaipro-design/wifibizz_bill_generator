@@ -2226,6 +2226,34 @@ _NUMBER_CARDS_JS = r"""(() => {
 })()"""
 
 
+# OK the "It will take a bit long time … continue?" popup that a Query may
+# raise — and ONLY that. Live 2026-08-27: a filtered query is fast and raises no
+# popup, so `.ui-dialog:visible button:has-text("OK")`.last was the picker's
+# own OK and closed it with nothing selected. The picker is recognised by its
+# number cards / Query button / title, whichever the portal has rendered.
+_CONFIRM_QUERY_OK_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
+  const vis=e=>e&&e.offsetParent!==null;
+  const isPicker=dl=>dl.querySelector('.number-card, .js-search-whp-number')
+    || /select\s+number/i.test(((dl.querySelector('.ui-dialog-title,.modal-title')||{}).innerText||''));
+  const dls=[...d.querySelectorAll('.ui-dialog, .modal.in')].filter(vis).filter(dl=>!isPicker(dl));
+  const dl=dls.pop(); if(!dl) return 'none';
+  const b=dl.querySelector('.js-ok')
+    || [...dl.querySelectorAll('button, a.btn')].find(x=>/^\s*ok\s*$/i.test((x.innerText||'').trim()));
+  if(!b) return 'nobutton'; b.click(); return 'ok';
+})()"""
+
+# Is the Select Number picker still up? A closed picker must be reported, not
+# read back as an empty (= exhausted) pool.
+_PICKER_OPEN_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return false;
+  const vis=e=>e&&e.offsetParent!==null;
+  return [...d.querySelectorAll('.ui-dialog, .modal.in')].filter(vis).some(dl=>
+    dl.querySelector('.number-card, .js-search-whp-number')
+    || /select\s+number/i.test(((dl.querySelector('.ui-dialog-title,.modal-title')||{}).innerText||'')));
+})()"""
+
+
 async def _open_voice_number_picker(frame, page) -> dict:
     """3-dots -> Query -> confirm popup OK -> wait for the number cards."""
     opened = await page.evaluate(r"""(() => {
@@ -2273,17 +2301,20 @@ async def _query_voice_numbers(frame, page, query: str | None = None,
         return {"status": "error", "error": "voice_query_failed",
                 "stage": "voice_number", "message": str(e)}
     await asyncio.sleep(2)
-    # Confirm popup: "It will take a bit long time … continue?" -> OK.
-    try:
-        await frame.locator(
-            '.ui-dialog:visible button:has-text("OK"), .ui-dialog:visible .btn-primary'
-        ).last.click(timeout=6000)
-    except Exception:
-        pass
+    # Confirm popup: "It will take a bit long time … continue?" -> OK. Never
+    # the picker's own OK — see _CONFIRM_QUERY_OK_JS.
+    for _ in range(4):
+        if await page.evaluate(_CONFIRM_QUERY_OK_JS) == "ok":
+            break
+        await asyncio.sleep(1)
     # The number query is slow — WAIT for the `.number-card`s to actually render
     # (clicking before they load is why the number didn't stick).
     if previous is not None:
         for _ in range(25):
+            if not await page.evaluate(_PICKER_OPEN_JS):
+                return {"status": "error", "error": "voice_picker_closed",
+                        "stage": "voice_number",
+                        "message": f"the Select Number picker closed after Query {query!r}"}
             if await page.evaluate(_NUMBER_CARDS_JS) != previous:
                 return {"status": "ok", "query": query}
             await asyncio.sleep(1)

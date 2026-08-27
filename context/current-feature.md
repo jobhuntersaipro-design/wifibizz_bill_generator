@@ -2,7 +2,7 @@
 
 ## Status
 
-DEPLOYED (merged as `4f3a58f`, tag `scraper-v2026.08.27-1` on the droplet, code confirmed inside the rebuilt container), LIVE-UNVERIFIED — the filtered re-query only fires on a real submit whose default number pool is exhausted.
+DEPLOYED twice (`4f3a58f` as `scraper-v2026.08.27-1`, then the follow-up fix as `scraper-v2026.08.27-2`). The first build FAILED LIVE on ORD-0016 attempt 2 (order `2608000122666335`) and was diagnosed from its log + failure frame; the second is LIVE-UNVERIFIED.
 
 ## Goals
 
@@ -15,6 +15,7 @@ Stop a submit stranding a minted order with `Every number the portal offered has
 - `_query_voice_numbers` waits for the card list to **change** after a filtered Query (old cards stay up while the portal fetches — reading the stale list back would count as "still exhausted" and waste the filter). `_open_voice_number_picker` = 3-dots + the unfiltered form of the same call; the selection inner loop is extracted to `_select_untried_card` so both paths share it.
 - Selector for the filter box is placeholder-scoped inside the visible dialog, with a label-based fallback — the picker's markup is in no fixture; only the Query button's `js-search-whp-number` class is live-proven. **Live-unverified:** the box selector, whether a suffix returns a fresh pool (vs. nothing), and how an empty result renders.
 - Worst case added time: 3 × 25s per exhausted pool.
+- **Follow-up fix (live failure of the first build):** the first filtered re-query typed `'6473'`, pressed Query, and then the post-Query "confirm popup OK" step clicked `.ui-dialog:visible button:has-text("OK")` `.last` — a filtered query is fast and raises no "it will take a bit long time… continue?" popup, so `.last` was the **picker's own OK**: the picker closed with nothing selected, the card list "changed" to empty (read as success), and the next two filters died with `Locator.fill: Timeout` on a box that no longer existed (failure frame: Voice tab, no dialog). The unfiltered path only ever worked because that popup happens to appear there. Now `_CONFIRM_QUERY_OK_JS` OKs a visible dialog only when it is NOT the Select Number picker (recognised by number cards / Query button / title), used on both paths, and `_PICKER_OPEN_JS` makes a closed picker a reported `voice_picker_closed` error rather than an exhausted pool. 3 browser-fixture tests (`tests/test_voice_query_confirm.py`) reproduce the exact live shape. **Also learned:** the order the user reported (ORD-0017, `2608000122663907`) ran 6 minutes BEFORE the first deploy — log mtime 03:39:45 UTC vs container start 03:45:13 UTC — so it was the old code, not a failed fix.
 
 ## History
 
