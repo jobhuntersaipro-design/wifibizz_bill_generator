@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { hasOrderEntryAccess } from "@/actions/settings";
-import PullToRefresh from "@/components/order-entry/PullToRefresh";
+import PullToRefresh from "@/components/ui/pull-to-refresh";
 
 /**
  * Chrome-free shell for standalone Order Entry pages (the order detail tab).

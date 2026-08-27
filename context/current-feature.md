@@ -19,6 +19,12 @@ Two asks (2026-08-27), one bug and one feature.
 
 ### 2. Pull down to refresh (mobile)
 
+**FOLLOW-UP (same day): it did nothing on a real iPhone, and the reason was the arm condition, not the gesture.** Reported against the Orders list — the very page verified working in a desktop Chromium at iPhone 13 dimensions under real CDP touch events. Root cause: `scrollerFor()`'s top test was `scrollTop <= 0`. A rested scroll container reports an integer **0** in Chromium, but on a device with a fractional device pixel ratio iOS parks it on a **sub-pixel** value — so the test is false at the top of the list, the pull never arms, and nothing happens, every time. Now `TOP_SLOP = 2`, extracted as pure exported `isAtTop()` with 4 tests, since the case is invisible in any emulator that reports a clean 0.
+
+**Demonstrated before/after rather than argued:** with the scroller parked at a resting offset of 1px, `TOP_SLOP = 0` gives `midPull="none", reloaded=false` on all three pages — the user's report exactly — and `TOP_SLOP = 2` gives `"Release to refresh", reloaded=true` on all three.
+
+**Scope widened to the whole app** (user's call, after the failure): the component moved to `src/components/ui/pull-to-refresh.tsx` and is mounted once per shell — the dashboard layout (covering Dashboard, Usage, Crawler, Settings **and** order-entry), the chrome-free order detail layout, and the admin shell. **Removed from the order-entry layout in the same move**: it nests inside the dashboard shell, and the listeners are global, so a second instance would bind a second set to the same gesture. Verified as exactly one indicator on `<body>` per page, order-entry included.
+
 New `PullToRefresh`, wrapping both order-entry layouts — the dashboard one and the chrome-free detail one. Pull from the top, past 72px, release: the page reloads, with `processing.lottie` (self-hosted, previously unreferenced since the robot replaced it) spinning in a pill at the top. `LottieSpot` gives reduced-motion handling for free — a static `RefreshCw` instead of a loop.
 
 **`location.reload()` is deliberate, not lazy:** the orders list fetches through a client `useEffect`, which `router.refresh()` would not re-run, so the honest implementation of "refresh the page" is to refresh the page.

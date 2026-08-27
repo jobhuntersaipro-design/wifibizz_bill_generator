@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Sidebar } from "@/components/dashboard/sidebar";
 import { Topbar } from "@/components/dashboard/topbar";
+import PullToRefresh from "@/components/ui/pull-to-refresh";
 
 export default function DashboardLayout({
   children,
@@ -17,7 +18,7 @@ export default function DashboardLayout({
       <div className="flex flex-col flex-1 overflow-hidden">
         <Topbar onMenuToggle={() => setSidebarOpen((v) => !v)} />
         <main className="flex-1 overflow-y-auto p-4 md:p-8">
-          {children}
+          <PullToRefresh>{children}</PullToRefresh>
         </main>
       </div>
     </div>

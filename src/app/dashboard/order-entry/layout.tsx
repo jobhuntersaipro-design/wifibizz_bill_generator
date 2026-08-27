@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { hasOrderEntryAccess, isCurrentUserSuperAdmin } from "@/actions/settings";
 import OrderEntryShell from "@/components/order-entry/OrderEntryShell";
-import PullToRefresh from "@/components/order-entry/PullToRefresh";
 
 // Server-side gate: only users the admin has granted Order Entry access reach
 // this route. Hiding the sidebar link is UX; this is the real guard.
@@ -10,9 +9,7 @@ export default async function OrderEntryLayout({ children }: { children: React.R
     redirect("/dashboard");
   }
   const superAdmin = await isCurrentUserSuperAdmin();
-  return (
-    <OrderEntryShell isSuperAdmin={superAdmin}>
-      <PullToRefresh>{children}</PullToRefresh>
-    </OrderEntryShell>
-  );
+  // No PullToRefresh here: the dashboard shell above already mounts one, and a
+  // second would bind a second set of global listeners to the same gesture.
+  return <OrderEntryShell isSuperAdmin={superAdmin}>{children}</OrderEntryShell>;
 }

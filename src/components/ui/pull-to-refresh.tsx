@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { RefreshCw } from "lucide-react";
-import LottieSpot from "./LottieSpot";
+import LottieSpot from "@/components/order-entry/LottieSpot";
 
 /** How far the finger must travel before the release commits to a refresh. */
 const THRESHOLD = 72;
@@ -17,6 +17,29 @@ const RESISTANCE = 0.5;
  * touchscreen laptop cannot swallow a swipe and then show nothing for it.
  */
 const MOBILE_MAX = 768;
+/**
+ * How far from the very top still counts as "at the top", in px.
+ *
+ * NOT zero, and this is the whole reason the gesture did nothing on a real
+ * iPhone while working in every desktop emulation. A scroll container at rest
+ * reports an integer 0 in Chromium, but on a device with a fractional device
+ * pixel ratio iOS parks it on a sub-pixel value (0.33, 0.5) — so a `<= 0` test
+ * is false at the top of the list, the pull never arms, and nothing at all
+ * happens. Two pixels is below what a finger can aim at and well above the
+ * rounding.
+ */
+const TOP_SLOP = 2;
+
+/**
+ * Is this scroll offset "at the top"?
+ *
+ * Exported so the sub-pixel case has a test — it is the whole reason the
+ * gesture did nothing on a real iPhone, and it is invisible in any emulator
+ * that reports an integer 0.
+ */
+export function isAtTop(scrollTop: number): boolean {
+  return scrollTop <= TOP_SLOP;
+}
 
 /**
  * The scroll container this touch actually belongs to.
@@ -43,7 +66,10 @@ function scrollerFor(node: EventTarget | null): Element | null {
 }
 
 /**
- * Pull down from the top of a page to reload it.
+ * Pull down from the top of a page to reload it. Mounted once per shell — the
+ * dashboard, the chrome-free order detail page, and the admin panel — so every
+ * page inside them has it. Never nest two: the listeners are global, and a
+ * second instance would double every pull.
  *
  * On a phone the list is the whole screen and there is no visible Refresh
  * button, so the gesture people already reach for did nothing. A full
@@ -97,10 +123,10 @@ export default function PullToRefresh({ children }: { children: React.ReactNode 
       const t = e.touches[0];
       const scroller = scrollerFor(e.target);
       scrollerRef.current = scroller;
-      // Armed only from a genuine top. `<= 0` rather than `=== 0` because iOS
-      // reports a small negative scrollTop mid-bounce.
+      // Armed only from the top — within TOP_SLOP, which is what makes this work
+      // on a real device rather than only in emulation.
       startRef.current =
-        scroller && scroller.scrollTop <= 0 ? { x: t.clientX, y: t.clientY } : null;
+        scroller && isAtTop(scroller.scrollTop) ? { x: t.clientX, y: t.clientY } : null;
     }
 
     function onTouchMove(e: TouchEvent) {
@@ -118,7 +144,7 @@ export default function PullToRefresh({ children }: { children: React.ReactNode 
       }
       // The scroller can have moved since touchstart (a fling that was still
       // settling). Re-check rather than trust the arm.
-      if ((scrollerRef.current?.scrollTop ?? 0) > 0) {
+      if (!isAtTop(scrollerRef.current?.scrollTop ?? 0)) {
         startRef.current = null;
         if (pullRef.current) setPullBoth(0);
         return;
