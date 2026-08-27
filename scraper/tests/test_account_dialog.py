@@ -42,7 +42,7 @@ ACCOUNT_DIALOG = """
       <tr class="jqgrow" onclick="this.classList.add('ui-state-highlight')"><td>7042171533</td><td>AHMAD FAIZAL BIN HASSAN</td></tr>
     </tbody></table>
   </div>
-  <button class="js-ok" onclick="this.closest('.ui-dialog').style.display='none'">OK</button>
+  <button class="js-ok" onclick="var r=this.closest('.ui-dialog').querySelector('tr.ui-state-highlight td'), a=document.querySelector('input[name=acctId]'); if(r&&a) a.value=r.innerText; this.closest('.ui-dialog').style.display='none'">OK</button>
   <button>Cancel</button>
 </div>
 """
@@ -132,5 +132,9 @@ def test_page1_selects_the_first_existing_account_instead_of_adding():
     res, st = _run(PAGE1 + hidden, create_billing_account)
     assert res["status"] == "ok"
     assert "7042172192" in res["note"]
+    # The step now reads page 1's Account field back — OK'ing the list is only a
+    # success if the portal actually put the account there (order
+    # 2608000122708912 is what a green tick over an empty field costs).
+    assert res["account"] == "7042172192"
     assert st["added"] == 0
     assert st["open"] is False

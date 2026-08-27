@@ -1,5 +1,27 @@
 # Current Feature
 
+## Fix — the Billing Account Was Never Created, and the Step Said "ok" Anyway
+
+**Status:** CODE COMPLETE, LIVE-UNVERIFIED (branch `fix/billing-account-required-fields`, not yet committed). Scraper-only — no Vercel change. Needs a droplet deploy **and an `api_server` restart**.
+
+Live 2026-08-27, order `2608000122708912` (`cmtbavwro000204ju64qh1p9m`): the failure frame shows New Connection page 1 with **`*Account` empty and carrying the portal's red invalid border** — the page-1 Next refused. Everything else on the page (Winback Tagging, Contact Number, Contact Email, Main Offer) filled cleanly, so the run reached the end of page 1 and died at the Next.
+
+**Two defects, and the second is why the first was invisible.**
+
+1. **The Add Account form was filled one field deep.** When the customer has no billing account, `create_billing_account` presses `+ Add` and then filled **only `acctName`** before clicking OK. The portal's form carries several **starred (mandatory)** fields, so the OK is refused, the account is never created, and page 1's Account stays empty. The user's rule (2026-08-27): when there is no available account, create one and **fill up the starred fields**.
+2. **Every branch returned `status: "ok"`, including the ones that do nothing** — the `nodialog`/`noadd` fallback, and the add path whose form was refused. `complete_new_connection`'s `status != ok` gate therefore passed, Winback ran, Next was pressed, and the *portal* was the first thing to notice. The timeline lied too: the stage detail read key `"name"`, which the step never returns, so it fell back to the customer name and rendered a **green "billing account" tick over a step that had done nothing**.
+
+**What changed:**
+- New `fill_new_account_form()` fills **every starred field** the Add Account dialog carries. The form's markup has never been captured, so the fill is driven off what the dialog itself reports rather than off field names we would be guessing at: `_ACCOUNT_FORM_SCAN_JS` walks the visible `.form-group`s, reads each label, decides *required* the way the portal writes it (a `*` in the label — page 1 renders `*Account` — a `.required` marker, or the control's own flag), and stamps `data-bf-acct=<i>` so the fill can address a control whose name we do not know. Required text fields are answered from the order payload by label (pure `account_form_values()` + `account_field_value()`); a required combobox takes its **first real option**, never the `---Please select---` placeholder. **Every field and its label is printed either way**, so one live run tells us the true shape — the same "one run answers it" pattern the appointment reader used.
+- **An unrecognised label is not guessed at.** It is named in the failure instead, because a plausible-looking value in a mandatory portal field nobody chose is worse than a failure that says which label we could not answer.
+- **The step verifies itself.** `create_billing_account` now reads `input[name="acctId"]` back afterwards; an empty field is `account_not_set`, an error whose message names the branch that ran and lists any starred field left empty. The success path returns the **account number the portal actually applied**, and the stage detail was repointed at that key — so the timeline shows the real account instead of a tick over nothing.
+- A combobox's display input is `readonly` **by design** (you pick, you do not type), so readonly now only means "portal-managed, hands off" on a plain field. Found by a test, not by reading.
+
+**Tests:** 8 new in `scraper/tests/test_account_create_form.py` — 4 pure (label→value mapping, the caller's account name winning over the payload, an unanswerable label yielding nothing) and 4 in a browser against a fixture whose OK **creates the account only when every starred field carries a value**, which is the portal behaviour the single-field fill was falling foul of. One reproduces order `2608000122708912` exactly (the portal refuses, the field stays empty) and asserts it comes back as an **error, not a green tick**. `test_account_dialog.py`'s existing list fixture was made faithful — its OK now writes the selected account into page 1's field, as the portal does — and its page-1 test asserts the number lands.
+
+**NOT verified: the live portal, for any of it.** The Add Account form's real markup is still uncaptured; the fixture proves the algorithm, not the real DOM. A live run is what will tell us which starred labels exist and whether any of them fall outside the mapping (those will be named in the failure rather than silently skipped). Also unknown from here: **which branch actually ran on `2608000122708912`** — the production Neon branch and the droplet log are both out of local reach, so whether the dialog failed to open or the Add form was refused rests on the screenshot plus the code. Both branches are fixed and both now report.
+
+
 ## Combine — Auto-Generate the Bills That Are Missing
 
 **Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/combine-auto-generate-bills`, not yet committed). Vercel-only — no scraper change.
