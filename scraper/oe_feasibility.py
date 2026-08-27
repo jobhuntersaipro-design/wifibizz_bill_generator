@@ -20,7 +20,7 @@ import random
 import re
 
 import dealer_web_login
-from appointment_policy import choose_slot, describe_read_failure
+from appointment_policy import normalize_policy, choose_slot, describe_read_failure
 from customer_match import (describe_ic_name_mismatch, may_attach_existing)
 from oe_errors import (APPOINTMENT_SLOT_TAKEN, CUSTOMER_IC_NAME_MISMATCH,
                        DEVICE_OUT_OF_STOCK, ERF_NOT_DOWNLOADED, UNKNOWN_ERROR,
@@ -4046,6 +4046,63 @@ async def _tag_slot_event(page, slot: str) -> bool:
         return False
 
 
+# Open the calendar for the EXISTING appointment row, via its Operation-column
+# control. After [40301147] the portal keeps the first booking on the order and
+# refuses "+ Add" with "You have an appointment already." (live 2026-08-27);
+# the way to rebook, per the user, is to edit that row. The row's markup is not
+# live-proven, so: find the grid by its "Appointment No." header (jqGrid keeps
+# header and body in separate tables), take the first data row, press the
+# first control in its last cell that is not a delete — and return that
+# control's outerHTML so the run log shows exactly what was pressed.
+_OPEN_APPOINTMENT_EDIT_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return {status:'nodoc'};
+  const vis=e=>e&&e.offsetParent!==null;
+  const txt=e=>((e.innerText||'').replace(/\s+/g,' ').trim());
+  const hdr=[...d.querySelectorAll('th,td,div,span')].filter(vis)
+    .find(e=>/^appointment\s*no\.?$/i.test(txt(e)));
+  if(!hdr) return {status:'noheader'};
+  let root=hdr, rows=[];
+  for(let i=0;i<8&&root;i++){
+    rows=[...root.querySelectorAll('tr')].filter(vis)
+      .filter(r=>r.querySelectorAll('td').length>1 && !/no record/i.test(txt(r)) && !r.querySelector('th'));
+    if(rows.length) break; root=root.parentElement;
+  }
+  if(!rows.length) return {status:'norow'};
+  const row=rows[0], cells=row.querySelectorAll('td');
+  const isDel=x=>/delete|remove|trash|\bdel\b/i.test((x.className||'')+' '+(x.title||'')+' '+txt(x));
+  let ctl=null;
+  for(let c=cells.length-1;c>=0&&!ctl;c--){
+    ctl=[...cells[c].querySelectorAll('a,button,i,span,img')].filter(vis).find(x=>!isDel(x));
+  }
+  if(!ctl) return {status:'noctl', row:txt(row).slice(0,200), cell:cells[cells.length-1].outerHTML.slice(0,400)};
+  ctl.click();
+  return {status:'ok', row:txt(row).slice(0,200), ctl:ctl.outerHTML.slice(0,300)};
+})()"""
+
+
+async def _open_appointment_calendar(page) -> dict:
+    """Edit the existing appointment row when there is one, else "+ Add".
+
+    Returns {"how": "edit"|"add", ...} or {"how": "noadd"} when neither control
+    exists (no appointment on this offer).
+    """
+    edit = await page.evaluate(_OPEN_APPOINTMENT_EDIT_JS)
+    if edit.get("status") == "ok":
+        print(f"  appointment: editing the existing row {edit.get('row')!r} via "
+              f"{edit.get('ctl')!r}", flush=True)
+        return {"how": "edit", **edit}
+    if edit.get("status") == "noctl":
+        print(f"  appointment: row {edit.get('row')!r} has no usable Operation control "
+              f"({edit.get('cell')!r}) — falling back to Add", flush=True)
+    opened = await page.evaluate(r"""(() => {
+      const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
+      const vis=e=>e&&e.offsetParent!==null;
+      const b=[...d.querySelectorAll('.js-add-date')].filter(vis)[0];
+      if(!b) return 'noadd'; b.click(); return 'ok';
+    })()""")
+    return {"how": "add" if opened == "ok" else "noadd", "edit": edit.get("status")}
+
+
 async def _set_appointment(page, policy=None, payload=None, stage=None,
                            exclude=None) -> dict:
     """Appointment: Add (`.js-add-date`) -> Appointment dialog (a FullCalendar).
@@ -4094,15 +4151,12 @@ async def _set_appointment(page, policy=None, payload=None, stage=None,
                 break
             await asyncio.sleep(3)
         return {"status": "ok", "stage": "appointment", "note": "manual (paused for user)"}
-    # Open the date dialog. JS-click — the Add link can be scrolled out of the
-    # viewport (a Playwright click would time out as "outside of viewport").
-    opened = await page.evaluate(r"""(() => {
-      const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
-      const vis=e=>e&&e.offsetParent!==null;
-      const b=[...d.querySelectorAll('.js-add-date')].filter(vis)[0];
-      if(!b) return 'noadd'; b.click(); return 'ok';
-    })()""")
-    if opened == "noadd":
+    # Open the date dialog: the existing row's edit control when the order
+    # already holds an appointment (a rebook), else "+ Add". JS-clicks — the
+    # controls can be scrolled out of the viewport (a Playwright click would
+    # time out as "outside of viewport").
+    opened = await _open_appointment_calendar(page)
+    if opened["how"] == "noadd":
         return {"status": "skipped", "stage": "appointment", "note": "no appointment control"}
     await asyncio.sleep(3)
     warn = await _dismiss_popup_ok(frame, page, exclude_title_re=r"appoint")
@@ -4130,7 +4184,9 @@ async def _set_appointment(page, policy=None, payload=None, stage=None,
                 "message": picked["message"], "calendar": diag}
     candidates = picked["candidates"]
     print(f"  appointment policy picked {picked['slot']} "
-          f"({len(candidates)} acceptable of {len(slots)} offered)", flush=True)
+          f"({len(candidates)} acceptable of {len(slots)} offered; "
+          f"lead {normalize_policy(policy)['lead_hours']}h, now {picked.get('now')} MYT, "
+          f"cutoff {picked.get('cutoff')})", flush=True)
 
     for cand in candidates[:10]:
         tagged = await _tag_slot_event(page, cand)

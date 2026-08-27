@@ -19,12 +19,23 @@ selector that had stopped matching went on looking like an empty calendar.
 """
 
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 FIRST_AVAILABLE = "first_available"
 FIXED_DATE = "fixed_date"
 
 DEFAULT_STRATEGY = FIRST_AVAILABLE
 DEFAULT_LEAD_HOURS = 12
+
+# The calendar's slot strings are Malaysia wall-clock time, so the lead-time
+# cutoff must be measured on that clock — NOT the host's. The droplet container
+# runs with no TZ (UTC), which silently turned a 12-hour lead into a 4-hour one.
+PORTAL_TZ = ZoneInfo("Asia/Kuala_Lumpur")
+
+
+def portal_now() -> datetime:
+    """Naive Malaysia-time 'now', comparable with the portal's slot strings."""
+    return datetime.now(PORTAL_TZ).replace(tzinfo=None)
 
 
 def normalize_policy(raw) -> dict:
@@ -82,7 +93,7 @@ def choose_slot(slots, policy=None, now=None, exclude=None) -> dict:
     day's four.
     """
     pol = normalize_policy(policy)
-    now = now or datetime.now()
+    now = now or portal_now()
     excluded = {str(s).strip() for s in (exclude or [])}
 
     parsed = sorted(
@@ -110,12 +121,18 @@ def choose_slot(slots, policy=None, now=None, exclude=None) -> dict:
         return {"slot": on_day[0], "candidates": on_day}
 
     cutoff = now + timedelta(hours=pol["lead_hours"])
+    fmt = "%Y-%m-%d %H:%M:%S"
     ok = [s for dt, s in parsed if dt > cutoff]
     if not ok:
         return {"error": "all_before_lead",
                 "message": (f"the earliest slot is {parsed[0][1]}, inside the "
-                            f"{pol['lead_hours']}-hour lead time")}
-    return {"slot": ok[0], "candidates": ok}
+                            f"{pol['lead_hours']}-hour lead time (now {now:{fmt}}, "
+                            f"cutoff {cutoff:{fmt}})"),
+                "now": f"{now:{fmt}}", "cutoff": f"{cutoff:{fmt}}"}
+    # `now`/`cutoff` are reported so the run log PROVES which lead time was
+    # applied, on which clock.
+    return {"slot": ok[0], "candidates": ok,
+            "now": f"{now:{fmt}}", "cutoff": f"{cutoff:{fmt}}"}
 
 
 def describe_read_failure(diag) -> str:
