@@ -627,6 +627,39 @@ const SCRAPER_API_URL = process.env.SCRAPER_API_URL ?? "http://localhost:5000";
 const ORDER_TOKEN = process.env.ORDER_ENTRY_API_TOKEN ?? "";
 
 /**
+ * Is the scraper already running a browser job — anyone's?
+ *
+ * `/health` reports a bare count and needs no token (Caddy serves it publicly),
+ * which is exactly enough: the UI only needs to know whether the single-browser
+ * lock is held, never by whom or for what.
+ *
+ * **Fails OPEN.** An unreachable droplet reports `busy: false`, so a network
+ * blip greys out nobody's Submit button. Blocking on "I could not ask" would
+ * make a broken health check look like a permanently busy server, and the
+ * submit itself gives a clear error if the droplet really is down.
+ */
+export async function scraperBusy() {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false as const, busy: false, reachable: false };
+  try {
+    const res = await fetch(`${SCRAPER_API_URL}/health`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return { success: true as const, busy: false, reachable: false };
+    const data = (await res.json()) as { active_jobs?: number };
+    return {
+      success: true as const,
+      busy: (data.active_jobs ?? 0) > 0,
+      reachable: true,
+    };
+  } catch {
+    return { success: true as const, busy: false, reachable: false };
+  }
+}
+
+
+/**
  * The raw order the scraper is given for one run.
  *
  * Shared by the single submit and the server-side batch runner so the two can

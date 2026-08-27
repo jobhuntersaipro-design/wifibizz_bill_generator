@@ -764,6 +764,34 @@ export function toneForStatus(status: string): RunTone {
 export const canCancel = (o: { status: string }): boolean => o.status === "submitted";
 
 /**
+ * Why a submit button is unavailable right now, in the words shown on hover —
+ * or null when it is available.
+ *
+ * The droplet drives ONE browser and `api_server.py` rejects any job while
+ * another is queued or running, with "The server can only run one browser job
+ * at a time." That lock is global: another agent's submit, or one started in a
+ * different tab, blocks yours just as surely as your own does. So the button is
+ * disabled on the SERVER's busy state, not merely on what this page started.
+ *
+ * Pure and exported so the disabled state and the hover text cannot disagree —
+ * a button that is greyed out for a reason it does not give is worse than one
+ * that errors.
+ */
+export function submitBlockedReason(state: {
+  rowBusy?: boolean;
+  batchRunning?: boolean;
+  serverBusy?: boolean;
+}): string | null {
+  if (state.rowBusy) return "This order is being worked on.";
+  if (state.batchRunning) return "A batch submit is running — please wait until it finishes.";
+  if (state.serverBusy) {
+    return "A task is already running on the server. Please wait until it finishes.";
+  }
+  return null;
+}
+
+
+/**
  * Up to two initials for the avatar.
  *
  * First and LAST token, not the first two: Malaysian names here run long

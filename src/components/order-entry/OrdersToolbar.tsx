@@ -5,9 +5,12 @@ import {
   STATUS_FILTERS,
   STATUS_LABELS,
   activeFilterCount,
+  submitBlockedReason,
   type OrderFilters,
 } from "@/lib/order-types";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { DateRangeFilter } from "./DateRangeFilter";
+import { BlockedHint } from "./OrderRow";
 
 /**
  * Search, the filter bar, and the bulk bar that appears once rows are selected.
@@ -69,6 +72,7 @@ export function OrdersToolbar({
   devices,
   selectedCount,
   batchRunning,
+  serverBusy,
   onClearSelection,
   onSubmitSelected,
 }: {
@@ -78,6 +82,8 @@ export function OrdersToolbar({
   devices: string[];
   selectedCount: number;
   batchRunning: boolean;
+  /** The droplet is running a browser job — anyone's. See submitBlockedReason. */
+  serverBusy?: boolean;
   onClearSelection: () => void;
   onSubmitSelected: () => void;
 }) {
@@ -168,6 +174,7 @@ export function OrdersToolbar({
       {/* Bulk action bar — only submittable drafts are ever selectable, so this
           never offers to batch something that needs a per-order confirmation. */}
       {selectedCount > 0 && (
+        <TooltipProvider delay={150} closeDelay={0}>
         <div className="flex items-center justify-between gap-3 rounded-lg border border-[#635BFF]/30 bg-[#635BFF]/5 px-4 py-2.5">
           <span className="text-[13px] font-medium text-[#0A2540]">
             {selectedCount} selected
@@ -181,11 +188,12 @@ export function OrdersToolbar({
             >
               Clear
             </button>
+            <BlockedHint reason={batchRunning ? null : submitBlockedReason({ serverBusy })}>
             <button
               type="button"
               onClick={onSubmitSelected}
-              disabled={batchRunning}
-              className="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-[#635BFF] px-3 py-2 text-[12px] font-semibold text-white transition-colors duration-150 hover:bg-[#0A2540] disabled:opacity-50"
+              disabled={batchRunning || serverBusy}
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-[#635BFF] px-3 py-2 text-[12px] font-semibold text-white transition-colors duration-150 hover:bg-[#0A2540] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {batchRunning ? (
                 <>
@@ -196,8 +204,10 @@ export function OrdersToolbar({
                 `Submit Selected (${selectedCount})`
               )}
             </button>
+            </BlockedHint>
           </div>
         </div>
+        </TooltipProvider>
       )}
     </div>
   );
