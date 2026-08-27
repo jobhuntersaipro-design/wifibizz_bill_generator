@@ -1426,23 +1426,247 @@ async def select_first_account(frame, page) -> dict:
             "closed": not await dlg.count()}
 
 
-async def create_billing_account(frame, page, acct_name: str = "") -> dict:
+# ─────────────────────────────────────────────────────────────────────────────
+# Add Account form (opened by the Account Infomation list's "+ Add").
+#
+# Until 2026-08-27 this filled exactly ONE field — Account Name — and then OK'd
+# whatever popped up. The portal's form carries several starred (mandatory)
+# fields, so the OK was refused, no account was ever created, and
+# create_billing_account still returned status "ok": the run walked on to
+# Winback and pressed page 1's Next, where the portal marked *Account red and
+# blocked it (order 2608000122708912). The user's rule (2026-08-27): when the
+# customer has no account, create one and fill every starred field.
+#
+# The form's markup has never been captured, so the fill is driven off what the
+# dialog itself reports rather than off field names we would be guessing at:
+# scan the visible form-groups, fill the required ones we can source a value
+# for, take the first real option for a required combobox, and PRINT every
+# field with its label either way — one live run then tells us the true shape.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Scan the topmost visible dialog's form fields and stamp each fillable control
+# with data-bf-acct=<index>, so the fill can address it without a name we do not
+# know. Required is read the way the portal writes it: a "*" in the label (page 1
+# renders "*Account"), a .required marker, or the control's own required flag.
+_ACCOUNT_FORM_SCAN_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument;
+  if(!d) return {error:'nodoc'};
+  const vis=e=>e&&e.offsetParent!==null;
+  const dl=[...d.querySelectorAll('.ui-dialog')].filter(vis).pop();
+  if(!dl) return {error:'nodialog'};
+  const title=((dl.querySelector('.ui-dialog-title')||{}).innerText||'').trim();
+  const groups=[...dl.querySelectorAll('.form-group')].filter(vis);
+  const fields=[]; let i=0;
+  for(const g of groups){
+    const lbl=g.querySelector('label');
+    const label=((lbl&&(lbl.title||lbl.innerText))||'').replace(/\s+/g,' ').trim();
+    const disp=g.querySelector('input[role="combobox"]');
+    const sel=g.querySelector('select');
+    const txt=[...g.querySelectorAll('input,textarea')].find(x=>vis(x)&&!x.disabled&&!x.readOnly
+      && !/^(hidden|checkbox|radio|button|submit|file)$/i.test(x.type||'') && x!==disp);
+    const ctl=disp||sel||txt; if(!ctl) continue;
+    const kind=disp?'combobox':(sel?'select':'text');
+    const value=((ctl.value||'')+'').trim();
+    const required = /\*/.test(label) || !!g.querySelector('.required,.n-required')
+      || ctl.required===true || /\brequired\b/i.test(ctl.className||'');
+    ctl.setAttribute('data-bf-acct', String(i));
+    // A combobox's DISPLAY input is readonly by design (you pick, you don't
+    // type), so readonly only means "portal-managed, hands off" on a plain field.
+    fields.push({i, label, kind, name: ctl.getAttribute('name')||'', value, required,
+                 disabled: !!(ctl.disabled || (kind!=='combobox' && ctl.readOnly))});
+    i++;
+  }
+  return {title, fields};
+})()"""
+
+# Which order value answers a field, keyed off the label the portal prints.
+# Ordered: the first rule that matches wins, so "Account Name" reaches `name`
+# only after the more specific labels have had their chance.
+_ACCOUNT_FIELD_RULES = [
+    (re.compile(r"e-?mail", re.I), "email"),
+    (re.compile(r"post\s*code|poskod|\bzip\b", re.I), "postcode"),
+    (re.compile(r"\bstate\b|negeri", re.I), "state"),
+    (re.compile(r"\bcity\b|\btown\b|bandar", re.I), "city"),
+    (re.compile(r"address|alamat", re.I), "address"),
+    (re.compile(r"mobile|phone|\btel\b|contact\s*(no|number)|hand\s*phone", re.I), "mobile"),
+    (re.compile(r"(id|ic|nric|mykad|passport|cert)\w*\s*(no|number|nbr)|\bnric\b|\bmykad\b",
+                re.I), "id_number"),
+    (re.compile(r"name|nama", re.I), "name"),
+]
+
+
+def account_form_values(payload: dict | None, acct_name: str = "") -> dict:
+    """The values an Add Account form can be filled from, out of the order payload.
+
+    Pure. `acct_name` is what the caller already passes for Account Name and
+    wins over the payload, so the two cannot disagree.
+    """
+    cust = ((payload or {}).get("customer") or {})
+    contact = (cust.get("contact") or {})
+    mobile = f"{contact.get('mobile_prefix') or ''}{contact.get('mobile') or ''}".strip()
+    return {
+        "name": acct_name or cust.get("name") or contact.get("name") or "",
+        "id_number": cust.get("id_number") or "",
+        "email": contact.get("email") or "",
+        "mobile": mobile,
+        "address": cust.get("residence_street") or cust.get("residence_address") or "",
+        "postcode": cust.get("residence_postcode") or "",
+        "city": cust.get("residence_city") or "",
+        "state": cust.get("residence_state") or "",
+    }
+
+
+def account_field_value(label: str, values: dict) -> str:
+    """The value for one Add Account field, by its printed label. Pure.
+
+    Empty string when no rule matches or the order carries nothing for it — the
+    caller reports those by name rather than inventing a value, because a
+    plausible-looking guess in a mandatory portal field is worse than a failure
+    that says which label we could not answer.
+    """
+    text = (label or "").strip()
+    if not text:
+        return ""
+    for rule, key in _ACCOUNT_FIELD_RULES:
+        if rule.search(text):
+            return (values or {}).get(key) or ""
+    return ""
+
+
+async def fill_new_account_form(frame, page, payload: dict | None,
+                                acct_name: str = "") -> dict:
+    """Fill the Add Account form's starred fields. Returns what it did/could not.
+
+    {status: ok|error, filled: [...], unanswered: [...], fields: [...]}
+    `unanswered` names every required field left empty — the diagnostic that the
+    silent single-field fill never produced.
+    """
+    scan = await page.evaluate(_ACCOUNT_FORM_SCAN_JS)
+    if not isinstance(scan, dict) or scan.get("error"):
+        return {"status": "error", "error": "account_form_not_found",
+                "message": f"Add Account form not readable ({scan})"}
+    fields = scan.get("fields") or []
+    print(f"  ↳ Add Account form {scan.get('title')!r}: "
+          + ", ".join(f"{f['label']!r}[{f['kind']}{'*' if f['required'] else ''}]"
+                      for f in fields), flush=True)
+    values = account_form_values(payload, acct_name)
+    dlg = frame.locator('.ui-dialog:visible').last
+    filled, unanswered = [], []
+    for f in fields:
+        if not f.get("required") or f.get("disabled") or (f.get("value") or "").strip():
+            continue
+        ctl = dlg.locator(f'[data-bf-acct="{f["i"]}"]').first
+        if f["kind"] == "text":
+            val = account_field_value(f["label"], values)
+            if not val:
+                unanswered.append(f["label"])
+                continue
+            try:
+                await ctl.fill(val, timeout=5000)
+                filled.append(f"{f['label']}={val}")
+            except Exception as e:
+                unanswered.append(f"{f['label']} (fill failed: {e})")
+            continue
+        if f["kind"] == "select":
+            try:
+                await ctl.select_option(index=1, timeout=5000)
+                filled.append(f"{f['label']}=<first option>")
+            except Exception as e:
+                unanswered.append(f"{f['label']} (select failed: {e})")
+            continue
+        # combobox: open its caret and take the first option that is not the
+        # "---Please select---" placeholder.
+        picked = await _pick_first_combobox_option(frame, page, ctl)
+        if picked:
+            filled.append(f"{f['label']}={picked}")
+        else:
+            unanswered.append(f"{f['label']} (no option taken)")
+    print(f"  ↳ filled: {filled or '-'}; still empty: {unanswered or '-'}", flush=True)
+    return {"status": "ok", "filled": filled, "unanswered": unanswered, "fields": fields}
+
+
+async def _pick_first_combobox_option(frame, page, display) -> str:
+    """Open one combobox by its caret and click its first real option."""
+    caret = display.locator(
+        'xpath=ancestor::div[contains(@class,"form-group")][1]'
+        '//span[contains(@class,"input-group-addon")]').first
+    try:
+        await caret.click(timeout=5000)
+    except Exception:
+        return ""
+    await asyncio.sleep(0.8)
+    items = frame.locator('ul.combobox-dropdown:visible li')
+    for k in range(min(await items.count(), 12)):
+        item = items.nth(k)
+        text = ((await item.inner_text()) or "").strip()
+        if not text or re.search(r"please\s*select|^-+$", text, re.I):
+            continue
+        try:
+            await item.click(timeout=4000)
+            await asyncio.sleep(0.6)
+            return text
+        except Exception:
+            return ""
+    return ""
+
+
+async def _account_field_value(frame) -> str:
+    """What page 1's Account field currently reads."""
+    inp = frame.locator('input[name="acctId"]:not(.js-acct-combobox)').first
+    if not await inp.count():
+        return ""
+    try:
+        return ((await inp.input_value()) or "").strip()
+    except Exception:
+        return ""
+
+
+async def create_billing_account(frame, page, acct_name: str = "",
+                                 payload: dict | None = None) -> dict:
     """Billing account for the order: the customer's FIRST existing account, or
-    a new one only when they have none.
+    a new one only when they have none. VERIFIES the field afterwards.
 
     Until 2026-08-27 this CREATED a new account per order, so every re-submit
     of the same customer added one — and once a customer had two, the portal
     stopped over the Broadband tab to ask which, stranding the order (ORD-0017,
-    2608000122669349). Now: open the Account Infomation dialog; if it lists an
+    2608000122669349). Then: open the Account Infomation dialog; if it lists an
     account, select_first_account takes the first row and OKs. Otherwise the
     VERIFIED add sequence (with GENEROUS waits — rushing makes the Reason and
     Success popups stack and one gets left open, covering page-1): '+ Add' ->
-    fill Account Name -> OK the form -> the "Reason" popup -> OK -> final OK.
+    fill EVERY starred field -> OK the form -> the "Reason" popup -> OK -> final OK.
+
+    Every branch below used to end in status "ok", including the ones that do
+    nothing at all (dialog never opened; the Add form refused), which is how
+    order 2608000122708912 reached page 1's Next with *Account empty and red
+    while the timeline showed a green tick. The page-1 field is now read back
+    and an empty one is an error naming the branch that ran.
     Skips cleanly when the offer has no account field."""
     acct_input = frame.locator('input[name="acctId"]:not(.js-acct-combobox)').first
     if not await acct_input.count():
         return {"status": "skipped", "stage": "account", "reason": "not_applicable",
                 "note": "no account field"}
+    result = await _apply_billing_account(frame, page, acct_name, payload)
+    if result.get("status") != "ok":
+        return result
+    account = await _account_field_value(frame)
+    if account:
+        return {**result, "account": account}
+    note = result.get("note") or ("created a new account" if result.get("created") else "")
+    unanswered = result.get("unanswered") or []
+    detail = (f" The Add Account form left these starred fields empty: "
+              f"{', '.join(unanswered)}." if unanswered else "")
+    return {"status": "error", "stage": "account", "error": "account_not_set",
+            "message": ("The Account field on page 1 is still empty after the account "
+                        f"step ({note or 'no account applied'}).{detail} The portal "
+                        "marks it mandatory, so the page-1 Next would be refused."),
+            **({"unanswered": unanswered} if unanswered else {}),
+            **({"form_fields": result["form_fields"]} if result.get("form_fields") else {})}
+
+
+async def _apply_billing_account(frame, page, acct_name: str = "",
+                                 payload: dict | None = None) -> dict:
+    """Select the first existing account, or add one. See create_billing_account."""
+    acct_input = frame.locator('input[name="acctId"]:not(.js-acct-combobox)').first
     addon = acct_input.locator(
         'xpath=following-sibling::span[contains(@class,"input-group-addon")]').first
     try:
@@ -1481,10 +1705,13 @@ async def create_billing_account(frame, page, acct_name: str = "") -> dict:
         return {"status": "ok", "stage": "account", "note": f"no add ({added}); selected existing"}
     await asyncio.sleep(3.5)  # let the Add Account FORM fully render
 
-    # Fill Account Name (the VISIBLE form field), then OK the form.
-    name_inp = frame.locator('input[name="acctName"]:visible').first
-    if await name_inp.count() and acct_name:
-        await name_inp.fill(acct_name, timeout=5000)
+    # Fill every starred field the form carries — not just Account Name, which
+    # is all this did until 2026-08-27 and which the portal's OK refuses.
+    form = await fill_new_account_form(frame, page, payload, acct_name)
+    if form.get("status") != "ok":
+        return {"status": "error", "stage": "account",
+                "error": form.get("error", "account_form_not_found"),
+                "message": form.get("message", "Could not read the Add Account form.")}
     await asyncio.sleep(2)
     await page.evaluate(r"""(() => {
       const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return;
@@ -1534,7 +1761,9 @@ async def create_billing_account(frame, page, acct_name: str = "") -> dict:
         except Exception:
             pass
         await asyncio.sleep(2.5)
-    return {"status": "ok", "stage": "account", "created": True, "closed": closed}
+    return {"status": "ok", "stage": "account", "created": True, "closed": closed,
+            "filled": form.get("filled") or [], "unanswered": form.get("unanswered") or [],
+            "form_fields": [f.get("label") for f in (form.get("fields") or [])]}
 
 
 # The Winback Tagging combobox is found by its LABEL: the input carries an
@@ -2071,8 +2300,12 @@ async def complete_new_connection(page, payload: dict = None, on_stage=None) -> 
     stage("installation_contact", _step_detail(steps["install_contact"], "selected"))
     await cancel_customer_popup(page)
     stage("billing_account")
-    steps["account"] = await create_billing_account(frame, page, acct_name)
-    stage("billing_account", _step_detail(steps["account"], "name", acct_name))
+    steps["account"] = await create_billing_account(frame, page, acct_name, payload)
+    # Key "account" — the account number the portal actually applied. This read
+    # "name" until 2026-08-27, a key the step never returns, so the detail always
+    # fell back to the customer name and showed a green tick over an account step
+    # that had done nothing (order 2608000122708912).
+    stage("billing_account", _step_detail(steps["account"], "account", acct_name))
     await cancel_customer_popup(page)
     stage("winback_tagging")
     steps["winback"] = await set_winback_tagging(frame, page)
