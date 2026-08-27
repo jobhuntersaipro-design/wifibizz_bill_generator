@@ -12,7 +12,13 @@ import {
   lookupPostcode,
   getOrder,
 } from "@/actions/order";
-import { MAX_DOCS, IDENTITY_DOC_TYPES, hasIdentityDocument, type OrderDocument } from "@/lib/order-types";
+import {
+  MAX_DOCS,
+  IDENTITY_DOC_TYPES,
+  hasIdentityDocument,
+  hasSupportingDocument,
+  type OrderDocument,
+} from "@/lib/order-types";
 import { GENERATED_DOCS, docSpec, generatableDocTypes, isDocTypeAttached, missingFieldsFor, type GeneratedDocType } from "@/lib/order-documents";
 import {
   COMBINED_DOC_LABEL,
@@ -270,6 +276,8 @@ export function OrderForm({
     // The ID copy is required by the portal's Personal Customer form, so it is a
     // save-blocker like any other required field rather than a nice-to-have.
     if (!hasIdentityDocument(documents)) missing.push("MyKad / Passport");
+    // Same rule, one card down: the order needs the paperwork behind it too.
+    if (!hasSupportingDocument(documents)) missing.push("Supporting Document");
     return missing;
   }, [isMykadLike, idNumber, fullName, emailValid, street, postcode, stateVal, city, offerName, documents]);
 
@@ -284,6 +292,7 @@ export function OrderForm({
   ];
   // "other" is deliberately not an identity document — see hasIdentityDocument.
   const hasIdentityDoc = hasIdentityDocument(documents);
+  const hasSupportingDoc = hasSupportingDocument(documents);
   const identityDocs = documents.filter((d) => IDENTITY_DOC_TYPES.includes(d.type as never));
   const supportingDocs = documents.filter((d) => !IDENTITY_DOC_TYPES.includes(d.type as never));
   const docsFull = documents.length >= MAX_DOCS;
@@ -782,6 +791,12 @@ export function OrderForm({
     // the agent a round trip and names the card rather than the field path.
     if (!hasIdentityDoc) {
       toast.error(`Attach a copy of the customer's ${idDocLabel} before saving.`);
+      return;
+    }
+    // Supporting documents are required too. saveOrder refuses it as well —
+    // this check names the card rather than a zod path.
+    if (!hasSupportingDoc) {
+      toast.error("Attach at least one supporting document before saving.");
       return;
     }
     setSaving(true);
@@ -1401,7 +1416,7 @@ export function OrderForm({
         </div>
       </div>
 
-      {/* ── Supporting Documents (optional) ──────────────────────────────────
+      {/* ── Supporting Documents (required) ──────────────────────────────────
           There are two ways to put a document on an order and they used to sit
           stacked under one thin divider, which read as one long form rather than
           a choice — the generate row looked like a toolbar above the "real"
@@ -1409,7 +1424,13 @@ export function OrderForm({
           panel own its full width. */}
       <div className={`${cardCls} overflow-hidden`}>
         <div className={`${headCls} flex items-center justify-between`}>
-          <span>Supporting Documents</span>
+          <span>
+            Supporting Documents
+            <span className="ml-1.5 text-[#DF1B41] font-normal">*</span>
+            {hasSupportingDoc && (
+              <span className="ml-2 text-[11px] font-normal text-green-700">Attached ✓</span>
+            )}
+          </span>
           <span className="text-[#697386] font-normal text-xs tabular-nums">
             {documents.length}/{MAX_DOCS} total
           </span>
@@ -1629,8 +1650,8 @@ export function OrderForm({
           <div className="pt-1 border-t border-[#E3E8EF]">
             {supportingDocs.length === 0 ? (
               <p className="pt-4 text-[12px] text-[#697386]">
-                No supporting documents yet — optional, but most orders carry the IM conversation.
-                Attach two or more and you can combine them into a single PDF.
+                No supporting documents yet — at least one is required, and most orders carry the
+                IM conversation. Attach two or more and you can combine them into a single PDF.
               </p>
             ) : (
               <div className="pt-4 space-y-1.5">
@@ -1722,6 +1743,12 @@ export function OrderForm({
               </div>
             )}
           </div>
+
+          {!hasSupportingDoc && (
+            <p className="text-[11px] font-medium text-[#DF1B41]">
+              At least one supporting document is required — upload one or generate one above.
+            </p>
+          )}
         </div>
       </div>
 

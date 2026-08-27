@@ -12,7 +12,7 @@ import {
   slugFromFilename,
   type GeneratorSource,
 } from "../order-documents";
-import { IDENTITY_DOC_TYPES, hasIdentityDocument } from "../order-types";
+import { IDENTITY_DOC_TYPES, hasIdentityDocument, hasSupportingDocument } from "../order-types";
 
 const FULL: GeneratorSource = {
   fullName: "PHONG KONE LEE",
@@ -54,6 +54,36 @@ describe("hasIdentityDocument", () => {
         { type: "other" },
       ]),
     ).toBe(true);
+  });
+});
+
+describe("hasSupportingDocument", () => {
+  it("rejects an order with no documents at all", () => {
+    expect(hasSupportingDocument([])).toBe(false);
+    expect(hasSupportingDocument(undefined)).toBe(false);
+    expect(hasSupportingDocument(null)).toBe(false);
+  });
+
+  // The mirror of the ID rule: an ID copy is not a supporting document, so a
+  // draft holding only a MyKad still has nothing supporting it.
+  it("does not count the ID copy as a supporting document", () => {
+    for (const type of IDENTITY_DOC_TYPES) {
+      expect(hasSupportingDocument([{ type }])).toBe(false);
+    }
+  });
+
+  it("accepts an uploaded supporting document", () => {
+    expect(hasSupportingDocument([{ type: "mykad" }, { type: "im_conversation" }])).toBe(true);
+    expect(hasSupportingDocument([{ type: "utility_bill" }])).toBe(true);
+  });
+
+  // Every generator files under a non-identity type, so any generated document
+  // satisfies the rule — including the combined PDF, which lands as "other".
+  it("accepts every generated document type, and the combined PDF", () => {
+    for (const spec of GENERATED_DOCS) {
+      expect(hasSupportingDocument([{ type: "mykad" }, { type: spec.type }])).toBe(true);
+    }
+    expect(hasSupportingDocument([{ type: "other" }])).toBe(true);
   });
 });
 

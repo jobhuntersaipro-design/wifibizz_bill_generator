@@ -41,7 +41,7 @@ import {
   validateMalaysianAddress,
 } from "../../src/lib/malaysia-address";
 import { isValidEmail, parseMykad } from "../../src/lib/mykad";
-import { hasIdentityDocument } from "../../src/lib/order-types";
+import { hasIdentityDocument, hasSupportingDocument } from "../../src/lib/order-types";
 import { uploadToR2 } from "../../src/lib/r2";
 import { isWithDevice, pickOffer } from "../../src/lib/seed-offer";
 
@@ -177,6 +177,12 @@ function resolveSpec(spec: OrderSpec, defaults: Partial<OrderSpec>) {
   // re-save, which is a worse outcome than refusing to write it now.
   if (!hasIdentityDocument(docTypes.map((type) => ({ type })))) {
     problems.push("no ID document — add \"mykad\" or \"passport\" to docTypes");
+  }
+  // The order form's other save gate: at least one supporting document.
+  if (!hasSupportingDocument(docTypes.map((type) => ({ type })))) {
+    problems.push(
+      "no supporting document — add a non-ID type (e.g. \"utility_bill\" or \"other\") to docTypes",
+    );
   }
 
   return {

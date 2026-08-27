@@ -8,6 +8,7 @@ import { uploadToR2 } from "@/lib/r2";
 import {
   MAX_DOCS,
   hasIdentityDocument,
+  hasSupportingDocument,
   type OrderDocument,
   formatPhone,
   canSubmit,
@@ -214,6 +215,12 @@ const orderInputSchema = z.object({
     .optional()
     .refine(hasIdentityDocument, {
       message: "Attach the customer's MyKad or Passport before saving.",
+    })
+    // At least one supporting document is required too — the portal's Attachment
+    // section expects the paperwork behind the order, and an order arriving with
+    // nothing but an ID copy has to be chased afterwards.
+    .refine(hasSupportingDocument, {
+      message: "Attach at least one supporting document before saving.",
     }),
 });
 

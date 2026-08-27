@@ -85,6 +85,9 @@ the run continues.
   applies, so a row that fails it could never be re-saved from the order form.
 - The ID parses as the given ID type, the name is present, the email is
   well-formed.
+- `docTypes` carries an ID copy (`mykad` / `passport` / `id`) **and** at least
+  one supporting document (any other type) — both are save gates in the order
+  form, so a row missing either produces a draft that cannot be re-saved.
 - No order for that ID number already exists on the account. Re-running after a
   half-finished run tops the set up rather than doubling it, and a duplicate ID
   sends a submit down the multiple-customer path instead of the one being
