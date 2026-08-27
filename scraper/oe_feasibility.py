@@ -2226,15 +2226,33 @@ _NUMBER_CARDS_JS = r"""(() => {
 })()"""
 
 
+# Tag the Select Number picker BY IDENTITY the moment it is open, before Query.
+# The unfiltered path (every Voice submit) opens it with no cards yet, and
+# nothing else about its markup is live-proven — so telling it apart from the
+# confirm popup by selector is a guess, and a wrong guess OKs the picker
+# itself. The topmost visible dialog at open time IS the picker (that is where
+# _NUMBER_CARDS_JS has always read the cards from); prefer one that looks like
+# it, fall back to the topmost.
+_TAG_PICKER_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
+  const vis=e=>e&&e.offsetParent!==null;
+  const dls=[...d.querySelectorAll('.ui-dialog, .modal.in')].filter(vis);
+  const looks=dl=>dl.querySelector('.number-card, .js-search-whp-number, input[placeholder*="6038"], input[placeholder*="8080"]')
+    || /select\s+number/i.test(((dl.querySelector('.ui-dialog-title,.modal-title')||{}).innerText||''));
+  const dl=dls.filter(looks).pop() || dls.pop(); if(!dl) return 'nodialog';
+  dl.setAttribute('data-bf-picker','1'); return 'ok';
+})()"""
+
 # OK the "It will take a bit long time … continue?" popup that a Query may
 # raise — and ONLY that. Live 2026-08-27: a filtered query is fast and raises no
 # popup, so `.ui-dialog:visible button:has-text("OK")`.last was the picker's
-# own OK and closed it with nothing selected. The picker is recognised by its
-# number cards / Query button / title, whichever the portal has rendered.
+# own OK and closed it with nothing selected. The picker is the tagged dialog
+# (see _TAG_PICKER_JS), with the markup heuristics as a second guard.
 _CONFIRM_QUERY_OK_JS = r"""(() => {
   const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
   const vis=e=>e&&e.offsetParent!==null;
-  const isPicker=dl=>dl.querySelector('.number-card, .js-search-whp-number')
+  const isPicker=dl=>dl.hasAttribute('data-bf-picker')
+    || dl.querySelector('.number-card, .js-search-whp-number')
     || /select\s+number/i.test(((dl.querySelector('.ui-dialog-title,.modal-title')||{}).innerText||''));
   const dls=[...d.querySelectorAll('.ui-dialog, .modal.in')].filter(vis).filter(dl=>!isPicker(dl));
   const dl=dls.pop(); if(!dl) return 'none';
@@ -2249,7 +2267,8 @@ _PICKER_OPEN_JS = r"""(() => {
   const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return false;
   const vis=e=>e&&e.offsetParent!==null;
   return [...d.querySelectorAll('.ui-dialog, .modal.in')].filter(vis).some(dl=>
-    dl.querySelector('.number-card, .js-search-whp-number')
+    dl.hasAttribute('data-bf-picker')
+    || dl.querySelector('.number-card, .js-search-whp-number')
     || /select\s+number/i.test(((dl.querySelector('.ui-dialog-title,.modal-title')||{}).innerText||'')));
 })()"""
 
@@ -2293,6 +2312,7 @@ async def _query_voice_numbers(frame, page, query: str | None = None,
             return {"status": "error", "error": "voice_query_filter_failed",
                     "stage": "voice_number",
                     "message": f"could not type the Service Number filter {query!r}: {e}"}
+    await page.evaluate(_TAG_PICKER_JS)
     try:
         await frame.locator(
             'button.js-search-whp-number:visible, .ui-dialog:visible button:has-text("Query")'
@@ -2301,32 +2321,25 @@ async def _query_voice_numbers(frame, page, query: str | None = None,
         return {"status": "error", "error": "voice_query_failed",
                 "stage": "voice_number", "message": str(e)}
     await asyncio.sleep(2)
-    # Confirm popup: "It will take a bit long time … continue?" -> OK. Never
-    # the picker's own OK — see _CONFIRM_QUERY_OK_JS.
-    for _ in range(4):
-        if await page.evaluate(_CONFIRM_QUERY_OK_JS) == "ok":
-            break
-        await asyncio.sleep(1)
     # The number query is slow — WAIT for the `.number-card`s to actually render
-    # (clicking before they load is why the number didn't stick).
-    if previous is not None:
-        for _ in range(25):
-            if not await page.evaluate(_PICKER_OPEN_JS):
-                return {"status": "error", "error": "voice_picker_closed",
-                        "stage": "voice_number",
-                        "message": f"the Select Number picker closed after Query {query!r}"}
-            if await page.evaluate(_NUMBER_CARDS_JS) != previous:
-                return {"status": "ok", "query": query}
-            await asyncio.sleep(1)
-        return {"status": "error", "error": "voice_no_numbers", "stage": "voice_number",
-                "message": f"number cards did not change after Query {query!r}"}
-    try:
-        await frame.locator('.ui-dialog:visible .number-card').first.wait_for(
-            state="visible", timeout=25000)
-    except Exception:
-        return {"status": "error", "error": "voice_no_numbers", "stage": "voice_number",
-                "message": "number cards did not load after Query"}
-    return {"status": "ok", "query": query}
+    # (clicking before they load is why the number didn't stick). The
+    # "It will take a bit long time … continue?" popup is OK'd whenever it
+    # shows, inside the same wait so a late one is still cleared — and never
+    # the picker's own OK (see _CONFIRM_QUERY_OK_JS).
+    for _ in range(25):
+        await page.evaluate(_CONFIRM_QUERY_OK_JS)
+        if not await page.evaluate(_PICKER_OPEN_JS):
+            return {"status": "error", "error": "voice_picker_closed",
+                    "stage": "voice_number",
+                    "message": f"the Select Number picker closed after Query {query!r}"}
+        cards = await page.evaluate(_NUMBER_CARDS_JS)
+        if (cards != previous) if previous is not None else bool(cards):
+            return {"status": "ok", "query": query}
+        await asyncio.sleep(1)
+    return {"status": "error", "error": "voice_no_numbers", "stage": "voice_number",
+            "message": (f"number cards did not change after Query {query!r}"
+                        if previous is not None else
+                        "number cards did not load after Query")}
 
 
 async def _select_untried_card(frame, numbers: list, tried: set) -> tuple:
