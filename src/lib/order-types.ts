@@ -23,6 +23,16 @@ export function hasIdentityDocument(docs: readonly { type: string }[] | null | u
   return (docs ?? []).some((d) => (IDENTITY_DOC_TYPES as readonly string[]).includes(d.type));
 }
 
+// The mirror rule: a draft also needs at least one SUPPORTING document — the
+// paperwork behind the order (IM conversation, bills, letters, the combined
+// PDF), as opposed to the ID copy that proves who the customer is. Anything
+// that is not an identity type counts, so every generator and every upload the
+// Supporting card offers satisfies it. Enforced in the same three places as
+// `hasIdentityDocument`: the order form, saveOrder, and the bulk-create script.
+export function hasSupportingDocument(docs: readonly { type: string }[] | null | undefined): boolean {
+  return (docs ?? []).some((d) => !(IDENTITY_DOC_TYPES as readonly string[]).includes(d.type));
+}
+
 // Exact `state` values the portal accepts (Select Address modal combobox).
 export const ADDRESS_SEARCH_STATES = [
   "SELANGOR", "PAHANG", "KELANTAN", "JOHOR", "KEDAH", "MELAKA",
