@@ -1343,6 +1343,15 @@ async def set_installation_contact(frame, page) -> dict:
     the first contact row -> OK (grid) -> OK (Add Mode)."""
     r = await _js_click_new_window(page, "installationContact")
     if r == "noinput":
+        # Same race as the account field: "no input" can mean the form has not
+        # rendered yet, which is not the same as this offer not having one.
+        try:
+            await frame.locator('input[name="installationContact"]').first.wait_for(
+                state="attached", timeout=8000)
+            r = await _js_click_new_window(page, "installationContact")
+        except Exception:
+            pass
+    if r == "noinput":
         return {"status": "skipped", "stage": "install_contact", "reason": "not_applicable",
                 "message": "no installationContact field on this offer"}
     if r != "ok":
@@ -1388,6 +1397,66 @@ async def set_installation_contact(frame, page) -> dict:
         pass
     await asyncio.sleep(1.5)
     return {"status": "ok", "stage": "install_contact", "selected": picked_contact}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# New Connection page 1 readiness.
+#
+# Live 2026-08-27, order 2608000122751138: page 1's steps ran BEFORE the form
+# existed. install_contact reported "no installationContact field on this
+# offer" and account reported "no account field" — both meaning the selector
+# matched nothing — while winback, which runs third and therefore later,
+# succeeded. The page1 capture taken moments afterwards shows both fields
+# present, and the Broadband tab found `installationContact` perfectly well a
+# few seconds later. Nothing waited: complete_new_connection began filling the
+# instant the customer dialog closed.
+#
+# The cost of that race is not a visible failure at the time — a missing field
+# reads as "this offer does not have one", which is a legitimate state — so the
+# run walked on with no billing account and died at the Next with the portal's
+# own "Some errors exists in order item(s)".
+#
+# The gate below is what makes "not applicable" mean it: once the form has
+# rendered, a field that is still absent really is absent.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Is New Connection page 1's form on screen? Reports its evidence rather than a
+# bare boolean, so a run that gives up says WHAT it could see.
+_PAGE1_READY_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument;
+  if(!d) return {ready:false, why:'nodoc'};
+  const vis=e=>e&&e.offsetParent!==null;
+  const heading=[...d.querySelectorAll('div,span,label,h1,h2,h3,h4,b,strong')]
+    .some(e=>vis(e) && /main\s*offer\s*information/i.test((e.textContent||'').trim()));
+  const acct=!!d.querySelector('input[name="acctId"]');
+  const contact=!!d.querySelector('input[name="installationContact"]');
+  const groups=[...d.querySelectorAll('.form-group')].filter(vis).length;
+  // Either named field is proof on its own. The heading plus a populated form
+  // covers the offers that genuinely carry neither.
+  return {ready: acct || contact || (heading && groups >= 3),
+          heading, acct, contact, groups};
+})()"""
+
+PAGE1_READY_TIMEOUT_S = 25
+
+
+async def wait_for_page1_form(page, timeout_s: int = PAGE1_READY_TIMEOUT_S) -> dict:
+    """Poll until New Connection page 1's form has rendered. Never raises.
+
+    Returns the last probe, which the caller logs — a run that proceeds on a
+    form that never appeared must say so, because every field will then skip as
+    "not applicable" and that reads exactly like an offer with no such field.
+    """
+    probe = {}
+    for _ in range(max(1, int(timeout_s / 0.5))):
+        try:
+            probe = await page.evaluate(_PAGE1_READY_JS)
+        except Exception as e:
+            probe = {"ready": False, "why": f"probe failed: {e}"}
+        if isinstance(probe, dict) and probe.get("ready"):
+            return probe
+        await asyncio.sleep(0.5)
+    return probe if isinstance(probe, dict) else {"ready": False, "why": "no probe"}
 
 
 _ACCOUNT_DIALOG_RE = re.compile(r"account\s*info", re.I)  # portal spells it "Infomation"
@@ -1552,7 +1621,42 @@ async def fill_new_account_form(frame, page, payload: dict | None,
     values = account_form_values(payload, acct_name)
     dlg = frame.locator('.ui-dialog:visible').last
     filled, unanswered = [], []
+
+    # Account Name FIRST and by name, not by sweep.
+    #
+    # The user's screenshots of the real form (2026-08-27) settle what it looks
+    # like: the portal pre-fills every other starred field itself — Account
+    # Number, Type, Credit Limit, Billing Cycle, Bill Delivery Method, E-Bill
+    # Email, Contact Phone, Billing Address, JomPAY Ref, Payment Term, Segment,
+    # Vertical — and leaves exactly ONE blank. Their instruction is as short as
+    # the form: "+ Add -> fill in Account Name which is Customer name -> OK."
+    # So that field is targeted directly, and the sweep below is only a backstop
+    # for a starred field this form does not currently leave blank.
+    name_field = next(
+        (f for f in fields if re.search(r"account\s*name", f.get("label") or "", re.I)),
+        None,
+    ) or next((f for f in fields if (f.get("name") or "") == "acctName"), None)
+    if name_field and not (name_field.get("value") or "").strip():
+        customer = values.get("name") or ""
+        if customer:
+            try:
+                await dlg.locator(f'[data-bf-acct="{name_field["i"]}"]').first.fill(
+                    customer, timeout=5000)
+                filled.append(f"{name_field['label']}={customer}")
+            except Exception as e:
+                unanswered.append(f"{name_field['label']} (fill failed: {e})")
+        else:
+            unanswered.append(f"{name_field['label']} (the order carries no customer name)")
+    elif not name_field:
+        # Worth saying out loud: every other field arrives pre-filled, so if the
+        # one field we came here to type is not on the form, the OK is going to
+        # be refused and the reason will not be obvious from the dialog.
+        print("  ↳ no Account Name field on the Add Account form — "
+              "filling by label rules only", flush=True)
+
     for f in fields:
+        if name_field is not None and f["i"] == name_field["i"]:
+            continue
         if not f.get("required") or f.get("disabled") or (f.get("value") or "").strip():
             continue
         ctl = dlg.locator(f'[data-bf-acct="{f["i"]}"]').first
@@ -1643,8 +1747,14 @@ async def create_billing_account(frame, page, acct_name: str = "",
     Skips cleanly when the offer has no account field."""
     acct_input = frame.locator('input[name="acctId"]:not(.js-acct-combobox)').first
     if not await acct_input.count():
-        return {"status": "skipped", "stage": "account", "reason": "not_applicable",
-                "note": "no account field"}
+        # Give the field a moment of its own. The page-1 gate above should have
+        # settled this, but a second cheap wait here costs nothing and this is
+        # the step whose false "not applicable" strands the order.
+        try:
+            await acct_input.wait_for(state="attached", timeout=8000)
+        except Exception:
+            return {"status": "skipped", "stage": "account", "reason": "not_applicable",
+                    "note": "no account field"}
     result = await _apply_billing_account(frame, page, acct_name, payload)
     if result.get("status") != "ok":
         return result
@@ -2294,6 +2404,16 @@ async def complete_new_connection(page, payload: dict = None, on_stage=None) -> 
     acct_name = cust.get("name") or (cust.get("contact", {}) or {}).get("name", "") or ""
 
     steps = {}
+    await cancel_customer_popup(page)
+    # Page 1's form is filled by AJAX after the customer dialog closes. Filling
+    # it before it exists is how order 2608000122751138 reached the Next with no
+    # billing account: every field reported "not applicable" and nothing failed.
+    ready = await wait_for_page1_form(page)
+    print(f"  ↳ page1 form ready: {ready}", flush=True)
+    if not ready.get("ready"):
+        print("  ↳ page 1 never finished rendering — the steps below will report "
+              "every field as 'not applicable'; treat that as unknown, not absent.",
+              flush=True)
     await cancel_customer_popup(page)
     stage("installation_contact")
     steps["install_contact"] = await set_installation_contact(frame, page)

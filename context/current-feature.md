@@ -1,5 +1,34 @@
 # Current Feature
 
+## Fix — Page 1 Was Filled Before It Rendered, So the Order Never Got an Account
+
+**Status:** CODE COMPLETE, LIVE-UNVERIFIED (branch `fix/page1-form-not-ready`, not yet committed). Scraper-only. Needs a droplet deploy — the fix below and `scraper-v2026.08.27-6` are BOTH still unshipped; the droplet is on `-5` (confirmed by reading `.last-deploy`, 2026-08-27).
+
+Order `2608000122751138` failed the same way `2608000122708912` did — page 1 with `*Account` empty and red — but for a **different reason than the one `-6` fixed**, and `-6` would not have saved it. The run log settles it:
+
+```
+'install_contact': {'status':'skipped','reason':'not_applicable','message':'no installationContact field on this offer'}
+'account':         {'status':'skipped','reason':'not_applicable','note':'no account field'}
+'winback':         {'status':'ok','selected':'HSBA Wireless Access'}
+```
+
+The account field was not *empty* — it was **not found**. Both page-1 lookups matched nothing; winback, which runs third and therefore later, matched fine; the `page1` capture taken moments afterwards shows both fields on screen; and the Broadband tab found `installationContact` seconds later. Page 1's form is filled by AJAX after the customer dialog closes and **nothing waited for it** — `complete_new_connection` began filling the instant that dialog went away.
+
+**Why it cost an order rather than throwing.** A missing field reads as "this offer has no such field", which is a legitimate state for some offers. So nothing failed, the run walked on with no billing account, and the portal refused the Next with its own *"Some errors exists in order item(s). Please check and input again."* — a message that names neither the field nor the page. `create_billing_account` returns that skip **before** any of `-6`'s work runs, which is why the earlier fix could not have caught it.
+
+**The fix:** `wait_for_page1_form()` gates page 1's steps on the form actually being there (`_PAGE1_READY_JS` reports its evidence — heading, the two named inputs, visible form-group count — not a bare boolean, so a run that gives up says what it could see), and the account and install-contact steps each wait 8s more for their own field before concluding "not applicable". **The skip is preserved**: an offer that genuinely has no account field still skips, pinned by a test — turning it into an error would fail every such order.
+
+### The Add Account form, finally seen
+
+The user sent screenshots (2026-08-27) of what `+ Add` actually opens, which no fixture had ever held. **The portal pre-fills every starred field itself** — Account Number, Type, Credit Limit, Payment Responsible, Billing Cycle, Bill Delivery Method, E-Bill Email, Contact Phone, Billing Address, JomPAY Ref-1, Payment Term, Segment, Vertical — and leaves exactly **one** blank: `*Account Name`. Their rule is as short as the form: *"+ Add → fill in Account Name which is Customer name → OK."*
+
+So `fill_new_account_form` now targets Account Name **directly** (by label, falling back to `acctName`) and fills it with the customer name; the generic starred sweep stays only as a backstop for a field the portal might one day stop pre-filling. Retyping the rest would mean inventing values over the portal's own, and Account Credit Limit and JomPAY Ref-1 are not ours to guess at. The test fixture was rebuilt from the screenshot — every starred field pre-filled, only Account Name blank, and an OK that refuses while any starred field is empty — and asserts `filled == ["*Account Name=…"]` exactly, with E-Bill Email, Credit Limit, Billing Address and the un-starred Account Group all verified untouched.
+
+**Tests:** 4 new in `test_page1_ready.py` (the late-arriving form; the gate giving up with its evidence; the account step no longer calling a late field "not applicable"; the genuine no-account-field skip surviving) and `test_account_create_form.py` rebuilt against the real form — 13 across the two, 297 + 1 skipped for the suite. Two fixture traps worth remembering: a raw `</script>` inside an injected JS string ends the OUTER script tag however well quoted, and a plain `eval()` in a callback declares functions in that scope, so inline `onclick` handlers never find them — `(0,eval)` is what runs them globally.
+
+**NOT verified: the live portal, for any of it.** The Add Account fixture is now built from a real screenshot rather than guessed, which is a large step up, but it is still a fixture. Neither this nor `-6` has ever executed against the portal.
+
+
 ## Fix — Cancel Rendered "Submitting…", and Pull-to-Refresh on Mobile
 
 **Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `fix/cancel-shows-submitting`, not yet committed). Vercel-only — no scraper change.
