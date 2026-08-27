@@ -2,7 +2,7 @@
 
 ## Status
 
-CODE COMPLETE, LIVE-UNVERIFIED (branch `fix/voice-number-pool-exhausted`, scraper-only — needs droplet deploy + `api_server` restart, then one real submit on a Voice-carrying offer).
+DEPLOYED (merged as `4f3a58f`, tag `scraper-v2026.08.27-1` on the droplet, code confirmed inside the rebuilt container), LIVE-UNVERIFIED — the filtered re-query only fires on a real submit whose default number pool is exhausted.
 
 ## Goals
 
