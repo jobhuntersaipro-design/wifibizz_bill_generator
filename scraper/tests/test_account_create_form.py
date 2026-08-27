@@ -41,11 +41,11 @@ PAYLOAD = {
     }
 }
 
-# The Add Account form as the portal builds forms elsewhere: Bootstrap
-# .form-group rows, a "*" in the label for the mandatory ones, and a jQuery-UI
-# combobox (display input + caret + a dropdown appended to the document). Its OK
-# creates the account ONLY when every starred field carries a value — which is
-# the portal behaviour the single-field fill was falling foul of.
+# The Add Account form as the portal ACTUALLY renders it — from the user's
+# screenshot, 2026-08-27. The portal pre-fills every starred field itself and
+# leaves exactly one blank: *Account Name. Its OK refuses while any starred
+# field is empty, which is what the old single-field fill kept tripping over
+# whenever it typed into the wrong place or nothing at all.
 ADD_ACCOUNT = """
 <div class="input-group">
   <input name="acctId" class="form-control">
@@ -55,10 +55,13 @@ ADD_ACCOUNT = """
 <div id="list" class="comprivroot ui-dialog" style="display:none">
   <div class="ui-dialog-title">Account Infomation</div>
   <div class="modal-body">
-    <a class="js-add" onclick="openAdd()">+ Add</a>
+    <span>Account List</span> <a class="js-add" onclick="openAdd()">+ Add</a>
+    <input placeholder="Account Name">
     <table><tbody><tr class="jqgfirstrow"><td></td></tr></tbody></table>
+    <div>No record to view</div>
   </div>
   <button class="js-ok" onclick="hide('list')">OK</button>
+  <button>Cancel</button>
 </div>
 
 <div id="add" class="comprivroot ui-dialog" style="display:none">
@@ -66,20 +69,39 @@ ADD_ACCOUNT = """
   <div class="modal-body">
     <div class="form-group"><label>*Account Name</label>
       <input name="acctName" class="form-control"></div>
-    <div class="form-group"><label>*ID Number</label>
-      <input name="certNbr" class="form-control"></div>
-    <div class="form-group"><label>*Contact Number</label>
-      <input name="contactNbr" class="form-control"></div>
-    <div class="form-group"><label>Email</label>
-      <input name="acctEmail" class="form-control"></div>
+    <div class="form-group"><label>*Account Number</label>
+      <input name="acctNbr" class="form-control" value="7042196340"></div>
+    <div class="form-group"><label>*Account Type</label>
+      <input name="acctType" class="form-control" value="Postpaid"></div>
+    <div class="form-group"><label>*Account Credit Limit</label>
+      <input name="creditLimit" class="form-control" value="0.00"></div>
+    <div class="form-group"><label>*Payment Responsible</label>
+      <input name="payResp" class="form-control" value="YES"></div>
+    <div class="form-group"><label>*Billing Cycle Type</label>
+      <input name="billCycle" class="form-control" value="BP07"></div>
+    <div class="form-group"><label>*Bill Delivery Method</label>
+      <input name="billMedia" class="form-control" value="E-Bill,SMS Notification"></div>
+    <div class="form-group"><label>*E-Bill Email</label>
+      <input name="ebillEmail" class="form-control" value="nexion.eform@gmail.com"></div>
+    <div class="form-group"><label>* Account Contact Phone 1</label>
+      <input name="phonePrefix" class="form-control" value="60">
+      <input name="phoneNbr" class="form-control" value="178834621"></div>
     <div class="form-group"><label>*Billing Address</label>
-      <input name="billAddr" class="form-control"></div>
-    <div class="form-group"><label>*Bill Media Type</label>
+      <input name="billAddr" class="form-control" value="B-22-8 JALAN JALIL PERWIRA 2"></div>
+    <div class="form-group"><label>*JomPAY Ref-1</label>
+      <input name="jompay" class="form-control" value="7042196340"></div>
+    <div class="form-group"><label>*Bill Payment Term</label>
+      <input name="payTerm" class="form-control" value="Default Term(21days)"></div>
+    <div class="form-group"><label>*Account Segment</label>
+      <input name="segment" class="form-control" value="Consumer"></div>
+    <div class="form-group"><label>*Vertical</label>
+      <input name="vertical" class="form-control" value="Consumer"></div>
+    <div class="form-group"><label>Account Group</label>
       <div class="input-group ui-combobox-fish">
-        <input role="combobox" placeholder="---Please select---" readonly>
+        <input role="combobox" placeholder="--Please Select-" readonly>
         <span class="input-group-addon" onclick="openMenu(this)">v</span>
       </div>
-      <input name="billMediaType" style="display:none">
+      <input name="acctGroup" style="display:none">
     </div>
   </div>
   <button class="js-ok" onclick="saveAdd()">OK</button>
@@ -87,7 +109,7 @@ ADD_ACCOUNT = """
 </div>
 
 <ul class="combobox-dropdown" style="display:none">
-  <li>---Please select---</li><li>E-Bill</li><li>Paper Bill</li>
+  <li>--Please Select-</li><li>Group A</li>
 </ul>
 
 <script>
@@ -101,9 +123,9 @@ function openMenu(btn){
   ul.onclick=function(e){
     if(e.target.tagName!=='LI') return;
     var t=e.target.innerText.trim();
-    if(t.indexOf('Please select')>-1) return;
+    if(t.indexOf('Please Select')>-1) return;
     btn.closest('.form-group').querySelector('input[role=combobox]').value=t;
-    btn.closest('.form-group').querySelector('input[name=billMediaType]').value=t;
+    btn.closest('.form-group').querySelector('input[name=acctGroup]').value=t;
     ul.style.display='none';
   };
 }
@@ -117,7 +139,7 @@ function saveAdd(){
   });
   if(missing.length){ window.rejected++; return; }
   window.created++;
-  document.querySelector('input[name=acctId]').value='7042180001';
+  document.querySelector('input[name=acctId]').value='7042196340';
   hide('add'); hide('list');
 }
 </script>
@@ -145,9 +167,9 @@ def _run(fixture_html, probe):
                 state = await page.evaluate("""() => {
                   const d=document.querySelector('#myIframe').contentDocument;
                   const v=n=>{const e=d.querySelector('[name="'+n+'"]'); return e? e.value : null;};
-                  return {acctId: v('acctId'), acctName: v('acctName'), certNbr: v('certNbr'),
-                          contactNbr: v('contactNbr'), acctEmail: v('acctEmail'),
-                          billAddr: v('billAddr'), billMediaType: v('billMediaType'),
+                  return {acctId: v('acctId'), acctName: v('acctName'),
+                          ebillEmail: v('ebillEmail'), billAddr: v('billAddr'),
+                          acctGroup: v('acctGroup'), creditLimit: v('creditLimit'),
                           created: d.defaultView.created||0, rejected: d.defaultView.rejected||0,
                           openDialogs: [...d.querySelectorAll('.ui-dialog')]
                             .filter(e=>e.style.display!=='none').length};
@@ -192,7 +214,13 @@ def test_an_unrecognised_label_is_not_guessed_at():
 
 # ── the form, in a browser ───────────────────────────────────────────────────
 
-def test_every_starred_field_is_filled():
+def test_only_account_name_is_typed():
+    """The user's rule: + Add -> Account Name = customer name -> OK.
+
+    The portal fills the rest itself, so a sweep that retyped them would be
+    inventing values over the portal's own — and Account Credit Limit or
+    JomPAY Ref are not ours to guess at.
+    """
     async def probe(frame, page):
         await page.evaluate("""() => {
           const d=document.querySelector('#myIframe').contentDocument;
@@ -202,29 +230,30 @@ def test_every_starred_field_is_filled():
 
     res, st = _run(ADD_ACCOUNT, probe)
     assert res["status"] == "ok"
+    assert res["filled"] == ["*Account Name=AHMAD FAIZAL BIN HASSAN"]
     assert res["unanswered"] == []
     assert st["acctName"] == "AHMAD FAIZAL BIN HASSAN"
-    assert st["certNbr"] == "920505034434"
-    assert st["contactNbr"] == "60173451209"
-    assert st["billAddr"] == "NO 3 JALAN EKO MAJESTIK 1"
-    # A starred combobox takes the first REAL option, never the placeholder.
-    assert st["billMediaType"] == "E-Bill"
-    # Email is not starred and was already empty — left alone.
-    assert st["acctEmail"] == ""
+    # Untouched, every one of them.
+    assert st["ebillEmail"] == "nexion.eform@gmail.com"
+    assert st["creditLimit"] == "0.00"
+    assert st["billAddr"] == "B-22-8 JALAN JALIL PERWIRA 2"
+    # Account Group is NOT starred and the portal leaves it unset — a starred
+    # sweep must not reach into it.
+    assert st["acctGroup"] in ("", None)
 
 
 def test_the_whole_step_creates_the_account_and_reports_its_number():
     res, st = _run(ADD_ACCOUNT, lambda f, p: create_billing_account(
         f, p, "AHMAD FAIZAL BIN HASSAN", PAYLOAD))
     assert res["status"] == "ok", res
-    assert res["account"] == "7042180001"
+    assert res["account"] == "7042196340"
     assert st["created"] == 1 and st["rejected"] == 0
     assert st["openDialogs"] == 0
 
 
 def test_an_account_that_never_lands_is_an_error_not_a_green_tick():
-    # The portal refuses the OK and page 1's Account stays empty — the exact
-    # shape of order 2608000122708912. It must NOT come back as "ok".
+    # The portal refuses the OK and page 1's Account stays empty — the shape of
+    # order 2608000122708912. It must NOT come back as "ok".
     stubborn = ADD_ACCOUNT.replace("window.created++;", "window.rejected++; return;")
     res, st = _run(stubborn, lambda f, p: create_billing_account(
         f, p, "AHMAD FAIZAL BIN HASSAN", PAYLOAD))
@@ -233,14 +262,31 @@ def test_an_account_that_never_lands_is_an_error_not_a_green_tick():
     assert st["acctId"] == ""
 
 
-def test_a_field_the_order_cannot_answer_is_named_in_the_failure():
+def test_a_starred_field_the_order_cannot_answer_is_named_in_the_failure():
+    # Belt and braces: if the portal ever stops pre-filling one, the sweep tries
+    # it, and a field no rule can answer is NAMED rather than guessed at.
     extra = ADD_ACCOUNT.replace(
-        '<div class="form-group"><label>Email</label>',
-        '<div class="form-group"><label>*Credit Limit</label>'
-        '<input name="creditLimit" class="form-control"></div>'
-        '<div class="form-group"><label>Email</label>', 1)
+        '<div class="form-group"><label>*Account Number</label>',
+        '<div class="form-group"><label>*Credit Limt KIV</label>'
+        '<input name="kiv" class="form-control"></div>'
+        '<div class="form-group"><label>*Account Number</label>', 1)
     res, _ = _run(extra, lambda f, p: create_billing_account(
         f, p, "AHMAD FAIZAL BIN HASSAN", PAYLOAD))
     assert res["status"] == "error"
-    assert any("Credit Limit" in u for u in res["unanswered"])
-    assert "Credit Limit" in res["message"]
+    assert any("Credit Limt KIV" in u for u in res["unanswered"])
+    assert "Credit Limt KIV" in res["message"]
+
+
+def test_the_customer_name_is_what_gets_typed():
+    # The account is named for the customer, per the user's rule — not for the
+    # e-bill email or anything else the sweep might have matched on "name".
+    async def probe(frame, page):
+        await page.evaluate("""() => {
+          const d=document.querySelector('#myIframe').contentDocument;
+          d.defaultView.openList(); d.defaultView.openAdd();
+        }""")
+        return await fill_new_account_form(frame, page, PAYLOAD, "")
+
+    res, st = _run(ADD_ACCOUNT, probe)
+    assert st["acctName"] == PAYLOAD["customer"]["name"]
+    assert res["unanswered"] == []
