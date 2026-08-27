@@ -1436,6 +1436,13 @@ export function OrderForm({
           </span>
         </div>
         <div className="p-6 space-y-5">
+          {/* Same intro the ID card carries, so the two required cards read the
+              same way: what the rule is, before the controls that satisfy it. */}
+          <p className="text-[11px] text-[#697386]">
+            Required — attach at least one document supporting this order. Upload a file, or
+            generate one from the order details.
+          </p>
+
           {/* Source picker. role=tablist so the two panels are announced as what
               they are, and so arrow keys are expected to move between them. */}
           <div
@@ -1511,7 +1518,11 @@ export function OrderForm({
                   if (e.dataTransfer.files?.length) addDocs(e.dataTransfer.files, docType);
                 }}
                 className={`flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-4 py-6 text-center cursor-pointer transition-colors duration-200 ${
-                  dragZone === "supporting" ? "border-[#635BFF] bg-[#635BFF]/5" : "border-[#CBD2DC] hover:border-[#635BFF]/60"
+                  dragZone === "supporting"
+                    ? "border-[#635BFF] bg-[#635BFF]/5"
+                    : hasSupportingDoc
+                      ? "border-[#CBD2DC] hover:border-[#635BFF]/60"
+                      : "border-[#DF1B41]/50 bg-[#DF1B41]/[0.03] hover:border-[#DF1B41]"
                 } ${uploading || docsFull ? "opacity-50 pointer-events-none" : ""}`}
               >
                 <LottieSpot name="dropzone" size={52} className="-mb-1" fallback={null} />
@@ -1650,8 +1661,8 @@ export function OrderForm({
           <div className="pt-1 border-t border-[#E3E8EF]">
             {supportingDocs.length === 0 ? (
               <p className="pt-4 text-[12px] text-[#697386]">
-                No supporting documents yet — at least one is required, and most orders carry the
-                IM conversation. Attach two or more and you can combine them into a single PDF.
+                No supporting documents yet — most orders carry the IM conversation. Attach two or
+                more and you can combine them into a single PDF.
               </p>
             ) : (
               <div className="pt-4 space-y-1.5">
@@ -1746,7 +1757,7 @@ export function OrderForm({
 
           {!hasSupportingDoc && (
             <p className="text-[11px] font-medium text-[#DF1B41]">
-              At least one supporting document is required — upload one or generate one above.
+              The order cannot be saved until this is attached.
             </p>
           )}
         </div>
