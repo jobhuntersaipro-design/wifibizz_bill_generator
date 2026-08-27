@@ -125,3 +125,26 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+# ── the lead time is measured on the PORTAL's clock ─────────────────────────
+# Live 2026-08-27: the droplet container has no TZ, so datetime.now() is UTC,
+# while the calendar's slot strings are Malaysia time. choose_slot() defaulted
+# `now` to the container clock, so a 12-hour lead was really a 4-hour one.
+from datetime import datetime, timedelta, timezone  # noqa: E402
+
+from appointment_policy import choose_slot, portal_now  # noqa: E402
+
+
+def test_portal_now_is_malaysia_time_not_the_container_clock():
+    utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    assert abs((portal_now() - utc) - timedelta(hours=8)) < timedelta(seconds=5)
+
+
+def test_choose_slot_reports_the_now_and_cutoff_it_applied():
+    now = datetime(2026, 8, 27, 12, 40)
+    picked = choose_slot(["2026-08-27 17:00:00", "2026-08-28 09:30:00"],
+                         {"strategy": "first_available", "lead_hours": 12}, now=now)
+    assert picked["slot"] == "2026-08-28 09:30:00"
+    assert picked["now"] == "2026-08-27 12:40:00"
+    assert picked["cutoff"] == "2026-08-28 00:40:00"
