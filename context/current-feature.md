@@ -13,6 +13,7 @@ Show the user's "robot working at a laptop" animation while an order is submitti
 - Asset shrunk to a 192px animated WebP at 46 frames / 60ms (128KB) plus a 10KB static PNG of frame 1, in `public/animations/`. The 91-frame source at 192px was still 286KB; halving the frames costs nothing visible on a typing loop.
 - New `RobotWorking` component; `useReducedMotion` extracted out of `LottieSpot` into its own file so both share it. Under `prefers-reduced-motion` the PNG renders instead of the WebP — a raster loop cannot be paused, so the LottieSpot rule ("never render motion for reduced-motion users") is kept by swapping the file. SSR paints the PNG too.
 - The robot only shows while `status` is non-terminal, and disappears on submitted/failed/warning — it marks a STATE, like every other spot.
+- **Follow-up fix after deploy (`.gitignore`):** the blanket `*.png` rule (playwright) silently dropped the reduced-motion fallback from the commit — the WebP shipped, the PNG 404ed on production. Added `!public/animations/*.png`; same trap as the `*.html` fixtures and `*.pdf` template before it.
 - `processing.lottie` is now unreferenced (kept on disk; the `name` union still lists it).
 
 ## History
