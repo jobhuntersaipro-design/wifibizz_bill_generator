@@ -12,6 +12,7 @@ import {
   formatCreated,
   formatCreatedFull,
   needsVoiding,
+  submitBlockedReason,
   type OrderListItem,
 } from "@/lib/order-types";
 import { installationParts } from "@/lib/erf-appointment";
@@ -96,6 +97,8 @@ export interface RowActions {
   busy: boolean;
   busyKind?: BusyKind;
   batchRunning: boolean;
+  /** The droplet is running a browser job — anyone's. See submitBlockedReason. */
+  serverBusy?: boolean;
   selected: boolean;
   onToggleSelect: () => void;
   onSubmit: () => void;
@@ -321,14 +324,43 @@ function busyLabel(a: RowActions, whenSubmitting: string): string {
   return whenSubmitting;
 }
 
+/**
+ * Wraps a disabled submit button so hovering it says WHY.
+ *
+ * A `disabled` button emits no pointer events, so the tooltip cannot live on
+ * the button itself — the trigger has to be an element around it. When nothing
+ * blocks the button this renders the child alone, adding no wrapper and no tab
+ * stop to the row.
+ */
+export function BlockedHint({ reason, children }: { reason: string | null; children: React.ReactNode }) {
+  if (!reason) return <>{children}</>;
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={<span tabIndex={0} className="inline-flex rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]" />}
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipContent>{reason}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 function PrimaryAction({ o, a }: { o: OrderListItem; a: RowActions }) {
+  // Only a reason the button is not ALREADY explaining: while this row is busy
+  // the label reads "Submitting…"/"Cancelling…", which says it better than a
+  // tooltip would.
+  const blocked = a.busy
+    ? null
+    : submitBlockedReason({ batchRunning: a.batchRunning, serverBusy: a.serverBusy });
   if (canSubmit(o)) {
     return (
+      <BlockedHint reason={blocked}>
       <button
         type="button"
-        disabled={a.busy || a.batchRunning}
+        disabled={a.busy || a.batchRunning || a.serverBusy}
         onClick={a.onSubmit}
-        className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg bg-[#635BFF] px-3 py-2 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-[#0A2540] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF] disabled:opacity-50"
+        className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg bg-[#635BFF] px-3 py-2 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-[#0A2540] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {a.busy ? (
           <>
@@ -339,16 +371,18 @@ function PrimaryAction({ o, a }: { o: OrderListItem; a: RowActions }) {
           "Submit"
         )}
       </button>
+      </BlockedHint>
     );
   }
   if (canResubmit(o)) {
     return (
+      <BlockedHint reason={blocked}>
       <button
         type="button"
-        disabled={a.busy || a.batchRunning}
+        disabled={a.busy || a.batchRunning || a.serverBusy}
         onClick={a.onResubmit}
         title="This order already exists in the portal — resubmitting needs the old one voided first"
-        className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border border-[#C2740B] px-3 py-2 text-[13px] font-semibold text-[#C2740B] transition-colors duration-150 hover:bg-[#FDF6EC] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C2740B] disabled:opacity-50"
+        className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border border-[#C2740B] px-3 py-2 text-[13px] font-semibold text-[#C2740B] transition-colors duration-150 hover:bg-[#FDF6EC] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C2740B] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {a.busy ? (
           <>
@@ -359,6 +393,7 @@ function PrimaryAction({ o, a }: { o: OrderListItem; a: RowActions }) {
           "Resubmit"
         )}
       </button>
+      </BlockedHint>
     );
   }
   return null;

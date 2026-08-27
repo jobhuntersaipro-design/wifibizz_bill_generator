@@ -1,5 +1,26 @@
 # Current Feature
 
+## Disable Submit While the Server Is Busy
+
+**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/disable-submit-while-busy`, not yet committed). Vercel-only — no scraper change.
+
+The droplet drives ONE browser: `api_server.py:441` rejects any job while another is queued or running, with *"The server can only run one browser job at a time."* Nothing in the UI knew that, so Submit stayed clickable and the agent met the error only after pressing it.
+
+**The lock is GLOBAL, and that decided the design.** Another agent's submit — or one started in a different tab — rejects yours exactly as your own does, and this page cannot see those runs at all. So the busy state is read from the **server** (user's call over a local-state-only version): a new `scraperBusy()` action reads `/health`'s `active_jobs`, polled every 10s while the Orders page is open. `/health` needs no token (Caddy serves it publicly) and returns a bare count, which is exactly enough — the UI needs to know the lock is held, never by whom.
+
+**It fails OPEN.** An unreachable droplet reports `busy: false`, so a network blip greys out nobody's button: blocking on "I could not ask" would make a broken health check look like a permanently busy server, and the submit itself gives a clear error if the droplet really is down. Verified by killing the stub mid-session — all five buttons came back.
+
+All three job-starting buttons are covered (user's call): row **Submit**, row **Resubmit**, and the toolbar's **Submit Selected**.
+
+**The hover text and the disabled state come from one pure function**, `submitBlockedReason()` — a greyed-out button that does not say why is worse than one that errors, so they must not be able to disagree. It also keeps the row's own state ahead of the server's: while a row is busy its label already reads *Submitting…*/*Cancelling…*, and a tooltip repeating that is noise. 5 tests.
+
+**A `disabled` button emits no pointer events**, so the tooltip cannot live on the button — `BlockedHint` wraps it in a trigger span, and renders the child alone when nothing blocks it, adding no wrapper and no tab stop to an ordinary row. The toolbar needed its own `TooltipProvider`: the selection bar renders above `OrdersTable`, outside the provider that wraps the table.
+
+**Verified in the browser** against a stub reporting `active_jobs: 1` (the real droplet was idle and cannot be made busy to order): all four row buttons disabled and wrapped in a tooltip trigger, the hover text reading *"A task is already running on the server. Please wait until it finishes."* on both a row button and Submit Selected, the buttons re-enabling on their own within one poll cycle once the job cleared, and the fail-open case above. 553 vitest (5 new), `npm run build`, lint identical to baseline (9642).
+
+**NOT verified:** against a genuinely busy droplet — the busy state came from a local stub, not from a real submit holding the lock; and the 10s cadence means a job started elsewhere is clickable for up to 10s after it begins, which the server still rejects with its own error.
+
+
 ## Fix — Page 1 Was Filled Before It Rendered, So the Order Never Got an Account
 
 **Status:** CODE COMPLETE, LIVE-UNVERIFIED (branch `fix/page1-form-not-ready`, not yet committed). Scraper-only. Needs a droplet deploy — the fix below and `scraper-v2026.08.27-6` are BOTH still unshipped; the droplet is on `-5` (confirmed by reading `.last-deploy`, 2026-08-27).

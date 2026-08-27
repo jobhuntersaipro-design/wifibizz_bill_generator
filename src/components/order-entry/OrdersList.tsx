@@ -7,6 +7,7 @@ import {
   startSubmit,
   deleteOrder,
   cancelOrder,
+  scraperBusy,
   startBatchSubmit,
   pollBatch,
   activeBatch,
@@ -58,6 +59,12 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   // busy flag for its spinner, so without this a cancel or a delete rendered
   // "Submitting…" — a submit is the one thing those two are not.
   const [busyKind, setBusyKind] = useState<BusyKind>(null);
+  // Whether the droplet is running a browser job — ANYONE's. The lock in
+  // api_server.py is global, so a submit started by another agent or in another
+  // tab rejects yours with "The server can only run one browser job at a time."
+  // Polled rather than inferred from this page, because this page cannot see
+  // those runs at all.
+  const [serverBusy, setServerBusy] = useState(false);
   // Search + the four filter dropdowns, as one value. One object rather than
   // five useStates so `filterOrders` takes exactly what the toolbar edits, and
   // adding a filter later cannot forget to wire itself into the predicate.
@@ -145,6 +152,28 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     // Mount only: followBatch closes over setState alone, and re-running this
     // would start a second poll loop against the same batch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Poll the single-browser lock while this page is open. 10s is a compromise:
+  // long enough to be negligible against a submit that runs for minutes, short
+  // enough that the buttons come back promptly once the job ends.
+  useEffect(() => {
+    let active = true;
+    const read = async () => {
+      try {
+        const res = await scraperBusy();
+        if (active && res.success) setServerBusy(res.busy);
+      } catch {
+        // Fails open, as the action does: never grey out a button because a
+        // health check could not be reached.
+      }
+    };
+    void read();
+    const timer = setInterval(read, 10000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
   }, []);
 
   async function reload() {
@@ -515,6 +544,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     busy: busyId === o.id,
     busyKind: busyId === o.id ? busyKind : null,
     batchRunning,
+    serverBusy,
     selected: selected.has(o.id),
     onToggleSelect: () => toggleOne(o.id),
     onSubmit: () => handleSubmit(o.id, o.fullName),
@@ -540,6 +570,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
         devices={devices}
         selectedCount={selectedCount}
         batchRunning={batchRunning}
+        serverBusy={serverBusy}
         onClearSelection={() => setSelected(new Set())}
         onSubmitSelected={handleSubmitSelected}
       />
