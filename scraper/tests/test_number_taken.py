@@ -122,3 +122,41 @@ def test_exhaustion_reports_the_code_bizzflow_has_copy_for():
     src = inspect.getsource(oe_feasibility._pick_voice_number)
     assert '"error": VOICE_NUMBER_TAKEN' in src
     assert VOICE_NUMBER_TAKEN == "voice_number_taken"
+
+
+# ── re-querying with a filter when the default pool is exhausted ────────────
+# Seen live 2026-08-27 on ORD-0016 / order 2608000122661897: the unfiltered
+# Query serves the SAME 3–4 numbers on every re-query, so once each has been
+# refused as taken the run fails "Every number the portal offered has already
+# been rejected" with 6 of its 10 attempts unspent. The pool is starved, not
+# the budget — a fresh pool needs a different Service Number filter.
+import random  # noqa: E402
+
+from oe_feasibility import (  # noqa: E402
+    VOICE_QUERY_SUFFIX_ATTEMPTS,
+    pick_query_suffix,
+)
+
+
+def test_suffix_is_four_digits():
+    s = pick_query_suffix(set(), random.Random(1))
+    assert len(s) == 4 and s.isdigit()
+
+
+def test_suffix_never_repeats_one_already_queried():
+    rng = random.Random(7)
+    seen = set()
+    for _ in range(50):
+        s = pick_query_suffix(seen, rng)
+        assert s not in seen
+        seen.add(s)
+
+
+def test_suffix_is_deterministic_for_a_seeded_rng():
+    assert pick_query_suffix(set(), random.Random(3)) == pick_query_suffix(set(), random.Random(3))
+
+
+def test_filtered_requery_budget_is_bounded_and_positive():
+    # Each filtered query can wait up to 25s for cards; the budget must exist
+    # (one starved pool must not fail the run) but stay small.
+    assert 1 <= VOICE_QUERY_SUFFIX_ATTEMPTS <= 5

@@ -16,6 +16,7 @@ session. dry_run=True is the safety gate — it never clicks Order (no order cre
 import asyncio
 import json
 import os
+import random
 import re
 
 import dealer_web_login
@@ -2170,6 +2171,30 @@ _NUMBER_TAKEN_RE = re.compile(
 # the budget is deliberately generous.
 VOICE_NUMBER_ATTEMPTS = 10
 
+# Filtered re-queries per exhausted pool. Seen live 2026-08-27 (order
+# 2608000122661897): the UNFILTERED Query serves the same 3-4 numbers on every
+# re-query, so once each has been refused as taken the run failed "Every number
+# the portal offered has already been rejected" with 6 of its 10 attempts
+# unspent — the pool was starved, not the budget. A different Service Number
+# filter is the only way to be offered different numbers. Each filtered query
+# can wait up to 25s for cards, so this stays small.
+VOICE_QUERY_SUFFIX_ATTEMPTS = 3
+
+
+def pick_query_suffix(exclude: set, rng=None) -> str:
+    """A 4-digit Service Number filter not yet queried this run.
+
+    Pure (the rng is injected) so the tests can pin it. The box's placeholder
+    offers "60380808080 or 8080" — a full number or a suffix. A suffix asks for
+    a DIFFERENT pool without guessing at the portal's numbering, and one that
+    matches nothing merely costs a retry.
+    """
+    rng = rng or random.Random()
+    while True:
+        s = f"{rng.randrange(10000):04d}"
+        if s not in exclude:
+            return s
+
 
 def is_number_taken(message: str | None) -> bool:
     """True when a portal popup is rejecting a voice number as already reserved."""
@@ -2214,7 +2239,32 @@ async def _open_voice_number_picker(frame, page) -> dict:
         return {"status": "error", "error": "voice_dots_failed",
                 "stage": "voice_number", "message": opened}
     await asyncio.sleep(2)
-    # Query all available numbers (no condition).
+    return await _query_voice_numbers(frame, page)
+
+
+async def _query_voice_numbers(frame, page, query: str | None = None,
+                               previous: list | None = None) -> dict:
+    """Query -> confirm popup OK -> wait for the number cards, in the OPEN picker.
+
+    `query` fills the Service Number filter first (a 4-digit suffix); None asks
+    for the portal's default pool. `previous` is the card list already showing:
+    the old cards stay up while the portal fetches, so a filtered query waits
+    for the list to CHANGE — reading the stale list back would count as "still
+    exhausted" and waste the filter.
+    """
+    if query is not None:
+        box = frame.locator(
+            '.ui-dialog:visible input[placeholder*="6038"], '
+            '.ui-dialog:visible input[placeholder*="8080"]').last
+        if not await box.count():
+            box = frame.locator(
+                '.ui-dialog:visible .form-group:has-text("Service Number") input').last
+        try:
+            await box.fill(query, timeout=6000)
+        except Exception as e:
+            return {"status": "error", "error": "voice_query_filter_failed",
+                    "stage": "voice_number",
+                    "message": f"could not type the Service Number filter {query!r}: {e}"}
     try:
         await frame.locator(
             'button.js-search-whp-number:visible, .ui-dialog:visible button:has-text("Query")'
@@ -2232,13 +2282,45 @@ async def _open_voice_number_picker(frame, page) -> dict:
         pass
     # The number query is slow — WAIT for the `.number-card`s to actually render
     # (clicking before they load is why the number didn't stick).
+    if previous is not None:
+        for _ in range(25):
+            if await page.evaluate(_NUMBER_CARDS_JS) != previous:
+                return {"status": "ok", "query": query}
+            await asyncio.sleep(1)
+        return {"status": "error", "error": "voice_no_numbers", "stage": "voice_number",
+                "message": f"number cards did not change after Query {query!r}"}
     try:
         await frame.locator('.ui-dialog:visible .number-card').first.wait_for(
             state="visible", timeout=25000)
     except Exception:
         return {"status": "error", "error": "voice_no_numbers", "stage": "voice_number",
                 "message": "number cards did not load after Query"}
-    return {"status": "ok"}
+    return {"status": "ok", "query": query}
+
+
+async def _select_untried_card(frame, numbers: list, tried: set) -> tuple:
+    """Click the first card not yet rejected this run; (chosen, selected).
+
+    The selection handler fires on `.number-card` with a REAL Playwright click
+    (a JS click doesn't add the `selected` class). Click + verify it's
+    selected; walk on to the next unused card if it doesn't take. `chosen` is
+    None when every card is already in `tried` — the pool is exhausted.
+    """
+    chosen = None
+    for _ in range(3):
+        i = next_number_card(numbers, tried)
+        if i is None:
+            break
+        chosen = numbers[i] if i < len(numbers) and numbers[i] else f"#{i}"
+        tried.add(chosen)
+        try:
+            await frame.locator('.ui-dialog:visible .number-card').nth(i).click(timeout=6000)
+            await asyncio.sleep(0.6)
+        except Exception:
+            continue
+        if await frame.locator('.ui-dialog:visible .number-card.selected').count() > 0:
+            return chosen, True
+    return chosen, False
 
 
 async def _pick_voice_number(frame, page, attempts: int = VOICE_NUMBER_ATTEMPTS) -> dict:
@@ -2250,37 +2332,40 @@ async def _pick_voice_number(frame, page, attempts: int = VOICE_NUMBER_ATTEMPTS)
     for it, so the number was reported as chosen, the dialog stayed up, and the
     next sub-product tab died on its modal backdrop.
     """
-    tried, last_msg = set(), None
+    tried, suffixes, last_msg = set(), set(), None
     for attempt in range(attempts):
         opened = await _open_voice_number_picker(frame, page)
         if opened.get("status") != "ok":
             return opened
 
         numbers = await page.evaluate(_NUMBER_CARDS_JS)
-        # The selection handler fires on `.number-card` with a REAL Playwright
-        # click (a JS click doesn't add the `selected` class). Click + verify
-        # it's selected; walk on to the next unused card if it doesn't take.
-        chosen, selected = None, False
-        for _ in range(3):
-            i = next_number_card(numbers, tried)
-            if i is None:
-                break
-            chosen = numbers[i] if i < len(numbers) and numbers[i] else f"#{i}"
-            tried.add(chosen)
-            try:
-                await frame.locator('.ui-dialog:visible .number-card').nth(i).click(timeout=6000)
-                await asyncio.sleep(0.6)
-            except Exception:
-                continue
-            if await frame.locator('.ui-dialog:visible .number-card.selected').count() > 0:
-                selected = True
-                break
+        chosen, selected = await _select_untried_card(frame, numbers, tried)
+        # Every card offered has already been refused this run. The default
+        # pool repeats, so re-opening the picker would only show them again:
+        # ask for a different pool with a Service Number filter, in the picker
+        # that is still open.
+        if chosen is None:
+            for _ in range(VOICE_QUERY_SUFFIX_ATTEMPTS):
+                suffix = pick_query_suffix(suffixes)
+                suffixes.add(suffix)
+                print(f"  ↳ default number pool exhausted (tried {sorted(tried)}) — "
+                      f"querying with Service Number filter {suffix!r}", flush=True)
+                q = await _query_voice_numbers(frame, page, query=suffix, previous=numbers)
+                if q.get("status") != "ok":
+                    print(f"  ↳ filter {suffix!r}: {q.get('message')}", flush=True)
+                    continue
+                numbers = await page.evaluate(_NUMBER_CARDS_JS)
+                chosen, selected = await _select_untried_card(frame, numbers, tried)
+                if chosen is not None:
+                    break
         if not selected:
             if chosen is None:
                 return {"status": "error", "error": "voice_no_free_numbers",
                         "stage": "voice_number", "tried": sorted(tried),
+                        "queries": sorted(suffixes),
                         "message": ("Every number the portal offered has already been "
-                                    f"rejected this run (tried {sorted(tried)}).")}
+                                    f"rejected this run (tried {sorted(tried)}; "
+                                    f"filtered queries {sorted(suffixes)} offered nothing new).")}
             return {"status": "error", "error": "voice_number_not_selected",
                     "stage": "voice_number", "message": "no number card became 'selected'"}
 
