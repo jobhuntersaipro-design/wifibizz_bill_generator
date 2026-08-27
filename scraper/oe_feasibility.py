@@ -1390,13 +1390,55 @@ async def set_installation_contact(frame, page) -> dict:
     return {"status": "ok", "stage": "install_contact", "selected": picked_contact}
 
 
+_ACCOUNT_DIALOG_RE = re.compile(r"account\s*info", re.I)  # portal spells it "Infomation"
+
+
+async def select_first_account(frame, page) -> dict:
+    """If the portal's Account Infomation list is up, take its FIRST row and OK.
+
+    The portal fills a single account silently but STOPS to ask when the
+    customer has more than one — live 2026-08-27 it did so over the Broadband
+    tab and the Service Number click died on its backdrop. The rule (user,
+    2026-08-27) is always the first account, on page 1 as well, so the answer
+    lives in one place. Real clicks: jqGrid selects rows on the pointer event.
+    Returns {status: absent|ok|error, ...}; never touches any other dialog.
+    """
+    dlg = frame.locator('.ui-dialog:visible').filter(has_text=_ACCOUNT_DIALOG_RE).last
+    if not await dlg.count():
+        return {"status": "absent"}
+    row = dlg.locator('tr.jqgrow').first
+    if not await row.count():
+        return {"status": "error", "error": "account_list_empty", "stage": "account",
+                "message": "The Account Infomation list is open but has no account to select."}
+    account = " ".join(((await row.inner_text()) or "").split())
+    try:
+        await row.click(timeout=6000)
+        await asyncio.sleep(0.5)
+        await dlg.locator('.js-ok, button:has-text("OK")').last.click(timeout=6000)
+    except Exception as e:
+        return {"status": "error", "error": "account_select_failed", "stage": "account",
+                "message": f"could not select the first account ({account}): {e}"}
+    for _ in range(10):
+        if not await dlg.count():
+            break
+        await asyncio.sleep(0.5)
+    return {"status": "ok", "stage": "account", "account": account,
+            "closed": not await dlg.count()}
+
+
 async def create_billing_account(frame, page, acct_name: str = "") -> dict:
-    """Create a NEW billing account per order. VERIFIED simple sequence (with
-    GENEROUS waits — rushing makes the Reason/Success popups stack and one gets
-    left open, covering page-1): open Account Infomation dialog -> '+ Add' -> fill
-    Account Name -> OK the Add Account form -> the "Reason" popup appears -> OK ->
-    final OK. The account then applies and every dialog closes. Skips cleanly when
-    the offer has no account field."""
+    """Billing account for the order: the customer's FIRST existing account, or
+    a new one only when they have none.
+
+    Until 2026-08-27 this CREATED a new account per order, so every re-submit
+    of the same customer added one — and once a customer had two, the portal
+    stopped over the Broadband tab to ask which, stranding the order (ORD-0017,
+    2608000122669349). Now: open the Account Infomation dialog; if it lists an
+    account, select_first_account takes the first row and OKs. Otherwise the
+    VERIFIED add sequence (with GENEROUS waits — rushing makes the Reason and
+    Success popups stack and one gets left open, covering page-1): '+ Add' ->
+    fill Account Name -> OK the form -> the "Reason" popup -> OK -> final OK.
+    Skips cleanly when the offer has no account field."""
     acct_input = frame.locator('input[name="acctId"]:not(.js-acct-combobox)').first
     if not await acct_input.count():
         return {"status": "skipped", "stage": "account", "reason": "not_applicable",
@@ -1409,7 +1451,14 @@ async def create_billing_account(frame, page, acct_name: str = "") -> dict:
         await _js_click_new_window(page, "acctId")
     await asyncio.sleep(3)
 
-    # '+ Add' -> Add Account form.
+    # An existing account wins — the first one, always.
+    existing = await select_first_account(frame, page)
+    if existing.get("status") == "ok":
+        await asyncio.sleep(2)
+        return {"status": "ok", "stage": "account",
+                "note": f"selected first existing account {existing.get('account')}"}
+
+    # No account yet: '+ Add' -> Add Account form.
     added = await page.evaluate(r"""(() => {
       const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
       const vis=e=>e&&e.offsetParent!==null;
@@ -2588,6 +2637,12 @@ async def fill_subproduct_tabs(page, payload: dict, on_stage=None) -> dict:
         if stray:
             print(f"  ↳ cleared a dialog left over before the {txt} tab: {stray!r}",
                   flush=True)
+        # A customer with more than one billing account gets the Account
+        # Infomation list over the tab; it is not a warning, so the sweep above
+        # leaves it, and the first click on the tab dies on its backdrop.
+        acct = await select_first_account(frame, page)
+        if acct.get("status") != "absent":
+            print(f"  ↳ account list over the {txt} tab: {acct}", flush=True)
         # Install Contact is a SHARED field at the top of the page (set on page 1),
         # not per-tab — only set it if it's still empty.
         ic_val = await frame.locator(
