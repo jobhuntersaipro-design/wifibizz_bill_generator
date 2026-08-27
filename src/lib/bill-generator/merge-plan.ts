@@ -35,8 +35,15 @@ export interface MergeItem {
   type: MergeDocType;
   /** What the row (and any error naming it) calls this document. */
   label: string;
-  /** Null when the document can be fetched; otherwise why it cannot. */
+  /** Null when the document can be included; otherwise why it cannot. */
   unavailable: string | null;
+  /**
+   * True when the document does not exist yet and the merge has to generate it
+   * first — an Internet or Utility Bill this case has never had generated.
+   * Kept apart from `unavailable` because these rows ARE included: they cost
+   * time, and possibly a case credit, but they end up in the PDF.
+   */
+  needsGeneration: boolean;
 }
 
 export function mergeItemId(caseNo: string, type: MergeDocType): string {
@@ -65,16 +72,25 @@ export function mergeItemUrl(item: MergeItem): string | null {
 }
 
 /**
- * A document is unavailable when fetching it would fail for a reason we can see
- * from the row — a bill that was never generated, or a letter with no resident
- * IC (which its route refuses). Merging never generates anything, so an
- * ungenerated bill is reported here rather than quietly created and charged for.
+ * A document is unavailable when it can never be included for a reason we can
+ * see from the row — a letter with no resident IC, which its route refuses.
+ * An ungenerated bill is NOT unavailable: it is generated on the way (see
+ * `needsGeneration`), which is why this no longer reports one.
  */
 function unavailableReason(c: MergeCase, type: MergeDocType): string | null {
-  if (type === "internet" && !c.internet_bill_url) return "Not generated yet";
-  if (type === "utility" && !c.utility_bill_url) return "Not generated yet";
   if (type === "letter" && !(c.id_no || "").trim()) return "Case has no ID number";
   return null;
+}
+
+/**
+ * Whether this document has to be generated before it can be fetched. Only the
+ * two stored bills can be in this state: the letter, the TIME invoice and the
+ * closing script are produced per request and never stored.
+ */
+function needsGeneration(c: MergeCase, type: MergeDocType): boolean {
+  if (type === "internet") return !c.internet_bill_url;
+  if (type === "utility") return !c.utility_bill_url;
+  return false;
 }
 
 /**
@@ -94,6 +110,7 @@ export function buildMergeItems(cases: MergeCase[], types: MergeDocType[]): Merg
         type,
         label: `${c.case_no}${who ? ` · ${who}` : ""} — ${MERGE_DOC_LABELS[type]}`,
         unavailable: unavailableReason(c, type),
+        needsGeneration: needsGeneration(c, type),
       });
     }
   }
@@ -121,4 +138,31 @@ export function moveMergeItem(items: MergeItem[], from: number, to: number): Mer
   const [moved] = next.splice(from, 1);
   next.splice(to, 0, moved);
   return next;
+}
+
+/**
+ * The document types among these rows that have to be generated first, in the
+ * canonical order. The warning shown to the agent and the work the merge
+ * actually does both read this, so they cannot disagree about what will be
+ * generated.
+ */
+export function pendingGenerationTypes(items: MergeItem[]): MergeDocType[] {
+  const wanted = new Set(
+    items.filter((i) => !i.unavailable && i.needsGeneration).map((i) => i.type)
+  );
+  return MERGE_DOC_TYPES.filter((t) => wanted.has(t));
+}
+
+/**
+ * How many case credits generating those bills will consume.
+ *
+ * The bill route charges per CASE, not per bill: the first bill on a case logs
+ * one `CaseUsageLog` row and the second bill type is then free. So a case that
+ * already carries either bill costs nothing more, and a case with neither costs
+ * exactly one however many bills are generated — provided they are generated
+ * one after another, which is why the merge never runs them concurrently.
+ */
+export function generationCreditCost(c: MergeCase, pending: MergeDocType[]): number {
+  if (pending.length === 0) return 0;
+  return c.internet_bill_url || c.utility_bill_url ? 0 : 1;
 }

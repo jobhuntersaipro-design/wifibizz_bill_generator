@@ -18,6 +18,8 @@ import {
   reconcileMergeItems,
   moveMergeItem,
   mergeItemUrl,
+  pendingGenerationTypes,
+  generationCreditCost,
   MERGE_DOC_TYPES,
   MERGE_DOC_LABELS,
   type MergeDocType,
@@ -34,21 +36,25 @@ const FETCH_CONCURRENCY = 3;
 /**
  * Combine one case's documents into a single PDF, in the browser.
  *
- * Nothing here generates or stores anything: it only fetches documents that can
- * already be served, merges them with pdf-lib and hands the result to the
- * browser's download. A bill that has never been generated is shown as
- * unavailable rather than quietly created — generating is what counts against
- * the case limit, and this feature is free.
+ * The merge itself is free: it fetches documents that can already be served and
+ * stitches them with pdf-lib. The one exception is a stored bill the case has
+ * never had generated — that IS generated first, which stores a PDF in R2 and
+ * can cost one case credit, so the dialog says so above the button before the
+ * agent commits rather than doing it silently.
  */
 export default function MergePdfDialog({
   caseData,
   onAddressResolved,
+  onBillsGenerated,
   onClose,
 }: {
   /** The single case whose documents are being combined. */
   caseData: CaseRow;
   /** Lets the table keep an address this dialog had to look up. */
   onAddressResolved?: (caseNo: string, address: string) => void;
+  /** Fired once bills were generated on the way, so the table and the usage
+   *  widget stop showing this case as having none. */
+  onBillsGenerated?: (caseNo: string) => void;
   onClose: () => void;
 }) {
   // The closing script is drawn from the case rather than fetched, so the dialog
@@ -59,9 +65,12 @@ export default function MergePdfDialog({
   const rand = useMemo(makeRandomization, []);
   // One case at a time, so the plan helpers get a single-element list.
   const cases = useMemo(() => [caseData], [caseData]);
-  const [types, setTypes] = useState<MergeDocType[]>(["internet"]);
+  // Everything is ticked on open: bundling the lot is the common case, and an
+  // ungenerated bill is now something this dialog can produce rather than a row
+  // it has to refuse.
+  const [types, setTypes] = useState<MergeDocType[]>(MERGE_DOC_TYPES);
   const [items, setItems] = useState<MergeItem[]>(() =>
-    buildMergeItems([caseData], ["internet"])
+    buildMergeItems([caseData], MERGE_DOC_TYPES)
   );
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   // Whether the agent has reordered or removed a row. Until they have, ticking a
@@ -70,6 +79,9 @@ export default function MergePdfDialog({
   const [arranged, setArranged] = useState(false);
   const [merging, setMerging] = useState(false);
   const [done, setDone] = useState(0);
+  // Which bill is being generated right now, so the progress line names it —
+  // generation is much slower than a fetch and silence reads as a hang.
+  const [generatingLabel, setGeneratingLabel] = useState<string | null>(null);
 
   // Re-derive whenever the ticked types change, keeping the agent's ordering and
   // their manual removals (see reconcileMergeItems).
@@ -122,6 +134,10 @@ export default function MergePdfDialog({
   }, [wantsChat, needsAddress]);
 
   const included = useMemo(() => items.filter((i) => !i.unavailable), [items]);
+  // What will have to be generated, and what that costs. Both the warning and
+  // the merge read these, so the sentence and the work cannot disagree.
+  const pending = useMemo(() => pendingGenerationTypes(included), [included]);
+  const credits = useMemo(() => generationCreditCost(caseData, pending), [caseData, pending]);
 
   function toggleType(type: MergeDocType) {
     setTypes((current) =>
@@ -156,16 +172,76 @@ export default function MergePdfDialog({
     setDone(0);
 
     try {
+      // ── Generate the bills that do not exist yet ─────────────────────────
+      // One at a time, never concurrently: the bill route decides whether this
+      // is a new charge by reading the case's bill URLs at request time, so two
+      // requests in flight for one case would both look new and log two
+      // CaseUsageLog rows — two credits for what the warning promised as one.
+      const failedGeneration = new Map<MergeDocType, string>();
+      let anyGenerated = false;
+      for (const type of pending) {
+        setGeneratingLabel(MERGE_DOC_LABELS[type]);
+        try {
+          const res = await fetch("/api/bills/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ caseNos: [caseData.case_no], type }),
+          });
+          const body = await res.json().catch(() => ({}));
+          const result = body?.results?.[0];
+          if (!res.ok || body?.success === false || result?.status === "error") {
+            failedGeneration.set(
+              type,
+              body?.error === "case_limit_reached"
+                ? "case limit reached"
+                : result?.error || body?.error || "could not be generated"
+            );
+          } else {
+            anyGenerated = true;
+          }
+        } catch (err) {
+          console.error("bill generation failed:", type, err);
+          failedGeneration.set(type, "could not be generated");
+        }
+      }
+      setGeneratingLabel(null);
+      if (anyGenerated) {
+        // The table still shows this case as having no bill, and the usage
+        // widget is a credit out of date.
+        onBillsGenerated?.(caseData.case_no);
+        window.dispatchEvent(new Event("usage-updated"));
+      }
+
+      // A bill the limit refused is skipped and named later; the rest still
+      // merge, exactly as an unreachable source does.
+      const toFetch = included.filter((i) => !failedGeneration.has(i.type));
+      const refused = included
+        .filter((i) => failedGeneration.has(i.type))
+        .map((i) => `${i.label} (${failedGeneration.get(i.type)})`);
+
+      if (toFetch.length === 0) {
+        toast.error(
+          refused.length > 0
+            ? `Nothing could be included: ${refused.join(", ")}`
+            : "None of the selected documents could be downloaded."
+        );
+        return;
+      }
+
       // Fetch a few at a time but keep the results index-aligned, so the merged
       // page order is the order on screen rather than the order they arrived.
-      const bytes: (Uint8Array | null)[] = new Array(included.length).fill(null);
+      const bytes: (Uint8Array | null)[] = new Array(toFetch.length).fill(null);
       let cursor = 0;
       async function worker() {
-        while (cursor < included.length) {
+        while (cursor < toFetch.length) {
           const index = cursor++;
-          const item = included[index];
+          const item = toFetch[index];
           try {
-            const url = mergeItemUrl(item);
+            const base = mergeItemUrl(item);
+            // A bill generated moments ago must not come back from a cache
+            // holding the pre-generation 404.
+            const url =
+              base !== null && item.needsGeneration ? `${base}&t=${Date.now()}` : base;
             if (url === null) {
               // The closing script: rasterise the hidden render and give it a
               // page of its own, so the merge sees ordinary PDF bytes.
@@ -183,12 +259,12 @@ export default function MergePdfDialog({
         }
       }
       await Promise.all(
-        Array.from({ length: Math.min(FETCH_CONCURRENCY, included.length) }, worker)
+        Array.from({ length: Math.min(FETCH_CONCURRENCY, toFetch.length) }, worker)
       );
 
       const sources: MergeSource[] = [];
       const unreachable: string[] = [];
-      included.forEach((item, index) => {
+      toFetch.forEach((item, index) => {
         const b = bytes[index];
         if (b) sources.push({ label: item.label, bytes: b });
         else unreachable.push(item.label);
@@ -213,7 +289,7 @@ export default function MergePdfDialog({
 
       // Name what was left out. A merged file quietly missing a document looks
       // exactly like one that worked.
-      const skipped = [...unreachable, ...result.failed];
+      const skipped = [...refused, ...unreachable, ...result.failed];
       if (skipped.length > 0) {
         toast.warning(
           `Merged ${result.pageCount} page${result.pageCount === 1 ? "" : "s"}, but ${skipped.length} document${skipped.length === 1 ? "" : "s"} couldn't be included: ${skipped.join(", ")}`
@@ -230,6 +306,7 @@ export default function MergePdfDialog({
     } finally {
       setMerging(false);
       setDone(0);
+      setGeneratingLabel(null);
     }
   }
 
@@ -250,8 +327,8 @@ export default function MergePdfDialog({
 
         <DialogDescription id="merge-note" className="text-[13px] leading-relaxed text-[#425466]">
           Case {caseData.case_no}{caseData.full_name ? ` · ${caseData.full_name}` : ""}. The
-          documents you tick are combined in the order below and downloaded as one PDF — nothing is
-          generated, stored or charged.
+          documents you tick are combined in the order below and downloaded as one PDF. A bill that
+          has not been generated yet is generated first.
         </DialogDescription>
 
         <>
@@ -306,6 +383,11 @@ export default function MergePdfDialog({
                     <span className="shrink-0 text-xs">{item.unavailable}</span>
                   ) : (
                     <span className="flex shrink-0 items-center gap-0.5">
+                      {item.needsGeneration && (
+                        <span className="mr-1 rounded-full bg-[#EEF0FF] px-2 py-0.5 text-[11px] font-medium text-[#635BFF]">
+                          Will be generated
+                        </span>
+                      )}
                       {/* Drag is not reachable from a keyboard, so ordering has buttons too. */}
                       <button
                         type="button"
@@ -349,7 +431,9 @@ export default function MergePdfDialog({
                   />
                 </div>
                 <p className="text-xs text-[#697386]">
-                  Fetching {done} of {included.length} documents…
+                  {generatingLabel
+                    ? `Generating the ${generatingLabel}…`
+                    : `Fetching ${done} of ${included.length} documents…`}
                 </p>
               </div>
             )}
@@ -375,6 +459,18 @@ export default function MergePdfDialog({
             </div>
           )}
         </>
+
+        {pending.length > 0 && !merging && (
+          <p className="rounded-md border border-[#F5C86B] bg-[#FFF8E5] px-3 py-2 text-xs leading-relaxed text-[#66531C]">
+            The {pending.map((t) => MERGE_DOC_LABELS[t]).join(" and the ")}{" "}
+            {pending.length === 1 ? "has" : "have"} not been generated for this case yet, so
+            merging generates {pending.length === 1 ? "it" : "them"} first and saves{" "}
+            {pending.length === 1 ? "it" : "them"} to the case.{" "}
+            {credits > 0
+              ? "This uses 1 case credit."
+              : "This case has already been charged, so no further credit is used."}
+          </p>
+        )}
 
         <DialogFooter className="gap-2 sm:justify-end">
           <button

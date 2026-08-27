@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   buildMergeItems,
+  pendingGenerationTypes,
+  generationCreditCost,
   reconcileMergeItems,
   moveMergeItem,
   mergeItemUrl,
@@ -38,15 +40,24 @@ describe("buildMergeItems", () => {
     expect(ticked.map((i) => i.type)).toEqual(["internet", "utility", "time"]);
   });
 
-  it("marks an ungenerated bill unavailable rather than including it", () => {
+  it("includes an ungenerated bill, marking it as one to generate first", () => {
     const items = buildMergeItems(
       [caseRow({ internet_bill_url: null, utility_bill_url: null })],
       ["internet", "utility", "time"]
     );
-    expect(items.find((i) => i.type === "internet")?.unavailable).toBe("Not generated yet");
-    expect(items.find((i) => i.type === "utility")?.unavailable).toBe("Not generated yet");
-    // The TIME invoice is generated on the fly, so it is always available.
+    // Not unavailable: the merge generates these rather than refusing them.
+    expect(items.find((i) => i.type === "internet")?.unavailable).toBeNull();
+    expect(items.find((i) => i.type === "internet")?.needsGeneration).toBe(true);
+    expect(items.find((i) => i.type === "utility")?.needsGeneration).toBe(true);
+    // The TIME invoice is produced per request and never stored.
     expect(items.find((i) => i.type === "time")?.unavailable).toBeNull();
+    expect(items.find((i) => i.type === "time")?.needsGeneration).toBe(false);
+  });
+
+  it("does not ask to generate a bill the case already has", () => {
+    const items = buildMergeItems([caseRow()], ["internet", "utility"]);
+    expect(items.every((i) => i.needsGeneration)).toBe(false);
+    expect(items.some((i) => i.needsGeneration)).toBe(false);
   });
 
   it("marks the letter unavailable when the case has no ID number", () => {
@@ -154,5 +165,42 @@ describe("moveMergeItem", () => {
     expect(moveMergeItem(items, 1, 1)).toBe(items);
     expect(moveMergeItem(items, 0, 9)).toBe(items);
     expect(moveMergeItem(items, -1, 0)).toBe(items);
+  });
+});
+
+describe("pendingGenerationTypes", () => {
+  it("names the bills to generate, in the canonical order", () => {
+    const items = buildMergeItems(
+      [caseRow({ internet_bill_url: null, utility_bill_url: null })],
+      ["time", "utility", "internet"]
+    );
+    expect(pendingGenerationTypes(items)).toEqual(["internet", "utility"]);
+  });
+
+  it("is empty when every ticked document already exists or is made on the fly", () => {
+    expect(pendingGenerationTypes(buildMergeItems([caseRow()], ["internet", "letter"]))).toEqual([]);
+  });
+
+  it("never asks to generate a row that cannot be included at all", () => {
+    // A letter with no IC is refused by its route; it is not a bill either way.
+    const items = buildMergeItems([caseRow({ id_no: "" })], ["letter"]);
+    expect(pendingGenerationTypes(items)).toEqual([]);
+  });
+});
+
+describe("generationCreditCost", () => {
+  it("costs one credit when the case has no bill at all", () => {
+    const c = caseRow({ internet_bill_url: null, utility_bill_url: null });
+    // Two bills still cost one: the route charges per case, not per bill.
+    expect(generationCreditCost(c, ["internet", "utility"])).toBe(1);
+    expect(generationCreditCost(c, ["internet"])).toBe(1);
+  });
+
+  it("costs nothing when the case has already been charged for a bill", () => {
+    expect(generationCreditCost(caseRow({ internet_bill_url: null }), ["internet"])).toBe(0);
+  });
+
+  it("costs nothing when there is nothing to generate", () => {
+    expect(generationCreditCost(caseRow(), [])).toBe(0);
   });
 });
