@@ -1,25 +1,8 @@
 "use client";
 
-import { useSyncExternalStore, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { DotLottieReact } from "@lottiefiles/dotlottie-react";
-
-const REDUCED_MQ = "(prefers-reduced-motion: reduce)";
-
-function subscribeReducedMotion(onChange: () => void) {
-  const mq = window.matchMedia(REDUCED_MQ);
-  mq.addEventListener("change", onChange);
-  return () => mq.removeEventListener("change", onChange);
-}
-
-// The server snapshot says "reduced": SSR then paints the static fallback and
-// the animation only ever starts client-side — motion is never flashed at a
-// reduced-motion user while we wait to find out.
-const useReducedMotion = () =>
-  useSyncExternalStore(
-    subscribeReducedMotion,
-    () => window.matchMedia(REDUCED_MQ).matches,
-    () => true,
-  );
+import { useReducedMotion } from "./useReducedMotion";
 
 /**
  * One Lottie animation, self-hosted from /public/lottie (no CDN — the files

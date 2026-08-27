@@ -1,7 +1,7 @@
 "use client";
 
 import { SubmitErrorBlock } from "@/components/order-entry/SubmitErrorBlock";
-import LottieSpot from "./LottieSpot";
+import RobotWorking from "./RobotWorking";
 import {
   SUBMIT_STEPS,
   POINT_OF_NO_RETURN,
@@ -134,45 +134,50 @@ export function SubmitProgress({
     <div className="px-4 py-3 bg-[#F6F9FC] border-t border-[#E3E8EF]">
       {/* One glanceable line of progress above the detail — the timeline says
           which step, this says how far. */}
-      <div className="mb-1.5 flex items-center gap-2">
-        {/* The 2-5 minute wait is where the agent actually lives — a small
-            processing loop says "still working" louder than a static label. */}
-        {!isTerminal(status) && (
-          <LottieSpot name="processing" size={22} className="-my-1.5" fallback={null} />
-        )}
-        <span
-          className={`text-[11px] font-semibold ${
-            status === "failed"
-              ? "text-red-700"
-              : status === "warning"
-                ? "text-amber-700"
-                : status === "submitted"
-                  ? "text-[#0E9F6E]"
-                  : "text-[#0A2540]"
-          }`}
-        >
-          {heading}
-        </span>
-        <span className="ml-auto text-[10px] tabular-nums text-[#8792A2]">{pct}%</span>
-      </div>
       <div className="mb-3 flex items-center gap-3">
-        <div className="h-1 flex-1 overflow-hidden rounded-full bg-[#E3E8EF]">
-          <div
-            className={`h-full rounded-full transition-[width] duration-700 ease-out ${
-              status === "failed"
-                ? "bg-red-500"
-                : status === "warning"
-                  ? "bg-amber-500"
-                  : status === "submitted"
-                    ? "bg-[#0E9F6E]"
-                    : "bg-[#635BFF]"
-            }`}
-            style={{ width: `${pct}%` }}
-          />
+        {/* The 2-5 minute wait is where the agent actually lives — the robot
+            at its laptop says "still working on it" louder than a static
+            label, and leaves the moment the run ends, whichever way. */}
+        {!isTerminal(status) && <RobotWorking size={64} className="-my-2" />}
+        <div className="min-w-0 flex-1">
+          <div className="mb-1.5 flex items-center gap-2">
+            <span
+              className={`text-[11px] font-semibold ${
+                status === "failed"
+                  ? "text-red-700"
+                  : status === "warning"
+                    ? "text-amber-700"
+                    : status === "submitted"
+                      ? "text-[#0E9F6E]"
+                      : "text-[#0A2540]"
+              }`}
+            >
+              {heading}
+            </span>
+            <span className="ml-auto text-[10px] tabular-nums text-[#8792A2]">
+              {pct}%
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="h-1 flex-1 overflow-hidden rounded-full bg-[#E3E8EF]">
+              <div
+                className={`h-full rounded-full transition-[width] duration-700 ease-out ${
+                  status === "failed"
+                    ? "bg-red-500"
+                    : status === "warning"
+                      ? "bg-amber-500"
+                      : status === "submitted"
+                        ? "bg-[#0E9F6E]"
+                        : "bg-[#635BFF]"
+                }`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <span className="text-[10px] tabular-nums text-[#8792A2]">
+              {done}/{SUBMIT_STEPS.length}
+            </span>
+          </div>
         </div>
-        <span className="text-[10px] tabular-nums text-[#8792A2]">
-          {done}/{SUBMIT_STEPS.length}
-        </span>
       </div>
 
       <ol className="flex flex-col">
@@ -270,7 +275,10 @@ export function SubmitProgress({
                 {/* Everything below this line exists in the portal — a failure
                     after it needs checking by hand, not resubmitting. */}
                 {i === POINT_INDEX && (
-                  <div className="mt-2 flex items-center gap-2" aria-hidden="true">
+                  <div
+                    className="mt-2 flex items-center gap-2"
+                    aria-hidden="true"
+                  >
                     <span className="text-[9px] uppercase tracking-wide text-[#8792A2]">
                       Order exists in portal
                     </span>
@@ -291,7 +299,9 @@ export function SubmitProgress({
             <span className="flex h-4 w-3.5 items-center justify-center">
               <Marker state="running" />
             </span>
-            <span className="text-[11px] font-medium text-[#0A2540]">Working…</span>
+            <span className="text-[11px] font-medium text-[#0A2540]">
+              Working…
+            </span>
           </li>
         )}
       </ol>
