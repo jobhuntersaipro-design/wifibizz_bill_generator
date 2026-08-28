@@ -1,5 +1,27 @@
 # Current Feature
 
+## Home-Screen Icon — the Wifi Mark as an App Icon
+
+**Status:** CODE COMPLETE, VERIFIED AGAINST A LOCAL PRODUCTION BUILD (branch `feature/home-screen-icon`, not yet committed). Vercel-only — no scraper change, no migration.
+
+Adding the site to a phone's home screen produced a screenshot of the page, not a logo, because the app shipped **no home-screen icon at all** — and the one icon it declared did not exist: `layout.tsx` set `icons: { icon: "/favicon.png" }` against a file that is nowhere in the repo, so that tag has been 404ing and `src/app/favicon.ico` was doing all the work.
+
+**There is no logo image to export.** The mark is an inline SVG — Lucide's `wifi` glyph, hand-written as `WifiIcon` in `src/components/dashboard/sidebar.tsx:120` (and duplicated in `src/app/dashboard/settings/page.tsx:612`), sitting on a `#635BFF` rounded tile. So the PNGs are **generated from that same path data** by `scripts/generate-app-icons.mjs` (sharp, already a dependency) rather than screenshotted, and the script names the sidebar as its source of truth so the two can be kept in step.
+
+**Three shapes, because the platforms crop differently:**
+
+1. **`src/app/apple-icon.png` (180, square, no rounding).** iOS rounds the corners itself, and **renders transparency as black** — so this one is opaque and un-rounded. Pre-rounding it would stack two radii.
+2. **`icon.png` / `icon-192` / `icon-512` (rounded 22%).** Used raw, where nothing else supplies a shape.
+3. **`icon-maskable-512` (full-bleed, glyph at 42% instead of 56%).** Android crops a maskable icon to the launcher's own shape, so the glyph is pulled inside the 80% safe zone.
+
+`src/app/manifest.ts` is new (Android reads the icon from the manifest, iOS does not). `layout.tsx`'s broken `icons` field is **removed rather than corrected** — a metadata `icons` entry overrides the file conventions, so deleting it is what lets `apple-icon.png` and `icon.png` be picked up at all; `appleWebApp` and a `viewport.themeColor` were added in its place.
+
+**`.gitignore` negations, without which none of this reaches production.** The blanket `*.png` (playwright) would have silently dropped every icon from the commit — the same trap that 404ed the reduced-motion robot PNG, the scraper's `*.html` fixtures and the bill template before it. `!public/icon-*.png`, `!src/app/icon.png` and `!src/app/apple-icon.png` added, and `git status` confirms all five files are visible to git.
+
+**Verified** against `next start` on a local production build: `/manifest.webmanifest` serves the three icons, all five PNGs return 200 `image/png`, and the head carries `apple-touch-icon` (180), `icon` (512), `manifest`, `theme-color` and `apple-mobile-web-app-title`. Every generated PNG was rendered and looked at. `npm run build`, lint identical to baseline (9642), `tsc` unchanged (the same two pre-existing errors).
+
+**NOT verified: a real phone.** Nothing has actually been added to an iOS or Android home screen — the tags and files are proven, the rendering is not. One thing to watch there: Next emits the standardised `mobile-web-app-capable` rather than the deprecated `apple-mobile-web-app-capable`, so iOS launching standalone rests on Safari 15.4+ honouring the manifest's `display: "standalone"`; if it opens with Safari chrome, the apple-prefixed meta has to be added by hand.
+
 ## Fix — the Appointment Step Said "ok" Without Booking Anything
 
 **Status:** CODE COMPLETE (branch `fix/appointment-not-verified`). Scraper + one line of BizzFlow copy. **Needs a droplet deploy AND an `api_server` restart** — a deploy alone keeps the old imports.
