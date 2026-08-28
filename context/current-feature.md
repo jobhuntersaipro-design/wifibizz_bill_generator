@@ -14,6 +14,16 @@ Three asks against `/admin/plans` (2026-08-28).
 
 The confirm dialog states which of those applies to the plan in front of you rather than in general: whether it is published today, and how many offer groups go with it.
 
+### 1b. Each plan collapses to its title
+
+Sixty plans printing their offer groups inline made the page a wall, so a plan row is now a **disclosure**: the title is the toggle, the groups are its panel, everything starts closed. The summary line carries what the closed row hides — bandwidth, group count, row count — so a plan can be counted without being opened.
+
+A real `<button>` with `aria-expanded`/`aria-controls`, a 44px-tall target, a visible `focus-visible` ring and a chevron that rotates in 200ms; Enter/Space work because it is a button rather than a clicked div. Publish and Remove are siblings of the toggle, not children, so pressing them never opens the row.
+
+**Searching opens its matches** — a hit you still have to click reads as a miss. That default is carried on the row's `key` rather than a `useEffect` (which lint refuses, `react-hooks/set-state-in-effect`): starting or clearing a search remounts the row at the right default, while typing within a search leaves an open row alone.
+
+At 375px the title takes a row of its own (`basis-full sm:basis-0`) — sharing one line with the pill, Publish and Remove had squeezed it into a ~90px column reading one word per line. Desktop is unchanged.
+
 ### 2. Published / Not published sections
 
 The list was grouped by the portal's offer category only, so with 1 of 60 published the one sellable plan was somewhere in a 55-row category block. Now two top-level sections — **Published** first, then **Not published** — with the categories as sub-headings inside each. `StateSection` renders nothing when empty, so the "Unpublished only" filter and a search do not leave a heading standing over no rows.
@@ -22,7 +32,7 @@ The list was grouped by the portal's offer category only, so with 1 of 60 publis
 
 `adminAddOfferGroup` refused any name not ending in `[Pick n-m]` with *"That doesn't look like an offer group name…"*. Removed — the portal's own naming is what it is, and the admin copying a row verbatim is a better authority on it than a regex. The length check and the duplicate-name catch stay. The guide text still says to copy the pick range, because the name has to match the dialog at run time; it is now advice rather than a gate.
 
-**Verified in the browser** against the dev server on the real admin login: both sections render with their counts (1 / 59); the confirm dialog names the plan and its state; removing one took the list 60 → 59 **and it stayed gone across a reload**, which is the whole point of the flag; a group named `Test Group No Pick Range` was accepted with no error. Both test changes were reverted afterwards (the plan restored via `prisma db execute`, the group removed through the UI) — 60 plans, 1 published, as before. `npm run build`, lint identical to baseline (9642), `tsc` unchanged (the same two pre-existing errors).
+**Verified in the browser** against the dev server on the real admin login: rows render collapsed with their summary, a click expands exactly one panel (`aria-expanded` true, toggle measured at 44px), Tab reaches the toggle with a 2px #635BFF ring and Enter opens it, searching *300Mbps Premium Value with Device (36M)* left that single match already open and clearing the search closed everything again, and 375px has no horizontal overflow with the title on its own row; both sections render with their counts (1 / 59); the confirm dialog names the plan and its state; removing one took the list 60 → 59 **and it stayed gone across a reload**, which is the whole point of the flag; a group named `Test Group No Pick Range` was accepted with no error. Both test changes were reverted afterwards (the plan restored via `prisma db execute`, the group removed through the UI) — 60 plans, 1 published, as before. `npm run build`, lint identical to baseline (9642), `tsc` unchanged (the same two pre-existing errors).
 
 **NOT verified:** production — the migration has only been applied to the dev branch; and there is no UI to restore a hidden plan, so an accidental removal needs a database update.
 

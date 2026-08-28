@@ -157,11 +157,11 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
                 </svg>
               </button>
             </li>
-          ))}
-        </ul>
-      )}
+            ))}
+          </ul>
+        )}
 
-      {adding ? (
+        {adding ? (
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-4">
           <input
             value={name}
@@ -288,7 +288,25 @@ function RemovePlanModal({
   );
 }
 
-function PlanRow({ plan, onChanged }: { plan: PlanView; onChanged: () => void }) {
+/**
+ * One plan, collapsed to its title until opened.
+ *
+ * Sixty plans each printing their offer groups made the list unscannable, so a
+ * row is a disclosure: the title is the toggle, the groups are its panel. The
+ * summary line carries what the closed row would otherwise hide — how many
+ * groups and rows are recorded — so nothing has to be opened to be counted.
+ */
+function PlanRow({
+  plan,
+  onChanged,
+  openByDefault = false,
+}: {
+  plan: PlanView;
+  onChanged: () => void;
+  /** Searching opens the matches: a hit you still have to click reads as a miss. */
+  openByDefault?: boolean;
+}) {
+  const [open, setOpen] = useState(openByDefault);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [mandatory, setMandatory] = useState(true);
@@ -296,6 +314,8 @@ function PlanRow({ plan, onChanged }: { plan: PlanView; onChanged: () => void })
   const [confirmRemove, setConfirmRemove] = useState(false);
 
   const mandatoryCount = plan.offerGroups.filter((g) => g.mandatory).length;
+  const itemCount = plan.offerGroups.reduce((n, g) => n + g.items.length, 0);
+  const panelId = `plan-panel-${plan.id}`;
 
   async function togglePublish() {
     setBusy(true);
@@ -339,13 +359,32 @@ function PlanRow({ plan, onChanged }: { plan: PlanView; onChanged: () => void })
   return (
     <div className="border-b border-[#E3E8EF] last:border-0 px-4 py-3">
       <div className="flex flex-wrap items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-[13px] text-[#0A2540] leading-snug">{plan.name}</p>
-          <p className="mt-0.5 text-[11px] text-[#697386]">
-            {plan.bandwidth ?? "—"}
-            {mandatoryCount === 0 && " · no offer groups yet"}
-          </p>
-        </div>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-controls={panelId}
+          className="group flex min-h-11 min-w-0 grow basis-full items-start gap-2 rounded-md py-1 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#635BFF] cursor-pointer sm:basis-0"
+        >
+          <svg
+            className={`mt-0.5 h-4 w-4 shrink-0 text-[#8792A2] transition-transform duration-200 group-hover:text-[#635BFF] ${open ? "rotate-90" : ""}`}
+            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+          >
+            <path d="m9 6 6 6-6 6" />
+          </svg>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[13px] leading-snug text-[#0A2540] group-hover:text-[#635BFF] transition-colors">
+              {plan.name}
+            </span>
+            <span className="mt-0.5 block text-[11px] text-[#697386]">
+              {plan.bandwidth ?? "—"}
+              {plan.offerGroups.length === 0
+                ? " · no offer groups yet"
+                : ` · ${plan.offerGroups.length} offer group${plan.offerGroups.length === 1 ? "" : "s"}` +
+                  (itemCount > 0 ? ` · ${itemCount} row${itemCount === 1 ? "" : "s"}` : "")}
+            </span>
+          </span>
+        </button>
         <span
           className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium ${
             plan.published
@@ -386,8 +425,9 @@ function PlanRow({ plan, onChanged }: { plan: PlanView; onChanged: () => void })
         />
       )}
 
-      {plan.offerGroups.length > 0 && (
-        <ul className="mt-2 flex flex-col gap-1.5">
+      <div id={panelId} hidden={!open}>
+        {plan.offerGroups.length > 0 && (
+          <ul className="mt-2 flex flex-col gap-1.5">
           {plan.offerGroups.map((g) => (
             <div key={g.id} className="flex items-start gap-1.5">
               <div className="min-w-0 flex-1">
@@ -443,15 +483,16 @@ function PlanRow({ plan, onChanged }: { plan: PlanView; onChanged: () => void })
             Cancel
           </button>
         </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setAdding(true)}
-          className="mt-2 text-[11px] font-medium text-[#635BFF] hover:underline cursor-pointer"
-        >
-          + Add offer group
-        </button>
-      )}
+        ) : (
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            className="mt-2 text-[11px] font-medium text-[#635BFF] hover:underline cursor-pointer"
+          >
+            + Add offer group
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -469,12 +510,15 @@ function StateSection({
   tone,
   plans,
   onChanged,
+  openRows,
 }: {
   title: string;
   subtitle: string;
   tone: "published" | "unpublished";
   plans: PlanView[];
   onChanged: () => void;
+  /** True while a search is narrowing the list — matches open themselves. */
+  openRows: boolean;
 }) {
   if (plans.length === 0) return null;
 
@@ -518,7 +562,15 @@ function StateSection({
             <span className="ml-2 tabular-nums text-[#B4BCC8]">{list.length}</span>
           </h3>
           {list.map((p) => (
-            <PlanRow key={p.id} plan={p} onChanged={onChanged} />
+            // The key carries the search state so starting or clearing a search
+            // remounts the row at the right open/closed default; within a search
+            // it is stable, so typing never disturbs a row being read.
+            <PlanRow
+              key={`${p.id}${openRows ? "-q" : ""}`}
+              plan={p}
+              onChanged={onChanged}
+              openByDefault={openRows}
+            />
           ))}
         </div>
       ))}
@@ -613,6 +665,7 @@ export function PlanDetails() {
         tone="published"
         plans={published}
         onChanged={reload}
+        openRows={q.length > 0}
       />
       <StateSection
         title="Not published"
@@ -620,6 +673,7 @@ export function PlanDetails() {
         tone="unpublished"
         plans={unpublished}
         onChanged={reload}
+        openRows={q.length > 0}
       />
 
       {visible.length === 0 && (
