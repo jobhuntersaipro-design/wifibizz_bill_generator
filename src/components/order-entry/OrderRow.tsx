@@ -16,6 +16,7 @@ import {
   type OrderListItem,
 } from "@/lib/order-types";
 import { installationParts } from "@/lib/erf-appointment";
+import { triesSuffix } from "@/lib/retry-policy";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
@@ -212,6 +213,11 @@ function StatusBadge({ o }: { o: OrderListItem }) {
         <span className="inline-block h-2.5 w-2.5 animate-spin rounded-full border-2 border-amber-600 border-t-transparent" />
       )}
       {STATUS_LABELS[o.status] ?? o.status}
+      {/* How many times this draft has been run, once that is more than one.
+          On the pill rather than in a column of its own: the table already
+          scrolls sideways at 1280px, and the count only means anything next to
+          the outcome it belongs to. */}
+      {triesSuffix(o)}
     </span>
   );
 }

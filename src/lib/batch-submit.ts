@@ -62,7 +62,7 @@ export async function reconcileBatch(batchRunId: string): Promise<{
         // result: an order edited afterwards must not rewrite what was sent.
         idType: true, idNumber: true, mobilePrefix: true, mobile: true,
         email: true, street: true, offerName: true, deviceName: true,
-        installationDate: true,
+        installationDate: true, attempt: true,
       },
     });
     // A member deleted mid-run: recorded as gone rather than dropped, so the
@@ -85,6 +85,7 @@ export async function reconcileBatch(batchRunId: string): Promise<{
       errorCode: o.errorCode,
       errorMessage: o.errorMessage,
       details: caseDetailsFrom(o),
+      tries: o.attempt,
     });
   }
   return { outcomes, allDone };
@@ -123,4 +124,40 @@ export async function finishBatch(
     where: { id: batchRunId, status: "finished", notifiedAt: null },
     data: { results: reconciled.outcomes as unknown as object },
   });
+}
+
+/**
+ * Offer every failed member of a finished batch an automatic retry.
+ *
+ * A member cannot retry while its own batch is still running: the droplet drives
+ * ONE browser and holds that lock for the whole batch, so an in-flight retry
+ * would only collect a 409. They are therefore collected here, once the batch
+ * has released it.
+ *
+ * Returns how many were started, so the caller knows whether the summary email
+ * is still the final word on this run.
+ */
+export async function retryFailedMembers(batchRunId: string): Promise<number> {
+  const batch = await prisma.batchRun.findUnique({
+    where: { id: batchRunId },
+    select: { orderIds: true },
+  });
+  if (!batch) return 0;
+
+  // Lazily imported: order-retry reaches back into the submit path, and a static
+  // import here would close a module cycle through order-submit.
+  const { maybeAutoRetry } = await import("@/lib/order-retry");
+
+  let started = 0;
+  // Sequential and one at a time, for the same reason the batch itself is: the
+  // first retry to be accepted takes the browser, and the rest are deferred by
+  // their own 409 handling rather than by anything here.
+  for (const id of batchOrderIds(batch.orderIds)) {
+    const outcome = await maybeAutoRetry(id).catch((e) => {
+      console.error(`[batch] retry ${id} failed:`, e);
+      return "no" as const;
+    });
+    if (outcome !== "no") started++;
+  }
+  return started;
 }

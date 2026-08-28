@@ -582,4 +582,20 @@ export async function reconcileStaleSubmits(userId: string | null): Promise<void
   });
   // Best-effort: a failure here must never break the list itself.
   await Promise.allSettled(stale.map((o) => pollOrderProgress(o.id)));
+
+  // A net for the automatic retry, not its trigger — the webhook is that, and it
+  // is what makes a retry survive a closed tab. This catches the case where the
+  // webhook never arrived (the droplet has no BIZZFLOW_WEBHOOK_URL set, or its
+  // secret does not match), plus any retry the droplet was too busy to accept
+  // when it was first owed. Same best-effort rule: the list must still render.
+  //
+  // Imported lazily to keep the module cycle out of the build — order-retry
+  // imports order-start, which imports actions that import this file.
+  try {
+    const { maybeAutoRetry, sweepPendingRetries } = await import("@/lib/order-retry");
+    for (const o of stale) await maybeAutoRetry(o.id).catch(() => {});
+    await sweepPendingRetries();
+  } catch (e) {
+    console.error("[reconcile] retry sweep failed:", e);
+  }
 }

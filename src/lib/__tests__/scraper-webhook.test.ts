@@ -16,6 +16,8 @@ const pollOrderProgress = vi.fn();
 const finishBatch = vi.fn();
 const notifyOrderResult = vi.fn();
 const notifyBatchResult = vi.fn();
+const maybeAutoRetry = vi.fn();
+const retryFailedMembers = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -28,6 +30,10 @@ vi.mock("@/lib/order-submit", () => ({
 }));
 vi.mock("@/lib/batch-submit", () => ({
   finishBatch: (...a: unknown[]) => finishBatch(...a),
+  retryFailedMembers: (...a: unknown[]) => retryFailedMembers(...a),
+}));
+vi.mock("@/lib/order-retry", () => ({
+  maybeAutoRetry: (...a: unknown[]) => maybeAutoRetry(...a),
 }));
 vi.mock("@/lib/notifications/send", () => ({
   notifyOrderResult: (...a: unknown[]) => notifyOrderResult(...a),
@@ -58,6 +64,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   findOrder.mockResolvedValue({ id: "ord_1" });
   findBatch.mockResolvedValue({ id: "batch_1" });
+  // Default: the run is over and nothing is being retried, so the email goes.
+  maybeAutoRetry.mockResolvedValue("no");
+  retryFailedMembers.mockResolvedValue(0);
 });
 
 describe("authentication", () => {
@@ -110,6 +119,38 @@ describe("order_finished", () => {
     expect(calls).toEqual(["poll", "notify"]);
   });
 
+  it("offers an automatic retry after reconciling, before mailing anything", async () => {
+    // Order matters twice over: the retry decision has to see the run's FINAL
+    // state, and the email must not go out until that decision is made.
+    const calls: string[] = [];
+    pollOrderProgress.mockImplementation(async () => void calls.push("poll"));
+    maybeAutoRetry.mockImplementation(async () => {
+      calls.push("retry");
+      return "no";
+    });
+    notifyOrderResult.mockImplementation(async () => void calls.push("notify"));
+    const POST = await loadRoute(SECRET);
+    await POST(post({ event: "order_finished", orderId: "ord_1" }, `Bearer ${SECRET}`));
+    expect(calls).toEqual(["poll", "retry", "notify"]);
+  });
+
+  it("stays quiet while a retry is running — the last try is the news", async () => {
+    // Mailing "it failed" and then, minutes later, "it succeeded" tells the
+    // reader the wrong thing first, which is worse than telling them later.
+    maybeAutoRetry.mockResolvedValue("retried");
+    const POST = await loadRoute(SECRET);
+    await POST(post({ event: "order_finished", orderId: "ord_1" }, `Bearer ${SECRET}`));
+    expect(notifyOrderResult).not.toHaveBeenCalled();
+  });
+
+  it("stays quiet while a retry is merely owed, too", async () => {
+    // Deferred means the droplet was busy — the order is not finished either.
+    maybeAutoRetry.mockResolvedValue("deferred");
+    const POST = await loadRoute(SECRET);
+    await POST(post({ event: "order_finished", orderId: "ord_1" }, `Bearer ${SECRET}`));
+    expect(notifyOrderResult).not.toHaveBeenCalled();
+  });
+
   it("needs an orderId — the job id alone is not enough", async () => {
     // A browser poll that finalized the run first has already cleared
     // Order.jobId, so an event keyed on the job id would match nothing.
@@ -136,6 +177,31 @@ describe("batch_finished", () => {
     const res = await POST(post({ event: "batch_finished", batchId: "batch_1" }, `Bearer ${SECRET}`));
     expect(res.status).toBe(200);
     expect(calls).toEqual(["finish", "notify"]);
+  });
+
+  it("retries failed members only after the batch released the browser", async () => {
+    // The droplet drives ONE browser and holds it for the whole batch, so a
+    // retry started any earlier would just collect a 409.
+    const calls: string[] = [];
+    finishBatch.mockImplementation(async () => void calls.push("finish"));
+    notifyBatchResult.mockImplementation(async () => void calls.push("notify"));
+    retryFailedMembers.mockImplementation(async () => {
+      calls.push("retry");
+      return 1;
+    });
+    const POST = await loadRoute(SECRET);
+    await POST(post({ event: "batch_finished", batchId: "batch_1" }, `Bearer ${SECRET}`));
+    expect(calls).toEqual(["finish", "notify", "retry"]);
+  });
+
+  it("still sends the batch summary even when members are being retried", async () => {
+    // Unlike a single order, a batch summary has no later trigger to wait for —
+    // nothing fires a second batch_finished — so deferring it would risk
+    // sending nothing at all. Each retried member mails its own result instead.
+    retryFailedMembers.mockResolvedValue(2);
+    const POST = await loadRoute(SECRET);
+    await POST(post({ event: "batch_finished", batchId: "batch_1" }, `Bearer ${SECRET}`));
+    expect(notifyBatchResult).toHaveBeenCalledTimes(1);
   });
 
   it("requires a batchId", async () => {

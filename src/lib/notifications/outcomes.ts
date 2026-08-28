@@ -23,6 +23,12 @@ export interface OrderOutcome {
   errorMessage: string | null;
   /** The customer and package this run was for. Absent on pre-existing rows. */
   details?: OrderCaseDetails;
+  /**
+   * How many times this draft was run in total, automatic retries included.
+   * Absent on results frozen before retries existed, which is why the template
+   * says nothing at all rather than claiming one try.
+   */
+  tries?: number;
 }
 
 /**
