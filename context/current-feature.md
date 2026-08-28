@@ -1,5 +1,33 @@
 # Current Feature
 
+## Fix — the Appointment Step Said "ok" Without Booking Anything
+
+**Status:** CODE COMPLETE (branch `fix/appointment-not-verified`). Scraper + one line of BizzFlow copy. **Needs a droplet deploy AND an `api_server` restart** — a deploy alone keeps the old imports.
+
+Live 2026-08-28, ORD-0043 attempt 2 (order `2608000122824032`): the run reached the pay tail and the portal refused the Next with **"Please input the appointment date."** — a sentence naming neither the step that failed nor why. The order stranded with a real portal order number and no appointment.
+
+**The appointment step had reported success.** It clicked a slot, pressed OK, saw the Appointment dialog close, and returned `ok` — while the portal's Appointment table still read **"No record to view"**, which the failure frame shows plainly. Success was inferred from *the dialog closing*, which is a different claim from *an appointment exists*:
+
+```python
+if await frame.locator('.ui-dialog:visible:has(input[name="firstPreferredDatetime"])').count() == 0:
+    return {"status": "ok", "stage": "appointment", "slot": cand}
+```
+
+**This is the same defect `create_billing_account` had** — every branch returned `"ok"`, including ones that did nothing — and it takes the same fix: read the value back.
+
+**The lead-time change shipped earlier the same day is NOT the cause, and that is provable rather than argued.** ORD-0045 booked the *identical* slot (`2026-08-29 13:30-16:00`) eight minutes later, with the same 12-hour lead, and submitted successfully. The slot, the calendar and the policy were all fine.
+
+**Three changes:**
+
+1. **The step verifies its own work.** New `_APPOINTMENT_ROW_JS` / `_read_appointment_row()` read the Appointment table back after OK, reusing `_OPEN_APPOINTMENT_EDIT_JS`'s grid-finding so the two cannot disagree about what "the appointment row" is. The step returns the row the portal actually recorded. **Only an empty table (`norow`) counts as failure** — `noheader`/`nodoc`/`readfail` mean "could not tell", and treating those as "not booked" would rebook an appointment the order already holds, turning a working run into a double booking. The live incident showed "No record to view", which is exactly `norow`.
+2. **The OK is pressed by identity.** `_TAG_APPT_DIALOG_JS` stamps `data-bf-appt` on the dialog carrying `firstPreferredDatetime`, so the click cannot land on a popup stacked over it — the same ambiguity that made the Voice picker press its own OK on 2026-08-27. The old `.last` selector stays as a fallback.
+3. **The pay tail can now see a missing appointment.** It could already rebook — up to 3 times — but only for the `[40301147]` slot race, and this incident carried **neither that code nor any dialog** (`"dialogs": []`), so the rebook never ran and a recoverable failure stranded an order. New `is_missing_appointment()` matches the portal's own sentence, and a spent budget reports the new `appointment_not_booked` rather than claiming contention that was never shown.
+
+**Tests:** 9 new in `tests/test_appointment_verified.py` — the empty table read as not-booked (the live bug), a real row reported with its text, an offer with no appointment section NOT called empty, the tag picking the calendar over a stacked popup and clearing itself when the calendar closes, the live sentence recognised while `is_slot_taken` correctly does not match it, and four unrelated portal messages not swept up. 306 passed + 1 skipped for the scraper suite; 552 vitest, `npm run build`, lint identical to baseline (9642).
+
+**NOT verified: the live portal.** The fixtures prove the algorithm, not the real DOM — and crucially, **why the dialog closed without booking is still unknown.** The fix makes that state *detected and reported* instead of silent; the next live occurrence will say so in the run log with the row read-back, which is what will finally answer it.
+
+
 ## Appointment Lead Time — Per Order, Set by the Agent, Admin Setting Removed
 
 **Status:** DEPLOYED TO PRODUCTION 2026-08-28 (merged to main as `ae6e329`, Vercel deploy `9xk9c8419`, migration applied to the production Neon branch). Vercel-only — no scraper change. **Needs `prisma migrate deploy` on production** (new `orders.appointment_lead_hours`, and `app_settings` is DROPPED).

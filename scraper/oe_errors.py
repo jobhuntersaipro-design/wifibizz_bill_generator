@@ -40,6 +40,13 @@ DEVICE_OUT_OF_STOCK = "device_out_of_stock"
 # policy accepts; only reported after the rebook budget is spent, so reaching
 # BizzFlow means the calendar was contended, not that anything is wrong.
 APPOINTMENT_SLOT_TAKEN = "appointment_slot_taken"
+# The order reached the pay tail with NO appointment on it. Our own check, like
+# ERF_NOT_DOWNLOADED — the portal only ever says the consequence ("Please input
+# the appointment date."), which names neither the step that failed nor why.
+# Live 2026-08-28 (order 2608000122824032): the Appointment dialog closed, no row
+# was ever created, the step reported ok, and this was the first thing to notice
+# four steps later.
+APPOINTMENT_NOT_BOOKED = "appointment_not_booked"
 # An order is not finished until its registration form is in hand. This is the
 # only code here NOT matched from portal wording — the portal never says it. It
 # is our own completeness check: a submit that produced no e-RF is incomplete,
@@ -132,6 +139,26 @@ def portal_code(message: str) -> str | None:
         return None
     m = _PORTAL_CODE_RE.search(message)
     return m.group(1) if m else None
+
+
+# The portal's wording when the order carries no appointment. It says this for
+# BOTH causes — a slot another dealer took out from under us, and a booking that
+# never happened — so it cannot classify on its own; it means "there is no
+# appointment on this order", and the caller decides what to do about it.
+_NO_APPOINTMENT_RE = re.compile(
+    r"please\s+input\s+the\s+appointment\s+date|"
+    r"please\s+(?:select|enter)\s+(?:the\s+)?appointment", re.I)
+
+
+def is_missing_appointment(message: str | None) -> bool:
+    """Is the portal saying this order has no appointment date on it?
+
+    Deliberately separate from `is_slot_taken`: that one needs the [40301147]
+    code or "slot has been taken", and on 2026-08-28 the blocked Next carried
+    NEITHER — only this sentence, with an empty dialog list. The rebook path was
+    therefore never entered and a recoverable run stranded a real order.
+    """
+    return bool(_NO_APPOINTMENT_RE.search(message or ""))
 
 
 def is_slot_taken(message: str | None) -> bool:

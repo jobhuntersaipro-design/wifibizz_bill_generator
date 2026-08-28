@@ -24,7 +24,9 @@ from appointment_policy import normalize_policy, choose_slot, describe_read_fail
 from customer_match import (describe_ic_name_mismatch, may_attach_existing)
 from oe_errors import (APPOINTMENT_SLOT_TAKEN, CUSTOMER_IC_NAME_MISMATCH,
                        DEVICE_OUT_OF_STOCK, ERF_NOT_DOWNLOADED, UNKNOWN_ERROR,
-                       VOICE_NUMBER_TAKEN, is_slot_taken, map_error, portal_code)
+                       VOICE_NUMBER_TAKEN, APPOINTMENT_NOT_BOOKED,
+                       is_missing_appointment, is_slot_taken, map_error,
+                       portal_code)
 from oe_helpers import set_combobox
 from portal_states import to_portal_state
 from order_entry import ORDER_ENTRY_URL, _frame, ensure_on_order_entry
@@ -4456,6 +4458,69 @@ async def _open_appointment_calendar(page) -> dict:
     return {"how": "add" if opened == "ok" else "noadd", "edit": edit.get("status")}
 
 
+# Read the Appointment table back after booking.
+#
+# The step used to call itself done when the Appointment DIALOG closed, which is
+# not the same claim: live 2026-08-28 (order 2608000122824032) the dialog closed,
+# no appointment row was ever created, and the run walked on to the pay tail —
+# where the portal refused the Next with "Please input the appointment date.", a
+# sentence that names neither the step nor the reason. The same defect
+# `create_billing_account` had, and the same fix: read the value back.
+#
+# Grid-finding is `_OPEN_APPOINTMENT_EDIT_JS`'s, deliberately — the two must
+# agree on what "the appointment row" is, or one could edit a row the other says
+# does not exist. "No record to view" is jqGrid's own empty state and is what the
+# failure frame showed.
+_APPOINTMENT_ROW_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return {status:'nodoc'};
+  const vis=e=>e&&e.offsetParent!==null;
+  const txt=e=>((e.innerText||'').replace(/\s+/g,' ').trim());
+  const hdr=[...d.querySelectorAll('th,td,div,span')].filter(vis)
+    .find(e=>/^appointment\s*no\.?$/i.test(txt(e)));
+  if(!hdr) return {status:'noheader'};
+  let root=hdr, rows=[];
+  for(let i=0;i<8&&root;i++){
+    rows=[...root.querySelectorAll('tr')].filter(vis)
+      .filter(r=>r.querySelectorAll('td').length>1 && !/no record/i.test(txt(r)) && !r.querySelector('th'));
+    if(rows.length) break; root=root.parentElement;
+  }
+  if(!rows.length) return {status:'norow'};
+  return {status:'ok', rows:rows.length, row:txt(rows[0]).slice(0,200)};
+})()"""
+
+
+async def _read_appointment_row(page) -> dict:
+    """Does the order actually hold an appointment now?
+
+    `ok` with the row's text, or `norow` when the table is empty. Never raises —
+    a reader that throws would turn a verifiable failure back into a silent one.
+    """
+    try:
+        return await page.evaluate(_APPOINTMENT_ROW_JS)
+    except Exception as e:  # noqa: BLE001 — a failed read is data, not a crash
+        return {"status": "readfail", "message": repr(e)}
+
+
+# Stamp the Appointment dialog so its OK can be pressed by IDENTITY.
+#
+# The OK click used to be `.last` of every visible dialog's OK button. That is
+# the same ambiguity that broke the Voice number picker on 2026-08-27, where
+# `.last` pressed the picker's own OK and closed it with nothing selected. Here
+# the dialog is recognised by the control only it has — the datetime input the
+# rest of this function already keys on — so a popup stacked over it can never
+# be mistaken for it.
+_TAG_APPT_DIALOG_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 0;
+  const vis=e=>e&&e.offsetParent!==null;
+  let n=0;
+  for(const dl of [...d.querySelectorAll('[data-bf-appt]')]) dl.removeAttribute('data-bf-appt');
+  for(const dl of [...d.querySelectorAll('.ui-dialog')].filter(vis)){
+    if(dl.querySelector('input[name="firstPreferredDatetime"]')){ dl.setAttribute('data-bf-appt','1'); n++; }
+  }
+  return n;
+})()"""
+
+
 async def _set_appointment(page, policy=None, payload=None, stage=None,
                            exclude=None) -> dict:
     """Appointment: Add (`.js-add-date`) -> Appointment dialog (a FullCalendar).
@@ -4541,6 +4606,10 @@ async def _set_appointment(page, policy=None, payload=None, stage=None,
           f"lead {normalize_policy(policy)['lead_hours']}h, now {picked.get('now')} MYT, "
           f"cutoff {picked.get('cutoff')})", flush=True)
 
+    # Slots whose OK closed the dialog but left no appointment row. Kept apart
+    # from slots the portal openly refused: one is a portal "no", the other is
+    # this step failing to notice it did nothing.
+    unverified: list = []
     for cand in candidates[:10]:
         tagged = await _tag_slot_event(page, cand)
         if not tagged:
@@ -4564,11 +4633,21 @@ async def _set_appointment(page, policy=None, payload=None, stage=None,
         # slot that actually booked. Best-effort like every capture.
         if payload is not None and stage is not None:
             await capture_and_report(page, payload, "appointment", stage)
+        # Press the Appointment dialog's OWN OK, found by the control only it
+        # carries. `.last` across every visible dialog is how the Voice picker
+        # ended up pressing the wrong one (2026-08-27).
+        await page.evaluate(_TAG_APPT_DIALOG_JS)
         try:
-            await frame.locator('.ui-dialog:visible .js-ok, '
-                                '.ui-dialog:visible button:has-text("OK")').last.click(timeout=6000)
+            await frame.locator('[data-bf-appt] .js-ok, '
+                                '[data-bf-appt] button:has-text("OK")').last.click(timeout=6000)
         except Exception:
-            pass
+            # No tagged dialog to press (it closed under us, or the tag missed).
+            # Fall back to the old behaviour rather than skipping the click.
+            try:
+                await frame.locator('.ui-dialog:visible .js-ok, '
+                                    '.ui-dialog:visible button:has-text("OK")').last.click(timeout=6000)
+            except Exception:
+                pass
         await asyncio.sleep(1.8)
         w = await _dismiss_popup_ok(frame, page, exclude_title_re=r"appoint|enter address")
         if w and re.search(r"select at least|not available|invalid|please|has been taken",
@@ -4576,7 +4655,50 @@ async def _set_appointment(page, policy=None, payload=None, stage=None,
             continue  # slot not accepted — Appointment dialog stays open, try next
         if await frame.locator(
                 '.ui-dialog:visible:has(input[name="firstPreferredDatetime"])').count() == 0:
-            return {"status": "ok", "stage": "appointment", "slot": cand}
+            # The dialog closing is NOT proof of a booking. Read the Appointment
+            # table back: live 2026-08-28 (order 2608000122824032) it closed with
+            # the table still reading "No record to view", the step reported ok,
+            # and the portal refused the pay-tail Next four steps later with
+            # "Please input the appointment date." — naming neither the step nor
+            # the reason.
+            booked = await _read_appointment_row(page)
+            if booked.get("status") == "ok":
+                print(f"    ↳ appointment booked: {booked.get('row')!r}", flush=True)
+                return {"status": "ok", "stage": "appointment", "slot": cand,
+                        "row": booked.get("row")}
+            # ONLY an empty table is evidence of absence. `noheader`/`nodoc`/
+            # `readfail` all mean "could not tell", and treating those as "not
+            # booked" would rebook an appointment the order already holds —
+            # turning a working run into a double booking. The live incident
+            # showed "No record to view", which is exactly `norow`, so gating on
+            # it covers the bug without inventing a second failure mode.
+            if booked.get("status") != "norow":
+                print(f"    ↳ appointment: could not verify the row "
+                      f"({booked.get('status')}) — accepting the booking", flush=True)
+                return {"status": "ok", "stage": "appointment", "slot": cand,
+                        "note": f"unverified ({booked.get('status')})"}
+            # Genuinely nothing recorded. The calendar is gone with the dialog,
+            # so the next candidate needs it reopened.
+            print(f"    ↳ appointment dialog closed but the Appointment table is "
+                  f"empty after {cand} — reopening the calendar",
+                  flush=True)
+            unverified.append(cand)
+            reopened = await _open_appointment_calendar(page)
+            if reopened.get("how") == "noadd":
+                break
+            await asyncio.sleep(2)
+            await _dismiss_popup_ok(frame, page, exclude_title_re=r"appoint")
+            continue
+    # Nothing booked. Distinguish "the portal refused every slot" from "the
+    # dialog kept closing without recording anything", because they send whoever
+    # reads this to different places.
+    if unverified:
+        return {"status": "error", "stage": "appointment", "error": APPOINTMENT_NOT_BOOKED,
+                "message": (f"The appointment dialog closed without creating an "
+                            f"appointment for {unverified} — the Appointment table "
+                            f"stayed empty. Book it by hand in the portal, or "
+                            f"resubmit to try the calendar again."),
+                "calendar": diag}
     return {"status": "error", "stage": "appointment",
             "message": f"no calendar slot accepted (tried {len(candidates[:10])} of "
                        f"{len(slots)} offered)", "calendar": diag}
@@ -4936,7 +5058,15 @@ async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
             # its dialogs in the diagnostic dump exactly as before.
             slot_msgs = [nx.get("message") or ""] + [
                 str(d) for d in (state.get("dialogs") or [])]
-            if any(is_slot_taken(m) for m in slot_msgs) and rebooks < 3:
+            # The portal says only the consequence — "Please input the
+            # appointment date." — for BOTH the slot race and a booking that
+            # never happened. On 2026-08-28 (order 2608000122824032) it said
+            # exactly that with no dialog at all, so the [40301147] test below
+            # matched nothing, the rebook never ran, and a recoverable run
+            # stranded a real order. Either way the remedy is the same: this
+            # order has no appointment, so book one and press Next again.
+            missing_appt = any(is_missing_appointment(m) for m in slot_msgs)
+            if (any(is_slot_taken(m) for m in slot_msgs) or missing_appt) and rebooks < 3:
                 for _ in range(3):
                     if not await read_error_dialog(page, exclude_title_re=r"$^"):
                         break
@@ -4950,10 +5080,13 @@ async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
                 if appt.get("status") == "ok" and appt.get("slot"):
                     taken_slots.add(appt["slot"])  # excluded if IT collides too
                     continue  # retry the same Next; no budget step consumed
-                return {"status": "error", "error": APPOINTMENT_SLOT_TAKEN,
-                        "stage": "pay_tail", "portal_code": "40301147",
-                        "message": (f"The appointment slot was taken by another "
-                                    f"order, and rebooking failed: "
+                return {"status": "error",
+                        "error": (APPOINTMENT_SLOT_TAKEN if not missing_appt
+                                  else APPOINTMENT_NOT_BOOKED),
+                        "stage": "pay_tail",
+                        **({} if missing_appt else {"portal_code": "40301147"}),
+                        "message": (f"The order has no appointment the portal "
+                                    f"accepts, and rebooking failed: "
                                     f"{appt.get('message') or appt.get('note') or appt.get('status')}. "
                                     f"Slots already taken: {sorted(taken_slots)}.")}
             if any(is_slot_taken(m) for m in slot_msgs):
@@ -4964,6 +5097,17 @@ async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
                                     f"accepted it ({sorted(taken_slots)} — "
                                     f"{rebooks} rebooks tried). The calendar is "
                                     f"contended; resubmit to try fresh slots.")}
+            if missing_appt:
+                # Contention was never shown — do not claim it. This is the
+                # order reaching Pay with no appointment on it, after the
+                # rebook budget was spent trying to put one there.
+                return {"status": "error", "error": APPOINTMENT_NOT_BOOKED,
+                        "stage": "pay_tail",
+                        "message": (f"The order reached the Pay step with no "
+                                    f"appointment on it, and {rebooks} attempts to "
+                                    f"book one did not take. The portal said: "
+                                    f"'{nx.get('message')}'. Book the appointment "
+                                    f"by hand in the portal, then resubmit.")}
             shot = await _debug_screenshot(page, f"pay_tail_next{step + 1}")
             # This is where the device stock refusal actually lands — the portal
             # validates stock on the way to Pay, not when the device is ticked.
