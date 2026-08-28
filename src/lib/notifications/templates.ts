@@ -1,10 +1,13 @@
 import { submitErrorCopy } from "@/lib/order-types";
 import {
+  batchBucket,
+  batchSubject,
   bucketOf,
   describeOutcome,
   formatDuration,
   maskIdNumber,
   outcomeSubject,
+  OUTCOME_MARK,
   shortErrorMessage,
   summarize,
   type OrderCaseDetails,
@@ -70,7 +73,6 @@ const ordersUrl = (): string | null => {
 /** Pill colours per outcome — the one visual carrying the whole verdict. */
 const PILL: Record<OutcomeBucket, { fg: string; bg: string; border: string }> = {
   submitted: { fg: "#0F7B4F", bg: "#E7F6EE", border: "#B7E3CC" },
-  order_entered: { fg: "#8A5A00", bg: "#FEF6E7", border: "#F5D9A8" },
   failed: { fg: "#B4232C", bg: "#FDECEE", border: "#F5C2C7" },
 };
 
@@ -79,14 +81,21 @@ function pill(bucket: OutcomeBucket, label: string): string {
   return `<span style="display:inline-block;padding:3px 10px;border-radius:999px;background:${c.bg};border:1px solid ${c.border};color:${c.fg};font-size:12px;font-weight:600;line-height:1.5;white-space:nowrap;">${esc(label)}</span>`;
 }
 
-function shell(title: string, body: string): string {
+/**
+ * The card the email is built in.
+ *
+ * `mark` is the tick or the cross, and it leads the heading as well as the
+ * subject: a subject line is gone the moment the mail is open, and the verdict
+ * has to survive that.
+ */
+function shell(mark: string, title: string, body: string): string {
   const link = ordersUrl();
   return `<!doctype html>
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head><body style="margin:0;padding:24px;background:${SURFACE};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Arial,sans-serif;color:${INK};">
   <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid ${LINE};border-radius:12px;">
     <tr><td style="padding:24px 24px 8px;">
       <div style="font-size:12px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:${BRAND};">BizzFlow</div>
-      <h1 style="margin:8px 0 0;font-size:18px;font-weight:600;line-height:1.3;color:${INK};">${title}</h1>
+      <h1 style="margin:8px 0 0;font-size:18px;font-weight:600;line-height:1.3;color:${INK};"><span style="margin-right:6px;">${mark}</span>${title}</h1>
     </td></tr>
     <tr><td style="padding:8px 24px 24px;font-size:14px;line-height:1.55;color:${INK};">${body}</td></tr>
     <tr><td style="padding:16px 24px;border-top:1px solid ${LINE};font-size:12px;color:${MUTED};">
@@ -174,6 +183,7 @@ export function singleResultEmail(o: OrderOutcome): { subject: string; html: str
   return {
     subject: outcomeSubject(o, o.fullName),
     html: shell(
+      OUTCOME_MARK[bucket],
       esc(o.fullName),
       `<div style="margin:0 0 12px;">${pill(bucket, label)}</div>
        <p style="margin:0 0 14px;color:${MUTED};">${esc(detail)}</p>
@@ -187,7 +197,7 @@ export function singleResultEmail(o: OrderOutcome): { subject: string; html: str
 /** One count in the summary's three-up totals strip. */
 function tile(count: number, label: string, bucket: OutcomeBucket): string {
   const c = PILL[bucket];
-  return `<td width="33%" style="padding:0 4px;">
+  return `<td width="50%" style="padding:0 4px;">
     <div style="padding:12px 10px;background:${c.bg};border:1px solid ${c.border};border-radius:8px;text-align:center;">
       <div style="font-size:22px;font-weight:600;line-height:1.1;color:${c.fg};">${count}</div>
       <div style="margin-top:2px;font-size:11px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:${c.fg};">${esc(label)}</div>
@@ -219,7 +229,7 @@ export function batchSummaryEmail(batch: {
       const { label } = describeOutcome(r);
       const bucket = bucketOf(r);
       const details = detailRows(r.details);
-      const failure = bucket === "failed" || bucket === "order_entered" ? problemBox(r) : "";
+      const failure = bucket === "failed" ? problemBox(r) : "";
       return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:12px;border:1px solid ${LINE};border-radius:8px;">
         <tr><td style="padding:12px 14px;">
           <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
@@ -239,29 +249,18 @@ export function batchSummaryEmail(batch: {
     })
     .join("");
 
-  // Named in full rather than as "2 issues": the whole point of the summary is
-  // that the reader can tell, without opening the app, whether anyone has to go
-  // into the Unifi portal today.
-  const totals = [
-    `${t.submitted} submitted`,
-    `${t.orderEntered} order entered`,
-    `${t.failed} failed`,
-  ].join(" · ");
-
-  const needsAttention = t.orderEntered > 0
-    ? `<p style="margin:14px 0 0;padding:12px 14px;background:${PILL.order_entered.bg};border:1px solid ${PILL.order_entered.border};border-radius:8px;font-size:13px;color:${INK};">
-         ${t.orderEntered} order${t.orderEntered === 1 ? "" : "s"} reached the Unifi portal without finishing. Each one exists there and needs to be resubmitted or voided by hand.
-       </p>`
-    : "";
+  // Named in full rather than as "1 issue": the reader can tell from the
+  // heading alone whether this run left anything behind.
+  const totals = `${t.submitted} submitted · ${t.failed} failed`;
 
   return {
-    subject: `Batch submit finished: ${t.submitted}/${t.total} submitted`,
+    subject: batchSubject(t),
     html: shell(
+      OUTCOME_MARK[batchBucket(t)],
       `Batch finished — ${totals}`,
       `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:4px 0 16px;">
          <tr>
            ${tile(t.submitted, "Submitted", "submitted")}
-           ${tile(t.orderEntered, "Order entered", "order_entered")}
            ${tile(t.failed, "Failed", "failed")}
          </tr>
        </table>
@@ -271,7 +270,6 @@ export function batchSummaryEmail(batch: {
          ${row("Finished", esc(batch.finishedAt.toISOString().replace("T", " ").slice(0, 19) + " UTC"))}
          ${row("Duration", esc(formatDuration(batch.finishedAt.getTime() - batch.startedAt.getTime())))}
        </table>
-       ${needsAttention}
        ${heading("Orders in this batch")}
        ${cards}`,
     ),

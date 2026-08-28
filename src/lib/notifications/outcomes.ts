@@ -1,12 +1,10 @@
-import { STATUS_LABELS } from "@/lib/order-types";
-
 /**
  * What an email says happened to one order, and how a batch adds up.
  *
  * Pure — no Prisma, no Resend — because these are the rules a reader will act
  * on: a row labelled "Submitted" is one nobody chases, and a row labelled
- * "Order Entered" sends someone into the Unifi portal to void or finish it.
- * Getting either wrong costs real money, so they are unit-tested rather than
+ * "Failed" is one somebody opens. Calling a real submit failed, or a stranded
+ * one submitted, costs real money, so the rule is unit-tested rather than
  * inferred from a template.
  */
 
@@ -127,86 +125,86 @@ export function shortErrorMessage(value: string | null | undefined): string | nu
 }
 
 /**
- * The three buckets the summary counts in.
+ * The two outcomes an email reports.
  *
- * `order_entered` covers BOTH the app's `order_entered` status and a `warning`
- * that carries a portal order number, because to the reader they are the same
- * situation and the same next action: Unifi has a real order that this run did
- * not finish. The distinguishing fact is the number, not the status name.
+ * A submit either finished — paid, with the e-RF captured — or it did not.
+ * Everything short of that is a failure, including a run that reached the portal
+ * and stranded there (user's rule, 2026-08-28): a half-finished submit is not a
+ * different KIND of result, it is a submit that failed later than most.
+ *
+ * The app keeps its finer statuses (`order_entered`, `warning`) on the Orders
+ * table, where a row can be acted on. An email is a verdict, and three verdicts
+ * were teaching the reader to decide which of them counted.
  */
-export type OutcomeBucket = "submitted" | "order_entered" | "failed";
+export type OutcomeBucket = "submitted" | "failed";
 
 export function bucketOf(o: Pick<OrderOutcome, "status" | "portalOrderNo">): OutcomeBucket {
-  if (o.status === "submitted") return "submitted";
-  if (o.portalOrderNo || o.status === "order_entered") return "order_entered";
-  return "failed";
+  return o.status === "submitted" ? "submitted" : "failed";
 }
+
+/** The mark that leads every subject line and every email heading. */
+export const OUTCOME_MARK: Record<OutcomeBucket, string> = {
+  submitted: "\u2705",
+  failed: "\u274c",
+};
 
 /**
  * The heading and the one-line explanation for a single order.
  *
- * `label` reuses STATUS_LABELS so an email and the Orders table can never
- * disagree about what a status is called; `detail` says what it means for the
- * person reading, including — for a stranded order — that something is owed.
+ * The failure line is written from what the run actually left behind rather than
+ * from the status name: a run that minted a portal order number did NOT leave
+ * the draft untouched, and telling its reader it did would send them to
+ * resubmit a customer the portal already holds.
  */
 export function describeOutcome(o: Pick<OrderOutcome, "status" | "portalOrderNo">): {
   label: string;
   detail: string;
 } {
-  const bucket = bucketOf(o);
-  if (bucket === "submitted") {
+  if (bucketOf(o) === "submitted") {
     return {
-      label: STATUS_LABELS.submitted,
+      label: "Submitted",
       detail: "Paid and the registration form (e-RF) was captured. Nothing further to do.",
     };
   }
-  if (bucket === "order_entered") {
-    return {
-      label: STATUS_LABELS.order_entered,
-      detail: o.portalOrderNo
-        ? "The portal created this order but the run didn't finish it. Check it in the Unifi portal — resubmit it or void it."
-        : "A customer profile was created but no order number came back. Check the portal before submitting again.",
-    };
-  }
   return {
-    label: STATUS_LABELS.failed,
-    detail: "No portal order was created. The draft is unchanged and can be submitted again.",
+    label: "Failed",
+    detail: o.portalOrderNo
+      ? "The submit did not finish. The portal had already recorded the order number below."
+      : "No portal order was created. The draft is unchanged and can be submitted again.",
   };
 }
 
 /** Subject-line lead for a single-order email. */
 export function outcomeSubject(o: Pick<OrderOutcome, "status" | "portalOrderNo">, name: string): string {
-  switch (bucketOf(o)) {
-    case "submitted":
-      return `✅ Order submitted — ${name}`;
-    case "order_entered":
-      return `⚠️ Order entered but not completed — ${name}`;
-    default:
-      return `❌ Order failed — ${name}`;
-  }
+  return bucketOf(o) === "submitted"
+    ? `${OUTCOME_MARK.submitted} Order submitted \u2014 ${name}`
+    : `${OUTCOME_MARK.failed} Order failed \u2014 ${name}`;
 }
 
 export interface BatchTotals {
   total: number;
   submitted: number;
-  orderEntered: number;
   failed: number;
 }
 
 export function summarize(results: OrderOutcome[]): BatchTotals {
-  const totals: BatchTotals = {
-    total: results.length,
-    submitted: 0,
-    orderEntered: 0,
-    failed: 0,
-  };
-  for (const r of results) {
-    const bucket = bucketOf(r);
-    if (bucket === "submitted") totals.submitted += 1;
-    else if (bucket === "order_entered") totals.orderEntered += 1;
-    else totals.failed += 1;
-  }
-  return totals;
+  const submitted = results.filter((r) => bucketOf(r) === "submitted").length;
+  return { total: results.length, submitted, failed: results.length - submitted };
+}
+
+/**
+ * A batch is a success only when every order in it is.
+ *
+ * One failure in ten is still a batch somebody has to open, so the mark follows
+ * the worst result rather than the majority — a green tick over a run that
+ * stranded an order would be read as "nothing to do here".
+ */
+export function batchBucket(t: BatchTotals): OutcomeBucket {
+  return t.failed === 0 && t.total > 0 ? "submitted" : "failed";
+}
+
+export function batchSubject(t: BatchTotals): string {
+  return `${OUTCOME_MARK[batchBucket(t)]} Batch submit finished \u2014 ${t.submitted} of ${t.total} submitted`;
 }
 
 /**

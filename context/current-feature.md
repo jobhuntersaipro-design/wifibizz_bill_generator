@@ -1,5 +1,29 @@
 # Current Feature
 
+## Email Notifications — Two Outcomes, and a Mark on Every Subject
+
+**Status:** CODE COMPLETE, RENDERED AND INSPECTED (branch `feature/email-two-outcomes`, not yet committed). Vercel-only — no scraper change, no migration.
+
+Two asks (2026-08-28), both against the notification emails only. The Orders table keeps its finer statuses, where a row can be acted on.
+
+### 1. A submit either finished or it did not
+
+The emails reported **three** verdicts — Submitted, Order Entered, Failed — and the middle one was doing the reader's deciding for them. **The rule is now one-sided: only `status === "submitted"` is a success; everything else is a failure**, including a run that reached the portal and stranded there. `OutcomeBucket` is two values, `bucketOf` is one line, and a status nobody has mapped yet comes out as a **failure**, which is the safe direction to be wrong in (pinned by a test that feeds it `draft`, `cancelled` and an invented status).
+
+**The failure line is written from what the run left behind, not from its status name.** A stranded order kept the old copy would have been told *"the draft is unchanged and can be submitted again"* — an instruction to create a **second** portal order for a customer Unifi already holds. It now reads *"The submit did not finish. The portal had already recorded the order number below."* The order number is still on the card as a fact.
+
+**No separate warning block** (user's call): the amber *"N orders reached the Unifi portal without finishing"* strip is gone from the batch summary, and the stranded order is a failure card like any other, carrying its portal order number and the portal's own sentence.
+
+### 2. A tick or a cross on every email
+
+`OUTCOME_MARK` is one map, used by the subject **and** the heading — a subject line is gone the moment the mail is open, so the verdict has to survive that. Single order: `✅ Order submitted — NAME` / `❌ Order failed — NAME`. Batch: `✅/❌ Batch submit finished — 1 of 3 submitted`, and `batchBucket` gives a batch the tick **only when every order in it went through** — one failure in ten is still a run somebody has to open. An empty batch is not a success either.
+
+The summary's totals strip went three tiles to two, and `BatchTotals` dropped `orderEntered`; `summarize` now derives failures as "everything that isn't a success", so the two counts cannot disagree with the total.
+
+**Verified** by rendering all four shapes (submitted, stranded, mixed batch, all-clear batch) through the real template functions and inspecting them in a browser: the mark leads both the heading and the subject, the stranded card reads Failed with its order number and the out-of-stock sentence intact, the batch strip shows 1 submitted / 2 failed with no amber block. 40 notification tests (13 new/rewritten), full unit suite 556 passing, `npm run build`, lint identical to baseline (9642).
+
+**NOT verified: in a mail client.** Every render is Chromium — nothing has been opened in Gmail or Outlook, and this app still has not delivered a single notification (the webhook wiring from 2026-08-22 remains outstanding).
+
 ## Admin Plans — Remove a Plan, Publish/Unpublish Sections, Freer Group Names
 
 **Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/admin-plans-remove-and-sections`, not yet committed). Vercel-only — no scraper change. **Needs `prisma migrate deploy` on production** (new `plans.hidden` column).
