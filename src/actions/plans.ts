@@ -57,6 +57,8 @@ export interface PlanView {
  * survive.
  */
 async function seedPlans(): Promise<void> {
+  // Every row, hidden ones included — a plan an admin removed must not be
+  // re-created by the next page load.
   const existing = await prisma.plan.findMany({ select: { name: true } });
   const have = new Set(existing.map((p) => p.name));
   const missing = DEALER_OFFERS.filter((o) => !have.has(o.name));
@@ -113,6 +115,7 @@ export async function adminListPlans(): Promise<{
   if (!(await verifyAdminSession())) return { success: false, error: "Unauthorized", plans: [] };
   await seedPlans();
   const plans = await prisma.plan.findMany({
+    where: { hidden: false },
     orderBy: [{ category: "asc" }, { name: "asc" }],
     include: {
       offerGroups: {
@@ -145,6 +148,21 @@ export async function adminSetPlanPublished(id: string, published: boolean) {
   return { success: true as const };
 }
 
+/**
+ * Remove a plan from the Plan Details page.
+ *
+ * Marks it hidden instead of deleting it: `seedPlans` re-creates every package
+ * in DEALER_OFFERS on read, so a deleted row would be back on the next load.
+ * The plan is unpublished at the same time — a removed plan must not stay
+ * sellable — and its offer groups are kept, so restoring the row restores
+ * everything recorded against it.
+ */
+export async function adminDeletePlan(id: string) {
+  if (!(await verifyAdminSession())) return { success: false as const, error: "Unauthorized" };
+  await prisma.plan.update({ where: { id }, data: { hidden: true, published: false } });
+  return { success: true as const };
+}
+
 export async function adminAddOfferGroup(planId: string, rawName: string, mandatory: boolean) {
   if (!(await verifyAdminSession())) return { success: false as const, error: "Unauthorized" };
 
@@ -154,14 +172,6 @@ export async function adminAddOfferGroup(planId: string, rawName: string, mandat
   const name = rawName.replace(/[*\s]+$/, "").trim();
   if (name.length < 5) {
     return { success: false as const, error: "Enter the full offer group name." };
-  }
-  if (!/\[\s*Pick\s+\d+\s*-\s*[\dN]+\s*\]/i.test(name)) {
-    return {
-      success: false as const,
-      error:
-        "That doesn't look like an offer group name — it should end with its pick range, " +
-        'e.g. "…Premium Value With Device[Pick 0-1]".',
-    };
   }
   try {
     const last = await prisma.planOfferGroup.findFirst({
@@ -207,7 +217,7 @@ export async function getPublishedPlans(): Promise<{
   const session = await auth();
   if (!session?.user?.id) return { success: false, plans: [] };
   const plans = await prisma.plan.findMany({
-    where: { published: true },
+    where: { published: true, hidden: false },
     orderBy: [{ category: "asc" }, { name: "asc" }],
     include: {
       offerGroups: {
@@ -226,7 +236,8 @@ export async function mandatoryGroupsFor(offerName: string | null | undefined): 
     where: { name: offerName },
     include: { offerGroups: { where: { mandatory: true }, orderBy: { sortOrder: "asc" } } },
   });
-  return plan?.offerGroups.map((g) => g.name) ?? [];
+  if (!plan || plan.hidden) return [];
+  return plan.offerGroups.map((g) => g.name);
 }
 
 // ── Offer items ──────────────────────────────────────────────────────────────
@@ -308,7 +319,7 @@ export async function getPlanOffer(offerName: string): Promise<{
       },
     },
   });
-  if (!plan || !plan.published) return { devices: [], discounts: [], known: false };
+  if (!plan || !plan.published || plan.hidden) return { devices: [], discounts: [], known: false };
 
   const devices: OfferItemView[] = [];
   const discounts: OfferItemView[] = [];

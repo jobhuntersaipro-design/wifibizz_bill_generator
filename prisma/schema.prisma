@@ -224,6 +224,9 @@ model Plan {
   // Only published plans are sellable: unpublished means no admin has confirmed
   // its offer groups yet.
   published   Boolean          @default(false)
+  // Removed by an admin on the Plan Details page. A flag rather than a DELETE:
+  // the page re-seeds DEALER_OFFERS on read, so a deleted row would reappear.
+  hidden      Boolean          @default(false)
   notes       String?
   offerGroups PlanOfferGroup[]
   createdAt   DateTime         @default(now()) @map("created_at")

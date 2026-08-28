@@ -1,5 +1,31 @@
 # Current Feature
 
+## Admin Plans — Remove a Plan, Publish/Unpublish Sections, Freer Group Names
+
+**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/admin-plans-remove-and-sections`, not yet committed). Vercel-only — no scraper change. **Needs `prisma migrate deploy` on production** (new `plans.hidden` column).
+
+Three asks against `/admin/plans` (2026-08-28).
+
+### 1. Remove a plan, with a confirmation
+
+**A plain DELETE could not work here, and that decided the design.** `seedPlans()` re-creates every package in `DEALER_OFFERS` (61) on each read of the page — that is what keeps the catalogue and the database in step without a deploy — so a deleted row would be back on the next load. Removal is therefore a new `hidden` flag (migration `20260828120000_plan_hidden`): `adminDeletePlan` sets `hidden` and `published: false` together, the seeder compares against **all** rows including hidden ones, and `adminListPlans` / `getPublishedPlans` / `getPlanOffer` / `mandatoryGroupsFor` all exclude them — so a removed plan disappears from the agent's picker as well as the admin list.
+
+**Offer groups are kept, not cascaded away** (user's call is only that the plan goes): clearing `hidden` in the database restores the plan with everything recorded against it, which a DELETE could not offer. Orders already placed are untouched — they hold the offer *name*, not a plan id.
+
+The confirm dialog states which of those applies to the plan in front of you rather than in general: whether it is published today, and how many offer groups go with it.
+
+### 2. Published / Not published sections
+
+The list was grouped by the portal's offer category only, so with 1 of 60 published the one sellable plan was somewhere in a 55-row category block. Now two top-level sections — **Published** first, then **Not published** — with the categories as sub-headings inside each. `StateSection` renders nothing when empty, so the "Unpublished only" filter and a search do not leave a heading standing over no rows.
+
+### 3. The pick-range check is gone
+
+`adminAddOfferGroup` refused any name not ending in `[Pick n-m]` with *"That doesn't look like an offer group name…"*. Removed — the portal's own naming is what it is, and the admin copying a row verbatim is a better authority on it than a regex. The length check and the duplicate-name catch stay. The guide text still says to copy the pick range, because the name has to match the dialog at run time; it is now advice rather than a gate.
+
+**Verified in the browser** against the dev server on the real admin login: both sections render with their counts (1 / 59); the confirm dialog names the plan and its state; removing one took the list 60 → 59 **and it stayed gone across a reload**, which is the whole point of the flag; a group named `Test Group No Pick Range` was accepted with no error. Both test changes were reverted afterwards (the plan restored via `prisma db execute`, the group removed through the UI) — 60 plans, 1 published, as before. `npm run build`, lint identical to baseline (9642), `tsc` unchanged (the same two pre-existing errors).
+
+**NOT verified:** production — the migration has only been applied to the dev branch; and there is no UI to restore a hidden plan, so an accidental removal needs a database update.
+
 ## Disable Submit While the Server Is Busy
 
 **Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/disable-submit-while-busy`, not yet committed). Vercel-only — no scraper change.
