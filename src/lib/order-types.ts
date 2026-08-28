@@ -470,6 +470,20 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
       "order already exists in the portal, so check it there before creating " +
       "a second one.",
   },
+  appointment_not_booked: {
+    title: "The order has no appointment on it",
+    subtext:
+      "The run reached the Pay step with the portal's Appointment table still " +
+      "empty, and the portal refused to go further (“Please input the " +
+      "appointment date.”). This is not the slot race — nothing took the slot; " +
+      "the booking never landed. The run tries to book one and press Next again " +
+      "up to three times before reporting this, so the order needs an " +
+      "appointment put on it by hand.",
+    fix:
+      "Open the order in the portal, add the appointment under Install " +
+      "Information, and continue it there. The order already exists, so do not " +
+      "resubmit without checking — that creates a second one.",
+  },
   pay_page_not_ready: {
     title: "Pay page never finished loading",
     subtext:
