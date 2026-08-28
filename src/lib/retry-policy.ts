@@ -52,6 +52,11 @@ export const TERMINAL_ERROR_CODES: ReadonlySet<string> = new Set([
   "login_id_taken",
   // The voice number pool is dry; running again finds it dry.
   "vobb_unavailable",
+  // The order reached Pay with no appointment, AFTER the run already tried
+  // three times to book one. Its own advice is to add the appointment in the
+  // portal by hand — a whole resubmit would mint a duplicate order and then
+  // most likely fail the same way.
+  "appointment_not_booked",
   // Money may already have moved. Retrying could charge a customer twice, and
   // the app's own copy for these says to confirm in the portal FIRST.
   "pay_click_did_not_take",

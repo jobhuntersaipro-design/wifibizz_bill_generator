@@ -71,6 +71,21 @@ describe("retryVerdict — what stops", () => {
     expect(v.retry).toBe(false);
   });
 
+  it("refuses appointment_not_booked, which the run already retried three times", () => {
+    // The scraper rebooks up to 3 times before reporting this, and its copy
+    // tells the agent to add the appointment by hand. A whole resubmit on top
+    // would mint a duplicate order and hit the same wall.
+    expect(
+      retryVerdict(failed({ status: "warning", errorCode: "appointment_not_booked" })).retry,
+    ).toBe(false);
+  });
+
+  it("still retries appointment_slot_taken, which is genuine contention", () => {
+    // The two must not be conflated: a slot another dealer took is worth
+    // trying again for; a booking that never landed is not.
+    expect(retryVerdict(failed({ errorCode: "appointment_slot_taken" })).retry).toBe(true);
+  });
+
   it("refuses an expired dealer session, which carries no code", () => {
     const v = retryVerdict(
       failed({
