@@ -54,6 +54,9 @@ next-env.d.ts
 # The playwright rule above is blanket — shipped UI assets need the explicit
 # negation, or the deploy 404s while the local build passes.
 !public/animations/*.png
+!public/icon-*.png
+!src/app/icon.png
+!src/app/apple-icon.png
 
 # scraper (separate Python project — contains dealer credentials, session
 # state, and Google service-account keys; managed/deployed outside this repo)

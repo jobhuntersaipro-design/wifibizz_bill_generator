@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { Providers } from "@/components/providers";
@@ -19,9 +19,17 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "BizzFlow",
   description: "WifiBizz Crawler & Bill Generator",
-  icons: {
-    icon: "/favicon.png",
+  // Icons come from the file conventions in this directory — favicon.ico,
+  // icon.png and apple-icon.png. An `icons` field here would override them.
+  appleWebApp: {
+    title: "BizzFlow",
+    capable: true,
+    statusBarStyle: "default",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#635BFF",
 };
 
 export default function RootLayout({
