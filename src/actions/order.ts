@@ -23,10 +23,14 @@ import { fillMissingInstallationDates } from "@/lib/installation-date";
 import { batchOrderIds, finishBatch, reconcileBatch } from "@/lib/batch-submit";
 import { mandatoryGroupsFor } from "@/actions/plans";
 import {
-  MAX_LEAD_HOURS,
-  MIN_LEAD_HOURS,
-  appointmentPolicyFor,
-} from "@/lib/appointment-settings";
+  ORDER_TOKEN,
+  SCRAPER_API_URL,
+  SESSION_EXPIRED_MSG,
+  buildOrderJobRequest,
+  dealerSessionLive,
+  startSubmitRun,
+} from "@/lib/order-start";
+import { MAX_LEAD_HOURS, MIN_LEAD_HOURS } from "@/lib/appointment-settings";
 import {
   nextOrderReference,
   recordEvent,
@@ -641,8 +645,6 @@ export async function deleteOrder(id: string) {
 }
 
 // ── Submit an order to the dealer portal (via the Flask service) ─────────────
-const SCRAPER_API_URL = process.env.SCRAPER_API_URL ?? "http://localhost:5000";
-const ORDER_TOKEN = process.env.ORDER_ENTRY_API_TOKEN ?? "";
 
 /**
  * Is the scraper already running a browser job — anyone's?
@@ -678,78 +680,6 @@ export async function scraperBusy() {
 
 
 /**
- * The raw order the scraper is given for one run.
- *
- * Shared by the single submit and the server-side batch runner so the two can
- * never drift: a field added for one path but not the other would submit a
- * different order depending on which button the agent pressed.
- *
- * The user id is deliberately NOT included — the scraper takes it from the
- * authenticated `user_key`, so a request body can't redirect an upload into
- * someone else's R2 namespace.
- */
-function buildOrderJobRequest(
-  order: Prisma.OrderGetPayload<object>,
-  attempt: number,
-  offerGroups: Awaited<ReturnType<typeof mandatoryGroupsFor>>,
-) {
-  return {
-    offerGroups,
-    // Built from the order itself, so the single submit and the batch runner
-    // cannot book different slots for the same draft. `strategy`/`fixedDate`
-    // are pinned inside appointmentPolicyFor — the scraper still understands a
-    // fixed date, but nothing in the app can send one.
-    appointment: appointmentPolicyFor(order.appointmentLeadHours),
-    id: order.id,
-    idType: order.idType,
-    idNumber: order.idNumber,
-    fullName: order.fullName,
-    gender: order.gender,
-    birthday: order.birthday,
-    race: order.race,
-    nationality: order.nationality,
-    mobilePrefix: order.mobilePrefix,
-    mobile: order.mobile,
-    email: order.email,
-    street: order.street,
-    postcode: order.postcode,
-    city: order.city,
-    state: order.state,
-    country: order.country,
-    addressId: order.addressId,
-    addressFull: order.addressFull,
-    serviceCategory: order.serviceCategory,
-    offerName: order.offerName,
-    offerCategory: order.offerCategory,
-    deviceCode: order.deviceCode,
-    deviceName: order.deviceName,
-    remarks: order.remarks,
-    documents: order.documents,
-    // Which run this is, so the scraper can file this attempt's captures against
-    // this order AND attempt (`id` above already identifies the order).
-    attempt,
-  };
-}
-
-/**
- * Is this user's dealer session still good enough to start a run?
- *
- * Reads the stored expiry rather than calling the portal: it costs nothing and
- * catches the common case (an agent who never reconnected today). A session that
- * dies mid-run is still handled by the run itself.
- */
-async function dealerSessionLive(userId: string): Promise<boolean> {
-  const dealer = await prisma.dealerAccount.findUnique({
-    where: { userId },
-    select: { sessionExpiresAt: true },
-  });
-  return !!dealer?.sessionExpiresAt && dealer.sessionExpiresAt.getTime() > Date.now();
-}
-
-const SESSION_EXPIRED_MSG =
-  "Your dealer session has expired. Reconnect on the Order Entry page, then submit again.";
-
-/**
  * Start a submit and return immediately with the scraper's job id.
  *
  * The run itself takes minutes; the browser follows it via
@@ -759,135 +689,27 @@ const SESSION_EXPIRED_MSG =
 export async function startSubmit(id: string) {
   const session = await auth();
   if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
-  if (!ORDER_TOKEN) {
-    return { success: false as const, error: "Order service is not configured." };
-  }
 
   // Superadmins may submit any draft; it runs under THEIR own connected dealer
-  // session (user_key below), regardless of who created the draft.
+  // session (user_key), regardless of who created the draft.
   const superAdmin = await isSuperAdmin(session.user.id);
   const order = await prisma.order.findFirst({
     where: superAdmin ? { id } : { id, userId: session.user.id },
   });
   if (!order) return { success: false as const, error: "Order not found." };
 
-  // Each submit is its own attempt in the status history, so the timeline can
-  // show "attempt 3 failed the same way attempt 1 did".
-  const attempt = order.attempt + 1;
-  await prisma.order.update({ where: { id: order.id }, data: { attempt } });
-  const fatal = async (stage: string, msg: string) => {
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { status: "failed", stage, errorMessage: msg },
-    });
-    await recordEvent({ orderId: order.id, attempt, status: "failed", stage, message: msg });
-    return { success: false as const, error: msg };
-  };
-  await recordEvent({
-    orderId: order.id, attempt, status: "submitting", stage: "validating_draft",
-    message: "Submit started.",
-  });
-
-  // ── Step 1: validating_draft ──────────────────────────────────────────────
-  // No addressId requirement: the Confirm step is gone and the agent's pasted
-  // address is submitted as-is — the scraper searches the portal "By Keywords"
-  // with it. A Confirm-era addressId still travels in the payload when a draft
-  // has one, and the scraper then selects that exact unit "By Address Id".
-
-  // ── Step 2: checking_session ──────────────────────────────────────────────
-  // Read the stored expiry rather than calling the portal: it costs nothing and
-  // catches the common case (an agent who never reconnected today). A session
-  // that dies mid-run is still handled by the run itself.
-  if (!(await dealerSessionLive(session.user.id))) {
-    return fatal("checking_session", SESSION_EXPIRED_MSG);
-  }
-
-  const headers = {
-    "Content-Type": "application/json",
-    "X-Internal-Token": ORDER_TOKEN,
-  };
-  await prisma.order.update({
-    where: { id: order.id },
-    data: {
-      status: "submitting",
-      errorMessage: null,
-      errorCode: null,
-      // Cleared so this attempt gets its own email, exactly as the batch path
-      // does. The guard is per-send, not per-order-lifetime — a resubmitted
-      // order is news again. Without this, an order that has been notified once
-      // stays silent forever: the webhook still arrives and still answers 200,
-      // but `claimOrder` matches no row and the send is skipped without a trace.
-      notifiedAt: null,
-      stage: "creating_customer",
-      stageAt: new Date(),
-    },
-  });
-
-  // The mandatory offer-group names an admin recorded for this plan. The scraper
-  // expands these groups by name instead of guessing at the portal's red "*".
-  const offerGroups = await mandatoryGroupsFor(order.offerName);
-
-  // Send the raw order; the Flask side maps it to a portal payload.
-  const reqOrder = buildOrderJobRequest(order, attempt, offerGroups);
-
-  async function fail(message: string) {
-    await prisma.order.update({
-      where: { id: order!.id },
-      data: { status: "failed", errorMessage: message },
-    });
-    return { success: false as const, error: message };
-  }
-
-  try {
-    // Full per-order flow: create the customer profile, then feasibility -> Order
-    // -> attach the customer -> capture the order id. One dealer session.
-    const startRes = await fetch(`${SCRAPER_API_URL}/orders`, {
-      method: "POST",
-      headers,
-      cache: "no-store",
-      // Starting a job is a payload-build + thread-spawn on the scraper — it
-      // never legitimately takes long. Without this, Node's fetch waits forever
-      // and a wedged droplet surfaces as a platform timeout instead of an error
-      // the agent can read. (fetchJob in order-submit.ts has the same guard.)
-      signal: AbortSignal.timeout(10_000),
-      body: JSON.stringify({
-        order: reqOrder,
-        user_key: session.user.id,
-        full_order: true,
-        // Real submit: the scraper defaults dry_run=true, so opt OUT explicitly to
-        // actually click Order + drive the whole New Connection flow through Pay.
-        dry_run: false,
-        // do_pay clicks the REAL, billable Pay button. Default false (stops at the
-        // Pay gate). Enable per-environment via ORDER_ENTRY_DO_PAY=true — so prod,
-        // which never sets it, can never place a billable order by accident.
-        do_pay: process.env.ORDER_ENTRY_DO_PAY === "true",
-      }),
-    });
-    const start = (await startRes.json().catch(() => ({}))) as {
-      job_id?: string;
-      message?: string;
-    };
-    if (!startRes.ok || !start.job_id) {
-      return fail(start.message || "Couldn't start the order job.");
-    }
-
-    // Hand the job id back and stop. The browser polls
-    // GET /api/orders/[id]/progress from here; `listOrders` reconciles the run
-    // if that browser goes away.
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { jobId: start.job_id },
-    });
-    return { success: true as const, jobId: start.job_id };
-  } catch (e) {
-    if (e instanceof DOMException && e.name === "TimeoutError") {
-      return fail(
-        "The order service didn't respond within 10 seconds — it may be overloaded. Try again shortly.",
-      );
-    }
-    return fail(e instanceof Error ? e.message : "Order service unreachable.");
-  }
+  // Everything from here — the attempt bump, the session check, the hand-off —
+  // is shared with the batch runner and the automatic retry, so a submit cannot
+  // behave differently depending on which of the three started it. This call
+  // also resets the automatic-retry budget: a person pressing Submit is a new
+  // decision, and inheriting a spent budget would leave the order with no
+  // retries for a failure nobody had seen yet.
+  const run = await startSubmitRun(order, { userKey: session.user.id });
+  return run.ok
+    ? { success: true as const, jobId: run.jobId }
+    : { success: false as const, error: run.error };
 }
+
 
 // ── Status history ───────────────────────────────────────────────────────────
 /**
@@ -1036,6 +858,14 @@ export async function startBatchSubmit(ids: string[]) {
         notifiedAt: null,
         stage: "creating_customer",
         stageAt: new Date(),
+        // A person pressing Submit Selected is a new decision, so every member
+        // gets a full automatic-retry budget back — the same rule
+        // `startSubmitRun` applies to a single manual submit.
+        autoRetries: 0,
+        autoRetryAt: null,
+        // Whose dealer session this batch runs under (`user_key` below), which a
+        // later automatic retry reuses rather than guessing at the draft's owner.
+        lastSubmitUserId: session.user.id,
       },
     });
     await recordEvent({

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { pollOrderProgress } from "@/lib/order-submit";
-import { finishBatch } from "@/lib/batch-submit";
+import { finishBatch, retryFailedMembers } from "@/lib/batch-submit";
+import { maybeAutoRetry } from "@/lib/order-retry";
 import { notifyBatchResult, notifyOrderResult } from "@/lib/notifications/send";
 
 /**
@@ -55,8 +56,18 @@ export async function POST(req: Request) {
       if (!order) return NextResponse.json({ ok: true, skipped: "unknown_order" });
       // Safe to run twice — it short-circuits on an order already finalized.
       await pollOrderProgress(order.id);
-      await notifyOrderResult(order.id);
-      return NextResponse.json({ ok: true });
+      // The automatic retry lives HERE rather than in `applyResult`, which is
+      // where the outcome is decided: that function is also called by the
+      // browser's progress poll, and starting a portal run from inside a GET
+      // would make an idle open tab a submit trigger. This handler is the one
+      // caller that is server-only, fires exactly once per finished job, and
+      // runs at the moment the droplet's single-browser lock is provably free.
+      const retry = await maybeAutoRetry(order.id);
+      // No email while another run is coming: the reader would be told an order
+      // failed and then, minutes later, that it succeeded. The last try is the
+      // one worth reporting.
+      if (retry === "no") await notifyOrderResult(order.id);
+      return NextResponse.json({ ok: true, retry });
     }
 
     if (body.event === "batch_finished") {
@@ -69,8 +80,18 @@ export async function POST(req: Request) {
       });
       if (!batch) return NextResponse.json({ ok: true, skipped: "unknown_batch" });
       await finishBatch(batch.id);
+      // The summary describes THIS run and is sent for it, as before. It is
+      // deliberately not deferred the way a single order's email is: nothing
+      // fires a second batch_finished for a member retried on its own, so
+      // waiting would risk sending nothing at all. The retried members each get
+      // their own result email when they settle, which is the more useful
+      // message anyway — it carries the outcome that ended up mattering.
       await notifyBatchResult(batch.id);
-      return NextResponse.json({ ok: true });
+      // Started only after the summary, and only now that the batch has released
+      // the droplet's single browser: a member cannot retry while its own batch
+      // still holds the lock.
+      const retrying = await retryFailedMembers(batch.id);
+      return NextResponse.json({ ok: true, retrying });
     }
 
     return NextResponse.json({ error: "unknown_event" }, { status: 400 });

@@ -100,6 +100,23 @@ model Order {
   // the browser polls for it rather than holding a long request open.
   // jobId is what lets a poll AFTER the submitting tab is gone still reconcile
   // the run — without it, a closed tab strands the order in `submitting`.
+  // Automatic retries spent on the CURRENT run of this order, capped at
+  // MAX_AUTO_RETRIES. Separate from `attempt`, which counts every submit
+  // including the ones a human started — reusing that would let a draft an
+  // agent resubmitted by hand arrive with its automatic budget already spent.
+  // Reset to 0 whenever a person presses Submit or Resubmit.
+  autoRetries Int @default(0) @map("auto_retries")
+
+  // Set when a retry was decided but the droplet was busy with another job (its
+  // HTTP 409 lock), cleared when the retry starts. Vercel cannot sleep between
+  // requests, so "shortly" has to be a row somebody sweeps.
+  autoRetryAt DateTime? @map("auto_retry_at")
+
+  // Whose dealer session ran the last submit. A submit runs under the session of
+  // whoever pressed the button — a superadmin submits another agent's draft
+  // under their OWN session — and an automatic retry has none to read.
+  lastSubmitUserId String? @map("last_submit_user_id")
+
   jobId   String?   @map("job_id") // Flask job id for the in-flight run
   stage   String? // last stage key seen (e.g. checking_address)
   stageAt DateTime? @map("stage_at") // when `stage` last changed — staleness check
@@ -183,6 +200,12 @@ model BatchRun {
   // Set when the batch could not even be started (droplet unreachable), so a
   // finished-with-nothing-run row explains itself instead of looking empty.
   errorMessage   String? @map("error_message")
+
+  // The batch this one is retrying, when it was started automatically for the
+  // failed members of an earlier run. A batch member cannot retry in place —
+  // its own batch holds the droplet's single browser lock for the whole run —
+  // so the retry is a new batch, and this is what ties the two together.
+  retryOfBatchId String? @map("retry_of_batch_id")
 
   startedAt  DateTime  @default(now()) @map("started_at")
   finishedAt DateTime? @map("finished_at")

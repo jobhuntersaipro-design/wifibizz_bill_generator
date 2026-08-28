@@ -153,14 +153,24 @@ function detailRows(d: OrderCaseDetails | undefined, opts: { address?: boolean }
  * an unmapped failure must never produce an empty box, which reads as "no
  * reason given" when the reason was right there.
  */
-function problemBox(o: Pick<OrderOutcome, "errorCode" | "errorMessage">): string {
+function problemBox(
+  o: Pick<OrderOutcome, "errorCode" | "errorMessage" | "tries">,
+): string {
   const copy = submitErrorCopy(o.errorCode);
   const message = shortErrorMessage(o.errorMessage);
   if (!copy && !message) return "";
+  // Said only when it happened. `tries` is absent on results frozen before
+  // retries existed, and "1 try" on a single run is noise — a reader learns
+  // nothing from being told the obvious.
+  const tries =
+    o.tries && o.tries > 1
+      ? `<div style="margin-top:8px;font-size:13px;color:${MUTED};">Tried ${o.tries} times automatically before giving up.</div>`
+      : "";
   return `<div style="margin-top:12px;padding:12px 14px;background:${SURFACE};border:1px solid ${LINE};border-radius:8px;">
       ${copy ? `<div style="font-size:13px;font-weight:600;color:${INK};">${esc(copy.title)}</div>` : ""}
       ${message ? `<div style="margin-top:4px;font-size:13px;line-height:1.5;color:${INK};word-break:break-word;">${esc(message)}</div>` : ""}
       ${copy ? `<div style="margin-top:8px;font-size:13px;color:${MUTED};">${esc(copy.fix)}</div>` : ""}
+      ${tries}
     </div>`;
 }
 

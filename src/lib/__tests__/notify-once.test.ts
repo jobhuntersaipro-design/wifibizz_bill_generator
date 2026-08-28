@@ -82,6 +82,18 @@ describe("notifyOrderResult", () => {
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
+  it("sends nothing while an automatic retry is still owed", async () => {
+    // The order looks finished — it IS `failed` — but another run is coming, so
+    // the result would be obsolete before it was read. Guarded at the source as
+    // well as at the caller, so no future caller can mail a result that is
+    // about to change.
+    orderFindUnique.mockResolvedValue({ ...ORDER, autoRetryAt: new Date() });
+    await notifyOrderResult("ord_1");
+    expect(sendEmail).not.toHaveBeenCalled();
+    // And the claim is never taken, so the eventual email is still owed.
+    expect(orderUpdateMany).not.toHaveBeenCalled();
+  });
+
   it("sends to the notification address, not the login address", async () => {
     await notifyOrderResult("ord_1");
     expect(sendEmail.mock.calls[0][0]).toMatchObject({ to: "ops@example.com" });

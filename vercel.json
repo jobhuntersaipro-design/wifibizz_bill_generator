@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/retry-sweep",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}

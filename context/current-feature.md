@@ -1,5 +1,55 @@
 # Current Feature
 
+## Auto-Retry a Failed Submit, and Show the Try Count
+
+**Status:** CODE COMPLETE, VERIFIED AGAINST A STUB (branch `feature/auto-retry-failed-submits`, not yet committed). Vercel-only — no scraper change. **Needs `prisma migrate deploy`** (new `orders.auto_retries`, `batch_runs.retry_of_batch_id`).
+
+A submit that dies on a network blip stopped dead and waited for a human to press Resubmit, and the Orders table showed no try count at all — the attempt number was buried in the row's `…` menu. The trigger was order `2608000122816567`: *"Order 2608000122816567 was created but the flow didn't finish: nonext. Verify in the portal before retrying."* One failed click at the Payment step ended a run the portal had already minted an order for.
+
+**The fact that shapes the whole feature: the portal mints the Customer Order Number early**, before the device is even selectable. So a failure is one of two different things — died before the Order click (`orderId` null, status `failed`, nothing exists at Unifi) or died after (`orderId` set, status **`warning`**, a real order is live). `order-submit.ts:373-390` writes `warning` rather than `failed` for the second case precisely so the ordinary Submit button stays disabled behind `ResubmitDialog`'s "this creates a second order" warning.
+
+**The user's call, taken twice after being shown the cost: retry both.** So this retries post-mint failures, and its most important safety work is making every duplicate order number findable afterwards. A submit that strands three times leaves three live Unifi orders, each with its own advance payment, and two of them need voiding by hand.
+
+### Decisions taken with the user
+
+- **`failed` and `warning` both retry** — failed-only would never have covered the reported case.
+- **Transient only**, by a **deny-list**, not an allow-list: an unrecognised code **retries**. Only 8 of ~55 scraper codes have copy, and the plain network timeout the user described arrives unclassified or as `error_kind: portal_timeout`/`infra`. A conservative allow-list would have missed exactly the case this was built for.
+- **Server-side**, off the `order_finished` webhook, so a closed tab does not abandon the retry.
+- **Immediately**, as soon as the droplet's single browser lock frees.
+- **One email**, after the last try, saying how many tries it took.
+- **Try count on the status pill** (`Failed · 3 tries`), no new column — the table already scrolls horizontally at 1280px.
+
+### How it is built
+
+`retry-policy.ts` is pure and holds the whole decision — deny-list, budget, and a `MAX_TOTAL_ATTEMPTS` backstop in case a bug ever re-arms the counter. `order-retry.ts` owns the side effects, and **claims each try with a conditional update** (`WHERE autoRetries = <the value it read>`): the webhook and a page load can race, and two runs would mean two real orders.
+
+**`startSubmit` could not be reused as it stood** — it reads `auth()` and sends `user_key: session.user.id`, and a retry has no session. Everything below the ownership check moved into `src/lib/order-start.ts` (deliberately NOT a `"use server"` file, so it is not POST-able), and the single submit, the batch runner and the retry now share one starter. That is also the one place the budget resets, so "a person pressing Submit hands back a full budget" cannot be forgotten by a new caller. A new `orders.last_submit_user_id` records whose session ran the submit, because a superadmin submits another agent's draft under their OWN portal session — retrying as the draft's owner would run as someone with no session at all.
+
+**A 409 does not cost a try.** The droplet drives one browser and refuses an overlapping job; that is not this order's failure, so the try is given back and `auto_retry_at` is set. `sweepPendingRetries` comes back for it, from the Orders page and from a new `/api/cron/retry-sweep` (every 5 minutes, `vercel.json`) — without the cron, a deferred retry would only fire when a human opened the app, which is the dependency this feature exists to remove.
+
+**The `erf_not_downloaded` landmine.** `applyResult` files a submit with no e-RF as a `warning`, and its own comment notes that with `ORDER_ENTRY_DO_PAY` unset **that is every successful run**. Left retryable, this feature would have re-run completed orders and minted duplicates for them. It is on the deny-list, and a test pins it.
+
+**Batches differ in one way, deliberately.** A member cannot retry while its own batch holds the browser, so retries start after `batch_finished`. But the batch summary is still sent for that run rather than deferred: nothing fires a second `batch_finished`, so waiting would risk sending nothing at all. Each retried member then mails its own final result.
+
+### Prerequisite
+
+The retry hangs off the `order_finished` webhook, and **that webhook may not be firing**: `BIZZFLOW_WEBHOOK_URL` was never set on the droplet (2026-08-22, still open), and `post_webhook` returns `False` immediately when it is unset. Until it is wired, retries only happen when someone loads the Orders page (the `reconcileStaleSubmits` fallback), and no notification email sends either. `CRON_SECRET` also has to be set on Vercel or the sweep route refuses every call with a 401.
+
+### Verified
+
+**Against a stub droplet, never the real portal** — the point is watching duplicate orders get created, which is not something to rehearse on Unifi. The stub answers `/orders`, fails the job the way a blip does, and posts the real `order_finished` webhook back.
+
+- **The chain:** one webhook produced attempts 2, 3 and 4 — exactly three automatic retries — then stopped with `retry: "no"`. The history reads *Automatic retry 1 of 3 … 2 of 3 … 3 of 3*, then *No automatic retry — all 3 automatic retries have been used*, and `notified_at` was claimed only at the end, so one email went out rather than four.
+- **Terminal:** `device_out_of_stock` stopped at the first failure with `auto_retries` still 0 and *device_out_of_stock will not fix itself* in the trail.
+- **Stranded (the reported case):** a `warning` carrying `2608000122816567` retried, and **every attempt's portal order number is named in the history** before the next run overwrote `Order.orderId` — which is the only way to find the duplicates afterwards.
+- **Busy droplet:** a 409 returned `deferred`, left `auto_retries` at 0, set `auto_retry_at`, and sent no email. `GET /api/cron/retry-sweep` then started it (401 without the bearer token, `{"started":1}` with it) and the chain finished.
+- **Session expired:** refused a retry outright, as intended — found by accident when a faked session failed the real check.
+- **The pill:** `Failed · 5 tries` on the failed row; nothing on Submitted, Cancelled or a first attempt. Renders in the mobile card too (both share `StatusBadge`), no horizontal overflow at 375px or 1218px.
+
+588 vitest passing (36 new; the 4 failing files are the Playwright e2e specs vitest collects, pre-existing), `npm run build`, lint identical to baseline (9642), `tsc` unchanged. The dev database was restored afterwards — ORD-0002 is a draft again and the dealer sessions are back as they were.
+
+**NOT verified:** anything against the live portal — no real transient failure has been retried, and no duplicate order has actually been minted; the batch retry round, which needs a real multi-order batch; and the Vercel cron, which cannot run locally.
+
 ## Appointment Lead Time — Per Order, Set by the Agent, Admin Setting Removed
 
 **Status:** DEPLOYED TO PRODUCTION 2026-08-28 (merged to main as `ae6e329`, Vercel deploy `9xk9c8419`, migration applied to the production Neon branch). Vercel-only — no scraper change. **Needs `prisma migrate deploy` on production** (new `orders.appointment_lead_hours`, and `app_settings` is DROPPED).

@@ -56,12 +56,17 @@ export async function notifyOrderResult(orderId: string): Promise<void> {
       orderId: true, errorCode: true, errorMessage: true,
       idType: true, idNumber: true, mobilePrefix: true, mobile: true,
       email: true, street: true, offerName: true, deviceName: true,
-      installationDate: true,
+      installationDate: true, attempt: true, autoRetryAt: true,
       user: { select: { email: true, notificationEmail: true } },
     },
   });
   if (!order) return;
   if (!TERMINAL.has(order.status)) return;
+  // An automatic retry is owed on this order — it is not finished, whatever its
+  // status says right now. Belt and braces beside the caller's own gate: this
+  // makes "an email is owed" and "a retry is owed" mutually exclusive at the
+  // source, so a future caller cannot mail a result that is about to change.
+  if (order.autoRetryAt) return;
 
   const to = resolveRecipient(order.user);
   if (!to) {
@@ -81,6 +86,7 @@ export async function notifyOrderResult(orderId: string): Promise<void> {
     errorCode: order.errorCode,
     errorMessage: order.errorMessage,
     details: caseDetailsFrom(order),
+    tries: order.attempt,
   };
   const { subject, html } = singleResultEmail(outcome);
   const res = await sendEmail({ to, subject, html });
