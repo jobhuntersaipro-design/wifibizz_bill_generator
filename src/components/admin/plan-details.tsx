@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   adminListPlans,
   adminSetPlanPublished,
+  adminDeletePlan,
   adminAddOfferGroup,
   adminDeleteOfferGroup,
   adminAddOfferItem,
@@ -212,11 +213,87 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
   );
 }
 
+/**
+ * Removing a plan is confirmed rather than immediate: it takes the plan out of
+ * the admin list and, if it was published, out of every agent's package picker.
+ */
+function RemovePlanModal({
+  plan,
+  onClose,
+  onRemoved,
+}: {
+  plan: PlanView;
+  onClose: () => void;
+  onRemoved: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  async function remove() {
+    setBusy(true);
+    const res = await adminDeletePlan(plan.id);
+    setBusy(false);
+    if (!res.success) {
+      toast.error(res.error ?? "Couldn't remove that plan.");
+      return;
+    }
+    toast.success("Plan removed", { description: plan.name });
+    onRemoved();
+    onClose();
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm px-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Remove plan"
+    >
+      <div className="w-full max-w-md bg-white rounded-lg border border-[#E3E8EF] shadow-xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-[#E3E8EF]">
+          <h2 className="text-sm font-semibold text-[#0A2540]">Remove plan</h2>
+        </div>
+        <div className="p-6 space-y-4">
+          <p className="text-sm text-[#697386] leading-relaxed">
+            Remove <strong className="text-[#0A2540]">{plan.name}</strong> from this page?
+          </p>
+          <p className="text-[12px] text-[#697386] leading-relaxed">
+            {plan.published
+              ? "It is published, so agents will no longer be able to select it."
+              : "It is not published, so no agent can select it today."}{" "}
+            {plan.offerGroups.length > 0
+              ? `Its ${plan.offerGroups.length} offer group${plan.offerGroups.length === 1 ? "" : "s"} stay recorded, so it can be restored.`
+              : "Nothing is recorded against it."}{" "}
+            Orders already placed on this plan are not affected.
+          </p>
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-[#E3E8EF] px-3 py-2 text-[12px] font-medium text-[#425466] hover:border-[#635BFF] transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={remove}
+              disabled={busy}
+              className="rounded-lg bg-[#DF1B41] px-3 py-2 text-[12px] font-semibold text-white hover:bg-[#DF1B41]/90 disabled:opacity-50 transition-colors cursor-pointer"
+            >
+              {busy ? "Removing…" : "Remove plan"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PlanRow({ plan, onChanged }: { plan: PlanView; onChanged: () => void }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [mandatory, setMandatory] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   const mandatoryCount = plan.offerGroups.filter((g) => g.mandatory).length;
 
@@ -288,7 +365,26 @@ function PlanRow({ plan, onChanged }: { plan: PlanView; onChanged: () => void })
         >
           {plan.published ? "Unpublish" : "Publish"}
         </button>
+        <button
+          type="button"
+          onClick={() => setConfirmRemove(true)}
+          aria-label={`Remove plan ${plan.name}`}
+          title="Remove this plan"
+          className="shrink-0 rounded-md border border-[#E3E8EF] p-1.5 text-[#697386] hover:border-[#DF1B41] hover:text-[#DF1B41] transition-colors cursor-pointer"
+        >
+          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6" />
+          </svg>
+        </button>
       </div>
+
+      {confirmRemove && (
+        <RemovePlanModal
+          plan={plan}
+          onClose={() => setConfirmRemove(false)}
+          onRemoved={onChanged}
+        />
+      )}
 
       {plan.offerGroups.length > 0 && (
         <ul className="mt-2 flex flex-col gap-1.5">
@@ -360,6 +456,76 @@ function PlanRow({ plan, onChanged }: { plan: PlanView; onChanged: () => void })
   );
 }
 
+/**
+ * One publish-state section — Published or Not published — with the portal's own
+ * offer categories as sub-headings inside it.
+ *
+ * Renders nothing when empty: with a search or the "Unpublished only" filter on,
+ * an empty section is a heading that answers a question nobody asked.
+ */
+function StateSection({
+  title,
+  subtitle,
+  tone,
+  plans,
+  onChanged,
+}: {
+  title: string;
+  subtitle: string;
+  tone: "published" | "unpublished";
+  plans: PlanView[];
+  onChanged: () => void;
+}) {
+  if (plans.length === 0) return null;
+
+  const byCategory = new Map<string, PlanView[]>();
+  for (const p of plans) {
+    const list = byCategory.get(p.category);
+    if (list) list.push(p);
+    else byCategory.set(p.category, [p]);
+  }
+
+  return (
+    <section className="rounded-lg border border-[#E3E8EF] bg-white overflow-hidden">
+      <header
+        className={`flex flex-wrap items-baseline gap-x-2.5 gap-y-1 border-b px-4 py-3 ${
+          tone === "published"
+            ? "border-green-200 bg-green-50"
+            : "border-[#E3E8EF] bg-[#F6F9FC]"
+        }`}
+      >
+        <h2
+          className={`text-[13px] font-semibold ${
+            tone === "published" ? "text-green-800" : "text-[#0A2540]"
+          }`}
+        >
+          {title}
+        </h2>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums ${
+            tone === "published" ? "bg-green-100 text-green-700" : "bg-[#E3E8EF] text-[#425466]"
+          }`}
+        >
+          {plans.length}
+        </span>
+        <span className="text-[11px] text-[#697386]">{subtitle}</span>
+      </header>
+
+      {[...byCategory.entries()].map(([category, list]) => (
+        <div key={category}>
+          <h3 className="border-b border-[#E3E8EF] bg-white px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-[#8792A2]">
+            {category}
+            <span className="ml-2 tabular-nums text-[#B4BCC8]">{list.length}</span>
+          </h3>
+          {list.map((p) => (
+            <PlanRow key={p.id} plan={p} onChanged={onChanged} />
+          ))}
+        </div>
+      ))}
+    </section>
+  );
+}
+
 export function PlanDetails() {
   const [plans, setPlans] = useState<PlanView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -408,14 +574,11 @@ export function PlanDetails() {
     return !q || p.name.toLowerCase().includes(q);
   });
 
-  // Grouped by the portal's own offer category, which is how the plans are
-  // presented in the dealer portal itself.
-  const byCategory = new Map<string, PlanView[]>();
-  for (const p of visible) {
-    const list = byCategory.get(p.category);
-    if (list) list.push(p);
-    else byCategory.set(p.category, [p]);
-  }
+  // Publish state first, portal category second: the admin's question is "what
+  // are agents selling, and what still needs work", and the categories only say
+  // where a plan sits in the portal's own grid.
+  const published = visible.filter((p) => p.published);
+  const unpublished = visible.filter((p) => !p.published);
 
   const publishedCount = plans.filter((p) => p.published).length;
 
@@ -444,17 +607,20 @@ export function PlanDetails() {
         </span>
       </div>
 
-      {[...byCategory.entries()].map(([category, list]) => (
-        <section key={category} className="rounded-lg border border-[#E3E8EF] bg-white overflow-hidden">
-          <h2 className="border-b border-[#E3E8EF] bg-[#F6F9FC] px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#697386]">
-            {category}
-            <span className="ml-2 tabular-nums text-[#8792A2]">{list.length}</span>
-          </h2>
-          {list.map((p) => (
-            <PlanRow key={p.id} plan={p} onChanged={reload} />
-          ))}
-        </section>
-      ))}
+      <StateSection
+        title="Published"
+        subtitle="Agents can select these"
+        tone="published"
+        plans={published}
+        onChanged={reload}
+      />
+      <StateSection
+        title="Not published"
+        subtitle="Hidden from agents until published"
+        tone="unpublished"
+        plans={unpublished}
+        onChanged={reload}
+      />
 
       {visible.length === 0 && (
         <div className="rounded-lg border border-dashed border-[#E3E8EF] bg-white p-10 text-center">
