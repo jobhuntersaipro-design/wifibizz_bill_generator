@@ -1,103 +1,91 @@
 /**
- * The appointment booking policy — shape, defaults and validation.
+ * The appointment lead time — the one thing the agent decides about booking.
  *
- * Shared by the admin Settings form, the server action that saves it, and the
- * payload that carries it to the scraper, so all three agree on what a valid
- * policy is. Pure: no Prisma, no `next/*`, so it can be unit tested directly.
+ * Shared by the order form, the zod schema that saves it and the payload that
+ * carries it to the scraper, so all three agree on what a valid lead time is.
+ * Pure: no Prisma, no `next/*`, so it can be unit tested directly.
+ *
+ * This used to be a global policy an admin set for everyone, with a second
+ * `fixed_date` strategy for watched test runs. Both are gone: the lead time is
+ * now the agent's own choice per order, and a strategy that fails the order
+ * outright when a named day has no slots is not one to hand to every agent.
+ * The payload still names the strategy explicitly so the scraper — which still
+ * understands both — needs no change.
  */
 
-export const APPOINTMENT_STRATEGIES = ["first_available", "fixed_date"] as const;
-export type AppointmentStrategy = (typeof APPOINTMENT_STRATEGIES)[number];
+/** What shipped before any of this was configurable. */
+export const DEFAULT_LEAD_HOURS = 12;
 
-export interface AppointmentPolicy {
-  strategy: AppointmentStrategy;
-  /**
-   * Earliest slot allowed, measured from submit time. Applies to
-   * `first_available` only — a fixed date is an explicit override of the policy,
-   * not something the lead time gets to veto.
-   */
-  leadHours: number;
-  /** "YYYY-MM-DD", or null. Required when strategy is `fixed_date`. */
-  fixedDate: string | null;
-}
-
-export const DEFAULT_APPOINTMENT_POLICY: AppointmentPolicy = {
-  strategy: "first_available",
-  leadHours: 12,
-  fixedDate: null,
-};
-
-/** Lead times outside this are a typo, not a policy. */
+/** Lead times outside this are a typo, not a choice. */
 export const MIN_LEAD_HOURS = 0;
 export const MAX_LEAD_HOURS = 24 * 30;
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-/** Local calendar date as "YYYY-MM-DD" — NOT toISOString(), which is UTC and so
- *  rolls the date over for anyone east of Greenwich. Malaysia is UTC+8, where
- *  that would reject today as "past" for the whole working day. */
-export function toDateKey(d: Date): string {
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+/** The shape the scraper reads. `strategy`/`fixedDate` are pinned here rather
+ *  than chosen anywhere, so nothing in the app can send a fixed date again. */
+export interface AppointmentPolicy {
+  strategy: "first_available";
+  leadHours: number;
+  fixedDate: null;
 }
 
-export type PolicyValidation =
-  | { ok: true; policy: AppointmentPolicy }
-  | { ok: false; field: "strategy" | "leadHours" | "fixedDate"; error: string };
+export type LeadHoursValidation =
+  | { ok: true; leadHours: number }
+  | { ok: false; error: string };
 
 /**
- * Validate a policy as entered in admin.
+ * Validate a lead time as typed into the order form.
  *
- * `today` is injected so the "no past dates" rule is testable without freezing
- * the clock, and so the check happens against the admin's own calendar day.
+ * An empty string is NOT valid here — the form always sends a number, and a
+ * blank arriving at the boundary means something went wrong rather than "use
+ * the default". Absence is expressed by omitting the field entirely.
  */
-export function validateAppointmentPolicy(
-  input: { strategy?: string; leadHours?: number | string; fixedDate?: string | null },
-  today: Date = new Date(),
-): PolicyValidation {
-  const strategy = String(input.strategy ?? "").trim() as AppointmentStrategy;
-  if (!APPOINTMENT_STRATEGIES.includes(strategy)) {
-    return { ok: false, field: "strategy", error: "Choose how the slot is picked." };
+export function validateLeadHours(input: number | string): LeadHoursValidation {
+  const trimmed = typeof input === "string" ? input.trim() : input;
+  if (trimmed === "") {
+    return { ok: false, error: "Enter how many hours ahead the slot must be." };
   }
-
-  const leadHours = Number(input.leadHours);
-  if (!Number.isInteger(leadHours) || leadHours < MIN_LEAD_HOURS || leadHours > MAX_LEAD_HOURS) {
+  const leadHours = Number(trimmed);
+  if (
+    !Number.isInteger(leadHours) ||
+    leadHours < MIN_LEAD_HOURS ||
+    leadHours > MAX_LEAD_HOURS
+  ) {
     return {
       ok: false,
-      field: "leadHours",
       error: `Lead time must be a whole number of hours between ${MIN_LEAD_HOURS} and ${MAX_LEAD_HOURS}.`,
     };
   }
+  return { ok: true, leadHours };
+}
 
-  const fixedDate = (input.fixedDate ?? "").trim() || null;
+/**
+ * The lead time an order actually submits with.
+ *
+ * Null is a real state, not a bug: every draft written before this column
+ * existed has no lead time, and so does anything `scripts/bulk_create_order`
+ * writes. Resolved in one place so the sentence the form prints and the number
+ * the scraper receives cannot disagree. A stored value outside the range is
+ * treated the same way as absent — a submit must never fail on it.
+ */
+export function leadHoursOrDefault(stored: number | null | undefined): number {
+  if (stored === null || stored === undefined) return DEFAULT_LEAD_HOURS;
+  const parsed = validateLeadHours(stored);
+  return parsed.ok ? parsed.leadHours : DEFAULT_LEAD_HOURS;
+}
 
-  if (strategy === "fixed_date") {
-    if (!fixedDate) {
-      return { ok: false, field: "fixedDate", error: "Pick the date to book." };
-    }
-    if (!DATE_RE.test(fixedDate) || Number.isNaN(Date.parse(fixedDate))) {
-      return { ok: false, field: "fixedDate", error: "Enter the date as YYYY-MM-DD." };
-    }
-    // Refused here rather than at submit time: a past fixed date fails every
-    // order, one stranded order at a time, and the person who could fix it
-    // never sees the error.
-    if (fixedDate < toDateKey(today)) {
-      return { ok: false, field: "fixedDate", error: "That date has already passed." };
-    }
-  }
-
+/** The policy object the scraper payload carries. */
+export function appointmentPolicyFor(stored: number | null | undefined): AppointmentPolicy {
   return {
-    ok: true,
-    // A stale date left behind by a strategy switch is dropped rather than
-    // stored, so nothing can later read a fixed date the policy doesn't use.
-    policy: { strategy, leadHours, fixedDate: strategy === "fixed_date" ? fixedDate : null },
+    strategy: "first_available",
+    leadHours: leadHoursOrDefault(stored),
+    fixedDate: null,
   };
 }
 
-/** Sentence describing the policy, for the admin form and the drafts UI. */
-export function describeAppointmentPolicy(p: AppointmentPolicy): string {
-  if (p.strategy === "fixed_date" && p.fixedDate) {
-    return `Books the earliest slot on ${p.fixedDate}. Submits fail if that day has no slots.`;
+/** Sentence describing the lead time, for the order form and the order detail. */
+export function describeLeadTime(leadHours: number): string {
+  if (leadHours === 0) {
+    return "Books the earliest slot the portal offers, however soon it is.";
   }
-  return `Books the earliest slot at least ${p.leadHours} hour${p.leadHours === 1 ? "" : "s"} from submit time.`;
+  return `Books the earliest slot at least ${leadHours} hour${leadHours === 1 ? "" : "s"} from submit time.`;
 }

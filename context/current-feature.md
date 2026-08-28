@@ -1,5 +1,32 @@
 # Current Feature
 
+## Appointment Lead Time — Per Order, Set by the Agent, Admin Setting Removed
+
+**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/per-order-appointment-lead-time`, not yet committed). Vercel-only — no scraper change. **Needs `prisma migrate deploy` on production** (new `orders.appointment_lead_hours`, and `app_settings` is DROPPED).
+
+The appointment booking policy was one global row (`app_settings`, id = 1) edited at `/admin/settings` and read once per job — so one admin's lead time applied to every agent's every order. The user's ask (2026-08-28): make it the agent's own, on the New Order form, visible to them when they submit.
+
+**Three decisions taken with the user:**
+
+1. **Per order, not per user.** The value lives on the `Order` row and is set on the form the agent is already filling in, so two customers can have different lead times without the agent changing a setting between orders.
+2. **Lead time only — `fixed_date` is gone from the app.** It was documented as a watched-test-run tool ("orders fail if that day has no slots"), and that is not a risk to hand to every agent. `AppointmentPolicy` in the app collapses to a lead time; the payload still names `strategy: "first_available"` explicitly, so the scraper's `appointment_policy.normalize_policy` is untouched and no droplet deploy is needed.
+3. **The admin page and the global row go entirely** — `/admin/settings`, its sidebar link, `AppointmentSettings`, `src/actions/admin-settings.ts` and the `AppSetting` model are deleted, and the migration drops the table. The fallback is the hardcoded `DEFAULT_LEAD_HOURS`, which is the behaviour that shipped before the setting existed.
+
+**The column is nullable, deliberately.** Every draft written before this — including everything from `scripts/bulk_create_order` — has no lead time, and a `DEFAULT 12` would claim the agent chose 12. Null reads as "not set" and resolves to the default at payload-build time, in one place (`leadHoursOrDefault`), so the sentence the form prints and the number the scraper receives cannot disagree.
+
+**Plan:**
+1. Migration `20260828140000_order_appointment_lead_hours` (hand-authored + `migrate deploy` — `migrate dev`'s shadow DB fails here): add `orders.appointment_lead_hours INTEGER`, drop `app_settings`. Prisma schema follows.
+2. `src/lib/appointment-settings.ts` collapses to lead-hours-only: `DEFAULT_LEAD_HOURS`, `validateLeadHours`, `describeLeadTime`, `leadHoursOrDefault`, `appointmentPolicyFor`.
+3. Delete the admin page, sidebar link, component and action.
+4. `order.ts` — `appointmentLeadHours` in `orderInputSchema`/`OrderInput`, persisted on save; `buildOrderJobRequest` builds the policy from the order itself, so the single submit and the batch runner read the same field instead of a shared row.
+5. `OrderForm` — an Appointment card with the lead-time input and the sentence it produces; `OrderListItem` + the order detail Details tab echo it read-only.
+6. Rewrite `appointment-settings.test.ts`; `npm run build`; verify in the browser.
+
+**Verified in the browser** against the dev server on the real signed-in session: the Appointment card renders between Package and Additional Remarks with the box pre-filled at 12; the sentence under it is driven by the same validator the save uses, so all four readings were checked live — `50` → *"at least 50 hours"*, `1` → *"1 hour"* (singular), `0` → *"however soon it is"* rather than "0 hours", and an emptied box → the error, not a silent default. Round trip on ORD-0002: the draft (written before the column existed) opened showing `12`, saving `50` wrote `appointment_lead_hours = 50` to Neon, the detail tab then read **50 hours** where it had read **12 hours (default)** a moment before, and re-opening the form showed 50. `/admin/settings` 404s and the admin sidebar is Users / Plan Details only. 375px: no horizontal overflow, 40px input. The test edit was reverted — ORD-0002 is back to NULL. Migration applied to the dev branch (column present, `app_settings` gone). 552 vitest passing (the 4 failing files are the Playwright e2e specs vitest collects, pre-existing), `npm run build`, lint identical to baseline (9642), `tsc` unchanged (the same two pre-existing errors).
+
+**NOT verified:** a live submit — nothing has yet carried a per-order lead time to the portal, so that the scraper reads the payload's `appointment.leadHours` unchanged rests on the payload shape being byte-identical to what the global policy sent (`strategy` and `fixedDate` are still named, `fixedDate` always null); and production, where the migration DROPS `app_settings` and has only been applied to dev.
+
+
 ## Email Notifications — Two Outcomes, and a Mark on Every Subject
 
 **Status:** CODE COMPLETE, RENDERED AND INSPECTED (branch `feature/email-two-outcomes`, not yet committed). Vercel-only — no scraper change, no migration.
