@@ -22,7 +22,11 @@ import { reconcileStaleSubmits } from "@/lib/order-submit";
 import { fillMissingInstallationDates } from "@/lib/installation-date";
 import { batchOrderIds, finishBatch, reconcileBatch } from "@/lib/batch-submit";
 import { mandatoryGroupsFor } from "@/actions/plans";
-import { getAppointmentPolicy } from "@/actions/admin-settings";
+import {
+  MAX_LEAD_HOURS,
+  MIN_LEAD_HOURS,
+  appointmentPolicyFor,
+} from "@/lib/appointment-settings";
 import {
   nextOrderReference,
   recordEvent,
@@ -205,6 +209,17 @@ const orderInputSchema = z.object({
   deviceCode: z.string().max(40).optional(),
   deviceName: z.string().max(255).optional(),
   remarks: z.string().max(2000).optional(),
+  // How far ahead the installation slot must be, in hours. The agent's choice,
+  // per order — it was a single global setting an admin kept for everyone.
+  // Optional because a draft may predate the field; absent resolves to
+  // DEFAULT_LEAD_HOURS when the job payload is built, never here, so "not set"
+  // stays distinguishable from "the agent typed 12".
+  appointmentLeadHours: z
+    .number()
+    .int()
+    .min(MIN_LEAD_HOURS)
+    .max(MAX_LEAD_HOURS)
+    .optional(),
   // The ID copy is required: the portal's Personal Customer form marks it so, and
   // a draft without one dies mid-submit with the form filled and nothing saying
   // why. Enforced here rather than only in the form because Server Actions are
@@ -253,6 +268,7 @@ export interface OrderInput {
   deviceCode?: string;
   deviceName?: string;
   remarks?: string;
+  appointmentLeadHours?: number;
   documents?: OrderDocument[];
 }
 
@@ -378,6 +394,7 @@ export async function saveOrder(rawInput: OrderInput) {
     deviceCode: input.deviceCode || null,
     deviceName: input.deviceName || null,
     remarks: input.remarks || null,
+    appointmentLeadHours: input.appointmentLeadHours ?? null,
     documents: (input.documents ?? []).slice(0, MAX_DOCS) as unknown as Prisma.InputJsonValue,
   };
 
@@ -468,6 +485,7 @@ function toOrderListItem(
     deviceName: o.deviceName,
     deviceCode: o.deviceCode,
     remarks: o.remarks,
+    appointmentLeadHours: o.appointmentLeadHours,
     attempt: o.attempt,
     screenshotUrl: o.screenshotUrl,
     // `o.installationDate` is what was already stored; an override carries
@@ -674,11 +692,14 @@ function buildOrderJobRequest(
   order: Prisma.OrderGetPayload<object>,
   attempt: number,
   offerGroups: Awaited<ReturnType<typeof mandatoryGroupsFor>>,
-  appointment: Awaited<ReturnType<typeof getAppointmentPolicy>>,
 ) {
   return {
     offerGroups,
-    appointment,
+    // Built from the order itself, so the single submit and the batch runner
+    // cannot book different slots for the same draft. `strategy`/`fixedDate`
+    // are pinned inside appointmentPolicyFor — the scraper still understands a
+    // fixed date, but nothing in the app can send one.
+    appointment: appointmentPolicyFor(order.appointmentLeadHours),
     id: order.id,
     idType: order.idType,
     idNumber: order.idNumber,
@@ -806,13 +827,8 @@ export async function startSubmit(id: string) {
   // expands these groups by name instead of guessing at the portal's red "*".
   const offerGroups = await mandatoryGroupsFor(order.offerName);
 
-  // The admin's appointment booking policy, carried per-job. In the payload
-  // rather than in scraper config so changing it is a settings change, not a
-  // droplet redeploy — which is the whole reason a fixed test date is workable.
-  const appointment = await getAppointmentPolicy();
-
   // Send the raw order; the Flask side maps it to a portal payload.
-  const reqOrder = buildOrderJobRequest(order, attempt, offerGroups, appointment);
+  const reqOrder = buildOrderJobRequest(order, attempt, offerGroups);
 
   async function fail(message: string) {
     await prisma.order.update({
@@ -989,8 +1005,6 @@ export async function startBatchSubmit(ids: string[]) {
     return { success: false as const, error: SESSION_EXPIRED_MSG };
   }
 
-  // Read once for the batch — the policy is per-install, not per-order.
-  const appointment = await getAppointmentPolicy();
   // Cached per offer name: a batch of ten orders on one package would otherwise
   // make ten identical lookups.
   const groupCache = new Map<string, Awaited<ReturnType<typeof mandatoryGroupsFor>>>();
@@ -1028,7 +1042,7 @@ export async function startBatchSubmit(ids: string[]) {
       orderId: order.id, attempt, status: "submitting", stage: "validating_draft",
       message: `Submit started (batch of ${targets.length}).`,
     });
-    jobs.push({ jobId, order: buildOrderJobRequest(order, attempt, groupCache.get(key)!, appointment) });
+    jobs.push({ jobId, order: buildOrderJobRequest(order, attempt, groupCache.get(key)!) });
   }
 
   /** Put every member back where it was and close the batch out in words. */

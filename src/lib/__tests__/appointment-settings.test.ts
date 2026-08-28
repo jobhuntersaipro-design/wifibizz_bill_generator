@@ -1,125 +1,86 @@
 import { describe, it, expect } from "vitest";
 import {
-  DEFAULT_APPOINTMENT_POLICY,
+  DEFAULT_LEAD_HOURS,
   MAX_LEAD_HOURS,
-  describeAppointmentPolicy,
-  toDateKey,
-  validateAppointmentPolicy,
+  MIN_LEAD_HOURS,
+  appointmentPolicyFor,
+  describeLeadTime,
+  leadHoursOrDefault,
+  validateLeadHours,
 } from "@/lib/appointment-settings";
 
-const TODAY = new Date("2026-08-17T09:00:00+08:00");
-
-describe("validateAppointmentPolicy", () => {
-  it("accepts the shipped default", () => {
-    const r = validateAppointmentPolicy(DEFAULT_APPOINTMENT_POLICY, TODAY);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.policy).toEqual({ strategy: "first_available", leadHours: 12, fixedDate: null });
+describe("validateLeadHours", () => {
+  it("accepts a whole number inside the range, from a string or a number", () => {
+    expect(validateLeadHours("24")).toEqual({ ok: true, leadHours: 24 });
+    expect(validateLeadHours(24)).toEqual({ ok: true, leadHours: 24 });
+    expect(validateLeadHours(" 6 ")).toEqual({ ok: true, leadHours: 6 });
   });
 
-  it("accepts a future fixed date", () => {
-    const r = validateAppointmentPolicy(
-      { strategy: "fixed_date", leadHours: 12, fixedDate: "2026-08-31" },
-      TODAY,
-    );
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.policy.fixedDate).toBe("2026-08-31");
+  it("accepts both ends of the range", () => {
+    expect(validateLeadHours(MIN_LEAD_HOURS).ok).toBe(true);
+    expect(validateLeadHours(MAX_LEAD_HOURS).ok).toBe(true);
   });
 
-  it("accepts today as a fixed date — the day has not passed yet", () => {
-    const r = validateAppointmentPolicy(
-      { strategy: "fixed_date", leadHours: 12, fixedDate: "2026-08-17" },
-      TODAY,
-    );
-    expect(r.ok).toBe(true);
+  it("refuses anything outside it", () => {
+    expect(validateLeadHours(-1).ok).toBe(false);
+    expect(validateLeadHours(MAX_LEAD_HOURS + 1).ok).toBe(false);
   });
 
-  it("refuses a past fixed date", () => {
-    const r = validateAppointmentPolicy(
-      { strategy: "fixed_date", leadHours: 12, fixedDate: "2026-08-16" },
-      TODAY,
-    );
-    expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.field).toBe("fixedDate");
-    expect(r.error).toMatch(/passed/i);
+  it("refuses a fraction — half an hour is a typo, not a lead time", () => {
+    expect(validateLeadHours("12.5").ok).toBe(false);
   });
 
-  it("refuses fixed_date with no date", () => {
-    const r = validateAppointmentPolicy(
-      { strategy: "fixed_date", leadHours: 12, fixedDate: "" },
-      TODAY,
-    );
-    expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.field).toBe("fixedDate");
-  });
-
-  it("refuses a malformed date", () => {
-    const r = validateAppointmentPolicy(
-      { strategy: "fixed_date", leadHours: 12, fixedDate: "31/08/2026" },
-      TODAY,
-    );
-    expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.field).toBe("fixedDate");
-  });
-
-  it("refuses an unknown strategy", () => {
-    const r = validateAppointmentPolicy({ strategy: "whenever", leadHours: 12 }, TODAY);
-    expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.field).toBe("strategy");
-  });
-
-  it.each([[-1], [MAX_LEAD_HOURS + 1], [1.5]])("refuses lead hours %s", (h) => {
-    const r = validateAppointmentPolicy({ strategy: "first_available", leadHours: h }, TODAY);
-    expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.field).toBe("leadHours");
-  });
-
-  it("allows a zero lead time — same-day booking is a legitimate policy", () => {
-    const r = validateAppointmentPolicy({ strategy: "first_available", leadHours: 0 }, TODAY);
-    expect(r.ok).toBe(true);
-  });
-
-  it("drops a stale fixed date when the strategy is first_available", () => {
-    // Otherwise a date left behind by a strategy switch stays in the row, and
-    // a later reader can act on a fixed date the policy doesn't use.
-    const r = validateAppointmentPolicy(
-      { strategy: "first_available", leadHours: 12, fixedDate: "2026-08-31" },
-      TODAY,
-    );
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.policy.fixedDate).toBeNull();
+  it("refuses text and a blank box", () => {
+    expect(validateLeadHours("soon").ok).toBe(false);
+    // Blank is NOT silently the default: the form always sends a number, so a
+    // blank at the boundary means something went wrong.
+    expect(validateLeadHours("").ok).toBe(false);
+    expect(validateLeadHours("   ").ok).toBe(false);
   });
 });
 
-describe("toDateKey", () => {
-  it("uses the local calendar day, not UTC", () => {
-    // 08:00 in Malaysia (UTC+8) is the previous day in UTC. toISOString() would
-    // report 2026-08-16 and make today look like a past date all morning.
-    expect(toDateKey(new Date("2026-08-17T08:00:00+08:00"))).toBe("2026-08-17");
+describe("leadHoursOrDefault", () => {
+  it("returns the stored value when it is usable", () => {
+    expect(leadHoursOrDefault(50)).toBe(50);
+    expect(leadHoursOrDefault(0)).toBe(0);
+  });
+
+  it("falls back for a draft that has none", () => {
+    expect(leadHoursOrDefault(null)).toBe(DEFAULT_LEAD_HOURS);
+    expect(leadHoursOrDefault(undefined)).toBe(DEFAULT_LEAD_HOURS);
+  });
+
+  it("falls back rather than throwing on a value outside the range", () => {
+    // A submit must never fail on a stored number, however it got there.
+    expect(leadHoursOrDefault(-5)).toBe(DEFAULT_LEAD_HOURS);
+    expect(leadHoursOrDefault(MAX_LEAD_HOURS + 100)).toBe(DEFAULT_LEAD_HOURS);
   });
 });
 
-describe("describeAppointmentPolicy", () => {
-  it("names the date under fixed_date, and warns it can fail", () => {
-    const s = describeAppointmentPolicy({
-      strategy: "fixed_date",
-      leadHours: 12,
-      fixedDate: "2026-08-31",
+describe("appointmentPolicyFor", () => {
+  it("always names first_available with no fixed date", () => {
+    // Pinned: the scraper still understands a fixed date, but nothing in the
+    // app may send one — it fails the order outright when the day has no slots.
+    expect(appointmentPolicyFor(48)).toEqual({
+      strategy: "first_available",
+      leadHours: 48,
+      fixedDate: null,
     });
-    expect(s).toContain("2026-08-31");
-    expect(s).toMatch(/fail/i);
+    expect(appointmentPolicyFor(null)).toEqual({
+      strategy: "first_available",
+      leadHours: DEFAULT_LEAD_HOURS,
+      fixedDate: null,
+    });
+  });
+});
+
+describe("describeLeadTime", () => {
+  it("agrees in number with what it describes", () => {
+    expect(describeLeadTime(1)).toContain("1 hour from");
+    expect(describeLeadTime(12)).toContain("12 hours from");
   });
 
-  it("names the lead time under first_available", () => {
-    expect(
-      describeAppointmentPolicy({ strategy: "first_available", leadHours: 12, fixedDate: null }),
-    ).toContain("12 hours");
+  it("says what zero means instead of printing '0 hours'", () => {
+    expect(describeLeadTime(0)).toContain("however soon");
   });
 });

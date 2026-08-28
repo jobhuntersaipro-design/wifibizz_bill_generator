@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { DEFAULT_LEAD_HOURS } from "@/lib/appointment-settings";
 import { Download, FileText, MapPin, Package, Paperclip, Phone, User, X } from "lucide-react";
 import { formatCreatedFull, type OrderDocument, type OrderListItem } from "@/lib/order-types";
 import {
@@ -258,6 +259,17 @@ export function OrderDetails({ order }: { order: OrderListItem }) {
       <SectionCard icon={FileText} label="Other" delay={300}>
         <dl className="divide-y divide-[#F0F3F7]">
           <DetailRow label="Remarks" value={order.remarks} />
+          {/* The lead time this order submits with. A draft from before the
+              field existed has none and submits with the default, which is what
+              is shown — labelled, so it does not read as the agent's choice. */}
+          <DetailRow
+            label="Appointment lead time"
+            value={
+              order.appointmentLeadHours === null
+                ? `${DEFAULT_LEAD_HOURS} hours (default)`
+                : `${order.appointmentLeadHours} hour${order.appointmentLeadHours === 1 ? "" : "s"}`
+            }
+          />
           <DetailRow label="Reference" value={order.reference} />
           <DetailRow label="Created" value={formatCreatedFull(order.createdAt)} />
           {order.createdByEmail && (

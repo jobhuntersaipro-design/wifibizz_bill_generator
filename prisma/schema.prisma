@@ -8,95 +8,101 @@ datasource db {
 }
 
 model User {
-  id              String              @id @default(cuid())
-  name            String?
-  email           String?             @unique
-  password        String?
-  passwordRaw     String?             @map("password_raw")
-  notes           String?
-  caseLimit       Int                 @default(10) @map("case_limit")
-  orderEntryEnabled Boolean           @default(false) @map("order_entry_enabled")
-  isSuperAdmin    Boolean             @default(false) @map("is_super_admin")
+  id                String               @id @default(cuid())
+  name              String?
+  email             String?              @unique
+  password          String?
+  passwordRaw       String?              @map("password_raw")
+  notes             String?
+  caseLimit         Int                  @default(10) @map("case_limit")
+  orderEntryEnabled Boolean              @default(false) @map("order_entry_enabled")
+  isSuperAdmin      Boolean              @default(false) @map("is_super_admin")
   // Where submit-result and batch-summary emails go. Null falls back to `email`
   // (the login address) at send time — kept as a separate, nullable column so a
   // blank field means "use my login email" rather than silently copying it and
   // then drifting when the login address changes.
-  notificationEmail String?           @map("notification_email")
-  wifibizzUser    WifibizzUser?
-  dealerAccount   DealerAccount?
-  orders          Order[]
-  caseUsageLogs   CaseUsageLog[]
-  limitChangeLogs CaseLimitChangeLog[]
-  batchRuns       BatchRun[]
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  notificationEmail String?              @map("notification_email")
+  wifibizzUser      WifibizzUser?
+  dealerAccount     DealerAccount?
+  orders            Order[]
+  caseUsageLogs     CaseUsageLog[]
+  limitChangeLogs   CaseLimitChangeLog[]
+  batchRuns         BatchRun[]
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
 }
 
 // A broadband order an agent keys in BizzFlow to be submitted to the Unifi eSales
 // dealer portal. Phase 1 captures customer + address + package + documents;
 // install/contact/billing come later. `orderId` is written back from the portal.
 model Order {
-  id             String    @id @default(cuid())
-  userId         String    @map("user_id")
-  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Customer
-  idType         String    @map("id_type")
-  idNumber       String    @map("id_number")
-  idExpiry       String?   @map("id_expiry") // dd-mm-yyyy (passport/foreigner)
-  fullName       String    @map("full_name")
-  gender         String?
-  birthday       String?   // dd-mm-yyyy (auto-derived for MyKad-like IDs)
-  race           String?
-  nationality    String?   @default("Malaysia")
+  idType      String  @map("id_type")
+  idNumber    String  @map("id_number")
+  idExpiry    String? @map("id_expiry") // dd-mm-yyyy (passport/foreigner)
+  fullName    String  @map("full_name")
+  gender      String?
+  birthday    String? // dd-mm-yyyy (auto-derived for MyKad-like IDs)
+  race        String?
+  nationality String? @default("Malaysia")
 
   // Contact
-  mobilePrefix   String?   @default("60") @map("mobile_prefix") // country code
-  mobile         String?   // number after the country code
-  email          String?
+  mobilePrefix String? @default("60") @map("mobile_prefix") // country code
+  mobile       String? // number after the country code
+  email        String?
 
   // Service address — picked from the portal's QryNIGAddress search
-  street         String?
-  postcode       String?
-  city           String?
-  state          String?
-  country        String?   @default("Malaysia") // always Malaysia for the portal
-  addressId      String?   @map("address_id")       // resourceInstId (select "By Address Id")
-  addressFull    String?   @map("address_full")      // concatAddress
-  serviceCategory String?  @map("service_category")  // addrServiceCategory (e.g. FTTH)
+  street          String?
+  postcode        String?
+  city            String?
+  state           String?
+  country         String? @default("Malaysia") // always Malaysia for the portal
+  addressId       String? @map("address_id") // resourceInstId (select "By Address Id")
+  addressFull     String? @map("address_full") // concatAddress
+  serviceCategory String? @map("service_category") // addrServiceCategory (e.g. FTTH)
 
   // Package (Main Offer)
-  offerCategory  String?   @map("offer_category")
-  offerName      String?   @map("offer_name")
+  offerCategory String? @map("offer_category")
+  offerName     String? @map("offer_name")
 
   // Device / add-on (VAS) — chosen for "with device" bundles; picked after the
   // package. deviceCode is the portal VAS numeric id (js-vas-name-container id).
-  deviceCode     String?   @map("device_code")
-  deviceName     String?   @map("device_name")
+  deviceCode String? @map("device_code")
+  deviceName String? @map("device_name")
 
-  remarks        String?   // additional remarks / customer remarks
+  remarks String? // additional remarks / customer remarks
 
   // Documents — array of { type, url, filename } (up to 10 files)
-  documents      Json?
+  documents Json?
+
+  // How many hours ahead of submit time the earliest bookable installation slot
+  // must be. Set by the agent on the order form. NULL means "not set" — orders
+  // written before this column existed, and anything the bulk script writes —
+  // and resolves to DEFAULT_LEAD_HOURS when the job payload is built.
+  appointmentLeadHours Int? @map("appointment_lead_hours")
 
   // Submission result
-  status         String    @default("draft") // draft | submitting | submitted | failed
-  orderId        String?   @map("order_id")   // dealer portal order number
-  errorMessage   String?   @map("error_message")
+  status       String  @default("draft") // draft | submitting | submitted | failed
+  orderId      String? @map("order_id") // dealer portal order number
+  errorMessage String? @map("error_message")
   // Stable classification of the LAST failure, from the scraper's oe_errors
   // vocabulary (e.g. device_out_of_stock). Kept beside the free-text message
   // rather than parsed back out of it: the message is the portal's wording and
   // changes without notice, while the UI needs to branch on what went wrong to
   // tell the agent which field to fix.
-  errorCode      String?   @map("error_code")
+  errorCode    String? @map("error_code")
 
   // Live submit progress. The scraper reports a stage key per portal milestone;
   // the browser polls for it rather than holding a long request open.
   // jobId is what lets a poll AFTER the submitting tab is gone still reconcile
   // the run — without it, a closed tab strands the order in `submitting`.
-  jobId          String?   @map("job_id")      // Flask job id for the in-flight run
-  stage          String?                        // last stage key seen (e.g. checking_address)
-  stageAt        DateTime? @map("stage_at")     // when `stage` last changed — staleness check
+  jobId   String?   @map("job_id") // Flask job id for the in-flight run
+  stage   String? // last stage key seen (e.g. checking_address)
+  stageAt DateTime? @map("stage_at") // when `stage` last changed — staleness check
 
   // R2 key of the LATEST attempt's page-1 screenshot, so a collapsed row can
   // show that evidence exists without loading history. A submit captures one
@@ -104,16 +110,16 @@ model Order {
   // `capture_<slot>`) — that is what the detail panel reads, since a retried
   // order has its own set of frames per attempt. Page 1 is the one kept here
   // because it is the most representative single image of a submit.
-  screenshotUrl  String?   @map("screenshot_url")
+  screenshotUrl String? @map("screenshot_url")
 
   // Short human reference (ORD-0042), assigned at creation. The portal's own
   // order number only exists after a successful run, and not at all for a draft,
   // so agents need something quotable before then.
-  reference      String?   @unique
+  reference String? @unique
 
   // Which submit run the events below belong to. Bumped by each startSubmit so
   // the history can show attempt 1 vs attempt 3 rather than one flat stream.
-  attempt        Int       @default(0)
+  attempt Int @default(0)
 
   // When the single-submit result email for this order was sent. The exactly-
   // once guard: the webhook retries up to 3 times, and the handler claims this
@@ -122,7 +128,7 @@ model Order {
   //
   // Deliberately not reset by a resubmit: a resubmit that reaches a terminal
   // state clears it explicitly at start, so each attempt gets exactly one email.
-  notifiedAt     DateTime? @map("notified_at")
+  notifiedAt DateTime? @map("notified_at")
 
   // Installation appointment, read out of the e-RF PDF the portal issues after
   // Pay ("Installation Appointment Date : 2026-08-20 09:30-12:00"), stored
@@ -140,10 +146,10 @@ model Order {
   // re-downloads the PDF of every order that legitimately has no date.
   installationCheckedAt DateTime? @map("installation_checked_at")
 
-  statusEvents   OrderStatusEvent[]
+  statusEvents OrderStatusEvent[]
 
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@index([userId, status])
   @@map("orders")
@@ -151,39 +157,38 @@ model Order {
 
 /**
  * One server-side batch submit.
- *
  * The batch loop lives on the droplet, not in the browser, so a closed tab
  * cannot strand the remaining orders. This row is BizzFlow's side of that run:
  * what was sent, in what order, what came back, and whether the one summary
  * email has been sent yet.
  */
 model BatchRun {
-  id             String    @id @default(cuid())
-  userId         String    @map("user_id")
-  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Ordered array of Order.id, oldest-created FIRST. This is the run order the
   // droplet was given and preserves; the UI reads progress against it.
-  orderIds       Json      @map("order_ids")
+  orderIds Json @map("order_ids")
 
   // Per-order outcome once the run finishes:
   // [{ orderId, reference, fullName, outcome, errorCode?, portalOrderNo? }]
   // Denormalised on purpose — the summary email must describe the run as it
   // happened, and an order edited or deleted afterwards must not rewrite it.
-  results        Json?
+  results Json?
 
-  status         String    @default("running") // running | finished
+  status         String  @default("running") // running | finished
   // The droplet's own batch job id, for polling GET /orders/batch/<id>.
-  scraperBatchId String?   @map("scraper_batch_id")
+  scraperBatchId String? @map("scraper_batch_id")
   // Set when the batch could not even be started (droplet unreachable), so a
   // finished-with-nothing-run row explains itself instead of looking empty.
-  errorMessage   String?   @map("error_message")
+  errorMessage   String? @map("error_message")
 
-  startedAt      DateTime  @default(now()) @map("started_at")
-  finishedAt     DateTime? @map("finished_at")
+  startedAt  DateTime  @default(now()) @map("started_at")
+  finishedAt DateTime? @map("finished_at")
   // Exactly-once guard for the summary email — same conditional-claim rule as
   // Order.notifiedAt above.
-  notifiedAt     DateTime? @map("notified_at")
+  notifiedAt DateTime? @map("notified_at")
 
   @@index([userId, status])
   @@map("batch_runs")
@@ -193,14 +198,14 @@ model BatchRun {
 // per outcome. The Order row only ever holds the LATEST state; answering "why
 // did it fail, and did it fail the same way last time?" needs the trail.
 model OrderStatusEvent {
-  id        String   @id @default(cuid())
-  orderId   String   @map("order_id")
-  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  id      String @id @default(cuid())
+  orderId String @map("order_id")
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   attempt   Int      @default(1) // groups events into submit runs
-  stage     String?              // stage key, null for run-level events
-  status    String               // submitting | order_entered | submitted | warning | failed | info
-  message   String?              // portal text or our own explanation
+  stage     String? // stage key, null for run-level events
+  status    String // submitting | order_entered | submitted | warning | failed | info
+  message   String? // portal text or our own explanation
   errorCode String?  @map("error_code") // oe_errors code when this event is a classified failure
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -237,15 +242,15 @@ model Plan {
 }
 
 model PlanOfferGroup {
-  id        String  @id @default(cuid())
-  planId    String  @map("plan_id")
-  plan      Plan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  id        String          @id @default(cuid())
+  planId    String          @map("plan_id")
+  plan      Plan            @relation(fields: [planId], references: [id], onDelete: Cascade)
   // Verbatim from the dialog, pick-range included:
   //   "Unifi Home 500Mbps Premium Value With Device[Pick 0-1]"
   name      String
   // The red "*" — the group the portal REQUIRES for this plan.
-  mandatory Boolean @default(true)
-  sortOrder Int     @default(0) @map("sort_order")
+  mandatory Boolean         @default(true)
+  sortOrder Int             @default(0) @map("sort_order")
   items     PlanOfferItem[]
 
   @@unique([planId, name])
@@ -327,36 +332,36 @@ model CaseLimitChangeLog {
 }
 
 model WifibizzUser {
-  id                 Int             @id @default(autoincrement())
-  userId             String?         @unique @map("user_id_ref")
-  user               User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  wifibizzEmail      String          @unique @map("wifibizz_email")
+  id                  Int            @id @default(autoincrement())
+  userId              String?        @unique @map("user_id_ref")
+  user                User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wifibizzEmail       String         @unique @map("wifibizz_email")
   wifibizzPasswordEnc String         @map("wifibizz_password_enc")
-  googleSheetId      String?         @map("google_sheet_id")
-  lastCrawlAt        DateTime?       @map("last_crawl_at")
-  createdAt          DateTime?       @default(now()) @map("created_at")
-  updatedAt          DateTime?       @default(now()) @map("updated_at")
-  cases              WifibizzCase[]
+  googleSheetId       String?        @map("google_sheet_id")
+  lastCrawlAt         DateTime?      @map("last_crawl_at")
+  createdAt           DateTime?      @default(now()) @map("created_at")
+  updatedAt           DateTime?      @default(now()) @map("updated_at")
+  cases               WifibizzCase[]
 
   @@map("wifibizz_users")
 }
 
 model WifibizzCase {
-  id            Int           @id @default(autoincrement())
-  userId        Int?          @map("user_id")
-  user          WifibizzUser? @relation(fields: [userId], references: [id])
-  caseNo        String        @map("case_no")
-  caseUrl       String?       @map("case_url")
-  fullName      String?       @map("full_name")
-  fullAddress   String?       @map("full_address")
-  mobile        String?
-  email         String?
-  idNo          String?       @map("id_no")
-  provider      String?
-  package       String?
-  orderNo       String?       @map("order_no")
-  agent         String?
-  agentRemark   String?       @map("agent_remark")
+  id              Int           @id @default(autoincrement())
+  userId          Int?          @map("user_id")
+  user            WifibizzUser? @relation(fields: [userId], references: [id])
+  caseNo          String        @map("case_no")
+  caseUrl         String?       @map("case_url")
+  fullName        String?       @map("full_name")
+  fullAddress     String?       @map("full_address")
+  mobile          String?
+  email           String?
+  idNo            String?       @map("id_no")
+  provider        String?
+  package         String?
+  orderNo         String?       @map("order_no")
+  agent           String?
+  agentRemark     String?       @map("agent_remark")
   status          String?       @default("Activated")
   internetBillUrl String?       @map("internet_bill_url")
   utilityBillUrl  String?       @map("utility_bill_url")
@@ -369,25 +374,4 @@ model WifibizzCase {
   @@index([userId, status])
   @@index([userId, caseCreatedAt(sort: Desc)])
   @@map("wifibizz_cases")
-}
-
-// Global application settings — one row, id = 1. A singleton rather than a
-// key/value bag so the columns are typed and a missing row can never be read as
-// "no policy"; the seed in the migration guarantees it exists.
-model AppSetting {
-  // SERIAL in the migration, to match every other table here — but only id = 1
-  // is ever written. Reads go through `where: { id: 1 }`.
-  id                   Int       @id @default(autoincrement())
-  // How the appointment step picks its slot: "first_available" | "fixed_date".
-  appointmentStrategy  String    @default("first_available") @map("appointment_strategy")
-  // Earliest slot allowed, measured from submit time. Applies to
-  // first_available only — a fixed date is an explicit override of the policy.
-  appointmentLeadHours Int       @default(12) @map("appointment_lead_hours")
-  // The day to book when the strategy is fixed_date. Within it, the earliest
-  // slot wins.
-  appointmentFixedDate DateTime? @db.Date @map("appointment_fixed_date")
-  updatedAt            DateTime  @updatedAt @map("updated_at")
-  updatedBy            String?   @map("updated_by")
-
-  @@map("app_settings")
 }

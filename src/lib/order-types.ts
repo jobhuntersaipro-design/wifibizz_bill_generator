@@ -972,6 +972,10 @@ export interface OrderListItem {
   deviceName: string | null;
   deviceCode: string | null;
   remarks: string | null;
+  // The agent's chosen appointment lead time, in hours. Null means the draft
+  // predates the field (or came from the bulk script) and will submit with the
+  // default — the two are shown differently, so a dash never reads as a choice.
+  appointmentLeadHours: number | null;
   attempt: number; // how many submit runs this draft has had
   // R2 key of the latest attempt's page-1 screenshot — presence means evidence
   // exists; every other frame is read per attempt from the status trail.
