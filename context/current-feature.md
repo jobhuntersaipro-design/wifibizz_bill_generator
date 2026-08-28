@@ -2,7 +2,7 @@
 
 ## Home-Screen Icon — the Wifi Mark as an App Icon
 
-**Status:** CODE COMPLETE, VERIFIED AGAINST A LOCAL PRODUCTION BUILD (branch `feature/home-screen-icon`, not yet committed). Vercel-only — no scraper change, no migration.
+**Status:** MERGED TO MAIN AND PUSHED 2026-08-28 (`cbb46e3`, merge `ec62eb6`; branch deleted). Verified against a local production build, not on a phone. Vercel-only — no scraper change, no migration.
 
 Adding the site to a phone's home screen produced a screenshot of the page, not a logo, because the app shipped **no home-screen icon at all** — and the one icon it declared did not exist: `layout.tsx` set `icons: { icon: "/favicon.png" }` against a file that is nowhere in the repo, so that tag has been 404ing and `src/app/favicon.ico` was doing all the work.
 
