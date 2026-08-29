@@ -2,8 +2,7 @@
 
 ## Fix — the Device Picker Showed 114 Catalogue Devices Before the Plan's Own Two
 
-**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `fix/device-picker-loading-flash`, not yet committed).
-Vercel-only — no scraper change, no migration.
+**Status:** MERGED TO MAIN AND PUSHED 2026-08-29 (`9204e70`; branch deleted). Vercel-only — no scraper change, no migration.
 
 Picking a package rendered the **full 114-device catalogue and the amber *"no devices recorded for this plan
 yet"*** line, then swapped to the plan's own two devices a beat later. `getPlanOffer` is a server action, and
