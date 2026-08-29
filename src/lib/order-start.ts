@@ -41,7 +41,10 @@ export function buildOrderJobRequest(
   offerGroups: Awaited<ReturnType<typeof mandatoryGroupsFor>>,
 ) {
   return {
-    offerGroups,
+    offerGroups: offerGroups.all,
+    // Device-kind groups only — the pool the scraper may substitute from if the
+    // portal refuses the chosen device. A channel bundle is not a device.
+    deviceOfferGroups: offerGroups.devices,
     // Built from the order itself, so the single submit and the batch runner
     // cannot book different slots for the same draft. `strategy`/`fixedDate`
     // are pinned inside appointmentPolicyFor — the scraper still understands a

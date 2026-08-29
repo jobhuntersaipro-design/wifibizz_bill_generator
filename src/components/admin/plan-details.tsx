@@ -10,9 +10,16 @@ import {
   adminDeleteOfferGroup,
   adminAddOfferItem,
   adminDeleteOfferItem,
+  adminSetOfferGroupKind,
   type PlanView,
-  type OfferGroupView,
 } from "@/actions/plans";
+import {
+  OFFER_GROUP_KINDS,
+  OFFER_GROUP_KIND_LABEL,
+  type OfferGroupKind,
+  type OfferGroupView,
+  type OfferItemView,
+} from "@/lib/plan-offer";
 
 /**
  * How an admin finds the offer-group names. Written out rather than illustrated
@@ -63,6 +70,13 @@ function Guide() {
           </div>
         </div>
         <p>
+          Then say what the group <strong>holds</strong>. A <strong>Device</strong> group is what the
+          agent picks from on the order form. A <strong>Channel</strong> group is an OTT bundle —
+          Netflix, Max — which the portal ticks by itself; record its tiers underneath the row with{" "}
+          <em>+ Add option</em> and mark the one the portal includes. A <strong>Discount</strong>{" "}
+          group is applied automatically. Only Device rows ever reach the agent&apos;s picker.
+        </p>
+        <p>
           Drop the <span className="font-semibold text-[#DF1B41]">*</span> when pasting — tick
           &ldquo;Mandatory&rdquo; instead. A plan can only be published once it has at least one
           mandatory group.
@@ -75,8 +89,13 @@ function Guide() {
 /**
  * One offer group and the rows inside it.
  *
- * Discount groups are labelled as automatic: the agent never picks from them,
- * the order carries them. Device groups are what the agent chooses from.
+ * The group's KIND decides what the rows mean, and the admin sets it here:
+ *   device   — the agent picks one of these on the order form
+ *   channel  — an OTT bundle (Netflix, Max) the portal ticks itself; its rows
+ *              carry a third level of tiers, recorded but never chosen
+ *   discount — applied automatically during the order
+ * Only device rows reach the agent's picker, which is what stopped
+ * "Netflix Basic (Unifi)" being offered as though it were a TV.
  */
 function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: () => void }) {
   const [adding, setAdding] = useState(false);
@@ -84,16 +103,31 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
   const [code, setCode] = useState("");
   const [monthly, setMonthly] = useState("");
   const [busy, setBusy] = useState(false);
+  /** Set while adding a TIER under one item, e.g. Netflix Premium. */
+  const [optionOf, setOptionOf] = useState<OfferItemView | null>(null);
+  const [optionIncluded, setOptionIncluded] = useState(false);
+
+  const isDiscount = group.kind === "discount";
+  const isChannel = group.kind === "channel";
+
+  function resetForm() {
+    setName(""); setCode(""); setMonthly("");
+    setAdding(false); setOptionOf(null); setOptionIncluded(false);
+  }
 
   async function addItem() {
     setBusy(true);
-    const res = await adminAddOfferItem(group.id, name, code, monthly);
+    const res = await adminAddOfferItem(
+      group.id, name, code, monthly,
+      optionOf?.id ?? null,
+      optionOf ? optionIncluded : false,
+    );
     setBusy(false);
     if (!res.success) {
       toast.error(res.error ?? "Couldn't add that item.");
       return;
     }
-    setName(""); setCode(""); setMonthly(""); setAdding(false);
+    resetForm();
     onChanged();
   }
 
@@ -106,9 +140,25 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
     onChanged();
   }
 
+  async function setKind(kind: OfferGroupKind) {
+    const res = await adminSetOfferGroupKind(group.id, kind);
+    if (!res.success) {
+      toast.error(res.error ?? "Couldn't change this group.");
+      return;
+    }
+    onChanged();
+  }
+
+  const rowLabel = isDiscount ? "discount" : isChannel ? "channel" : "device";
+  const placeholder = isDiscount
+    ? "Promo Discount RM10 (Perpetual) - 36 Months"
+    : isChannel
+      ? "Netflix Basic (Unifi)"
+      : "Premium Value Samsung TV 55inch 1 (RM20)";
+
   return (
     <li className="rounded-md border border-[#E3E8EF] bg-[#F6F9FC] px-2.5 py-2">
-      <div className="flex items-center gap-2 text-[12px]">
+      <div className="flex flex-wrap items-center gap-2 text-[12px]">
         <span
           className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
             group.mandatory ? "bg-[#DF1B41]/10 text-[#DF1B41]" : "bg-[#E3E8EF] text-[#697386]"
@@ -120,56 +170,103 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
         <code className="min-w-0 flex-1 truncate text-[#425466]" title={group.name}>
           {group.name}
         </code>
-        {group.isDiscount && (
-          <span
-            className="shrink-0 rounded bg-[#635BFF]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#635BFF]"
-            title="Applied automatically during the order — the agent never picks it"
-          >
-            auto-applied
-          </span>
-        )}
+        <KindPicker kind={group.kind} onChange={setKind} label={group.name} />
       </div>
+      <p className="mt-1 pl-1 text-[10px] text-[#8792A2]">
+        {isDiscount
+          ? "Applied automatically during the order — the agent never picks it."
+          : isChannel
+            ? "Ticked by the portal itself. Its tiers are recorded here for reference; an order always takes the included one."
+            : "The agent picks one of these rows on the order form."}
+      </p>
 
       {group.items.length > 0 && (
         <ul className="mt-1.5 flex flex-col gap-0.5 pl-2">
           {group.items.map((it) => (
-            <li key={it.id} className="flex items-center gap-2 text-[12px]">
-              <span className="text-[#8792A2]">└</span>
-              <span className="min-w-0 flex-1 truncate text-[#0A2540]" title={it.name}>
-                {it.name}
-                {it.code && (
-                  <span className="ml-1.5 text-[10px] text-[#8792A2] tabular-nums">#{it.code}</span>
-                )}
-              </span>
-              {it.monthly !== null && (
-                <span className="shrink-0 text-[11px] tabular-nums text-[#697386]">
-                  RM{it.monthly}/mth
+            <li key={it.id}>
+              <div className="flex items-center gap-2 text-[12px]">
+                <span className="text-[#8792A2]">└</span>
+                <span className="min-w-0 flex-1 truncate text-[#0A2540]" title={it.name}>
+                  {it.name}
+                  {it.code && (
+                    <span className="ml-1.5 text-[10px] text-[#8792A2] tabular-nums">#{it.code}</span>
+                  )}
                 </span>
-              )}
-              <button
-                type="button"
-                onClick={() => removeItem(it.id)}
-                aria-label={`Remove ${it.name}`}
-                className="shrink-0 rounded p-1 text-[#697386] hover:bg-white hover:text-[#DF1B41] transition-colors cursor-pointer"
-              >
-                <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden="true">
-                  <path d="M18 6 6 18M6 6l12 12" />
-                </svg>
-              </button>
-            </li>
-            ))}
-          </ul>
-        )}
+                {it.monthly !== null && (
+                  <span className="shrink-0 text-[11px] tabular-nums text-[#697386]">
+                    RM{it.monthly}/mth
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => removeItem(it.id)}
+                  aria-label={`Remove ${it.name}`}
+                  className="shrink-0 rounded p-1 text-[#697386] hover:bg-white hover:text-[#DF1B41] transition-colors cursor-pointer"
+                >
+                  <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden="true">
+                    <path d="M18 6 6 18M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
 
-        {adding ? (
+              {/* The third level — the tiers under a channel row. */}
+              {it.options.length > 0 && (
+                <ul className="mt-0.5 flex flex-col gap-0.5 pl-6">
+                  {it.options.map((o) => (
+                    <li key={o.id} className="flex items-center gap-2 text-[11px]">
+                      <span className="text-[#CBD2DC]">└</span>
+                      <span className="min-w-0 flex-1 truncate text-[#425466]" title={o.name}>
+                        {o.name}
+                      </span>
+                      {o.included && (
+                        <span className="shrink-0 rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-700">
+                          included
+                        </span>
+                      )}
+                      <span className="shrink-0 text-[10px] tabular-nums text-[#8792A2]">
+                        {o.monthly ? `RM${o.monthly}/mth` : "RM0"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeItem(o.id)}
+                        aria-label={`Remove ${o.name}`}
+                        className="shrink-0 rounded p-1 text-[#697386] hover:bg-white hover:text-[#DF1B41] transition-colors cursor-pointer"
+                      >
+                        <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden="true">
+                          <path d="M18 6 6 18M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {isChannel && !adding && (
+                <button
+                  type="button"
+                  onClick={() => { setOptionOf(it); setAdding(true); }}
+                  className="ml-6 mt-0.5 text-[11px] font-medium text-[#635BFF] hover:underline cursor-pointer"
+                >
+                  + Add option
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {adding ? (
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-4">
+          {optionOf && (
+            <span className="basis-full text-[11px] text-[#697386]">
+              Adding an option under <strong className="text-[#0A2540]">{optionOf.name}</strong>
+            </span>
+          )}
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             autoFocus
-            placeholder={group.isDiscount
-              ? "Promo Discount RM10 (Perpetual) - 36 Months"
-              : "Premium Value Samsung TV 55inch 1 (RM20)"}
+            placeholder={optionOf ? "Netflix Standard" : placeholder}
             className="h-8 min-w-64 flex-1 rounded border border-[#E3E8EF] bg-white px-2 text-[12px] text-[#0A2540] focus:border-[#635BFF] focus:outline-none"
           />
           <input
@@ -184,6 +281,17 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
             placeholder="code (optional)"
             className="h-8 w-28 rounded border border-[#E3E8EF] bg-white px-2 text-[12px] tabular-nums text-[#0A2540] focus:border-[#635BFF] focus:outline-none"
           />
+          {optionOf && (
+            <label className="flex items-center gap-1.5 text-[11px] text-[#425466] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={optionIncluded}
+                onChange={(e) => setOptionIncluded(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-[#CBD2DC] accent-[#635BFF] cursor-pointer"
+              />
+              Included by default
+            </label>
+          )}
           <button
             type="button"
             disabled={busy || !name.trim()}
@@ -194,7 +302,7 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
           </button>
           <button
             type="button"
-            onClick={() => { setAdding(false); setName(""); setCode(""); setMonthly(""); }}
+            onClick={resetForm}
             className="rounded border border-[#E3E8EF] bg-white px-2.5 py-1.5 text-[11px] font-medium text-[#425466] hover:border-[#635BFF] transition-colors cursor-pointer"
           >
             Cancel
@@ -203,13 +311,53 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
       ) : (
         <button
           type="button"
-          onClick={() => setAdding(true)}
+          onClick={() => { setOptionOf(null); setAdding(true); }}
           className="mt-1.5 ml-4 text-[11px] font-medium text-[#635BFF] hover:underline cursor-pointer"
         >
-          + Add {group.isDiscount ? "discount" : "device"}
+          + Add {rowLabel}
         </button>
       )}
     </li>
+  );
+}
+
+/**
+ * The group's kind, as a three-way switch.
+ *
+ * A select rather than a badge because every group recorded before kinds
+ * existed came out of the migration as `device` or `discount` — the Netflix and
+ * Max groups have to be re-tagged by hand, and that is the whole point of the
+ * control being here.
+ */
+function KindPicker({
+  kind,
+  onChange,
+  label,
+}: {
+  kind: OfferGroupKind;
+  onChange: (k: OfferGroupKind) => void;
+  label: string;
+}) {
+  return (
+    <select
+      value={kind}
+      onChange={(e) => onChange(e.target.value as OfferGroupKind)}
+      aria-label={`What ${label} holds`}
+      title="What this group holds"
+      className={`h-7 shrink-0 rounded border px-1.5 text-[11px] font-medium cursor-pointer focus:border-[#635BFF] focus:outline-none ${
+        kind === "discount"
+          ? "border-[#635BFF]/30 bg-[#635BFF]/10 text-[#635BFF]"
+          : kind === "channel"
+            ? "border-green-200 bg-green-50 text-green-700"
+            : "border-[#E3E8EF] bg-white text-[#425466]"
+      }`}
+    >
+      {OFFER_GROUP_KINDS.map((k) => (
+        <option key={k} value={k}>
+          {OFFER_GROUP_KIND_LABEL[k]}
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -310,6 +458,7 @@ function PlanRow({
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [mandatory, setMandatory] = useState(true);
+  const [kind, setKind] = useState<OfferGroupKind>("device");
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
 
@@ -331,13 +480,14 @@ function PlanRow({
 
   async function addGroup() {
     setBusy(true);
-    const res = await adminAddOfferGroup(plan.id, name, mandatory);
+    const res = await adminAddOfferGroup(plan.id, name, mandatory, kind);
     setBusy(false);
     if (!res.success) {
       toast.error(res.error ?? "Couldn't add that offer group.");
       return;
     }
     setName("");
+    setKind("device");
     setAdding(false);
     onChanged();
   }
@@ -467,6 +617,7 @@ function PlanRow({
             />
             Mandatory (red *)
           </label>
+          <KindPicker kind={kind} onChange={setKind} label="this new group" />
           <button
             type="button"
             disabled={busy || !name.trim()}

@@ -273,6 +273,12 @@ model PlanOfferGroup {
   name      String
   // The red "*" — the group the portal REQUIRES for this plan.
   mandatory Boolean         @default(true)
+  // What the group holds, set by an admin rather than guessed from the name:
+  //   device   — the agent picks one (a TV, a mesh unit)
+  //   channel  — an OTT bundle the portal ticks itself (Netflix, Max)
+  //   discount — applied automatically during the order
+  // Only device groups feed the agent's picker.
+  kind      String          @default("device")
   sortOrder Int             @default(0) @map("sort_order")
   items     PlanOfferItem[]
 
@@ -287,9 +293,9 @@ model PlanOfferGroup {
 // discount groups "… Discount[Pick 0-1]"), the same rule the scraper uses to
 // tell discount rows from device rows.
 model PlanOfferItem {
-  id        String         @id @default(cuid())
-  groupId   String         @map("group_id")
-  group     PlanOfferGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  id        String          @id @default(cuid())
+  groupId   String          @map("group_id")
+  group     PlanOfferGroup  @relation(fields: [groupId], references: [id], onDelete: Cascade)
   // Verbatim from the dialog, e.g. "Premium Value Samsung TV 55inch 1 (RM20)"
   // or "Promo Discount RM10 (Perpetual) - 36 Months".
   name      String
@@ -298,9 +304,19 @@ model PlanOfferItem {
   code      String?
   // Rental charge in RM/month, shown to the agent. Negative for a discount.
   monthly   Float?
-  sortOrder Int            @default(0) @map("sort_order")
+  // The third level. "Netflix Basic (Unifi)" is a top-level item; its tiers
+  // (Basic / Standard / Premium) are children of it. Recorded for reference —
+  // an order never chooses a tier, it takes the one the portal pre-ticks.
+  parentId  String?         @map("parent_id")
+  parent    PlanOfferItem?  @relation("ItemOptions", fields: [parentId], references: [id], onDelete: Cascade)
+  options   PlanOfferItem[] @relation("ItemOptions")
+  // The child the portal auto-ticks. Not inferred from monthly = 0: that would
+  // be wrong the first time a bundle includes a paid tier.
+  included  Boolean         @default(false)
+  sortOrder Int             @default(0) @map("sort_order")
 
   @@unique([groupId, name])
+  @@index([parentId])
   @@map("plan_offer_items")
 }
 

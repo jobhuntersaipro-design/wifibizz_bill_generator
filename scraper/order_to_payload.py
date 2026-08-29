@@ -182,6 +182,13 @@ def order_to_payload(order: dict) -> dict:
         # (BizzFlow Admin -> Plan Details). The scraper expands THESE groups
         # rather than trying to detect the portal's red "*" from markup.
         "offer_groups": _get(order, "offerGroups", "offer_groups") or [],
+        # The DEVICE-kind subset of those groups. Only these may supply a
+        # replacement when the portal refuses the chosen device: a channel
+        # bundle (Netflix, Max) sits in a mandatory group too, and substituting
+        # one for a refused TV would submit an order for the wrong thing.
+        # Absent/empty falls back to `offer_groups`, which is the behaviour that
+        # shipped before kinds existed.
+        "device_offer_groups": _get(order, "deviceOfferGroups", "device_offer_groups") or [],
         # Booking policy for the appointment step, set by an admin in BizzFlow
         # and carried per-job. Deliberately travels in the payload rather than
         # in scraper config: changing the policy is then a settings change, not

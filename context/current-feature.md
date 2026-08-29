@@ -1,5 +1,69 @@
 # Current Feature
 
+## Netflix / Max Offer Layer — Group Kinds, Item Options, and a Device Picker That Only Lists Devices
+
+**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/netflix-channel-offer-layer`, not yet
+committed). **Needs `prisma migrate deploy`** (new `plan_offer_groups.kind`, `plan_offer_items.parent_id` +
+`included`) **and a droplet deploy + `api_server` restart** for the `device_offer_groups` payload field —
+a deploy alone keeps the old imports.
+
+Two problems with one cause. The Netflix/Max plans carry a **third selection layer** the model stopped one
+level short of (`… with Netflix OTT[Pick 0, N]` → `Netflix Basic (Unifi)` → Basic / Standard RM20 /
+Premium RM33), and because `Plan → PlanOfferGroup → PlanOfferItem` could only hold two, the New Order device
+picker listed **`Netflix Basic (Unifi)` beside the Samsung TV** under *INDIVIDUAL MODELS 2* — an agent
+picking the wrong one wrote a channel bundle into `Order.deviceCode`.
+
+**Decisions taken with the user:** the tier is **never chosen** — every order takes the portal's pre-ticked
+default, and the tiers are recorded for reference only; an order still carries exactly **one** device (no
+per-group selection, no `Order` schema change); the **portal pre-ticks the channel row itself**, so the happy
+path needs no scraper change; and the kind is **set by an admin** rather than inferred from another name
+regex beside the existing `/discount/i` one.
+
+**The migration is behaviour-neutral on deploy.** `kind` defaults to `device` and is backfilled `discount`
+for every name matching `/discount/i` — exactly what `isDiscountGroupName()` derived at runtime until now.
+`channel` is not guessable from a naming we have seen once, so the Netflix/Max OTT groups are re-tagged by
+hand, which is what the inline Device/Channel/Discount switch on each group row is for.
+
+**`known` changed meaning**, and that is the load-bearing part of the picker fix: from "devices recorded" to
+"anything recorded". A plan whose only recorded group is a channel now reads as *no device to pick* instead of
+falling back to the 126-row static catalogue, which holds devices that plan never offered. `deviceRequired()`
+follows it, so such a plan stays saveable rather than being blocked by a device it cannot offer.
+
+**The one scraper change is about a wrong order, not the happy path.** `offer_groups` carries every mandatory
+group name, and `starred_devices()` treats every row inside them as a substitutable device — so a portal
+refusal of the TV could have substituted `Netflix Basic (Unifi)` and submitted that. `device_offer_groups`
+(device-kind only) now scopes the substitution pool; `offer_groups` is untouched, so group expansion and
+`ensure_promo_discounts` are unaffected, and an empty/absent field falls back to the old behaviour for plans
+nobody has classified yet.
+
+**Verified in the browser** against the dev server on the real admin login and the signed-in agent session, by
+recording the screenshot's plan from scratch: the add-group form's kind selector, the inline kind switch
+(re-tagged a group and it survived a reload), `+ Add option` producing the three tiers under
+`Netflix Basic (Unifi)` with **Netflix Basic** carrying the `included` chip, and the whole plan reading back
+as three groups / three rows. On New Order for that plan the device dropdown shows **INDIVIDUAL MODELS 1** —
+the TV alone, where the reported screenshot had 2 — with *Showing the 1 device this plan offers* and an
+**Included with this plan** block reading *Netflix Basic included · upgrades in the portal: Netflix Standard
+(RM20/mth), Netflix Premium (RM33/mth)* plus the promo discount. The channel-only edge case was forced by
+temporarily re-tagging the device group: the picker disappears, the card reads *This plan has no device to
+pick*, and the package line drops "— pick the device below". The agent-facing Plan Details tab shows the
+`included` / `auto-applied` badges. 375px: no horizontal overflow. The test edits were reverted — the group is
+back to Device and the plan is unpublished, as it was.
+
+**Tests:** 12 new vitest cases in `src/lib/__tests__/plan-offer.test.ts` — the kind coercion, the migration's
+backfill rule (including that the Netflix OTT group is NOT a discount, which is why it needs re-tagging by
+hand), the nesting, an orphaned tier being dropped rather than promoted back into the picker, the
+device/channel/discount split, `known` being true for a channel-only plan, and all four `deviceRequired`
+readings. 602 vitest passing (the 4 failing files are the Playwright e2e specs vitest collects, pre-existing),
+306 scraper tests + 1 skipped, `npm run build`, lint identical to baseline (9642), `tsc` unchanged (the same
+two pre-existing errors).
+
+**NOT verified:** anything against the live portal — no submit has carried `device_offer_groups`, and the
+substitution scoping rests on the fixture-free reading of `starred_devices`; and production, where the
+migration has not been applied and no group has been re-tagged, so **every Netflix/Max plan there still shows
+its channel row in the picker until an admin sets its kind**.
+
+Spec: [context/features/netflix-channel-offer-layer.md](features/netflix-channel-offer-layer.md).
+
 ## Home-Screen Icon — the Wifi Mark as an App Icon
 
 **Status:** MERGED TO MAIN AND PUSHED 2026-08-28 (`cbb46e3`, merge `ec62eb6`; branch deleted). Verified against a local production build, not on a phone. Vercel-only — no scraper change, no migration.

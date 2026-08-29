@@ -34,7 +34,7 @@ import { mergePdfs } from "@/lib/bill-generator/merge-pdfs";
 import { pngToPdfPage } from "@/lib/bill-generator/image-page";
 import { contentTypeFor, imageBytesToPng } from "@/lib/browser-image";
 import GenerateDocRunner from "./GenerateDocRunner";
-import { getPublishedPlans, getPlanOffer, type OfferItemView } from "@/actions/plans";
+import { getPublishedPlans, getPlanOffer } from "@/actions/plans";
 import { parseMykad, inferRace, formatMykad, isCompleteMykad, isValidEmail } from "@/lib/mykad";
 import {
   DEFAULT_LEAD_HOURS,
@@ -52,6 +52,7 @@ import {
   type IdType,
 } from "@/lib/dealer-offers";
 import { DEALER_DEVICES } from "@/lib/dealer-devices";
+import { deviceRequired, type PlanOfferSplit } from "@/lib/plan-offer";
 import {
   DEVICE_CATEGORIES,
   DEVICE_CATEGORY_COUNTS,
@@ -215,12 +216,13 @@ export function OrderForm({
   const [deviceCode, setDeviceCode] = useState("");
   // What an admin recorded for the CURRENTLY selected plan. Held with the plan
   // name so switching package can't leave the previous plan's devices applied.
-  const [planOffer, setPlanOffer] = useState<{
-    offer: string;
-    devices: OfferItemView[];
-    discounts: OfferItemView[];
-    known: boolean;
-  }>({ offer: "", devices: [], discounts: [], known: false });
+  const [planOffer, setPlanOffer] = useState<{ offer: string } & PlanOfferSplit>({
+    offer: "",
+    devices: [],
+    channels: [],
+    discounts: [],
+    known: false,
+  });
   const [deviceName, setDeviceName] = useState("");
   const [devQuery, setDevQuery] = useState("");
   const [devCategory, setDevCategory] = useState("");
@@ -416,7 +418,7 @@ export function OrderForm({
     getPlanOffer(offerName)
       .then((r) => {
         if (!active) return;
-        setPlanOffer({ offer: offerName, devices: r.devices, discounts: r.discounts, known: r.known });
+        setPlanOffer({ offer: offerName, ...r });
       })
       .catch(() => {});
     return () => {
@@ -426,8 +428,24 @@ export function OrderForm({
 
   // Only apply what was fetched for the package currently selected.
   const recorded = planOffer.offer === offerName ? planOffer : null;
+  // With anything recorded for this plan, the recorded DEVICE rows are the whole
+  // list — including when there are none. A plan whose only recorded group is a
+  // channel offers no device to pick, and falling back to the catalogue there
+  // would put 126 devices this plan never offered back in front of the agent.
   const planDevices = recorded?.known ? recorded.devices : null;
+  const planChannels = recorded?.channels ?? [];
   const planDiscounts = recorded?.discounts ?? [];
+  // A "With Device" plan with a recorded, EMPTY device list must stay saveable.
+  const mustPickDevice = deviceRequired(isWithDevice, {
+    devices: recorded?.devices ?? [],
+    known: recorded?.known ?? false,
+  });
+  // Show the picker only when there is something to pick. Channels and
+  // discounts are shown beside it, read-only: the portal ticks them itself, and
+  // listing "Netflix Basic (Unifi)" among the models is what let an agent write
+  // a channel bundle into the order's device.
+  const showDevicePicker = isWithDevice && (planDevices === null || planDevices.length > 0);
+  const showIncluded = planChannels.length > 0 || planDiscounts.length > 0;
 
   // Device type chips count the list actually on offer: with a plan's own
   // devices recorded, the static catalogue's counts describe a different list.
@@ -803,7 +821,7 @@ export function OrderForm({
     }
     // "with Device" packages require a device — the portal blocks the order
     // ("select one offer in the Smart Device group") without one.
-    if (isWithDevice && !deviceCode) {
+    if (mustPickDevice && !deviceCode) {
       toast.error("This package includes a device — pick a device.");
       return;
     }
@@ -1195,20 +1213,31 @@ export function OrderForm({
               <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M20 6 9 17l-5-5" />
               </svg>
-              <span>Selected: {offerName}{isWithDevice && " — pick the device below"}</span>
+              <span>Selected: {offerName}{mustPickDevice && " — pick the device below"}</span>
             </p>
           )}
         </div>
       </div>
 
-      {/* Device — only for "with device" bundles (picked after the package).
+      {/* Device — for "with device" bundles, and for any plan that carries
+          something the portal applies by itself (a channel bundle, a discount).
           Ranks above the later cards for its own dropdown, below Package. */}
-      {isWithDevice && (
+      {(isWithDevice || showIncluded) && (
         <div className={`${cardCls} relative z-20`}>
           <div className={headCls}>
-            Device <span className="text-[#697386] font-normal">— pick the type, then the model</span>
+            Device{" "}
+            <span className="text-[#697386] font-normal">
+              {showDevicePicker ? "— pick the type, then the model" : "— what this plan carries"}
+            </span>
           </div>
           <div className="p-6 space-y-3">
+            {isWithDevice && !showDevicePicker && (
+              <p className="text-[12px] text-[#425466]">
+                This plan has no device to pick — everything it carries is applied by the portal
+                itself and listed below.
+              </p>
+            )}
+            {showDevicePicker && (<>
             {/* Category first — the catalog mixes tablets, TVs, Smart Home kit
                 and pure line items (Stamp Duty, Promo Discount) in one list. */}
             <div className="space-y-1.5">
@@ -1245,7 +1274,9 @@ export function OrderForm({
             </div>
 
             <div className="space-y-1.5">
-              <Label className={labelCls}>Device / Add-on <span className="text-[#DF1B41]">*</span></Label>
+              <Label className={labelCls}>
+                Device{mustPickDevice && <span className="text-[#DF1B41]"> *</span>}
+              </Label>
               {/* Say which list is on screen: the catalogue is a DIFFERENT set of
                   offers from what a plan actually allows, so picking from it is a
                   guess until an admin has recorded the plan's real devices. */}
@@ -1334,12 +1365,47 @@ export function OrderForm({
                 <span>Selected: {deviceName}{isAmbiguousDevice(deviceName) && ` (#${deviceCode})`}</span>
               </p>
             )}
-            {/* Discounts are applied during the order, not chosen here — shown so
-                the agent can tell the customer what they get. */}
-            {planDiscounts.length > 0 && (
+            </>)}
+            {/* Channels and discounts are applied during the order, not chosen
+                here — shown so the agent can tell the customer what they get,
+                without being able to order one in place of the device. */}
+            {showIncluded && (
               <div className="rounded-lg border border-[#E3E8EF] bg-[#F6F9FC] px-3 py-2">
-                <p className="text-[11px] font-medium text-[#425466]">Applied automatically</p>
-                <ul className="mt-1 flex flex-col gap-0.5">
+                <p className="text-[11px] font-medium text-[#425466]">Included with this plan</p>
+                <ul className="mt-1 flex flex-col gap-1">
+                  {planChannels.map((c) => (
+                    <li key={c.id} className="text-[11px] text-[#697386]">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[#8792A2]">•</span>
+                        <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                        {c.monthly !== null && (
+                          <span className="shrink-0 tabular-nums">RM{c.monthly}/mth</span>
+                        )}
+                      </div>
+                      {c.options.length > 0 && (
+                        <div className="ml-4 mt-0.5 text-[10px] text-[#8792A2]">
+                          {(() => {
+                            const inc = c.options.find((o) => o.included);
+                            const rest = c.options.filter((o) => !o.included);
+                            return (
+                              <>
+                                {inc && <span className="text-[#425466]">{inc.name} included</span>}
+                                {inc && rest.length > 0 && " · "}
+                                {rest.length > 0 && (
+                                  <span>
+                                    upgrades in the portal:{" "}
+                                    {rest
+                                      .map((o) => `${o.name}${o.monthly ? ` (RM${o.monthly}/mth)` : ""}`)
+                                      .join(", ")}
+                                  </span>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
+                      )}
+                    </li>
+                  ))}
                   {planDiscounts.map((d) => (
                     <li key={d.id} className="flex items-center gap-2 text-[11px] text-[#697386]">
                       <span className="text-[#8792A2]">•</span>
