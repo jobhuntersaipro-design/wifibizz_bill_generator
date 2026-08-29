@@ -17,17 +17,16 @@ export const OFFER_GROUP_KIND_LABEL: Record<OfferGroupKind, string> = {
   discount: "Discount",
 };
 
+/**
+ * Coerce a stored kind.
+ *
+ * Anything unrecognised reads as `device`, which is also what the migration
+ * defaulted every existing row to (backfilling `discount` by name — the
+ * `isDiscountGroupName` rule the runtime used before kinds existed, which lives
+ * on only in that migration's SQL).
+ */
 export function toOfferGroupKind(raw: string | null | undefined): OfferGroupKind {
   return raw === "channel" || raw === "discount" ? raw : "device";
-}
-
-/**
- * The rule the migration used to backfill `kind`, kept here so a test can pin
- * it: every group recorded before kinds existed said "discount" in its name or
- * was a device group.
- */
-export function isDiscountGroupName(name: string): boolean {
-  return /discount/i.test(name || "");
 }
 
 export interface OfferItemOptionView {
