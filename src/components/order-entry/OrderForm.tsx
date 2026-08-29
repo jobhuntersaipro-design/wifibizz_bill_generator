@@ -223,6 +223,8 @@ export function OrderForm({
     discounts: [],
     known: false,
   });
+  /** True while getPlanOffer is in flight for the currently selected package. */
+  const [planOfferLoading, setPlanOfferLoading] = useState(false);
   const [deviceName, setDeviceName] = useState("");
   const [devQuery, setDevQuery] = useState("");
   const [devCategory, setDevCategory] = useState("");
@@ -412,15 +414,29 @@ export function OrderForm({
   const isWithDevice = /with\s*device/i.test(offerName);
 
   // Load what an admin recorded for this plan whenever the package changes.
+  //
+  // The wait is held OPEN rather than filled with a guess: until this resolves,
+  // the only list we could show is the 114-row static catalogue plus the amber
+  // "no devices recorded" warning, and both are usually wrong — a published
+  // plan then flashed the catalogue and swapped to its own two devices a beat
+  // later. `finally` clears the flag, so a failed lookup falls back to the
+  // catalogue (the pre-existing behaviour) instead of spinning forever.
   useEffect(() => {
-    if (!offerName) return;
+    if (!offerName) {
+      setPlanOfferLoading(false);
+      return;
+    }
     let active = true;
+    setPlanOfferLoading(true);
     getPlanOffer(offerName)
       .then((r) => {
         if (!active) return;
         setPlanOffer({ offer: offerName, ...r });
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (active) setPlanOfferLoading(false);
+      });
     return () => {
       active = false;
     };
@@ -444,8 +460,12 @@ export function OrderForm({
   // discounts are shown beside it, read-only: the portal ticks them itself, and
   // listing "Netflix Basic (Unifi)" among the models is what let an agent write
   // a channel bundle into the order's device.
-  const showDevicePicker = isWithDevice && (planDevices === null || planDevices.length > 0);
-  const showIncluded = planChannels.length > 0 || planDiscounts.length > 0;
+  // Nothing about the plan is asserted until its own offer has arrived: the
+  // answer decides whether there is a picker at all.
+  const planOfferPending = planOfferLoading || (!!offerName && planOffer.offer !== offerName);
+  const showDevicePicker =
+    isWithDevice && !planOfferPending && (planDevices === null || planDevices.length > 0);
+  const showIncluded = !planOfferPending && (planChannels.length > 0 || planDiscounts.length > 0);
 
   // Device type chips count the list actually on offer: with a plan's own
   // devices recorded, the static catalogue's counts describe a different list.
@@ -463,14 +483,12 @@ export function OrderForm({
   // Same treatment as packages: narrow by category, then collapse repeated
   // models under one header so only the varying part shows per row.
   //
-  // When the portal's real list is known it REPLACES the catalogue: the two hold
-  // different offers, and picking a catalogue device the package never offered
-  // is what the portal refuses with "can't be subscribed through Contactless
-  // Journey". The catalogue's category chips don't apply to that list.
-  // When an admin has recorded this plan's devices, those REPLACE the static
-  // catalogue: the catalogue is a different list (the portal's VAS tree) and
-  // holds devices this plan never offered. Type/model grouping still applies —
-  // the type is derived from the name, exactly as for catalogue entries.
+  // When an admin has recorded this plan's offer, its DEVICE rows REPLACE the
+  // static catalogue: the catalogue is a different list (the portal's VAS tree)
+  // and holds devices this plan never offered — picking one is what the portal
+  // refuses with "can't be subscribed through Contactless Journey". Type/model
+  // grouping still applies, the type being derived from the name exactly as for
+  // catalogue entries.
   const filteredDevices = useMemo(() => {
     const q = devQuery.trim().toLowerCase();
     const source = planDevices
@@ -1213,7 +1231,10 @@ export function OrderForm({
               <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M20 6 9 17l-5-5" />
               </svg>
-              <span>Selected: {offerName}{mustPickDevice && " — pick the device below"}</span>
+              <span>
+                Selected: {offerName}
+                {!planOfferPending && mustPickDevice && " — pick the device below"}
+              </span>
             </p>
           )}
         </div>
@@ -1227,11 +1248,30 @@ export function OrderForm({
           <div className={headCls}>
             Device{" "}
             <span className="text-[#697386] font-normal">
-              {showDevicePicker ? "— pick the type, then the model" : "— what this plan carries"}
+              {planOfferPending
+                ? "— loading this plan's offer"
+                : showDevicePicker
+                  ? "— pick the type, then the model"
+                  : "— what this plan carries"}
             </span>
           </div>
           <div className="p-6 space-y-3">
-            {isWithDevice && !showDevicePicker && (
+            {/* A div, not a p: the Lottie player mounts a <div>, and a <p> may
+                not contain one — React says so at runtime and the markup is
+                invalid either way. */}
+            {planOfferPending && (
+              <div className="flex items-center gap-2 text-[12px] text-[#425466]">
+                <LottieSpot
+                  name="processing"
+                  size={22}
+                  fallback={
+                    <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-[#635BFF]" />
+                  }
+                />
+                Checking what this plan offers…
+              </div>
+            )}
+            {isWithDevice && !planOfferPending && !showDevicePicker && (
               <p className="text-[12px] text-[#425466]">
                 This plan has no device to pick — everything it carries is applied by the portal
                 itself and listed below.

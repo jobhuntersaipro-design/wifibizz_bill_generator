@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   deviceRequired,
-  isDiscountGroupName,
   nestOfferItems,
   splitPlanOffer,
   toOfferGroupKind,
@@ -38,16 +37,6 @@ describe("toOfferGroupKind", () => {
     // A row written by an older build, or a value nobody has defined yet.
     expect(toOfferGroupKind(null)).toBe("device");
     expect(toOfferGroupKind("bundle")).toBe("device");
-  });
-});
-
-describe("isDiscountGroupName — the migration's backfill rule", () => {
-  it("matches how the runtime classified groups before kinds existed", () => {
-    expect(isDiscountGroupName("Unifi Home 300M Premium Value with Netflix Discount[Pick 0, N]")).toBe(true);
-    expect(isDiscountGroupName("Unifi Home 300M Premium Value with Smart Device (36M)[Pick 0-1]")).toBe(false);
-    // The Netflix OTT group is NOT a discount, which is why it has to be
-    // re-tagged by hand rather than inferred.
-    expect(isDiscountGroupName("Unifi Home 300Mbps with Netflix OTT[Pick 0, N]")).toBe(false);
   });
 });
 

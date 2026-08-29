@@ -1,5 +1,46 @@
 # Current Feature
 
+## Fix — the Device Picker Showed 114 Catalogue Devices Before the Plan's Own Two
+
+**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `fix/device-picker-loading-flash`, not yet committed).
+Vercel-only — no scraper change, no migration.
+
+Picking a package rendered the **full 114-device catalogue and the amber *"no devices recorded for this plan
+yet"*** line, then swapped to the plan's own two devices a beat later. `getPlanOffer` is a server action, and
+nothing marked the wait: until it resolved, `planDevices` was null, which the picker reads as "nobody has
+recorded this plan" — the one state it is NOT allowed to assume while the answer is still in flight.
+
+**Demonstrated before and after** rather than argued, by sampling the card's text every 50ms from the click:
+old build `no card → CATALOGUE FLASH (50ms) → recorded (150ms)`; new build `no card → loading → recorded`,
+with the flash gone.
+
+**The fix** is a `planOfferLoading` flag cleared in a `.finally()`, combined with the existing stale-response
+guard as `planOfferPending`. While pending, the card body renders `LottieSpot name="processing"` beside
+*"Checking what this plan offers…"* in place of the type chips, the catalogue warning and the dropdown — all
+three of which flashed — and the header reads *"— loading this plan's offer"*. The `finally` matters: a
+**failed** lookup now falls back to the catalogue, which is the behaviour that shipped, instead of spinning
+forever.
+
+**One regression caught by the browser, not by reading:** the loading line was a `<p>`, and the Lottie player
+mounts a `<div>` — React logged *"cannot contain a nested"* on every render. It is a `<div>` now; the console
+is clean.
+
+**Cleanup in the same branch:** `isDiscountGroupName` deleted — since kinds shipped it was called by nothing
+but its own test, and the rule now lives where it actually ran, in the migration's SQL (`toOfferGroupKind`
+carries the note). The stale duplicated comment about the catalogue fallback was rewritten. Eleven leftover
+verification screenshots and `addresses.txt` were removed from the repo root, along with `.playwright-mcp/` —
+all untracked, so git is unaffected. The migration file itself was left **untouched on purpose**: Prisma
+checksums applied migrations, so editing even a comment breaks the next `migrate deploy`.
+
+**Verified** on the dev server against the real signed-in session: the sampling above, zero console errors, the
+loading card photographed (with a temporary delay, since the real wait is ~100ms), and the picker resolving to
+*Showing the 2 devices this plan offers*. 601 vitest passing (11 in `plan-offer.test.ts` after the deleted
+rule's 1 case went with it), `npm run build`, lint identical to baseline (9642).
+
+**NOT verified:** the "published plan with no items recorded" branch — the dev database has one published plan
+and it has items, so the amber catalogue message is now only reachable by an admin publishing a plan whose
+group holds no rows.
+
 ## Netflix / Max Offer Layer — Group Kinds, Item Options, and a Device Picker That Only Lists Devices
 
 **Status:** MERGED TO MAIN AND PUSHED 2026-08-29 (`ad0dee2`, merge `449fc07`; branch deleted). Verified in the
