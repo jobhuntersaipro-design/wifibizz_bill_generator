@@ -7,6 +7,7 @@ import {
   startSubmit,
   deleteOrder,
   cancelOrder,
+  stopSubmit,
   scraperBusy,
   startBatchSubmit,
   pollBatch,
@@ -31,6 +32,7 @@ import { OrdersToolbar } from "./OrdersToolbar";
 import LottieSpot from "./LottieSpot";
 import { ResubmitDialog } from "./ResubmitDialog";
 import { CancelOrderDialog } from "./CancelOrderDialog";
+import { StopSubmitDialog } from "./StopSubmitDialog";
 import { DeleteOrderDialog } from "./DeleteOrderDialog";
 import { BatchSubmitDialog } from "./BatchSubmitDialog";
 
@@ -44,6 +46,11 @@ interface ProgressState {
   done: boolean;
   details?: StageDetails;
   screenshotKey?: string | null;
+  // The retry claim as it stands after this poll. Carried so a row that failed
+  // into a queued retry paints as Retrying immediately, rather than flashing
+  // Failed-with-a-Submit-button until the next list load.
+  autoRetries?: number;
+  autoRetryAt?: string | null;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -91,6 +98,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   // order — so it asks first, every time.
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [cancelId, setCancelId] = useState<string | null>(null);
+  const [stopId, setStopId] = useState<string | null>(null);
   // Superadmins see everyone's drafts + a "Made By" column.
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
 
@@ -222,6 +230,8 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
                 orderId: state.orderId,
                 errorMessage: state.errorMessage,
                 errorCode: state.errorCode ?? null,
+                autoRetries: state.autoRetries ?? x.autoRetries,
+                autoRetryAt: state.autoRetryAt ?? null,
                 screenshotUrl: state.screenshotKey ?? x.screenshotUrl,
               }
             : x,
@@ -468,6 +478,34 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     }
   }
 
+  /**
+   * Stop a run that is in flight.
+   *
+   * The row is NOT updated optimistically. Everywhere else in this file the
+   * local state moves first, but a stop can genuinely fail — an unreachable
+   * droplet means the browser is still submitting a real order — and painting
+   * the row as stopped in that case is the one lie that would cost a duplicate
+   * order. The row moves only on a confirmed stop.
+   */
+  async function handleStopSubmit(id: string) {
+    setBusyId(id);
+    setBusyKind("stop");
+    const res = await stopSubmit(id);
+    setBusyId(null);
+    setBusyKind(null);
+    if (res.success) {
+      // The poll loop following this order sees `submitting` locally; dropping
+      // the claim lets a later run be followed again.
+      followingRef.current.delete(id);
+      toast.success("Submit stopped.", {
+        description: "Check the Unifi portal — the run may have left an order behind.",
+      });
+    } else {
+      toast.error(res.error ?? "Couldn't stop the submit.");
+    }
+    reload();
+  }
+
   async function handleDelete(id: string) {
     setBusyId(id);
     setBusyKind("delete");
@@ -528,6 +566,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   const resubmitOrder = orders.find((o) => o.id === resubmitId) ?? null;
   const deleteOrderRow = orders.find((o) => o.id === deleteId) ?? null;
   const cancelOrderRow = orders.find((o) => o.id === cancelId) ?? null;
+  const stopOrderRow = orders.find((o) => o.id === stopId) ?? null;
 
   const filtered = filterOrders(orders, filters);
   // Options come from ALL loaded rows, not the filtered ones — deriving them
@@ -551,6 +590,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     onResubmit: () => setResubmitId(o.id),
     onEdit: () => onEdit(o.id),
     onCancelOrder: () => setCancelId(o.id),
+    onStopSubmit: () => setStopId(o.id),
     onDelete: () => setDeleteId(o.id),
     // Opens the full-page detail view in a new tab rather than a slide-in
     // panel — a plain window.open works fine from inside a click handler and
@@ -611,6 +651,19 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
           onConfirm={() => {
             setCancelId(null);
             handleCancelOrder(cancelOrderRow.id);
+          }}
+        />
+      )}
+
+      {/* Re-checked at confirm time: a run that finished while the dialog sat
+          open has nothing left to stop, and `stopSubmit` would refuse it. */}
+      {stopOrderRow && stopOrderRow.status === "submitting" && (
+        <StopSubmitDialog
+          order={stopOrderRow}
+          onCancel={() => setStopId(null)}
+          onConfirm={() => {
+            setStopId(null);
+            handleStopSubmit(stopOrderRow.id);
           }}
         />
       )}

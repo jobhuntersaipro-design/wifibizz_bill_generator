@@ -36,7 +36,21 @@ export async function GET(
   const state = await pollOrderProgress(id);
   if (!state) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  return NextResponse.json(state, {
+  // Read the retry claim back AFTER the poll, because the poll is what writes
+  // it. Without this the browser learns the run failed and nothing else — so
+  // the row would paint Failed with a live Submit button for the seconds before
+  // the next full list load, which is precisely the window that invites a
+  // second run against an order already queued to be retried.
+  const retry = await prisma.order.findUnique({
+    where: { id },
+    select: { autoRetries: true, autoRetryAt: true },
+  });
+
+  return NextResponse.json({
+    ...state,
+    autoRetries: retry?.autoRetries ?? 0,
+    autoRetryAt: retry?.autoRetryAt ? retry.autoRetryAt.toISOString() : null,
+  }, {
     headers: { "Cache-Control": "no-store" },
   });
 }

@@ -77,6 +77,13 @@ JOBS = (
 )  # job_id -> {status, created_at, started_at, finished_at, params, result, error, log_path}
 JOBS_LOCK = Lock()
 
+# job_id -> (event loop, task) for a run that can still be cancelled.
+#
+# Deliberately NOT stored inside JOBS: `job_status` jsonifies that record
+# wholesale, and an asyncio.Task in it would 500 every poll. Entries are removed
+# by the run itself, so a finished job cannot be "cancelled" into a stale loop.
+JOB_TASKS = {}
+
 
 def _jobs_dir():
     d = os.path.join(os.getcwd(), "jobs")
@@ -124,6 +131,47 @@ def job_status(job_id):
     if _is_order_job(job) and isinstance(job.get("result"), dict):
         resp["result"] = _redact_order_result(job["result"])
     return jsonify({"job_id": job_id, **resp}), 200
+
+
+@app.post("/jobs/<job_id>/cancel")
+def job_cancel(job_id):
+    """Stop a running job.
+
+    Auth-gated exactly like /orders: this aborts a real, billable portal run.
+
+    Cancels the run's asyncio task — the same mechanism the overall-timeout
+    already uses, so the run's `finally` tears its browser down rather than
+    leaking a headless_shell. The cancel is REQUESTED here and observed by the
+    job thread, so a 202 means "asked", not "already stopped"; the caller learns
+    the outcome from the job's own terminal state.
+    """
+    if not _order_entry_authorized(request):
+        if not os.environ.get("ORDER_ENTRY_API_TOKEN"):
+            return jsonify({"success": False, "error": "ORDER_ENTRY_DISABLED",
+                            "message": "ORDER_ENTRY_API_TOKEN not configured on server."}), 503
+        return jsonify({"success": False, "error": "UNAUTHORIZED"}), 401
+
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+    if not job:
+        return jsonify({"error": "unknown_job"}), 404
+    if job.get("status") not in ("queued", "running"):
+        return jsonify({"error": "not_running",
+                        "message": "That job has already finished."}), 409
+
+    handle = JOB_TASKS.get(job_id)
+    if not handle:
+        # Running, but not yet inside its loop (or already past it). Nothing to
+        # cancel — reported rather than silently claimed as stopped, because the
+        # caller decides what to write on the order from this answer.
+        return jsonify({"error": "not_cancellable",
+                        "message": "That job cannot be stopped right now."}), 409
+
+    loop, task = handle
+    # The job runs its own loop on its own thread; touching the task from this
+    # request thread is only safe through the loop.
+    loop.call_soon_threadsafe(task.cancel)
+    return jsonify({"job_id": job_id, "cancelling": True}), 202
 
 
 @app.get("/jobs/<job_id>/log")
@@ -257,6 +305,19 @@ def _run_order_job(job_id: str, payload: dict, dry_run: bool, user_key: str = No
                 })
             JOBS[job_id] = job
 
+    async def _cancellable():
+        """Publish this run's loop + task, then do the work.
+
+        Registered from INSIDE the coroutine so the handle is only ever
+        published once the loop is actually running — a task captured before
+        that could not be cancelled from another thread.
+        """
+        JOB_TASKS[job_id] = (asyncio.get_running_loop(), asyncio.current_task())
+        try:
+            return await _run_bounded()
+        finally:
+            JOB_TASKS.pop(job_id, None)
+
     async def _run_bounded():
         if full_order:
             from oe_feasibility import enter_full_order
@@ -282,7 +343,7 @@ def _run_order_job(job_id: str, payload: dict, dry_run: bool, user_key: str = No
             job.update(status="running", started_at=datetime.utcnow().isoformat(), log_path=log_path)
             JOBS[job_id] = job
         try:
-            result = asyncio.run(_run_bounded())
+            result = asyncio.run(_cancellable())
             # Log a redacted summary only; the full result (with PII) is kept in
             # the in-memory job record, which is auth-gated.
             print(f"[{datetime.utcnow().isoformat()}] enter_order result: {_redact_order_result(result)}")
@@ -292,6 +353,23 @@ def _run_order_job(job_id: str, payload: dict, dry_run: bool, user_key: str = No
                     status="done",
                     finished_at=datetime.utcnow().isoformat(),
                     result=result,
+                    log_path=log_path,
+                )
+                JOBS[job_id] = job
+        except asyncio.CancelledError:
+            # Somebody pressed Stop. The cancel propagated into the run, whose
+            # `finally` tore the browser down — the same path the overall
+            # timeout takes. Reported with its OWN error_kind so BizzFlow can
+            # tell a deliberate stop from a failure: a stop must never be handed
+            # back to the automatic retry.
+            print(f"[{datetime.utcnow().isoformat()}] ORDER CANCELLED by request")
+            with JOBS_LOCK:
+                job = JOBS.get(job_id, {})
+                job.update(
+                    status="error",
+                    finished_at=datetime.utcnow().isoformat(),
+                    error="Stopped by the agent while it was running. The portal may already hold an order for this customer — check at Unifi before submitting again.",
+                    error_kind="cancelled",
                     log_path=log_path,
                 )
                 JOBS[job_id] = job

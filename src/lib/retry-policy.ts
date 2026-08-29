@@ -66,6 +66,9 @@ export const TERMINAL_ERROR_CODES: ReadonlySet<string> = new Set([
   // EVERY successful run. Retrying this would mint a duplicate for orders that
   // actually went through, which is the worst outcome this feature could have.
   "erf_not_downloaded",
+  // A person stopped this run on purpose. Retrying it automatically would undo
+  // the one thing they asked for.
+  "submit_stopped",
 ]);
 
 /** Statuses that represent a finished, unsuccessful run. Nothing else retries —
@@ -149,8 +152,77 @@ export function retryVerdict(input: RetryInput): RetryVerdict {
  * auto-retry counter: "3 tries" to an agent means the order was run three
  * times, whoever started each run.
  */
-export function triesSuffix(o: { status: string; attempt: number }): string {
+export function triesSuffix(o: {
+  status: string;
+  attempt: number;
+  autoRetries?: number;
+  autoRetryAt?: Date | string | null;
+}): string {
   if (o.status !== "failed" && o.status !== "warning") return "";
+  // A row that is about to run again is not reporting a finished outcome, and
+  // its pill already carries a count — "Retrying · 2 of 3 · 2 tries" says the
+  // same thing twice in two different vocabularies.
+  if (isRetryPending(o)) return "";
   if (o.attempt <= 1) return "";
   return ` · ${o.attempt} tries`;
+}
+
+/**
+ * Is a retry OWED on this order right now?
+ *
+ * `autoRetryAt` is the claim: `applyResult` stamps it the moment a failure is
+ * judged retryable, and `maybeAutoRetry` clears it when it takes the try (or
+ * when it decides not to). So a row carrying it is one where the next thing to
+ * happen is another run — whether that run starts in a second (the webhook) or
+ * in a couple of minutes (the droplet was busy, and the sweeper will come back).
+ *
+ * This is what stops the window between "the run failed" and "the retry
+ * started" from rendering as Failed with a live Submit button, which is an
+ * invitation to start a SECOND run against an order that is already going to be
+ * run again.
+ *
+ * The budget is re-checked here rather than trusted: a spent order whose
+ * timestamp was never cleared must read as finished, not as forever-retrying.
+ */
+export function isRetryPending(o: {
+  status: string;
+  autoRetries?: number;
+  autoRetryAt?: Date | string | null;
+}): boolean {
+  if (o.status !== "failed" && o.status !== "warning") return false;
+  if (!o.autoRetryAt) return false;
+  return (o.autoRetries ?? 0) < MAX_AUTO_RETRIES;
+}
+
+/**
+ * The pill's text while a retry is owed — "Retrying · 2 of 3" — or null.
+ *
+ * The try being ANNOUNCED is the next one, `autoRetries + 1`: the counter is
+ * only incremented when `maybeAutoRetry` actually claims the try, so at the
+ * moment this is read it still holds the number of retries already spent.
+ */
+export function retryPillLabel(o: {
+  status: string;
+  autoRetries?: number;
+  autoRetryAt?: Date | string | null;
+}): string | null {
+  if (!isRetryPending(o)) return null;
+  return `Retrying · ${(o.autoRetries ?? 0) + 1} of ${MAX_AUTO_RETRIES}`;
+}
+
+/**
+ * When a finished run is judged retryable, the timestamp that says so — else
+ * null, which CLEARS any claim left by an earlier attempt.
+ *
+ * Returned rather than written so the caller folds it into the same update that
+ * writes the outcome: a separate write would leave a window in which the row is
+ * finished but not yet marked as retrying, which is the exact window this
+ * whole thing exists to remove.
+ *
+ * "Now" rather than a delay because retries are immediate by design. It also
+ * makes the row visible to `sweepPendingRetries`, so a retry still happens when
+ * the webhook never arrives.
+ */
+export function retryPendingAt(input: RetryInput, now: Date = new Date()): Date | null {
+  return retryVerdict(input).retry ? now : null;
 }

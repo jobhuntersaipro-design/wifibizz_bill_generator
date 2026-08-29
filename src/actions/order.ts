@@ -13,6 +13,8 @@ import {
   formatPhone,
   canSubmit,
   type OrderListItem,
+  STOPPED_MSG,
+  SUBMIT_STOPPED,
 } from "@/lib/order-types";
 import { MALAYSIA_STATES } from "@/lib/malaysia-states";
 import { ID_TYPES } from "@/lib/dealer-offers";
@@ -491,6 +493,8 @@ function toOrderListItem(
     remarks: o.remarks,
     appointmentLeadHours: o.appointmentLeadHours,
     attempt: o.attempt,
+    autoRetries: o.autoRetries,
+    autoRetryAt: o.autoRetryAt ? o.autoRetryAt.toISOString() : null,
     screenshotUrl: o.screenshotUrl,
     // `o.installationDate` is what was already stored; an override carries
     // anything read from an e-RF a moment ago, which the freshly-loaded row
@@ -708,6 +712,113 @@ export async function startSubmit(id: string) {
   return run.ok
     ? { success: true as const, jobId: run.jobId }
     : { success: false as const, error: run.error };
+}
+
+
+/**
+ * Stop a submit that is running, on the droplet as well as here.
+ *
+ * The droplet drives ONE browser and a run takes minutes, so an agent who
+ * realises mid-flight that the draft is wrong previously had no way out but to
+ * watch it finish and then void whatever it created.
+ *
+ * **This is not bookkeeping — it really cancels the run.** The scraper's
+ * `/jobs/<id>/cancel` cancels the job's asyncio task, which is the same
+ * mechanism its own overall-timeout uses, so the run's `finally` tears the
+ * browser down rather than leaking a headless_shell.
+ *
+ * The order lands on `failed`, NOT `cancelled`: a stop is a decision to try
+ * again differently, and `cancelled` is a one-way door a mis-click could not
+ * undo. It carries `submit_stopped`, which is terminal in `retry-policy`, so
+ * the automatic retry cannot quietly undo what the agent just did.
+ *
+ * A droplet that refuses or cannot be reached leaves the order exactly where it
+ * was — in flight. Writing "stopped" over a run that is still going would be
+ * the worst possible lie: the browser would carry on submitting a real order
+ * while the row invited a second one.
+ */
+export async function stopSubmit(id: string) {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
+  const superAdmin = await isSuperAdmin(session.user.id);
+  const order = await prisma.order.findFirst({
+    where: superAdmin ? { id } : { id, userId: session.user.id },
+    select: { id: true, status: true, attempt: true, jobId: true, stage: true },
+  });
+  if (!order) return { success: false as const, error: "Order not found." };
+  if (order.status !== "submitting") {
+    return { success: false as const, error: "This order is not running." };
+  }
+  if (!ORDER_TOKEN) {
+    return { success: false as const, error: "Order service is not configured." };
+  }
+  if (!order.jobId) {
+    // In flight with no job id: the hand-off failed before the droplet answered,
+    // so there is nothing running to cancel and the row is merely stuck. Filing
+    // it as stopped is then the whole fix.
+    await finishAsStopped(order.id, order.attempt, order.stage);
+    return { success: true as const };
+  }
+
+  try {
+    const res = await fetch(`${SCRAPER_API_URL}/jobs/${order.jobId}/cancel`, {
+      method: "POST",
+      headers: { "X-Internal-Token": ORDER_TOKEN },
+      cache: "no-store",
+      // Cancelling is a flag and a `call_soon_threadsafe` — it never legitimately
+      // takes long, and a wedged droplet must surface as an error the agent can
+      // read rather than as a platform timeout.
+      signal: AbortSignal.timeout(10_000),
+    });
+    // 404 means the droplet has already forgotten the job (it restarted, or the
+    // run finished). Nothing is left to cancel, so stopping is still the right
+    // thing to write — the alternative is a row stuck in `submitting` forever.
+    if (!res.ok && res.status !== 404 && res.status !== 409) {
+      const body = (await res.json().catch(() => ({}))) as { message?: string };
+      return {
+        success: false as const,
+        error: body.message || "The order service refused to stop this run.",
+      };
+    }
+  } catch {
+    return {
+      success: false as const,
+      error:
+        "Couldn't reach the order service, so the run was NOT stopped \u2014 it is " +
+        "still going. Try again in a moment.",
+    };
+  }
+
+  await finishAsStopped(order.id, order.attempt, order.stage);
+  return { success: true as const };
+}
+
+/**
+ * File a stopped run, in one write.
+ *
+ * `jobId` is cleared so no later poll re-opens it, and `autoRetryAt` so nothing
+ * reads the row as owing a retry — `submit_stopped` would refuse one anyway,
+ * but a pill claiming a retry that will never come is its own bug.
+ */
+async function finishAsStopped(id: string, attempt: number, stage: string | null) {
+  await prisma.order.update({
+    where: { id },
+    data: {
+      status: "failed",
+      errorCode: SUBMIT_STOPPED,
+      errorMessage: STOPPED_MSG,
+      jobId: null,
+      autoRetryAt: null,
+    },
+  });
+  await recordEvent({
+    orderId: id,
+    attempt,
+    status: "failed",
+    stage,
+    message: STOPPED_MSG,
+    errorCode: SUBMIT_STOPPED,
+  });
 }
 
 

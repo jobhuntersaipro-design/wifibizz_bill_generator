@@ -94,7 +94,7 @@ describe("the two predicates never both fire", () => {
 // action stays refused — a cancelled row that became submittable again would
 // resurrect a live portal order from a state the agent was told was final.
 
-import { STATUS_LABELS, STATUS_FILTERS, canCancel, toneForStatus } from "@/lib/order-types";
+import { STATUS_LABELS, STATUS_FILTERS, canCancel, toneForOrder, toneForStatus } from "@/lib/order-types";
 
 describe("canCancel", () => {
   it("offers cancel to submitted rows only", () => {
@@ -133,5 +133,43 @@ describe("a cancelled order is terminal", () => {
     expect(STATUS_LABELS.cancelled).toBe("Cancelled");
     expect(STATUS_FILTERS).toContain("cancelled");
     expect(toneForStatus("cancelled")).toBe("cancelled");
+  });
+});
+
+/**
+ * An order the automatic retry is about to run again is, for every purpose
+ * these predicates serve, already in flight. Pressing Submit on it — or letting
+ * it be swept into a batch — starts a SECOND run against the same draft, which
+ * is a second real order at Unifi.
+ */
+describe("an order with a retry owed is not submittable", () => {
+  const owed = {
+    orderId: null as string | null,
+    status: "failed",
+    autoRetries: 0,
+    autoRetryAt: new Date("2026-08-30T10:00:00Z"),
+  };
+
+  it("refuses Submit while the retry is pending, and allows it once it is not", () => {
+    expect(canSubmit(owed)).toBe(false);
+    expect(canSubmit({ ...owed, autoRetryAt: null })).toBe(true);
+  });
+
+  it("refuses Resubmit on a stranded order for the same reason", () => {
+    const stranded = { ...owed, status: "warning", orderId: "2608000122816567" };
+    expect(canResubmit(stranded)).toBe(false);
+    expect(canResubmit({ ...stranded, autoRetryAt: null })).toBe(true);
+  });
+
+  it("reads as running, so the row is not coloured as a finished failure", () => {
+    expect(toneForOrder(owed)).toBe("running");
+    expect(toneForOrder({ ...owed, autoRetryAt: null })).toBe("failed");
+  });
+
+  it("leaves an order carrying no claim exactly as it was", () => {
+    // The predicates are used with plain {status, orderId} objects all over the
+    // codebase; the new fields are optional and their absence must change
+    // nothing.
+    expect(canSubmit({ status: "failed", orderId: null })).toBe(true);
   });
 });

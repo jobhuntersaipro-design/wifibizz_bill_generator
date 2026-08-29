@@ -1,5 +1,95 @@
 # Current Feature
 
+## A Retrying Order Reads as Running, and a Running Submit Can Be Stopped
+
+**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/retry-state-and-stop-submit`, not yet
+committed). Vercel **and** scraper — the Stop half needs a droplet deploy AND an `api_server` restart (a
+deploy alone keeps the old imports). No migration.
+
+Two asks (2026-08-30).
+
+### 1. An order about to be auto-retried must not read as Failed
+
+`applyResult` writes `failed`/`warning` first, and only then does the `order_finished` webhook call
+`maybeAutoRetry`, which flips the row back to `submitting`. Between those the row shows **Failed with a live
+Submit button** — and in the droplet-busy case (`autoRetryAt` set two minutes out) it shows it for minutes.
+An agent pressing that button starts a second run against an order the retry is about to run anyway.
+
+**Decisions taken with the user:** the pill reads **`Retrying · 2 of 3`** rather than a bare "Submitting" —
+the agent needs to know nobody has to touch it, and which try it is on; and it applies to **both `failed` and
+`warning`**, so a stranded order reads as in-progress too while its retry is owed.
+
+**No migration, because `autoRetryAt` already exists** and already means "a retry is owed". The gap was only
+that the immediate case never set it — the webhook went straight from finish to start. Every finalization
+point now asks `retryVerdict` and stamps `autoRetryAt = now` when the answer is "retry", which also closes a
+second hole: `sweepPendingRetries` picks those rows up, so a retry still happens when the webhook never
+arrives — which is the documented state of the droplet (`BIZZFLOW_WEBHOOK_URL` unset since 2026-08-22).
+
+`canSubmit` and `canResubmit` return false while a retry is pending, so the button, the batch checkbox and
+`startBatchSubmit`'s own filter all refuse it from one rule rather than three.
+
+### 2. Stop a submit that is running, with a confirmation
+
+There is **no cancel endpoint on the droplet** today — `api_server.py` has only `/dealer/login/cancel`. A new
+`POST /jobs/<job_id>/cancel` cancels the run's asyncio task, which is the same mechanism the overall-timeout
+already uses (`wait_for` cancels, and the run's `finally` tears the browser down), so no headless_shell leaks.
+The task and its loop are held in a **separate `JOB_TASKS` dict**, not in `JOBS` — `job_status` jsonifies that
+record, and a Task object in it would 500 the poll.
+
+**Decision taken with the user:** a stopped order lands on **`failed`** — Submit re-enabled, the agent decides
+what happens next — and **not** on `cancelled`, which is a one-way door a mis-click could not undo. The
+automatic retry is not allowed to undo the stop either: it carries a new terminal code `submit_stopped`.
+
+**The confirmation says what a stop actually costs:** the portal mints the Customer Order Number early, so a
+run stopped mid-flight can leave a real order at Unifi. The dialog and the history event both say to check the
+portal before submitting again.
+
+**Plan:**
+1. `retry-policy.ts` — pure `isRetryPending` / `retryPillLabel`; `submit_stopped` in `TERMINAL_ERROR_CODES`.
+2. `order-submit.ts` — stamp `autoRetryAt` at all three finalization points; read the job's `error_kind` so a
+   cancelled run is filed as stopped rather than as "the portal run failed".
+3. `order-retry.ts` — clear `autoRetryAt` when the verdict is no, so the pill cannot lie.
+4. `order-types.ts` — `canSubmit`/`canResubmit` refuse a pending retry; `submit_stopped` copy.
+5. `OrderRow` — the pill, and a disabled Submitting… button while retrying; Stop in the row menu.
+6. `stopSubmit` action + `StopSubmitDialog`, wired through `OrdersList`.
+7. Scraper — `JOB_TASKS`, the cancel route, `CancelledError` handling, tests.
+8. vitest + scraper tests; `npm run build`; verify in the browser.
+
+**Verified in the browser** against the dev server on the real signed-in session — and the most useful part
+was produced by the system rather than by hand. A row was put in flight against a job id the local
+`api_server` does not know; its own poll answered 404, `finalizeMissingJob` ran, and the row came back
+reading **`⟳ Retrying · 1 of 3`** in the submitting pill with a **disabled `Submitting…`** button and no batch
+checkbox — the whole point of the first ask, reached through the real finalization path. A second row, stamped
+the same way, was picked up by `sweepPendingRetries` on the next list load, which claimed the try and stopped
+at the expired dealer session — so the pill correctly went back to `Failed · 3 tries` rather than spinning
+forever on a retry that could not run. That is also the first proof that the **sweep now covers the immediate
+case**, which is what makes a retry happen with the webhook still unwired.
+
+**Stop, end to end:** the row menu on a running order offers exactly **Details** and **Stop this submit…**
+(Edit and Delete withheld while a run is in flight), the dialog names the portal order the run already holds
+and links it, and confirming filed `status: failed`, `errorCode: submit_stopped`, `jobId` cleared,
+`autoRetryAt` null and a history event carrying the stop wording. That click made a **real HTTP round trip to
+the running local `api_server`**, which answered 404 for the unknown job — the "nothing left to cancel" branch.
+
+**Tests:** 20 new vitest (627 passing; the 4 failing files are the Playwright e2e specs vitest collects,
+pre-existing) — the pending window's pure rules, `canSubmit`/`canResubmit` refusing a pending retry, and the
+three finalization writes including a cancelled job being filed as stopped rather than as a failure. 6 new
+scraper tests in `tests/test_job_cancel.py` (312 passed + 1 skipped), which cancel a real coroutine on a real
+second thread and assert the handle never lands in `JOBS` — a Task in that record would 500 the very poll
+BizzFlow reads the outcome from. `npm run build`, lint identical to baseline (9642), `tsc` unchanged (the same
+two pre-existing errors).
+
+**NOT verified: cancelling a genuinely running portal job.** The fixtures cancel a coroutine parked on a
+sleep, which is what a real portal step looks like to a cancel — but no real submit has been stopped, so that
+the browser tears down cleanly rests on it being the same mechanism the overall-timeout already uses. Also
+unverified: the failure branch where the droplet is unreachable and the order is deliberately LEFT in flight;
+and the batch case, where stopping one member should leave the batch running.
+
+**Dev database restored** — both edited rows are back as they were (ORD-0003 warning / attempt 0, ORD-0002 a
+draft with no portal number) and the 7 events the verification created were deleted. One thing that could not
+be restored exactly: ORD-0003's `errorMessage` is now null. It has no status events at all and `attempt` 0, so
+null is the consistent state, but the original value was not recorded before the edit.
+
 ## Test Button for the Notification Email
 
 **Status:** MERGED TO MAIN AND PUSHED 2026-08-29 (`593fdbb`; branch deleted). Vercel-only — no scraper change, no migration.

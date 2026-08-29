@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { Ban, Check, ListTree, MessageSquare, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { Ban, Check, ListTree, MessageSquare, MoreHorizontal, Pencil, Square, Trash2 } from "lucide-react";
 import {
   STATUS_LABELS,
   canResubmit,
@@ -16,7 +16,7 @@ import {
   type OrderListItem,
 } from "@/lib/order-types";
 import { installationParts } from "@/lib/erf-appointment";
-import { triesSuffix } from "@/lib/retry-policy";
+import { isRetryPending, retryPillLabel, triesSuffix } from "@/lib/retry-policy";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
@@ -92,7 +92,7 @@ const portalUrl = (orderId: string) =>
  * "Submitting…" — on a row where nothing was being submitted. Naming the action
  * is what keeps the label honest.
  */
-export type BusyKind = "submit" | "cancel" | "delete" | null;
+export type BusyKind = "submit" | "cancel" | "delete" | "stop" | null;
 
 export interface RowActions {
   busy: boolean;
@@ -106,6 +106,8 @@ export interface RowActions {
   onResubmit: () => void;
   onEdit: () => void;
   onCancelOrder: () => void;
+  /** Stop a run that is in flight, on the droplet as well as here. */
+  onStopSubmit: () => void;
   onDelete: () => void;
   onShowHistory: () => void;
 }
@@ -203,16 +205,24 @@ function OneLine({
 }
 
 function StatusBadge({ o }: { o: OrderListItem }) {
+  // A failure with a retry already owed is not a finished outcome, and must not
+  // be dressed as one: `applyResult` writes `failed`/`warning` a beat before the
+  // retry starts, and a red pill next to a live Submit button in that window is
+  // what invites an agent to start a SECOND run. It reads as in-flight, and
+  // names the try so it is clear nobody has to do anything.
+  const retrying = retryPillLabel(o);
   return (
     <span
       className={`inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-medium ${
-        STATUS_STYLES[o.status] ?? STATUS_STYLES.draft
+        retrying
+          ? STATUS_STYLES.submitting
+          : STATUS_STYLES[o.status] ?? STATUS_STYLES.draft
       }`}
     >
-      {o.status === "submitting" && (
+      {(o.status === "submitting" || retrying) && (
         <span className="inline-block h-2.5 w-2.5 animate-spin rounded-full border-2 border-amber-600 border-t-transparent" />
       )}
-      {STATUS_LABELS[o.status] ?? o.status}
+      {retrying ?? STATUS_LABELS[o.status] ?? o.status}
       {/* How many times this draft has been run, once that is more than one.
           On the pill rather than in a column of its own: the table already
           scrolls sideways at 1280px, and the count only means anything next to
@@ -327,6 +337,7 @@ function Address({ o }: { o: OrderListItem }) {
 function busyLabel(a: RowActions, whenSubmitting: string): string {
   if (a.busyKind === "cancel") return "Cancelling…";
   if (a.busyKind === "delete") return "Deleting…";
+  if (a.busyKind === "stop") return "Stopping…";
   return whenSubmitting;
 }
 
@@ -359,6 +370,24 @@ function PrimaryAction({ o, a }: { o: OrderListItem; a: RowActions }) {
   const blocked = a.busy
     ? null
     : submitBlockedReason({ batchRunning: a.batchRunning, serverBusy: a.serverBusy });
+  // `canSubmit`/`canResubmit` both refuse a row with a retry owed, which would
+  // otherwise leave it with NO button at all — a row that silently loses its
+  // action reads as broken. It keeps the submit button, disabled and saying
+  // what is happening, exactly as it looks during the run itself.
+  if (isRetryPending(o)) {
+    return (
+      <BlockedHint reason="This order is being submitted again automatically. Nothing to do.">
+        <button
+          type="button"
+          disabled
+          className="inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-lg bg-[#635BFF] px-3 py-2 text-[13px] font-semibold text-white opacity-50"
+        >
+          <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+          Submitting…
+        </button>
+      </BlockedHint>
+    );
+  }
   if (canSubmit(o)) {
     return (
       <BlockedHint reason={blocked}>
@@ -430,17 +459,28 @@ function RowMenu({ o, a }: { o: OrderListItem; a: RowActions }) {
   // Details and Delete remain.
   const isPortalRecord = o.status === "submitted";
   const isCancelled = o.status === "cancelled";
+  const isRunning = o.status === "submitting";
   const showCancel = canCancel(o);
-  const showEdit = !isPortalRecord && !isCancelled && o.status !== "order_entered";
-  const showDelete = !isPortalRecord;
+  // Stopping only makes sense while something is actually running. It is NOT
+  // offered for a row awaiting an automatic retry: nothing is running there to
+  // stop, and the honest control for that case is Submit, once the retry
+  // settles.
+  const showStop = isRunning;
+  // A run in flight is not a draft to edit or delete — both would leave our copy
+  // disagreeing with a portal flow that is still going.
+  const showEdit =
+    !isPortalRecord && !isCancelled && !isRunning && o.status !== "order_entered";
+  const showDelete = !isPortalRecord && !isRunning;
   // Nothing to offer — render nothing, rather than an empty menu that opens
   // onto a blank panel.
-  if (!showDetails && !showEdit && !showDelete) return null;
+  if (!showDetails && !showEdit && !showDelete && !showStop) return null;
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        disabled={a.busy || a.batchRunning}
+        // A running row IS busy, and disabling on that would put Stop behind a
+        // control it disables — the one moment the menu has to open.
+        disabled={(a.busy || a.batchRunning) && !showStop}
         aria-label={`More actions for ${o.fullName}`}
         className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-[#697386] transition-colors duration-150 hover:bg-[#F6F9FC] hover:text-[#0A2540] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#635BFF] disabled:opacity-40"
       >
@@ -471,6 +511,16 @@ function RowMenu({ o, a }: { o: OrderListItem; a: RowActions }) {
           >
             <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
             Edit draft
+          </DropdownMenuItem>
+        )}
+        {showStop && (
+          <DropdownMenuItem
+            variant="destructive"
+            onClick={a.onStopSubmit}
+            className="cursor-pointer text-[13px]"
+          >
+            <Square className="h-3.5 w-3.5" aria-hidden="true" />
+            Stop this submit…
           </DropdownMenuItem>
         )}
         {showCancel && (
