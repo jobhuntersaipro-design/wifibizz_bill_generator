@@ -42,11 +42,22 @@ group holds no rows.
 
 ## Netflix / Max Offer Layer — Group Kinds, Item Options, and a Device Picker That Only Lists Devices
 
-**Status:** MERGED TO MAIN AND PUSHED 2026-08-29 (`ad0dee2`, merge `449fc07`; branch deleted). Verified in the
-browser against the dev database — never against the live portal, and **not yet applied to production**.
-**Needs `prisma migrate deploy`** (new `plan_offer_groups.kind`, `plan_offer_items.parent_id` +
-`included`) **and a droplet deploy + `api_server` restart** for the `device_offer_groups` payload field —
-a deploy alone keeps the old imports.
+**Status:** DEPLOYED TO PRODUCTION 2026-08-29 (`ad0dee2`, merge `449fc07`; branch deleted). Verified in the
+browser on dev and on bizzflow.top — never against the live portal.
+
+**The migration needed no manual step, and that is worth recording:** `package.json`'s build script is
+`prisma generate && prisma migrate deploy && next build`, so **Vercel applies migrations during the build** —
+the deploy carrying this code applied `20260829120000_plan_offer_kind_and_options` before building, which is
+why production never threw the 42703 a code-before-schema deploy would otherwise cause. Confirmed afterwards
+against the production database: `kind`, `parent_id` and `included` present, the backfill landing 6 discount /
+5 device groups. The droplet is on `scraper-v2026.08.29-1` — container recreated, so `api_server` restarted
+with it, `device_offer_groups` confirmed inside the running container and `/health` idle.
+
+**Production re-tagged:** exactly one group needed it — `Unifi Home 300Mbps with Netflix OTT[Pick 0, N]` on the
+published `Unifi Home 300Mbps Premium Value Netflix With Device (36M)` — switched device → channel through the
+production admin UI and read back from the database. No Max groups exist there yet. Its tiers (Basic /
+Standard RM20 / Premium RM33) are **not** recorded on production: nothing depends on them, so the agent sees
+the bundle named without its tier line until an admin adds them with + Add option.
 
 Two problems with one cause. The Netflix/Max plans carry a **third selection layer** the model stopped one
 level short of (`… with Netflix OTT[Pick 0, N]` → `Netflix Basic (Unifi)` → Basic / Standard RM20 /
