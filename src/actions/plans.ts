@@ -4,49 +4,24 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { verifyAdminSession } from "@/lib/admin-auth";
 import { DEALER_OFFERS } from "@/lib/dealer-offers";
+import {
+  nestOfferItems,
+  splitPlanOffer,
+  toOfferGroupKind,
+  OFFER_GROUP_KINDS,
+  type OfferGroupKind,
+  type OfferItemRow,
+  type PlanOfferSplit,
+  type PlanView,
+} from "@/lib/plan-offer";
 
-export interface OfferItemView {
-  id: string;
-  name: string;
-  code: string | null;
-  monthly: number | null;
-}
-
-export interface OfferGroupView {
-  id: string;
-  name: string;
-  mandatory: boolean;
-  /**
-   * True when this group holds discounts rather than devices.
-   *
-   * Derived from the portal's own naming ("… With Device Discount[Pick 0-1]"),
-   * the same rule the scraper uses to tell a discount row from a device row.
-   * Discounts are applied automatically; only device groups are offered to the
-   * agent.
-   */
-  isDiscount: boolean;
-  items: OfferItemView[];
-}
-
-/**
- * Portal convention: discount groups say so in their name.
- *
- * Not exported — a "use server" module may only export async functions, and the
- * derived flag already travels to the client on OfferGroupView.isDiscount.
- */
-function isDiscountGroupName(name: string): boolean {
-  return /discount/i.test(name || "");
-}
-
-export interface PlanView {
-  id: string;
-  name: string;
-  category: string;
-  bandwidth: string | null;
-  published: boolean;
-  notes: string | null;
-  offerGroups: OfferGroupView[];
-}
+export type {
+  OfferGroupKind,
+  OfferGroupView,
+  OfferItemOptionView,
+  OfferItemView,
+  PlanView,
+} from "@/lib/plan-offer";
 
 /**
  * Make sure every package in the static catalogue exists as a Plan row.
@@ -84,7 +59,8 @@ function toView(p: {
     id: string;
     name: string;
     mandatory: boolean;
-    items: { id: string; name: string; code: string | null; monthly: number | null }[];
+    kind: string;
+    items: OfferItemRow[];
   }[];
 }): PlanView {
   return {
@@ -98,8 +74,8 @@ function toView(p: {
       id: g.id,
       name: g.name,
       mandatory: g.mandatory,
-      isDiscount: isDiscountGroupName(g.name),
-      items: g.items,
+      kind: toOfferGroupKind(g.kind),
+      items: nestOfferItems(g.items),
     })),
   };
 }
@@ -163,7 +139,12 @@ export async function adminDeletePlan(id: string) {
   return { success: true as const };
 }
 
-export async function adminAddOfferGroup(planId: string, rawName: string, mandatory: boolean) {
+export async function adminAddOfferGroup(
+  planId: string,
+  rawName: string,
+  mandatory: boolean,
+  kind: OfferGroupKind = "device",
+) {
   if (!(await verifyAdminSession())) return { success: false as const, error: "Unauthorized" };
 
   // The portal renders the "*" outside the group name; the admin copies the row
@@ -180,12 +161,29 @@ export async function adminAddOfferGroup(planId: string, rawName: string, mandat
       select: { sortOrder: true },
     });
     await prisma.planOfferGroup.create({
-      data: { planId, name, mandatory, sortOrder: (last?.sortOrder ?? -1) + 1 },
+      data: { planId, name, mandatory, kind: toOfferGroupKind(kind), sortOrder: (last?.sortOrder ?? -1) + 1 },
     });
     return { success: true as const };
   } catch {
     return { success: false as const, error: "That offer group is already on this plan." };
   }
+}
+
+/**
+ * Re-tag an existing group.
+ *
+ * Needed because every group recorded before this shipped is `device` or
+ * `discount` — the Netflix / Max OTT groups have to be moved to `channel` by
+ * hand, and they are the reason the picker was offering a channel bundle as a
+ * device.
+ */
+export async function adminSetOfferGroupKind(id: string, kind: OfferGroupKind) {
+  if (!(await verifyAdminSession())) return { success: false as const, error: "Unauthorized" };
+  if (!OFFER_GROUP_KINDS.includes(kind)) {
+    return { success: false as const, error: "Unknown group kind." };
+  }
+  await prisma.planOfferGroup.update({ where: { id }, data: { kind } });
+  return { success: true as const };
 }
 
 export async function adminDeleteOfferGroup(id: string) {
@@ -229,15 +227,31 @@ export async function getPublishedPlans(): Promise<{
   return { success: true, plans: plans.map(toView) };
 }
 
-/** The mandatory offer-group names for one plan — used by the submit payload. */
-export async function mandatoryGroupsFor(offerName: string | null | undefined): Promise<string[]> {
-  if (!offerName) return [];
+/**
+ * The mandatory offer-group names for one plan — used by the submit payload.
+ *
+ * Two lists, not one. `all` is what the scraper expands in the Offer dialog and
+ * must stay complete, or a group's rows never become readable. `devices` is the
+ * subset the substitution logic may pick a REPLACEMENT device from when the
+ * portal refuses the agent's choice: without it, a refused TV could be
+ * "substituted" with the plan's Netflix bundle and that order submitted.
+ */
+export async function mandatoryGroupsFor(
+  offerName: string | null | undefined,
+): Promise<{ all: string[]; devices: string[] }> {
+  const empty = { all: [], devices: [] };
+  if (!offerName) return empty;
   const plan = await prisma.plan.findUnique({
     where: { name: offerName },
     include: { offerGroups: { where: { mandatory: true }, orderBy: { sortOrder: "asc" } } },
   });
-  if (!plan || plan.hidden) return [];
-  return plan.offerGroups.map((g) => g.name);
+  if (!plan || plan.hidden) return empty;
+  return {
+    all: plan.offerGroups.map((g) => g.name),
+    devices: plan.offerGroups
+      .filter((g) => toOfferGroupKind(g.kind) === "device")
+      .map((g) => g.name),
+  };
 }
 
 // ── Offer items ──────────────────────────────────────────────────────────────
@@ -254,6 +268,10 @@ export async function adminAddOfferItem(
   rawName: string,
   code: string,
   monthly: string,
+  /** Set to nest this row under an existing item — a Netflix tier, say. */
+  parentId?: string | null,
+  /** True for the child the portal auto-ticks. */
+  included = false,
 ) {
   if (!(await verifyAdminSession())) return { success: false as const, error: "Unauthorized" };
 
@@ -267,15 +285,33 @@ export async function adminAddOfferItem(
   if (monthly.trim() && !/^-?\d+(\.\d+)?$/.test(cleaned)) {
     return { success: false as const, error: "Monthly charge must be a number, e.g. 20 or -10." };
   }
+  // A child belongs to its parent's group by construction: taking the group
+  // from the parent rather than from the caller is what stops a tier being
+  // recorded against a different group than the item it sits under.
+  let targetGroupId = groupId;
+  if (parentId) {
+    const parent = await prisma.planOfferItem.findUnique({
+      where: { id: parentId },
+      select: { groupId: true, parentId: true },
+    });
+    if (!parent) return { success: false as const, error: "That item no longer exists." };
+    if (parent.parentId) {
+      return { success: false as const, error: "The portal's offer tree is only two levels deep." };
+    }
+    targetGroupId = parent.groupId;
+  }
+
   try {
     const last = await prisma.planOfferItem.findFirst({
-      where: { groupId },
+      where: { groupId: targetGroupId, parentId: parentId ?? null },
       orderBy: { sortOrder: "desc" },
       select: { sortOrder: true },
     });
     await prisma.planOfferItem.create({
       data: {
-        groupId,
+        groupId: targetGroupId,
+        parentId: parentId ?? null,
+        included,
         name,
         code: code.trim() || null,
         monthly: cleaned ? Number(cleaned) : null,
@@ -295,19 +331,17 @@ export async function adminDeleteOfferItem(id: string) {
 }
 
 /**
- * The devices an agent may pick for a plan, and the discounts it carries.
+ * What a plan offers, split by what the agent may do with it.
  *
- * Devices come from the mandatory NON-discount groups. Discounts are returned
- * separately because the agent never chooses them — they are applied during the
- * order and shown for information only.
+ * Devices come from the mandatory DEVICE groups and are the only rows the
+ * picker lists. Channels (Netflix, Max) and discounts are returned separately
+ * because the agent never chooses them: the portal ticks them itself, and they
+ * are shown read-only so the order can be understood without being mis-picked.
  */
-export async function getPlanOffer(offerName: string): Promise<{
-  devices: OfferItemView[];
-  discounts: OfferItemView[];
-  known: boolean;
-}> {
+export async function getPlanOffer(offerName: string): Promise<PlanOfferSplit> {
+  const empty: PlanOfferSplit = { devices: [], channels: [], discounts: [], known: false };
   const session = await auth();
-  if (!session?.user?.id) return { devices: [], discounts: [], known: false };
+  if (!session?.user?.id) return empty;
 
   const plan = await prisma.plan.findUnique({
     where: { name: offerName },
@@ -319,15 +353,15 @@ export async function getPlanOffer(offerName: string): Promise<{
       },
     },
   });
-  if (!plan || !plan.published || plan.hidden) return { devices: [], discounts: [], known: false };
+  if (!plan || !plan.published || plan.hidden) return empty;
 
-  const devices: OfferItemView[] = [];
-  const discounts: OfferItemView[] = [];
-  for (const g of plan.offerGroups) {
-    (isDiscountGroupName(g.name) ? discounts : devices).push(...g.items);
-  }
-  // `known` distinguishes "this plan offers no devices" from "nobody has
-  // recorded its items yet" — the picker falls back to the static catalogue
-  // only in the second case.
-  return { devices, discounts, known: devices.length > 0 };
+  return splitPlanOffer(
+    plan.offerGroups.map((g) => ({
+      id: g.id,
+      name: g.name,
+      mandatory: g.mandatory,
+      kind: toOfferGroupKind(g.kind),
+      items: nestOfferItems(g.items),
+    })),
+  );
 }

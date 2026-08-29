@@ -3539,7 +3539,8 @@ async def _dismiss_success_popups(frame, page, tries: int = 8) -> int:
 
 async def _select_device_once(page, dev_code: str, dev_name: str,
                               payload_discover: bool = False,
-                              group_names: list = None) -> dict:
+                              group_names: list = None,
+                              device_group_names: list = None) -> dict:
     """One attempt at picking a specific device in the Offer dialog.
 
     Split out of select_device so a portal refusal can be retried with a
@@ -3590,7 +3591,11 @@ async def _select_device_once(page, dev_code: str, dev_name: str,
                 "message": "This package has no mandatory offer group — no device to select.",
                 "dump": dump}
 
-    offered = starred_devices(tree, group_names)
+    # What may be ORDERED as this plan's device. Scoped to the device-kind
+    # groups: a channel bundle ("Netflix Basic (Unifi)") lives in a mandatory
+    # group of its own and is ticked by the portal itself, so offering it as a
+    # substitute for a refused TV would submit the wrong order.
+    offered = starred_devices(tree, device_group_names or group_names)
 
     # Catalogue discovery: we came here only to read what this package offers.
     # Close the dialog without selecting anything and hand the list back.
@@ -3719,13 +3724,18 @@ async def select_device(page, payload: dict) -> dict:
     dev_name = (payload.get("deviceName") or payload.get("device_name") or "").strip()
     # Offer group names an admin recorded for this plan (see Plan Details).
     group_names = payload.get("offer_groups") or []
+    # Substitution pool: device-kind groups only, when BizzFlow says which those
+    # are. Empty means nobody has classified this plan's groups yet, so fall
+    # back to every mandatory group — the behaviour that shipped before kinds.
+    device_group_names = payload.get("device_offer_groups") or group_names
     discover = bool(payload.get("discover_only"))
     if not discover and not dev_code and not dev_name:
         return {"status": "skipped", "stage": "device", "message": "no device on order"}
 
     if discover:
         r = await _select_device_once(page, "", "", payload_discover=True,
-                                      group_names=group_names)
+                                      group_names=group_names,
+                                      device_group_names=device_group_names)
         return {**r, "available_devices": r.get("offered", [])}
 
     tried: list = []
@@ -3733,7 +3743,8 @@ async def select_device(page, payload: dict) -> dict:
     first_rejection = None
 
     for attempt in range(MAX_DEVICE_SUBSTITUTIONS + 1):
-        r = await _select_device_once(page, dev_code, dev_name, group_names=group_names)
+        r = await _select_device_once(page, dev_code, dev_name, group_names=group_names,
+                                      device_group_names=device_group_names)
         if r.get("offered"):
             available = r["offered"]
 

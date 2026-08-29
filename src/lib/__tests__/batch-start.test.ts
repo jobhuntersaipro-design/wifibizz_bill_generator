@@ -52,7 +52,7 @@ vi.mock("@/lib/batch-submit", () => ({
   finishBatch: vi.fn(),
   batchOrderIds: (v: unknown) => (Array.isArray(v) ? v : []),
 }));
-vi.mock("@/actions/plans", () => ({ mandatoryGroupsFor: vi.fn().mockResolvedValue([]) }));
+vi.mock("@/actions/plans", () => ({ mandatoryGroupsFor: vi.fn().mockResolvedValue({ all: [], devices: [] }) }));
 vi.mock("@/actions/admin-settings", () => ({
   getAppointmentPolicy: vi.fn().mockResolvedValue({ mode: "first_available" }),
 }));

@@ -102,9 +102,22 @@ export function PlanDetailsView() {
                       >
                         {g.mandatory ? "★ required" : "optional"}
                       </span>
-                      <code className="min-w-0 truncate text-[#425466]" title={g.name}>
+                      <code className="min-w-0 flex-1 truncate text-[#425466]" title={g.name}>
                         {g.name}
                       </code>
+                      {/* What the group holds. A channel group is ticked by the
+                          portal itself, so its rows are never chosen here. */}
+                      {g.kind !== "device" && (
+                        <span
+                          className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                            g.kind === "discount"
+                              ? "bg-[#635BFF]/10 text-[#635BFF]"
+                              : "bg-green-100 text-green-700"
+                          }`}
+                        >
+                          {g.kind === "discount" ? "auto-applied" : "included"}
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>
