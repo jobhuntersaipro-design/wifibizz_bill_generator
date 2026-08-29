@@ -55,6 +55,16 @@ export async function maybeAutoRetry(orderId: string): Promise<RetryOutcome> {
   });
 
   if (!verdict.retry) {
+    // Clear the claim FIRST. `applyResult` stamps `autoRetryAt` from the same
+    // verdict, so the two normally agree — but a budget spent between the stamp
+    // and here (three retries later) leaves a row whose pill would otherwise
+    // read "Retrying" for an order nothing is ever coming back for.
+    if (order.autoRetryAt) {
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { autoRetryAt: null },
+      });
+    }
     // Say so in the history, but only once there was a decision worth recording:
     // an order that simply succeeded should not carry a note about not being
     // retried.

@@ -18,6 +18,8 @@ import {
   LEGACY_PAGE1_CAPTURE_STAGE,
   PAGE1_CAPTURE_SLOT,
   POINT_OF_NO_RETURN,
+  STOPPED_MSG,
+  SUBMIT_STOPPED,
   isPortalOrderNumber,
   isScreenshotKey,
   movesStagePointer,
@@ -25,6 +27,7 @@ import {
   type StageDetail,
   type StageDetails,
 } from "@/lib/order-types";
+import { retryPendingAt } from "@/lib/retry-policy";
 
 const SCRAPER_API_URL = process.env.SCRAPER_API_URL ?? "http://localhost:5000";
 const ORDER_TOKEN = process.env.ORDER_ENTRY_API_TOKEN ?? "";
@@ -76,6 +79,10 @@ export interface JobSnapshot {
   stages?: JobStage[];
   result?: OrderJobResult;
   error?: string;
+  // How the run ended, when the scraper could say: "cancelled" (a person pressed
+  // Stop), "portal_timeout", "infra", "unexpected". Only `cancelled` changes what
+  // is written here — a stop is a decision, not a failure of the order.
+  error_kind?: string;
 }
 
 /** What a poll concluded, for the caller to hand back to the browser. */
@@ -282,7 +289,12 @@ async function applyResult(
 ): Promise<ProgressState> {
   const current = await prisma.order.findUnique({
     where: { id: orderId },
-    select: { attempt: true, stage: true, offerName: true, deviceName: true },
+    select: {
+      attempt: true, stage: true, offerName: true, deviceName: true,
+      // Needed to judge, in the SAME write that files the outcome, whether this
+      // failure is one an automatic retry will come back for.
+      autoRetries: true,
+    },
   });
   const attempt = current?.attempt ?? 1;
 
@@ -316,6 +328,18 @@ async function applyResult(
         errorMessage: data.errorMessage ?? null,
         errorCode: data.errorCode ?? null,
         jobId: null, // the run is over — nothing left to reconcile
+        // Stamped in the same write as the outcome, deliberately. A second
+        // write would leave a window where the row reads Failed with a live
+        // Submit button before anything marks it as about to be retried — which
+        // is the window this exists to close. Null on a success, which also
+        // clears a claim left by an earlier attempt.
+        autoRetryAt: retryPendingAt({
+          status: data.status,
+          errorCode: data.errorCode ?? null,
+          errorMessage: data.errorMessage ?? null,
+          autoRetries: current?.autoRetries ?? 0,
+          attempt,
+        }),
       },
     });
     await recordEvent({
@@ -436,14 +460,29 @@ async function applyResult(
  * the agent to check the portal.
  */
 async function finalizeMissingJob(id: string): Promise<ProgressState> {
+  const before = await prisma.order.findUnique({
+    where: { id },
+    select: { autoRetries: true, attempt: true },
+  });
+  const errorMessage =
+    "The submit run was lost (the order service restarted). Check the portal " +
+    "for this customer before submitting again — the order may already exist.";
   const o = await prisma.order.update({
     where: { id },
     data: {
       status: "warning",
       jobId: null,
-      errorMessage:
-        "The submit run was lost (the order service restarted). Check the portal " +
-        "for this customer before submitting again — the order may already exist.",
+      errorMessage,
+      // Same rule as every other finalization: if this is one the automatic
+      // retry will come back for, the row must say so instead of offering a
+      // Submit button that would start a second run against it.
+      autoRetryAt: retryPendingAt({
+        status: "warning",
+        errorCode: null,
+        errorMessage,
+        autoRetries: before?.autoRetries ?? 0,
+        attempt: before?.attempt ?? 1,
+      }),
     },
   });
   await recordEvent({
@@ -498,23 +537,41 @@ export async function pollOrderProgress(id: string): Promise<ProgressState | nul
   });
 
   if (job.status === "error") {
+    // A run a PERSON stopped is not a failure of the order, and it must not be
+    // handed straight back to the automatic retry — which is exactly what an
+    // unclassified failure would be. `submit_stopped` is terminal in
+    // retry-policy, so the stop stands until somebody decides otherwise.
+    const stopped = job.error_kind === "cancelled";
+    const errorMessage = stopped
+      ? job.error || STOPPED_MSG
+      : job.error || "The portal run failed.";
+    const errorCode = stopped ? SUBMIT_STOPPED : null;
     const o = await prisma.order.update({
       where: { id },
       data: {
         status: "failed",
         jobId: null,
-        errorMessage: job.error || "The portal run failed.",
+        errorMessage,
+        errorCode,
+        autoRetryAt: retryPendingAt({
+          status: "failed",
+          errorCode,
+          errorMessage,
+          autoRetries: order.autoRetries,
+          attempt: order.attempt,
+        }),
       },
     });
     await recordEvent({
       orderId: id, attempt: order.attempt, status: "failed", stage: o.stage,
-      message: o.errorMessage,
+      message: o.errorMessage, errorCode,
     });
     return withDetails({
       status: o.status,
       stage: o.stage,
       orderId: o.orderId,
       errorMessage: o.errorMessage,
+      errorCode: o.errorCode,
       done: true,
     });
   }

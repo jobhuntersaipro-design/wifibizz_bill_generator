@@ -3,6 +3,9 @@ import {
   MAX_AUTO_RETRIES,
   MAX_TOTAL_ATTEMPTS,
   TERMINAL_ERROR_CODES,
+  isRetryPending,
+  retryPendingAt,
+  retryPillLabel,
   retryVerdict,
   triesSuffix,
   type RetryInput,
@@ -154,5 +157,98 @@ describe("triesSuffix", () => {
 
   it("says nothing while a run is still going, since the count is still moving", () => {
     expect(triesSuffix({ status: "submitting", attempt: 3 })).toBe("");
+  });
+});
+
+/* ── The retry-pending window ───────────────────────────────────────────────
+ *
+ * `applyResult` writes `failed`/`warning` a beat before `maybeAutoRetry` flips
+ * the order back to `submitting`. In that window the row used to read Failed
+ * with a live Submit button — which is an invitation to start a SECOND run
+ * against an order that is already going to be run again. These pin the rule
+ * that closes it.
+ */
+describe("isRetryPending / retryPillLabel", () => {
+  const owed = {
+    status: "failed",
+    autoRetries: 1,
+    autoRetryAt: new Date("2026-08-30T10:00:00Z"),
+  };
+
+  it("reads a failure with a claim on it as still in flight", () => {
+    expect(isRetryPending(owed)).toBe(true);
+    // The try being ANNOUNCED is the next one: the counter only moves when
+    // maybeAutoRetry actually claims it.
+    expect(retryPillLabel(owed)).toBe("Retrying · 2 of 3");
+  });
+
+  it("covers a stranded order too, not only a clean failure", () => {
+    expect(isRetryPending({ ...owed, status: "warning" })).toBe(true);
+  });
+
+  it("is false with no claim — a plain finished failure", () => {
+    expect(isRetryPending({ ...owed, autoRetryAt: null })).toBe(false);
+    expect(retryPillLabel({ ...owed, autoRetryAt: null })).toBeNull();
+  });
+
+  it("re-checks the budget rather than trusting the timestamp", () => {
+    // A claim left behind by a bug must read as finished, not as a row that
+    // says "Retrying" forever for a run nothing is coming back for.
+    expect(isRetryPending({ ...owed, autoRetries: MAX_AUTO_RETRIES })).toBe(false);
+  });
+
+  it("never claims a running or a submitted order is retrying", () => {
+    expect(isRetryPending({ ...owed, status: "submitting" })).toBe(false);
+    expect(isRetryPending({ ...owed, status: "submitted" })).toBe(false);
+  });
+
+  it("accepts an ISO string, which is what the row carries", () => {
+    // OrderListItem serialises the date for the client; the pill reads the
+    // same rule as the server.
+    expect(isRetryPending({ ...owed, autoRetryAt: "2026-08-30T10:00:00.000Z" })).toBe(true);
+  });
+
+  it("hands the count to the pill instead of doubling it", () => {
+    // "Retrying · 2 of 3 · 2 tries" says the same thing twice, in two
+    // vocabularies.
+    expect(triesSuffix({ ...owed, attempt: 2 })).toBe("");
+    expect(triesSuffix({ ...owed, attempt: 2, autoRetryAt: null })).toBe(" · 2 tries");
+  });
+});
+
+describe("retryPendingAt", () => {
+  const NOW = new Date("2026-08-30T10:00:00Z");
+
+  it("stamps a retryable failure, so the row is marked in the same write", () => {
+    expect(
+      retryPendingAt(
+        { status: "failed", errorCode: null, errorMessage: "Timeout", autoRetries: 0, attempt: 1 },
+        NOW,
+      ),
+    ).toEqual(NOW);
+  });
+
+  it("clears the claim on a success", () => {
+    expect(
+      retryPendingAt(
+        { status: "submitted", errorCode: null, errorMessage: null, autoRetries: 0, attempt: 2 },
+        NOW,
+      ),
+    ).toBeNull();
+  });
+
+  it("leaves a stopped run alone — a stop is not something to undo", () => {
+    expect(
+      retryPendingAt(
+        {
+          status: "failed",
+          errorCode: "submit_stopped",
+          errorMessage: "Stopped by the agent",
+          autoRetries: 0,
+          attempt: 1,
+        },
+        NOW,
+      ),
+    ).toBeNull();
   });
 });

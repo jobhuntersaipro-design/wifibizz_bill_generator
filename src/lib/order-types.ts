@@ -1,6 +1,11 @@
 // Shared order types/constants usable from both client components and the
 // "use server" actions file (which may only export async functions).
 
+// retry-policy is pure (no Prisma, no next/*), so importing it here keeps this
+// module client-safe. It owns the "is another run already owed?" rule, which
+// the predicates below have to respect.
+import { isRetryPending } from "@/lib/retry-policy";
+
 export const MAX_DOCS = 10;
 
 export interface OrderDocument {
@@ -424,7 +429,39 @@ export interface SubmitErrorCopy {
  */
 export const ERF_NOT_DOWNLOADED = "erf_not_downloaded";
 
+/**
+ * A run a person stopped on purpose.
+ *
+ * Raised by BizzFlow (the Stop action) and recognised again when the droplet's
+ * cancelled job is reconciled, so both routes into this state say the same
+ * thing. It is TERMINAL in `retry-policy` — the automatic retry undoing a
+ * deliberate stop is the one outcome this must never have.
+ */
+export const SUBMIT_STOPPED = "submit_stopped";
+
+/**
+ * What a stopped run says on the row, in the history, and in the email.
+ *
+ * It leads with the portal, not with us: the Customer Order Number is minted
+ * early, so a run stopped part-way can have left a real order at Unifi that
+ * nobody has voided.
+ */
+export const STOPPED_MSG =
+  "Stopped by the agent while it was running. The portal may already hold an " +
+  "order for this customer \u2014 check at Unifi before submitting again.";
+
 export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
+  submit_stopped: {
+    title: "Stopped by the agent",
+    subtext:
+      "This run did not fail \u2014 somebody pressed Stop while it was going, " +
+      "so the browser was shut down wherever it had got to. Because the portal " +
+      "mints the Customer Order Number early, a run stopped part-way can still " +
+      "have left a real order at Unifi.",
+    fix:
+      "Check the portal for this customer. Void anything the stopped run left " +
+      "behind, then submit again \u2014 nothing will retry it on its own.",
+  },
   address_no_tm_service: {
     title: "TM does not serve this address",
     subtext:
@@ -677,8 +714,18 @@ export const needsVoiding = (o: {
 export const canSubmit = (o: {
   status: string;
   orderId?: string | null;
+  autoRetries?: number;
+  autoRetryAt?: Date | string | null;
 }): boolean =>
-  !o.orderId && o.status !== "submitting" && o.status !== "cancelled";
+  !o.orderId &&
+  o.status !== "submitting" &&
+  o.status !== "cancelled" &&
+  // An order the automatic retry is about to run again is, for every purpose
+  // this predicate serves, already in flight: pressing Submit on it — or
+  // sweeping it into a batch — starts a SECOND run against the same draft.
+  // Held here rather than in the row so the button, the batch checkbox and
+  // `startBatchSubmit`'s own server-side filter cannot disagree.
+  !isRetryPending(o);
 
 /**
  * A stranded order: the portal minted a number, then the run failed.
@@ -694,7 +741,9 @@ export const canSubmit = (o: {
 export const canResubmit = (o: {
   status: string;
   orderId?: string | null;
-}): boolean => needsVoiding(o) && o.status !== "submitting";
+  autoRetries?: number;
+  autoRetryAt?: Date | string | null;
+}): boolean => needsVoiding(o) && o.status !== "submitting" && !isRetryPending(o);
 
 // Coarse stage keys older scraper builds emit, mapped onto the step they begin.
 // Vercel and the droplet deploy separately, so a BizzFlow that is ahead of the
@@ -769,6 +818,21 @@ export function toneForStatus(status: string): RunTone {
 }
 
 /**
+ * The tone for a whole row, which is not always the tone of its status.
+ *
+ * A failure with a retry owed is running, not failed: the colour is the first
+ * thing read, and amber-on-Failed next to a spinner that says Retrying is two
+ * answers to one question.
+ */
+export function toneForOrder(o: {
+  status: string;
+  autoRetries?: number;
+  autoRetryAt?: Date | string | null;
+}): RunTone {
+  return isRetryPending(o) ? "running" : toneForStatus(o.status);
+}
+
+/**
  * Only a fully submitted order can be manually cancelled, and cancelling is
  * terminal: nothing ever transitions out of "cancelled" — the row keeps
  * Details (the audit trail of a real paid order) and Delete, nothing else.
@@ -837,8 +901,13 @@ export interface HeroContent {
 export function heroFor(order: {
   status: string;
   orderId?: string | null;
+  autoRetries?: number;
+  autoRetryAt?: Date | string | null;
 }): HeroContent {
-  const tone = toneForStatus(order.status);
+  // A failure with a retry owed reads as running here too. The detail page and
+  // the row are looked at within seconds of each other, and one saying Failed
+  // while the other says Retrying is worse than either answer alone.
+  const tone = toneForOrder(order);
   const id = order.orderId?.trim();
   if (id) return { value: id, isOrderNumber: true, tone };
   const words: Record<RunTone, string> = {
@@ -991,6 +1060,12 @@ export interface OrderListItem {
   // default — the two are shown differently, so a dash never reads as a choice.
   appointmentLeadHours: number | null;
   attempt: number; // how many submit runs this draft has had
+  // Automatic retries spent since the last MANUAL submit, and the timestamp
+  // that says another one is owed. Together they are what makes a row read
+  // "Retrying · 2 of 3" instead of Failed-with-a-live-Submit-button during the
+  // window between one run ending and the next starting.
+  autoRetries: number;
+  autoRetryAt: string | null; // ISO, or null when nothing is owed
   // R2 key of the latest attempt's page-1 screenshot — presence means evidence
   // exists; every other frame is read per attempt from the status trail.
   screenshotUrl: string | null;
