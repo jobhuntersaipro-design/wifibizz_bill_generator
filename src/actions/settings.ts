@@ -435,3 +435,58 @@ export async function saveNotificationEmail(raw: string) {
   });
   return { success: true as const, notificationEmail: value };
 }
+
+/**
+ * Send one test email, and report exactly what happened.
+ *
+ * The address comes from what the agent has TYPED, not from what is saved, so a
+ * new address can be checked before committing to it (`testTargetFor` holds the
+ * rule, including the blank-means-login-email fallback).
+ *
+ * It runs even when `notificationsConfigured` says the environment has no mail
+ * provider: the card already warns about that from an env check, and a button
+ * that refuses to run can neither confirm nor contradict it. `sendEmail` never
+ * throws, so the missing-key case comes back as an ordinary reason.
+ *
+ * Rate limited because this is otherwise an authenticated "send mail to any
+ * address I type" primitive. It shares the auth limiter's window under its own
+ * key, and that limiter fails open — a rate limiter outage must not take the
+ * button down with it.
+ */
+export async function sendTestNotification(typed: string) {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
+
+  const { checkRateLimit } = await import("@/lib/rate-limit");
+  const gate = await checkRateLimit(`test-email:${session.user.id}`);
+  if (!gate.success) {
+    return {
+      success: false as const,
+      error: "Too many test emails. Wait a few minutes and try again.",
+    };
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { email: true },
+  });
+  const { testTargetFor } = await import("@/lib/notifications/recipient");
+  const target = testTargetFor(typed, { email: user?.email });
+  if ("error" in target) return { success: false as const, error: target.error };
+
+  const { testEmail } = await import("@/lib/notifications/templates");
+  const { sendEmail } = await import("@/lib/notifications/resend");
+  const { subject, html } = testEmail(target.to);
+  const result = await sendEmail({ to: target.to, subject, html });
+
+  if (!result.sent) {
+    // Resend's own wording, not a paraphrase: "it didn't work" without a reason
+    // is what sends someone digging through deployment logs.
+    return {
+      success: false as const,
+      to: target.to,
+      error: result.reason ?? "The email could not be sent.",
+    };
+  }
+  return { success: true as const, to: target.to };
+}

@@ -285,3 +285,28 @@ export function batchSummaryEmail(batch: {
     ),
   };
 }
+
+/**
+ * The test email the Settings card sends.
+ *
+ * Deliberately built on the same `shell()` as the two real emails: a test that
+ * rendered its own markup would prove Resend accepted a request and nothing
+ * about whether an order result is readable when it lands. It carries the tick
+ * for the same reason the others do — the verdict has to survive the subject
+ * line being gone.
+ */
+export function testEmail(to: string): { subject: string; html: string } {
+  const title = "Email setup successfully";
+  return {
+    subject: `${OUTCOME_MARK.submitted} ${title}`,
+    html: shell(
+      OUTCOME_MARK.submitted,
+      title,
+      `<p style="margin:0 0 12px;">Email setup successfully.</p>
+       <p style="margin:0;color:${MUTED};">
+         This is a test sent from Settings to <strong style="color:${INK};">${esc(to)}</strong>.
+         Order results and batch summaries will arrive here.
+       </p>`,
+    ),
+  };
+}

@@ -30,3 +30,33 @@ export function resolveRecipient(user: {
 export function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 }
+
+/**
+ * Where a TEST email should go, given what the agent has typed.
+ *
+ * The typed value wins over the saved one on purpose: the point of the test is
+ * to check an address BEFORE committing to it, and testing the stored value
+ * while a different one sits unsaved in the box would answer a question nobody
+ * asked. A blank box is not an error — it is the fallback `resolveRecipient`
+ * really applies, so the test follows it to the login email.
+ *
+ * Returns the address or the reason there isn't one; pure, so the rule is
+ * testable without a mail provider.
+ */
+export function testTargetFor(
+  typed: string,
+  user: { email?: string | null },
+): { to: string } | { error: string } {
+  const value = typed.trim();
+  if (value) {
+    if (!isValidEmail(value)) {
+      return { error: "That doesn't look like an email address." };
+    }
+    return { to: value };
+  }
+  const login = user.email?.trim();
+  if (!login) {
+    return { error: "No address to send to — enter one above." };
+  }
+  return { to: login };
+}
