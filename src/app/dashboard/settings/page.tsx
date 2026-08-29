@@ -13,6 +13,7 @@ import {
   syncCasesToSheet,
   getNotificationSettings,
   saveNotificationEmail,
+  sendTestNotification,
 } from "@/actions/settings";
 import { toast } from "sonner";
 
@@ -41,6 +42,11 @@ export default function SettingsPage() {
   const [loginEmail, setLoginEmail] = useState<string | null>(null);
   const [notifyConfigured, setNotifyConfigured] = useState(true);
   const [savingNotify, setSavingNotify] = useState(false);
+  const [sendingTest, setSendingTest] = useState(false);
+  /** The last test EMAIL's outcome, kept on screen after the toast has gone.
+      Named apart from `testResult`, which belongs to the WifiBizz connection
+      test one card up. */
+  const [emailTest, setEmailTest] = useState<{ ok: boolean; message: string } | null>(null);
 
   useEffect(() => {
     getWifibizzCredentials().then((result) => {
@@ -71,6 +77,28 @@ export default function SettingsPage() {
       }
     });
   }, []);
+
+  /**
+   * Send a test to whatever is in the box right now — saved or not.
+   *
+   * The result is kept inline rather than only in a toast: a toast is gone in
+   * four seconds, and this is the one line someone will want to read back while
+   * checking an inbox on their phone.
+   */
+  async function handleSendTest() {
+    setSendingTest(true);
+    setEmailTest(null);
+    const res = await sendTestNotification(notifyEmail);
+    setSendingTest(false);
+    if (res.success) {
+      setEmailTest({ ok: true, message: `Sent to ${res.to} — check the inbox, and spam.` });
+      toast.success(`Test email sent to ${res.to}`);
+    } else {
+      const to = "to" in res && res.to ? ` to ${res.to}` : "";
+      setEmailTest({ ok: false, message: `Couldn't send${to}: ${res.error}` });
+      toast.error(res.error ?? "Couldn't send the test email");
+    }
+  }
 
   async function handleSaveNotifyEmail(e: React.FormEvent) {
     e.preventDefault();
@@ -377,13 +405,42 @@ export default function SettingsPage() {
                 be delivered until it is. Your address is still saved.
               </p>
             )}
-            <Button
-              type="submit"
-              disabled={savingNotify || notifyEmail.trim() === savedNotifyEmail.trim()}
-              className="bg-[#635BFF] hover:bg-[#0A2540] text-white text-[13px]"
-            >
-              {savingNotify ? "Saving…" : "Save"}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="submit"
+                disabled={savingNotify || notifyEmail.trim() === savedNotifyEmail.trim()}
+                className="bg-[#635BFF] hover:bg-[#0A2540] text-white text-[13px]"
+              >
+                {savingNotify ? "Saving…" : "Save"}
+              </Button>
+              {/* Deliberately NOT disabled when the environment reports no mail
+                  provider: that warning comes from an env check, and this is the
+                  one control that can confirm or contradict it. It also sends
+                  what is TYPED, so a new address can be checked before saving. */}
+              <Button
+                type="button"
+                variant="outline"
+                disabled={sendingTest}
+                onClick={handleSendTest}
+                className="text-[13px] border-[#E3E8EF] text-[#425466] hover:border-[#635BFF] hover:text-[#635BFF]"
+              >
+                {sendingTest ? "Sending…" : "Send test email"}
+              </Button>
+              <span className="text-xs text-[#697386]">
+                Sends “Email setup successfully” to the address above.
+              </span>
+            </div>
+            {emailTest && (
+              <p
+                className={`rounded-lg border px-3 py-2 text-xs ${
+                  emailTest.ok
+                    ? "border-green-200 bg-green-50 text-green-800"
+                    : "border-red-200 bg-red-50 text-red-800"
+                }`}
+              >
+                {emailTest.message}
+              </p>
+            )}
           </form>
         </div>
       </div>

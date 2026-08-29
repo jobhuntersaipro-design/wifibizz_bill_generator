@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isValidEmail, resolveRecipient } from "@/lib/notifications/recipient";
+import { isValidEmail, resolveRecipient, testTargetFor } from "@/lib/notifications/recipient";
 import {
   batchBucket,
   batchSubject,
@@ -13,7 +13,7 @@ import {
   summarize,
   type OrderOutcome,
 } from "@/lib/notifications/outcomes";
-import { batchSummaryEmail, esc, singleResultEmail } from "@/lib/notifications/templates";
+import { batchSummaryEmail, esc, singleResultEmail, testEmail } from "@/lib/notifications/templates";
 
 /**
  * What an email says, and who it says it to.
@@ -69,6 +69,41 @@ describe("isValidEmail", () => {
     for (const bad of ["agent", "agent@", "@bizzflow.top", "agent@bizzflow", "a b@c.com"]) {
       expect(isValidEmail(bad)).toBe(false);
     }
+  });
+});
+
+describe("testTargetFor — where a test email goes", () => {
+  it("sends to what is typed, even though it is not saved yet", () => {
+    // The whole point of the test button: check an address BEFORE committing.
+    expect(testTargetFor("new@example.com", { email: "login@example.com" })).toEqual({
+      to: "new@example.com",
+    });
+    expect(testTargetFor("  new@example.com  ", { email: "login@example.com" })).toEqual({
+      to: "new@example.com",
+    });
+  });
+
+  it("falls back to the login email when the box is blank", () => {
+    // Blank is not an error — it is the fallback real notifications apply, so
+    // the test must follow it rather than refuse.
+    expect(testTargetFor("", { email: "login@example.com" })).toEqual({ to: "login@example.com" });
+    expect(testTargetFor("   ", { email: "login@example.com" })).toEqual({
+      to: "login@example.com",
+    });
+  });
+
+  it("refuses a malformed address instead of sending into a provider error", () => {
+    const r = testTargetFor("not-an-address", { email: "login@example.com" });
+    expect(r).toEqual({ error: "That doesn't look like an email address." });
+  });
+
+  it("says so when there is no address anywhere", () => {
+    expect(testTargetFor("", { email: null })).toEqual({
+      error: "No address to send to — enter one above.",
+    });
+    expect(testTargetFor("  ", { email: "   " })).toEqual({
+      error: "No address to send to — enter one above.",
+    });
   });
 });
 
@@ -195,6 +230,23 @@ describe("esc", () => {
   it("renders a missing value as empty rather than the word undefined", () => {
     expect(esc(null)).toBe("");
     expect(esc(undefined)).toBe("");
+  });
+});
+
+describe("testEmail", () => {
+  it("says it worked, in the subject and in the body", () => {
+    const { subject, html } = testEmail("agent@bizzflow.top");
+    expect(subject).toBe("\u2705 Email setup successfully");
+    expect(html).toContain("Email setup successfully");
+    // The address is on the card so the reader can tell WHICH inbox was proved
+    // — a test that names no address proves nothing about the one they typed.
+    expect(html).toContain("agent@bizzflow.top");
+  });
+
+  it("escapes the address rather than pasting it into the markup", () => {
+    const { html } = testEmail('a"<b>@example.com');
+    expect(html).not.toContain("<b>@example.com");
+    expect(html).toContain("&lt;b&gt;");
   });
 });
 

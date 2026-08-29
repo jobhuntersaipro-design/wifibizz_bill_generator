@@ -1,5 +1,48 @@
 # Current Feature
 
+## Test Button for the Notification Email
+
+**Status:** CODE COMPLETE, VERIFIED IN BROWSER, ONE REAL EMAIL SENT (branch `feature/test-notification-email`,
+not yet committed). Vercel-only — no scraper change, no migration.
+
+Settings' **Notification email** card stored an address with no way to prove an email could reach it. A
+**Send test email** button beside Save now sends *Email setup successfully* through the same `shell()`
+template the order emails use — so a delivered test proves the real template renders, not merely that Resend
+accepted a request.
+
+**Decisions taken with the user:** the test goes to **whatever is typed in the box**, saved or not (blank =
+the login email, the same fallback `resolveRecipient` applies; malformed refused before sending), so a new
+address can be checked before committing to it; and the button **stays enabled when the env check says
+sending is not configured** — that warning comes from reading env vars, and a control that refuses to run can
+neither confirm nor contradict it.
+
+**Resend's own wording is surfaced**, not a paraphrase: *"it didn't work"* with no reason is what sends
+someone digging through deployment logs. The result also stays on screen as an inline line rather than only a
+toast, because it is read while checking an inbox on a phone.
+
+**Rate limited** through the existing `checkRateLimit` (Upstash, fails open) under its own `test-email:<user>`
+key — otherwise the button is an authenticated "send mail to any address I type" primitive. The limiter
+failing open is deliberate and inherited: a rate-limiter outage must not take the button down with it.
+
+**Verified in the browser** on the dev server against the real session, all three paths: a malformed address
+refused with no send; a blank box falling back to the login email and reporting **Resend's own** *"Invalid
+`to` field…"* — which is itself proof the request reached Resend rather than dying locally; and a real send to
+`jobhunters.ai.pro@gmail.com` reporting *Sent to … — check the inbox, and spam*. 607 vitest (8 new: five for
+`testTargetFor`, two for the template, plus escaping), `npm run build`, lint identical to baseline (9642),
+`tsc` unchanged.
+
+**A standing note in these docs was wrong, and is corrected:** since 2026-08-22 this file has said the app
+*has never delivered a single notification*. It has — `✅ Order submitted — HONG GONG GONG` (ORD-0046, order
+`2608000122936216`) was delivered from `no-reply@kim-brothers.com` at 03:02 on 2026-08-29. The webhook and the
+Resend path both work.
+
+**NOT verified: that the test email ARRIVED.** Resend accepted it (`sent: true`), but the Gmail account
+reachable from here is `chrislam1112@gmail.com`, not the address it went to — so arrival is the user's to
+confirm. Also noticed: the dev database's login email is `jobhunters.ai.pro@gmail.com1`, with a trailing `1`,
+which is why the blank-box case failed rather than delivering.
+
+Spec: [context/features/test-notification-email.md](features/test-notification-email.md).
+
 ## Fix — the Device Picker Showed 114 Catalogue Devices Before the Plan's Own Two
 
 **Status:** MERGED TO MAIN AND PUSHED 2026-08-29 (`9204e70`; branch deleted). Vercel-only — no scraper change, no migration.
