@@ -2,9 +2,21 @@
 
 ## A Retrying Order Reads as Running, and a Running Submit Can Be Stopped
 
-**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/retry-state-and-stop-submit`, not yet
-committed). Vercel **and** scraper — the Stop half needs a droplet deploy AND an `api_server` restart (a
-deploy alone keeps the old imports). No migration.
+**Status:** MERGED TO MAIN AND PUSHED 2026-08-30 (`ba6f33c`, merge `bfd5815`; branch deleted), and the
+scraper half **DEPLOYED as `scraper-v2026.08.30-1`** — container recreated, so `api_server` restarted with it.
+No migration.
+
+**The droplet reported `active_jobs: 1` and deploy.sh refused**, whose warning is that a rebuild loses a
+running submit and logs every dealer out. It was settled with evidence rather than assumed: the container held
+**no Chromium at all**, only gunicorn, and the newest order-job log was three hours old — the count was a
+stale registry entry left by a dealer login that had finished successfully at 15:57. So nothing was in flight,
+and the deploy in fact CLEARED a stuck single-browser lock that was grey-ing out every Submit button.
+`sessions/` is bind-mounted, so the dealer login established 40 minutes earlier survived the restart.
+
+**Confirmed live afterwards:** `/health` idle, `JOB_TASKS` and the cancel route present inside the running
+container, the route answering **401 without the token** on the public host (Caddy serves it openly, and
+aborting somebody's billable run must not be reachable unauthenticated) and `404 {"error":"unknown_job"}` with
+it.
 
 Two asks (2026-08-30).
 
