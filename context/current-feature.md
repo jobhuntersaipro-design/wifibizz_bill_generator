@@ -2,8 +2,7 @@
 
 ## Test Button for the Notification Email
 
-**Status:** CODE COMPLETE, VERIFIED IN BROWSER, ONE REAL EMAIL SENT (branch `feature/test-notification-email`,
-not yet committed). Vercel-only — no scraper change, no migration.
+**Status:** MERGED TO MAIN AND PUSHED 2026-08-29 (`593fdbb`; branch deleted). Vercel-only — no scraper change, no migration.
 
 Settings' **Notification email** card stored an address with no way to prove an email could reach it. A
 **Send test email** button beside Save now sends *Email setup successfully* through the same `shell()`
