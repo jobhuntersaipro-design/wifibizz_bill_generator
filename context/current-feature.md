@@ -2,8 +2,9 @@
 
 ## Netflix / Max Offer Layer — Group Kinds, Item Options, and a Device Picker That Only Lists Devices
 
-**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/netflix-channel-offer-layer`, not yet
-committed). **Needs `prisma migrate deploy`** (new `plan_offer_groups.kind`, `plan_offer_items.parent_id` +
+**Status:** MERGED TO MAIN AND PUSHED 2026-08-29 (`ad0dee2`, merge `449fc07`; branch deleted). Verified in the
+browser against the dev database — never against the live portal, and **not yet applied to production**.
+**Needs `prisma migrate deploy`** (new `plan_offer_groups.kind`, `plan_offer_items.parent_id` +
 `included`) **and a droplet deploy + `api_server` restart** for the `device_offer_groups` payload field —
 a deploy alone keeps the old imports.
 
