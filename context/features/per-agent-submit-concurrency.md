@@ -88,21 +88,27 @@ into the refusal. So the message names **what** is running rather than asserting
 BizzFlow already knows which order holds the `jobId`, so this needs no identity tracking. It tells B the
 true and useful thing: that a run is in flight and it is not theirs.
 
-### Prerequisite, and an open blocker
+### Prerequisite — and the blocker, now cleared
 
 **Migrating shared logins to one BizzFlow account per agent is a prerequisite of this project, not a
 follow-up.** Without it the ramp in Phase 4 buys those agents no throughput at all.
 
-**But it only works if each agent also has their own Unifi dealer staff code — and that is unconfirmed.**
-Two BizzFlow accounts pointing at the *same* staff code would hold two session files for one portal
-account, which does not remove the collision, it moves it from our lock to Unifi's. Whether the portal
-tolerates concurrent sessions for one staff code is unknown and cannot be determined from here.
+**The staff-code blocker is answered (user, 2026-08-30):**
 
-**Settle this before spending anything on Phase 4:**
+| Question | Answer | Consequence |
+|---|---|---|
+| How many distinct Unifi dealer staff codes exist? | **Many** | Staff codes are not the ceiling. The droplet is |
+| Does the portal allow one staff code two live sessions? | **Yes** | Two BizzFlow accounts may share a staff code without colliding at the portal |
 
-- [ ] How many distinct Unifi dealer staff codes do we actually have?
-- [ ] Does the portal allow one staff code to hold two live sessions at once?
-- [ ] If not, the real ceiling is **the number of dealer staff codes**, and no droplet size changes it.
+So the migration is a straightforward account split, and `N` is bounded by the machine as the sizing
+table says. **Both answers are the user's report, not something measured here** — if a live ramp shows
+the portal refusing a second session for one staff code, the ceiling reverts to the staff-code count
+and no droplet size changes it. That is the one assumption in this plan worth re-testing at Phase 4
+step 2 rather than trusting.
+
+Note that "many staff codes" removes the *hard* ceiling but not the *per-account* rule: each BizzFlow
+account still holds one dealer session and therefore one slot. Two humans on one login share a slot
+whether or not spare staff codes exist.
 
 ---
 
@@ -287,5 +293,5 @@ be started until the ramp to 4 shows it is needed.
 - [ ] `deploy.sh` drain mode is accepted as a necessary cost of concurrency
 - [ ] The portal-side risk is understood as untestable in advance, and the ramp is the mitigation
 - [ ] **Shared BizzFlow logins are migrated to one account per agent** — without this the ramp buys those agents nothing
-- [ ] **The number of distinct Unifi dealer staff codes is confirmed**, and whether one code may hold two live sessions. If it may not, that count — not the droplet — is the real ceiling
+- [x] ~~The number of distinct Unifi dealer staff codes is confirmed~~ — **many**, and the portal allows one code two live sessions (user, 2026-08-30). Staff codes are not the ceiling; re-test at Phase 4 step 2
 - [ ] No "logged in elsewhere" prompt is built; the refusal names the running order instead
