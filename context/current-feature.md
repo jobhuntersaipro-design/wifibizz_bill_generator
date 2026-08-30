@@ -47,7 +47,7 @@ The spec's review checklist has **8 unticked items**. The three that change the 
 
 ## Fix — a Blocking R2 Download Pinned the Event Loop and Held the Submit Lock for 7 Hours
 
-**Status:** MERGED TO MAIN 2026-08-30 (`b6e012d`, merge on `main`; branch cleanup pending). NOT PUSHED.
+**Status:** MERGED TO MAIN AND PUSHED 2026-08-30 (`b6e012d`, merge `58d2bd6`; branch deleted).
 Scraper + BizzFlow, no migration. **Needs a droplet deploy AND an `api_server` restart** — a deploy alone
 keeps the old imports, so until then production still runs the code that hung.
 **Production was unblocked first** by restarting `bizzflow-scraper-scraper-1` at 2026-08-30 03:26 UTC
