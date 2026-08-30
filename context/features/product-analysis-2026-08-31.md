@@ -199,13 +199,27 @@ is how a working form breaks. Proposed as its own decision after Phase 1.
 
 ---
 
-## 6. Open questions — answered before any of this is built
+## 6. Decisions (user, 2026-08-31)
 
-1. **Roles (B1):** is *team lead* a real concept in your organisation, or is it just agent/admin?
-2. **Raw password column (B6):** keep, or remove once password reset exists?
-3. **Notifications (A1):** in-app only, or also WhatsApp/Telegram — agents are on their phones?
-4. **Mascot (§4):** do you have a designer, or should the robot family be generated in the same style
-   as the existing one? The existing robot came from you; consistency depends on the source.
-5. **Confetti:** once per agent per day is the proposal — or never? It is the one motion that is pure
-   celebration, and some teams find it patronising.
-6. **State-matcher bug (A7):** it was "left alone by the user's call" on 2026-08-22. Still the call?
+| # | Question | Answer | Effect on the plan |
+|---|---|---|---|
+| 1 | Team lead role? | **No** — agent / admin only | Phase 5 shrinks to the people audit trail; no new role, no permission layer |
+| 2 | Raw password column? | **Keep** | Stays; noted as a deliberate choice, not an oversight |
+| 3 | WhatsApp / Telegram notifications? | **No** — in-app only | Phase 2 is in-app only |
+| 4 | Mascot family? | **No** | Phase 7 dropped; the robot stays in its one pose |
+| 5 | Confetti? | **No** | Dropped from motion pack 1 |
+| 6 | Fix the state-matcher bug? | **No** — still leave it | Stays documented as a known defect |
+
+### Plan as it stands after the decisions
+
+| # | Phase | Size |
+|---|---|---|
+| 1 | Failure → action + section-aware required bar | M |
+| 2 | In-app outcome notifications | M |
+| 3 | Motion pack — state spots + KPI count-ups + row transitions (no confetti, no mascot) | S |
+| 4 | Self-service — password change, reset by e-mail, expiring-session warning everywhere | M |
+| 5 | People audit trail (no roles) | S |
+| 6 | Onboarding — invite link, set password, connect-dealer checklist | M |
+| 7 | Admin search, alerting, bulk purge, CSV | M |
+| 8 | Clone order + duplicate-IC hint | S |
+| 9 | WifiBizz parity — generate-all on case list, crawl progress (state matcher left as-is) | S |
