@@ -229,10 +229,16 @@ export async function startSubmitRun(
       message?: string;
     };
     if (!startRes.ok || !start.job_id) {
-      // The droplet runs ONE browser and answers 409 JOB_IN_PROGRESS while it is
-      // held. That is not this order failing, so it is reported as busy and the
-      // order is left where it was.
-      const busy = startRes.status === 409 || start.error === "JOB_IN_PROGRESS";
+      // The droplet refuses with 409 while its capacity is taken —
+      // USER_JOB_IN_PROGRESS (a run already going on this account) or
+      // SERVER_AT_CAPACITY (every slot busy). Neither is this order failing, so
+      // both are reported as busy and the order is left where it was.
+      //
+      // Keyed on the STATUS, not the code, deliberately: the codes have already
+      // split once (from the old JOB_IN_PROGRESS), and a droplet running an
+      // older or newer build must still be understood. 503 SERVER_LOW_MEMORY is
+      // the same kind of answer — the box, not the order.
+      const busy = startRes.status === 409 || startRes.status === 503;
       return fail(start.message || "Couldn't start the order job.", { busy });
     }
 

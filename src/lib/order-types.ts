@@ -863,6 +863,13 @@ export function submitBlockedReason(state: {
   serverBusyAgeS?: number | null;
   /** The server's own outer cap. Past it, a job cannot still be working. */
   serverMaxRuntimeS?: number | null;
+  /** The blocking run belongs to THIS account — not necessarily to this person. */
+  serverBusyIsMine?: boolean;
+  /** e.g. "ORD-0042 (MUHAMMAD SAHINU)", so the message names what is running. */
+  serverBusyOrderLabel?: string | null;
+  /** Slots in use / total, for the capacity sentence above concurrency 1. */
+  serverSlots?: number | null;
+  serverCapacity?: number | null;
 }): string | null {
   if (state.rowBusy) return "This order is being worked on.";
   if (state.batchRunning) return "A batch submit is running — please wait until it finishes.";
@@ -876,6 +883,27 @@ export function submitBlockedReason(state: {
     }
     const cap = state.serverMaxRuntimeS;
     const elapsed = formatDuration(age * 1000);
+    if (state.serverBusyIsMine && !(typeof cap === "number" && cap > 0 && age > cap)) {
+      // A run on THIS account, which on a shared login may not be one this
+      // person started — so it names the run rather than asserting "you", which
+      // would be false for the agent who pressed nothing. It clears when that
+      // run ends, not when a queue drains, which is why it is a separate
+      // sentence from capacity.
+      const what = state.serverBusyOrderLabel;
+      return what
+        ? `A submit is already running on this account — ${what}, started ${elapsed} ago.`
+        : `A submit is already running on this account, started ${elapsed} ago.`;
+    }
+    if (
+      !state.serverBusyIsMine &&
+      typeof state.serverCapacity === "number" &&
+      state.serverCapacity > 1 &&
+      typeof state.serverSlots === "number"
+    ) {
+      // Only meaningful above capacity 1: at 1, "1 of 1 slots" says less than
+      // naming the wait does.
+      return `All ${state.serverCapacity} submit slots are busy (${state.serverSlots} of ${state.serverCapacity}) — your turn shortly.`;
+    }
     if (typeof cap === "number" && Number.isFinite(cap) && cap > 0 && age > cap) {
       // Past the server's own cap this is not a run to wait for — it is a
       // wedged one. Saying "please wait" here is what left agents staring at a

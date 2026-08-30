@@ -12,6 +12,7 @@ Uses the same R2 credentials the Next.js app uses, loaded from the project .env.
 
 import os
 import tempfile
+import threading
 
 import boto3
 from botocore.config import Config
@@ -25,32 +26,41 @@ R2_MAX_ATTEMPTS = int(os.environ.get("R2_MAX_ATTEMPTS", "3"))
 R2_TOTAL_BUDGET = float(os.environ.get("R2_TOTAL_BUDGET", "120"))
 
 _client = None
+# Guards the lazy init below. boto3 clients are thread-safe to USE but not to
+# CREATE, and with concurrent submits two runs can reach the check together.
+_client_lock = threading.Lock()
 
 
 def _r2():
     global _client
     if _client is None:
-        account = os.environ["R2_ACCOUNT_ID"]
-        _client = boto3.client(
-            "s3",
-            endpoint_url=f"https://{account}.r2.cloudflarestorage.com",
-            aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
-            aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
-            region_name="auto",
-            config=Config(
-                signature_version="s3v4",
-                # Bounded on purpose. Without these botocore waits on its
-                # defaults and `download_file` blocks on an s3transfer future
-                # that has no timeout at all — which on 2026-08-29 held the
-                # droplet's global single-browser lock for 6h40m, because this
-                # call runs inside the submit coroutine and a blocked event loop
-                # cannot fire the run's own 600s asyncio.wait_for.
-                connect_timeout=R2_CONNECT_TIMEOUT,
-                read_timeout=R2_READ_TIMEOUT,
-                retries={"max_attempts": R2_MAX_ATTEMPTS, "mode": "standard"},
-            ),
-        )
+        with _client_lock:
+            if _client is None:  # re-check: another thread may have won the race
+                _client = _build_client()
     return _client
+
+
+def _build_client():
+    account = os.environ["R2_ACCOUNT_ID"]
+    return boto3.client(
+        "s3",
+        endpoint_url=f"https://{account}.r2.cloudflarestorage.com",
+        aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+        region_name="auto",
+        config=Config(
+            signature_version="s3v4",
+            # Bounded on purpose. Without these botocore waits on its
+            # defaults and `download_file` blocks on an s3transfer future
+            # that has no timeout at all — which on 2026-08-29 held the
+            # droplet's global single-browser lock for 6h40m, because this
+            # call runs inside the submit coroutine and a blocked event loop
+            # cannot fire the run's own 600s asyncio.wait_for.
+            connect_timeout=R2_CONNECT_TIMEOUT,
+            read_timeout=R2_READ_TIMEOUT,
+            retries={"max_attempts": R2_MAX_ATTEMPTS, "mode": "standard"},
+        ),
+    )
 
 
 def download_r2_object(key: str, dest_dir: str | None = None) -> str:

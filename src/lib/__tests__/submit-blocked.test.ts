@@ -78,6 +78,61 @@ describe("submitBlockedReason", () => {
     expect(reason).not.toMatch(/stuck/i);
   });
 
+  it("names the running order rather than asserting who started it", () => {
+    // On a shared BizzFlow login "you already have a submit running" is false
+    // for whoever pressed nothing. Naming the order is true either way.
+    const reason = submitBlockedReason({
+      serverBusy: true,
+      serverBusyIsMine: true,
+      serverBusyOrderLabel: "ORD-0042 (MUHAMMAD SAHINU)",
+      serverBusyAgeS: 260,
+      serverMaxRuntimeS: 1800,
+    });
+    expect(reason).toBe(
+      "A submit is already running on this account — ORD-0042 (MUHAMMAD SAHINU), started 4m 20s ago.",
+    );
+    expect(reason).not.toMatch(/\byou\b/i);
+  });
+
+  it("still says something useful when the order cannot be named", () => {
+    expect(
+      submitBlockedReason({
+        serverBusy: true, serverBusyIsMine: true, serverBusyOrderLabel: null,
+        serverBusyAgeS: 60, serverMaxRuntimeS: 1800,
+      }),
+    ).toBe("A submit is already running on this account, started 1m 0s ago.");
+  });
+
+  it("separates capacity from your own run", () => {
+    // Different facts: one clears when YOUR run ends, the other when a queue
+    // drains. Collapsing them puts the old vague message back.
+    const reason = submitBlockedReason({
+      serverBusy: true, serverBusyIsMine: false,
+      serverSlots: 3, serverCapacity: 4, serverBusyAgeS: 120, serverMaxRuntimeS: 1800,
+    });
+    expect(reason).toBe("All 4 submit slots are busy (3 of 4) — your turn shortly.");
+  });
+
+  it("does not talk about slots at capacity 1", () => {
+    // "1 of 1 slots" says less than naming the wait does.
+    const reason = submitBlockedReason({
+      serverBusy: true, serverBusyIsMine: false,
+      serverSlots: 1, serverCapacity: 1, serverBusyAgeS: 120, serverMaxRuntimeS: 1800,
+    });
+    expect(reason).toMatch(/running on the server for 2m 0s/);
+    expect(reason).not.toMatch(/slot/i);
+  });
+
+  it("calls your own stuck run stuck rather than describing it as in progress", () => {
+    // Past the cap it is not a run to wait for, whoever owns it.
+    const reason = submitBlockedReason({
+      serverBusy: true, serverBusyIsMine: true,
+      serverBusyOrderLabel: "ORD-0042 (NAME)",
+      serverBusyAgeS: 6 * 3600, serverMaxRuntimeS: 1800,
+    });
+    expect(reason).toMatch(/stuck/i);
+  });
+
   it("gives a reason whenever it blocks", () => {
     // A greyed-out button with no explanation is worse than one that errors, so
     // every blocking combination must produce text.
@@ -87,6 +142,8 @@ describe("submitBlockedReason", () => {
       { serverBusy: true },
       { serverBusy: true, serverBusyAgeS: 30, serverMaxRuntimeS: 1800 },
       { serverBusy: true, serverBusyAgeS: 99999, serverMaxRuntimeS: 1800 },
+      { serverBusy: true, serverBusyIsMine: true, serverBusyAgeS: 30, serverMaxRuntimeS: 1800 },
+      { serverBusy: true, serverSlots: 4, serverCapacity: 4, serverBusyAgeS: 30, serverMaxRuntimeS: 1800 },
       { rowBusy: true, batchRunning: true, serverBusy: true },
     ]) {
       expect(submitBlockedReason(state)).toBeTruthy();
