@@ -19,6 +19,8 @@ import {
   agentStats,
   purgePhrase,
   purgePhraseMatches,
+  orderErrorLabel,
+  isFailureStatus,
   UNCLASSIFIED,
   type StatEvent,
 } from "@/lib/admin-order-stats";
@@ -280,5 +282,48 @@ describe("filling buckets", () => {
     const filled = fillBuckets([], new Date("2026-08-01T02:00:00Z"),
       new Date("2026-08-31T02:00:00Z"), "week");
     expect(new Set(filled.map((f) => f.day)).size).toBe(filled.length);
+  });
+});
+
+describe("what the Error column says", () => {
+  it("shows nothing for a submitted order, whatever is in errorMessage", () => {
+    // applyResult writes the advance-payment note into errorMessage on SUCCESS
+    // ("Advance Payment RM100.00 was required."). Reporting that as an error
+    // labels a payment receipt as a fault — which is what production showed.
+    expect(orderErrorLabel({
+      status: "submitted", errorCode: null,
+      errorMessage: "Advance Payment RM100.00 was required.",
+    })).toBeNull();
+  });
+
+  it("shows nothing for a stale code on a submitted order either", () => {
+    expect(orderErrorLabel({
+      status: "submitted", errorCode: "device_out_of_stock", errorMessage: "x",
+    })).toBeNull();
+  });
+
+  it("still names a real failure's code", () => {
+    expect(orderErrorLabel({
+      status: "failed", errorCode: "session_expired", errorMessage: "gone",
+    })).toBe("session_expired");
+  });
+
+  it("still calls an unclassified FAILURE unclassified", () => {
+    // The case Unclassified exists for: two of three real failures carry no
+    // code, and dropping them understates what the page is for.
+    expect(orderErrorLabel({
+      status: "warning", errorCode: null, errorMessage: "the portal said no",
+    })).toBe(UNCLASSIFIED);
+  });
+
+  it("shows nothing for a failure with no message at all", () => {
+    expect(orderErrorLabel({ status: "failed", errorCode: null, errorMessage: null })).toBeNull();
+  });
+
+  it("never treats an in-flight, draft or cancelled order as errored", () => {
+    for (const status of ["submitting", "draft", "cancelled"]) {
+      expect(orderErrorLabel({ status, errorCode: "x", errorMessage: "y" })).toBeNull();
+      expect(isFailureStatus(status)).toBe(false);
+    }
   });
 });

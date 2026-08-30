@@ -1,4 +1,5 @@
 import type { AttemptView } from "@/lib/order-history";
+import { isFailureStatus } from "@/lib/admin-order-stats";
 
 export interface AdminOrderView {
   id: string;
@@ -79,11 +80,21 @@ export function AdminOrderDetail({
             Portal order <span className="font-mono tabular-nums">{order.orderId}</span>
           </p>
         )}
+        {/* The same text means two different things depending on the status.
+            On a failure it is the portal's refusal; on a SUCCESS it is the note
+            applyResult writes there — the advance payment, typically. Painting
+            the second one red made a completed order look broken. */}
         {order.errorMessage && (
-          <p className="mt-3 rounded-md bg-[#FEF3F2] px-3 py-2 text-sm text-[#B42318]">
-            {order.errorCode ? `${order.errorCode}: ` : ""}
-            {order.errorMessage}
-          </p>
+          isFailureStatus(order.status) ? (
+            <p className="mt-3 rounded-md bg-[#FEF3F2] px-3 py-2 text-sm text-[#B42318]">
+              {order.errorCode ? `${order.errorCode}: ` : ""}
+              {order.errorMessage}
+            </p>
+          ) : (
+            <p className="mt-3 rounded-md bg-[#F6F9FC] px-3 py-2 text-sm text-[#425466]">
+              {order.errorMessage}
+            </p>
+          )
         )}
       </header>
 

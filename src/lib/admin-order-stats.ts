@@ -237,3 +237,36 @@ export function purgePhraseMatches(
   const norm = (v: string) => v.trim().replace(/\s+/g, " ").toLowerCase();
   return norm(typed) !== "" && norm(typed) === norm(purgePhrase(order));
 }
+
+/**
+ * Statuses on which an order's `errorMessage` is actually an error.
+ *
+ * On a SUCCESSFUL submit that column carries a note, not a failure — the
+ * advance payment ("Advance Payment RM100.00 was required.") and any non-fatal
+ * warning are written there by `applyResult`. Treating its presence as an error
+ * reports a payment receipt as a fault.
+ */
+const FAILURE_STATUSES = new Set(["failed", "warning"]);
+
+export function isFailureStatus(status: string): boolean {
+  return FAILURE_STATUSES.has(status);
+}
+
+/**
+ * What the Error column should say for an order.
+ *
+ * `null` means show a dash. Only a failed run has an error; `submitted`,
+ * `submitting`, `draft` and `cancelled` never do, whatever is left in the
+ * column.
+ */
+export function orderErrorLabel(order: {
+  status: string;
+  errorCode: string | null;
+  errorMessage: string | null;
+}): string | null {
+  if (!isFailureStatus(order.status)) return null;
+  if (order.errorCode) return order.errorCode;
+  // A genuine failure the portal never classified — the case that made
+  // "Unclassified" worth showing in the first place.
+  return order.errorMessage ? UNCLASSIFIED : null;
+}

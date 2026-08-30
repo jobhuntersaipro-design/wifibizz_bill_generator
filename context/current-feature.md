@@ -1,5 +1,46 @@
 # Current Feature
 
+## Fix — a Submitted Order Showed "Unclassified" in the Error Column
+
+**Status:** CODE COMPLETE (branch `fix/admin-submitted-shows-no-error`). Vercel-only, no migration.
+
+Reported from production on a phone: every `submitted` order on the admin Orders table read
+**Unclassified** under Error. It should read a dash.
+
+### It was not a cosmetic bug
+
+The column asked "is there an `errorMessage`?" — but on a **successful** submit that field is not an
+error at all. `applyResult` writes the run's NOTE there ([order-submit.ts:387-388](../src/lib/order-submit.ts#L387-L388)):
+
+```ts
+const note = [result.warning, ap].filter(Boolean).join(" ") || null;
+return finish({ status: "submitted", orderId: result.order_id, errorMessage: note });
+```
+
+`ap` is the advance payment — *"Advance Payment RM100.00 was required."* So the table was reporting a
+payment receipt as a fault, on every order that completed normally.
+
+**The same mistake was on the order detail page, and worse there:** that note was painted in the red
+error block, so a completed order looked broken.
+
+### The fix
+
+New pure `orderErrorLabel(order)` and `isFailureStatus(status)`: only `failed` and `warning` can carry
+an error. `submitted`, `submitting`, `draft` and `cancelled` show a dash whatever is left in the column
+— including a stale `errorCode` from an earlier attempt.
+
+**The detail page keeps showing the note, in neutral grey rather than red.** Hiding it would lose the
+advance-payment amount, which is worth reading; it just is not a failure.
+
+**`Unclassified` is untouched where it belongs.** The error breakdown counts EVENTS with a failed status
+and no code, which is the case it was built for — two of three real failures carry no code — and that
+query never looked at order rows.
+
+6 new vitest cases (32 in the file, **694 total**), `npm run build`, lint identical to baseline (9642).
+
+**NOT verified in the browser** — the admin JWT is expired locally, and the change is a pure predicate
+plus two render sites. Worth a glance on production after deploy.
+
 ## Fix — the Admin Topbar Was Unnavigable on Mobile
 
 **Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `fix/admin-mobile-nav`). Vercel-only — no scraper

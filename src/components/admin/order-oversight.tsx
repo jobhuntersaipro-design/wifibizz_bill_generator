@@ -11,7 +11,7 @@ import {
   adminLiveJobs, adminReleaseJob,
   type AdminOrderRow, type AdminStats, type LiveJob,
 } from "@/actions/admin-orders";
-import { purgePhrase, UNCLASSIFIED, bucketLabel, type Granularity } from "@/lib/admin-order-stats";
+import { purgePhrase, UNCLASSIFIED, bucketLabel, orderErrorLabel, type Granularity } from "@/lib/admin-order-stats";
 import { formatDuration } from "@/lib/order-types";
 import type { ConnectionView } from "@/lib/agent-connection";
 
@@ -491,7 +491,11 @@ function OrderTable({ rows, onRestore, onPurge }: {
                 <StatusPill status={o.status} deleted={!!o.deletedAt} />
               </td>
               <td className="max-w-[240px] py-2.5 pr-3 text-xs text-[#425466]">
-                {o.errorCode ? prettyCode(o.errorCode) : o.errorMessage ? "Unclassified" : "—"}
+                {/* Only a FAILED run has an error. A submitted order's
+                    errorMessage is the advance-payment note applyResult writes
+                    on success, and calling that "Unclassified" reported a
+                    payment receipt as a fault. */}
+                {(() => { const e = orderErrorLabel(o); return e ? prettyCode(e) : "—"; })()}
               </td>
               <td className="py-2.5 pr-3 text-xs tabular-nums text-[#697386]">
                 {new Date(o.createdAt).toISOString().slice(0, 10)}
