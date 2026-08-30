@@ -51,7 +51,9 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
           agentId: agentFilter || undefined,
           granularity: granularity ?? undefined,
         }),
-        adminListOrders(),
+        // Filtered server-side when an agent is pinned, rather than fetching
+        // every order and dropping most of them on the client.
+        adminListOrders(pinnedAgent ? { agentId: pinnedAgent } : undefined),
       ]);
       if (!s.success) setError(s.error ?? "Could not load statistics.");
       else { setStats(s.data); setError(null); }
@@ -59,7 +61,7 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
     } finally {
       setLoading(false);
     }
-  }, [from, to, agentFilter, granularity]);
+  }, [from, to, agentFilter, granularity, pinnedAgent]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -76,9 +78,14 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
     return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   }, [orders]);
 
+  // Derived from the orders CURRENTLY IN VIEW, not from every order: with an
+  // agent selected, offering a status that agent has none of gives an option
+  // that always yields an empty table, which reads as a broken filter.
   const statusOptions = useMemo(
-    () => [...new Set(orders.map((o) => o.status))].sort(),
-    [orders],
+    () => [...new Set(
+      orders.filter((o) => !agentFilter || o.agentId === agentFilter).map((o) => o.status),
+    )].sort(),
+    [orders, agentFilter],
   );
 
   async function restore(o: AdminOrderRow) {

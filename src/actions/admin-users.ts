@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { verifyAdminSession } from "@/lib/admin-auth";
+import { describeConnection } from "@/lib/agent-connection";
 import bcrypt from "bcryptjs";
 
 interface ActionResult {
@@ -25,10 +26,15 @@ export async function getUsers() {
         wifibizzUser: {
           select: { wifibizzEmail: true, lastCrawlAt: true },
         },
+        // Whether this agent can submit right now. Read here rather than on the
+        // client so the Users list and the oversight page answer from the same
+        // column — see src/lib/agent-connection.ts.
+        dealerAccount: { select: { sessionExpiresAt: true } },
       },
       orderBy: { createdAt: "desc" },
     });
 
+    const now = new Date();
     return {
       success: true,
       data: users.map((u) => ({
@@ -41,6 +47,7 @@ export async function getUsers() {
         orderEntryEnabled: u.orderEntryEnabled,
         wifibizzEmail: u.wifibizzUser?.wifibizzEmail ?? null,
         lastCrawlAt: u.wifibizzUser?.lastCrawlAt?.toISOString() ?? null,
+        connection: describeConnection(u.dealerAccount, now),
         createdAt: u.createdAt.toISOString(),
       })),
     };
