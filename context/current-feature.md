@@ -2,8 +2,19 @@
 
 ## Per-Agent Submit Concurrency
 
-**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/per-agent-submit-concurrency`).
-Phases 1, 2, 3 and 5 built; **Phase 4 (resize + ramp) is operational and NOT done** — it costs money and
+**Status:** MERGED TO MAIN AND PUSHED 2026-08-30 (`75e295a`, merge `447f37e`), and the scraper half
+**DEPLOYED as `scraper-v2026.08.30-3`** — container recreated, so `api_server` restarted with it.
+Confirmed live in the running container: `MAX_CONCURRENT_JOBS = 1`, `MAX_BROWSERS = 5`,
+`MIN_FREE_MB = 700`, `JOB_MAX_RUNTIME = 1800`, 1505 MB available; `/health` and `/jobs` both carry
+`capacity` and `slots_in_use`; `deploy.sh` has its drain mode. **The gate is live and inert.**
+
+**The scraper was deployed BEFORE Vercel, deliberately.** The new `scraperBusy()` reads `GET /jobs` for
+`user_key` and `capacity`, neither of which the previous droplet build returned — so a Vercel-first
+deploy would have computed `busy: false` for everyone and left Submit un-blocked until the droplet caught
+up. Scraper-first has no such window: the old BizzFlow reads `/health`, whose meaning is unchanged.
+
+Branch `feature/per-agent-submit-concurrency` is **not yet deleted** — awaiting the usual go-ahead.
+Phases 1, 2, 3 and 5 built and shipped; **Phase 4 (resize + ramp) is operational and NOT done** — it costs money and
 needs a day of observation per step, so it is the user's to trigger. **Ships inert at `N=1`.**
 **Spec:** [context/features/per-agent-submit-concurrency.md](features/per-agent-submit-concurrency.md)
 
