@@ -1,5 +1,105 @@
 # Current Feature
 
+## Admin Order Oversight
+
+**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/admin-order-oversight`). Vercel-only — no
+scraper change. **Needs `prisma migrate deploy` on production** (`orders.deleted_at`, plus an index on
+`order_status_events`).
+
+Spec: [context/features/admin-order-oversight.md](features/admin-order-oversight.md).
+
+Admin gets a third sub-page at `/admin/orders`: every agent's orders including deleted ones, a daily
+usage trend, a per-agent usage + top-error table, and an error breakdown.
+
+### Three design decisions came from measuring, not reasoning
+
+Dev database, 2026-08-30: **4 orders → 140 status events**.
+
+- **134 of those are `submitting`** — per-stage milestones, dozens per run. So attempts are counted as
+  `DISTINCT (order_id, attempt)` among TERMINAL events only; counting rows would overcount ~35×.
+- **Unclassified errors are the MAJORITY** — two of three warning events carry `error_code = null`.
+  Filtering them out would have reported one error where three happened, understating exactly what the
+  page exists to surface. They bucket as **Unclassified** and keep their message.
+- **Events grow ~35× faster than orders**, so the aggregations get a new `(status, created_at)` index.
+  The only index before was `(orderId, createdAt)`, which these queries cannot use.
+
+### Delete became soft, and one consequence was expensive
+
+`deleteOrder` was a hard `deleteMany`, and `OrderStatusEvent` cascades — so deleting destroyed the whole
+history. It now sets `deletedAt`.
+
+**It also clears `autoRetryAt` and `jobId` in the same write, and that is the load-bearing part.**
+`sweepPendingRetries` selects on `autoRetryAt`, `status` and `autoRetries` alone — deletion does not enter
+that query — so a soft-deleted order with a retry owed would have been **picked up by the cron and
+submitted to the LIVE Unifi portal**, minting a real billable order for a draft the agent deleted, with no
+row in their list to show it happened. The sweep now filters on `ACTIVE_ORDER` too; either guard alone is
+a single point of failure for that.
+
+The filter lives in one place (`src/lib/order-scope.ts`) and is applied at every agent-facing read across
+`actions/order.ts`, `lib/order-retry.ts`, the progress route and the webhook. **Admin queries deliberately
+omit it** — that asymmetry is the feature.
+
+**Two `findUnique` calls became `findFirst`** because `findUnique` cannot take a non-unique filter. That
+broke two existing test files whose mocks only provided `findUnique`; both were updated rather than worked
+around.
+
+### A design decision I had to reverse mid-build
+
+Section 2 of the design said the admin detail view would reuse the agent-side `order-detail` components.
+It cannot: `toOrderListItem` is private to a `"use server"` module, and `OrderDetailsTab` is built around
+document previews admin cannot serve. Reuse dropped to **`groupByAttempt`** — the part that actually holds
+logic — with a purpose-built admin view. Passing a half-filled shape into a UI designed to show things
+that would never load reads as broken rather than deliberate.
+
+### The delete dialog was lying, and is fixed
+
+It said the draft *"will be permanently removed. This can't be undone."* — false the moment deletion
+became a flag. It now says it is removed from your list and an administrator can restore it. The
+portal-order branch also claimed to be *"the last place"* the history is kept, which is likewise no longer
+true; it now says the last place **you** can see it.
+
+### Verified in the browser
+
+Against the dev database on the real admin login and the real signed-in agent session.
+
+**The full delete loop, end to end:** deleted ORD-0002 as the agent (list 4 → 3), it appeared in admin
+marked **Deleted** with Restore/Purge and the Deleted tile ticked to 1, **Purge with a wrong phrase was
+refused server-side** and the order survived, then Restore put it back in the agent's list (3 → 4) and the
+tile returned to 0. The dev database is exactly as it was.
+
+**The statistics proved the design decision live.** All four terminal events belong to ONE order across
+four attempts — warning → `device_out_of_stock` → warning → **submitted** — and that order's current
+status is `cancelled`. So the By-agent table reads *1 submitted, 3 failed attempts, 25%, Unclassified · 2*,
+and the error breakdown reads *Unclassified 2, Device out of stock 1* — matching the measured data
+exactly. Had this counted current status instead of history, that agent would show **zero** submits and
+**zero** errors: the entire record invisible. The detail page renders the order, the portal number, the
+advance-payment message and all four attempts with their per-stage timeline.
+
+**Tests:** 17 new in `admin-order-stats.test.ts` (bucketing, attempt de-duplication against a realistic
+35-event run, the Unclassified bucket, top-error selection, the purge phrase and its empty-input refusal),
+3 new retry guards and 1 new webhook guard. **662 vitest passing** (the 4 failing files are the Playwright
+e2e specs vitest collects, pre-existing). `npm run build`, lint identical to baseline (9642), `tsc`
+unchanged (the same two pre-existing errors).
+
+**The retry guards were proven to fail without the fix** — removing the `ACTIVE_ORDER` filter makes 2 of
+3 fail, then pass again when restored.
+
+### NOT verified, and one correction
+
+**A claim I made and then disproved:** I reported the trend chart proved Malaysia-time bucketing because a
+submit landed on 08-26. It does not. The neon driver returns `timestamp without time zone` values that JS
+parses as LOCAL time, and this machine is UTC+8, so my first readout was shifted 8 hours. The true stored
+time is `2026-08-26T06:38 UTC` (14:38 MYT), which buckets to 08-26 under **either** timezone. MYT bucketing
+is proven by the unit tests (`2026-08-20T20:00:00Z → 2026-08-21`), not by the browser.
+
+Also not verified: production, where the migration has not been applied; the empty-range and reversed-range
+states; and **documents remain listed-but-not-viewable for admin** by design — `/api/orders/document`
+resolves R2 keys against the caller's namespace and admin has none.
+
+**Stated rather than discovered later:** the database now retains customer PII — MyKad, phone, address —
+for orders people believe they deleted. Purge is the release valve and it is manual. Nothing deleted
+before this migration comes back.
+
 ## Per-Agent Submit Concurrency
 
 **Status:** MERGED TO MAIN AND PUSHED 2026-08-30 (`75e295a`, merge `447f37e`), and the scraper half

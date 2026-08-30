@@ -9,6 +9,7 @@ import { adminLogout } from "@/actions/admin-auth";
 const navItems = [
   { label: "Users", href: "/admin", icon: UsersIcon },
   { label: "Plan Settings", href: "/admin/plans", icon: PlanIcon },
+  { label: "Orders", href: "/admin/orders", icon: OrdersIcon },
 ];
 
 export function AdminSidebar({ open, onClose }: { open?: boolean; onClose?: () => void }) {
@@ -117,6 +118,17 @@ function UsersIcon({ className }: { className?: string }) {
       <circle cx="9" cy="7" r="4" />
       <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  );
+}
+
+function OrdersIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M3 3v18h18" />
+      <rect x="7" y="12" width="3" height="6" rx="1" />
+      <rect x="12" y="8" width="3" height="10" rx="1" />
+      <rect x="17" y="5" width="3" height="13" rx="1" />
     </svg>
   );
 }

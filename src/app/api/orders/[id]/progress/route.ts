@@ -9,6 +9,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { ACTIVE_ORDER } from "@/lib/order-scope";
 import { pollOrderProgress } from "@/lib/order-submit";
 
 export async function GET(
@@ -28,7 +29,7 @@ export async function GET(
     select: { isSuperAdmin: true },
   });
   const order = await prisma.order.findFirst({
-    where: me?.isSuperAdmin ? { id } : { id, userId: session.user.id },
+    where: me?.isSuperAdmin ? { id, ...ACTIVE_ORDER } : { id, userId: session.user.id, ...ACTIVE_ORDER },
     select: { id: true },
   });
   if (!order) return NextResponse.json({ error: "Not found" }, { status: 404 });

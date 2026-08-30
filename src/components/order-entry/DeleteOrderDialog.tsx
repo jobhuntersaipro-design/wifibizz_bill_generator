@@ -67,13 +67,21 @@ export function DeleteOrderDialog({
               <span className="font-semibold tabular-nums text-[#0A2540]">
                 {order.orderId}
               </span>
-              . Deleting removes it here only — the portal order stays live, and
-              this is the last place its number, screenshots and submit history
-              are kept.
+              . Deleting removes it from your list only — the portal order stays
+              live, and this is the last place YOU can see its number,
+              screenshots and submit history.
             </>
           ) : (
-            <> will be permanently removed. This can&apos;t be undone.</>
+            <> will be removed from your list.</>
           )}
+          {" "}
+          {/* Soft delete: the row and its history survive for admin oversight.
+              The old copy said "permanently removed, this can't be undone",
+              which stopped being true the moment deletion became a flag — and a
+              dialog that overstates what a click costs is how people learn to
+              distrust the ones that do not. */}
+          An administrator can still see it, and can restore it if this was a
+          mistake.
         </DialogDescription>
 
         <DialogFooter className="gap-2 sm:justify-end">

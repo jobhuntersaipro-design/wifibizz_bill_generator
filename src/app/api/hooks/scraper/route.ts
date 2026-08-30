@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { ACTIVE_ORDER } from "@/lib/order-scope";
 import { pollOrderProgress } from "@/lib/order-submit";
 import { finishBatch, retryFailedMembers } from "@/lib/batch-submit";
 import { maybeAutoRetry } from "@/lib/order-retry";
@@ -49,8 +50,11 @@ export async function POST(req: Request) {
       if (!body.orderId) {
         return NextResponse.json({ error: "orderId_required" }, { status: 400 });
       }
-      const order = await prisma.order.findUnique({
-        where: { id: body.orderId },
+      // A webhook for an order the agent deleted mid-run is dropped rather
+      // than reconciled: pollOrderProgress would write a result onto a row
+      // nobody can see, and could re-arm a retry on it.
+      const order = await prisma.order.findFirst({
+        where: { id: body.orderId, ...ACTIVE_ORDER },
         select: { id: true },
       });
       if (!order) return NextResponse.json({ ok: true, skipped: "unknown_order" });
