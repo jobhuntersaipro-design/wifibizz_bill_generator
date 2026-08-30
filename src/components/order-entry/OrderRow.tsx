@@ -14,6 +14,7 @@ import {
   needsVoiding,
   submitBlockedReason,
   type OrderListItem,
+  portalOrderUrl,
 } from "@/lib/order-types";
 import { installationParts } from "@/lib/erf-appointment";
 import { isRetryPending, retryPillLabel, triesSuffix } from "@/lib/retry-policy";
@@ -80,8 +81,7 @@ export const hasHistory = (o: OrderListItem) =>
   o.attempt > 0 ||
   !!o.errorMessage;
 
-const portalUrl = (orderId: string) =>
-  `https://dealer.unifi.com.my/esales/h5/onBoarding/OrderDetails?custOrderId=${orderId}&custOrderNbr=${orderId}`;
+const portalUrl = portalOrderUrl;
 
 /** Everything a row needs to act, passed down from OrdersList. */
 /**

@@ -154,6 +154,8 @@ export function OrdersTable({
                   errorCode={o.errorCode}
                   orderId={o.orderId}
                   details={stageDetails[o.id]}
+                  order={o}
+                  onResubmit={o.orderId ? actionsFor(o).onResubmit : actionsFor(o).onSubmit}
                 />
               </li>
             )}
@@ -216,6 +218,8 @@ export function OrdersTable({
                         errorCode={o.errorCode}
                         orderId={o.orderId}
                         details={stageDetails[o.id]}
+                        order={o}
+                        onResubmit={o.orderId ? actionsFor(o).onResubmit : actionsFor(o).onSubmit}
                       />
                     </TableCell>
                   </TableRow>

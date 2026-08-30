@@ -1,6 +1,8 @@
 "use client";
 
-import { portalCodeFrom, submitErrorCopy } from "@/lib/order-types";
+import Link from "next/link";
+import { portalCodeFrom, portalOrderUrl, submitErrorCopy } from "@/lib/order-types";
+import { ACTION_LABEL, actionFor, contactAdminNote } from "@/lib/failure-action";
 
 interface Props {
   errorMessage: string | null;
@@ -10,6 +12,20 @@ interface Props {
   /** `warning` (stranded order) reads amber; anything else reads red. */
   status: string;
   className?: string;
+  /**
+   * The order this failure belongs to, when the caller has it. With it the
+   * block renders the remedy as a BUTTON — open the draft on the right card,
+   * submit again, check at Unifi, reconnect. Without it (a past attempt in the
+   * history list) the prose alone shows, as before.
+   */
+  order?: {
+    id: string;
+    reference?: string | null;
+    autoRetries?: number;
+    autoRetryAt?: Date | string | null;
+  } | null;
+  /** Starts a resubmit; the button is omitted when the caller cannot offer one. */
+  onResubmit?: () => void;
 }
 
 /**
@@ -31,16 +47,26 @@ export function SubmitErrorBlock({
   orderId,
   status,
   className = "",
+  order,
+  onResubmit,
 }: Props) {
   if (!errorMessage) return null;
 
   const copy = submitErrorCopy(errorCode);
+  const resolved = order
+    ? actionFor({ errorCode, orderId, status, autoRetries: order.autoRetries, autoRetryAt: order.autoRetryAt })
+    : null;
   const amber = status === "warning";
   const tone = amber ? "text-amber-700" : "text-red-600";
 
   if (!copy) {
     return (
-      <p className={`text-[11px] leading-snug ${tone} ${className}`}>{errorMessage}</p>
+      <div className={className}>
+        <p className={`text-[11px] leading-snug ${tone}`}>{errorMessage}</p>
+        {resolved && order && (
+          <ActionRow resolved={resolved} order={order} orderId={orderId} errorCode={errorCode} onResubmit={onResubmit} />
+        )}
+      </div>
     );
   }
 
@@ -81,6 +107,65 @@ export function SubmitErrorBlock({
           </>
         )}
       </p>
+      {resolved && order && (
+        <ActionRow resolved={resolved} order={order} orderId={orderId} errorCode={errorCode} onResubmit={onResubmit} />
+      )}
     </div>
   );
+}
+
+/**
+ * The remedy as a button. `wait` renders nothing — the status pill already
+ * reads "Retrying · 2 of 3", and a second control saying so is noise.
+ */
+function ActionRow({ resolved, order, orderId, errorCode, onResubmit }: {
+  resolved: ReturnType<typeof actionFor>;
+  order: NonNullable<Props["order"]>;
+  orderId?: string | null;
+  errorCode?: string | null;
+  onResubmit?: () => void;
+}) {
+  const btn = "mt-2 inline-flex h-8 cursor-pointer items-center rounded-md px-3 text-[12px] font-semibold text-white transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]";
+  switch (resolved.action) {
+    case "wait":
+      return null;
+    case "fix_field":
+      return (
+        <Link
+          href={`/dashboard/order-entry/new-order?draft=${order.id}&focus=${resolved.section ?? "customer"}`}
+          className={`${btn} bg-[#635BFF] hover:bg-[#0A2540]`}
+        >
+          {ACTION_LABEL.fix_field}
+        </Link>
+      );
+    case "resubmit":
+      return onResubmit ? (
+        <button type="button" onClick={onResubmit} className={`${btn} bg-[#635BFF] hover:bg-[#0A2540]`}>
+          {ACTION_LABEL.resubmit}
+        </button>
+      ) : null;
+    case "check_portal":
+      return (
+        <a
+          href={portalOrderUrl(orderId ?? "")}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`${btn} bg-[#B54708] hover:bg-[#0A2540]`}
+        >
+          {ACTION_LABEL.check_portal} ↗
+        </a>
+      );
+    case "reconnect":
+      return (
+        <Link href="/dashboard/order-entry" className={`${btn} bg-[#635BFF] hover:bg-[#0A2540]`}>
+          {ACTION_LABEL.reconnect}
+        </Link>
+      );
+    case "contact_admin":
+      return (
+        <p className="mt-2 text-[11px] font-medium text-[#425466]">
+          {contactAdminNote({ errorCode, reference: order.reference })}
+        </p>
+      );
+  }
 }

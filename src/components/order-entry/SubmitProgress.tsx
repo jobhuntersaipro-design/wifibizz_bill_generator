@@ -27,6 +27,9 @@ interface Props {
   // (the detail page reads the event history, not the progress poll); it falls
   // back to the details' own keys.
   observedStages?: (string | null | undefined)[];
+  /** The order itself, so a failure can offer its remedy as a button. */
+  order?: { id: string; reference?: string | null; autoRetries?: number; autoRetryAt?: Date | string | null } | null;
+  onResubmit?: () => void;
 }
 
 const POINT_INDEX = SUBMIT_STEPS.findIndex((s) => s.key === POINT_OF_NO_RETURN);
@@ -120,6 +123,8 @@ export function SubmitProgress({
   orderId,
   details,
   observedStages,
+  order,
+  onResubmit,
 }: Props) {
   // The step arithmetic lives in progressReading (order-types) so it can be
   // tested: this file has no test environment, and it is exactly this
@@ -317,6 +322,8 @@ export function SubmitProgress({
         errorCode={errorCode}
         orderId={orderId}
         status={status}
+        order={order}
+        onResubmit={onResubmit}
       />
     </div>
   );

@@ -1,3 +1,4 @@
+import { actionFor } from "@/lib/failure-action";
 import { submitErrorCopy } from "@/lib/order-types";
 import {
   batchBucket,
@@ -64,6 +65,22 @@ export function appBaseUrl(): string | null {
   const vercel = process.env.VERCEL_URL?.trim();
   return vercel ? `https://${vercel}` : null;
 }
+
+/**
+ * A failure's "fix it" link: the draft, opened on the card that needs changing.
+ *
+ * Only for fix_field — a resubmit or a portal check from an e-mail would be a
+ * link to the Orders page, which the mail already carries. The reader will
+ * usually be on a phone with no session, so this lands on sign-in first and
+ * then the draft; that was judged acceptable (user, 2026-08-31).
+ */
+const fixDraftUrl = (o: Pick<OrderOutcome, "orderId" | "errorCode" | "status" | "portalOrderNo">): string | null => {
+  const base = appBaseUrl();
+  if (!base) return null;
+  const r = actionFor({ errorCode: o.errorCode, status: o.status, orderId: o.portalOrderNo });
+  if (r.action !== "fix_field") return null;
+  return `${base}/dashboard/order-entry/new-order?draft=${encodeURIComponent(o.orderId)}&focus=${r.section ?? "customer"}`;
+};
 
 const ordersUrl = (): string | null => {
   const base = appBaseUrl();
@@ -154,8 +171,9 @@ function detailRows(d: OrderCaseDetails | undefined, opts: { address?: boolean }
  * reason given" when the reason was right there.
  */
 function problemBox(
-  o: Pick<OrderOutcome, "errorCode" | "errorMessage" | "tries">,
+  o: Pick<OrderOutcome, "errorCode" | "errorMessage" | "tries" | "orderId" | "status" | "portalOrderNo">,
 ): string {
+  const fix = fixDraftUrl(o);
   const copy = submitErrorCopy(o.errorCode);
   const message = shortErrorMessage(o.errorMessage);
   if (!copy && !message) return "";
@@ -170,6 +188,7 @@ function problemBox(
       ${copy ? `<div style="font-size:13px;font-weight:600;color:${INK};">${esc(copy.title)}</div>` : ""}
       ${message ? `<div style="margin-top:4px;font-size:13px;line-height:1.5;color:${INK};word-break:break-word;">${esc(message)}</div>` : ""}
       ${copy ? `<div style="margin-top:8px;font-size:13px;color:${MUTED};">${esc(copy.fix)}</div>` : ""}
+      ${fix ? `<div style="margin-top:10px;"><a href="${esc(fix)}" style="display:inline-block;padding:8px 14px;background:${BRAND};color:#fff;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none;">Fix the draft</a></div>` : ""}
       ${tries}
     </div>`;
 }

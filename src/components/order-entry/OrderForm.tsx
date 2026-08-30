@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef } from "react";
+import { groupMissing, isFormSection, sectionAnchor, sectionOf, SECTION_SHORT, type FormSection, type MissingField } from "@/lib/order-sections";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -149,10 +150,13 @@ export function OrderForm({
   editingId,
   onSaved,
   onBack,
+  focusSection,
 }: {
   editingId?: string | null;
   onSaved?: () => void;
   onBack?: () => void;
+  /** Open the form scrolled to this card, first input focused — from a failure's "Fix the draft". */
+  focusSection?: FormSection | null;
 }) {
   const [draftId, setDraftId] = useState<string | null>(editingId ?? null);
   const [loadingDraft, setLoadingDraft] = useState(!!editingId);
@@ -278,26 +282,61 @@ export function OrderForm({
   // form asks for it. Informational only — the save handler stays the sole
   // validator — but the sticky bar can then answer "why can't I save yet?"
   // without the agent scrolling back up to look for red marks.
-  const missingRequired = useMemo(() => {
-    const missing: string[] = [];
-    if (isMykadLike ? !isCompleteMykad(idNumber) : !idNumber.trim()) missing.push("ID Number");
-    if (!fullName.trim()) missing.push("Full Name");
-    if (!emailValid) missing.push("Email");
-    if (!street.trim()) missing.push("Full Address");
-    if (!/^\d{5}$/.test(postcode.trim())) missing.push("Postcode");
-    if (!stateVal) missing.push("State");
-    if (!city.trim()) missing.push("City");
-    if (!offerName) missing.push("Package");
+  const missingRequired = useMemo<MissingField[]>(() => {
+    const missing: MissingField[] = [];
+    // Each label is placed on its card by sectionOf, which THROWS for a label
+    // nobody placed — so a new required field cannot ship without saying where
+    // it lives, and the bar cannot point at the wrong card.
+    const add = (label: string) => missing.push({ label, section: sectionOf(label) });
+    if (isMykadLike ? !isCompleteMykad(idNumber) : !idNumber.trim()) add("ID Number");
+    if (!fullName.trim()) add("Full Name");
+    if (!emailValid) add("Email");
+    if (!street.trim()) add("Full Address");
+    if (!/^\d{5}$/.test(postcode.trim())) add("Postcode");
+    if (!stateVal) add("State");
+    if (!city.trim()) add("City");
+    if (!offerName) add("Package");
     // The portal's Personal Customer form insists on a contact number, and the
     // installer rings it — an order without one strands at the customer create.
-    if (!mobile.trim()) missing.push("Contact Number");
+    if (!mobile.trim()) add("Contact Number");
     // The ID copy is required by the portal's Personal Customer form, so it is a
     // save-blocker like any other required field rather than a nice-to-have.
-    if (!hasIdentityDocument(documents)) missing.push("MyKad / Passport");
+    if (!hasIdentityDocument(documents)) add("MyKad / Passport");
     // Same rule, one card down: the order needs the paperwork behind it too.
-    if (!hasSupportingDocument(documents)) missing.push("Supporting Document");
+    if (!hasSupportingDocument(documents)) add("Supporting Document");
     return missing;
   }, [isMykadLike, idNumber, fullName, emailValid, street, postcode, stateVal, city, offerName, mobile, documents]);
+
+  const missingGroups = useMemo(() => groupMissing(missingRequired), [missingRequired]);
+
+  /** Scroll a card into view and put the cursor in its first empty field. */
+  const goToSection = useCallback((section: FormSection) => {
+    const card = document.getElementById(sectionAnchor(section));
+    if (!card) return;
+    card.scrollIntoView({ behavior: "smooth", block: "start" });
+    // After the scroll settles: the first empty enabled input on the card, else
+    // its first input at all. Focusing during the scroll fights it on iOS.
+    window.setTimeout(() => {
+      const inputs = [...card.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+        "input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea:not([disabled])",
+      )];
+      (inputs.find((i) => !i.value) ?? inputs[0])?.focus({ preventScroll: true });
+    }, 350);
+  }, []);
+
+  // A failure's "Fix the draft" lands here with ?focus=<section>. Fires once
+  // the draft has LOADED, not on mount: while a draft is fetching the form
+  // renders a loader and none of the cards exist yet, so a mount-time scroll
+  // found nothing and silently did nothing — which is exactly what happened
+  // the first time this was tried in a browser.
+  const focusedOnce = useRef(false);
+  useEffect(() => {
+    if (loadingDraft || focusedOnce.current) return;
+    if (focusSection && isFormSection(focusSection)) {
+      focusedOnce.current = true;
+      goToSection(focusSection);
+    }
+  }, [loadingDraft, focusSection, goToSection]);
 
   // The ID copy follows the chosen ID Type and lives in its own card, so it is
   // NOT one of the Supporting card's select options — the card is the type.
@@ -929,7 +968,7 @@ export function OrderForm({
       )}
 
       {/* Customer */}
-      <div className={`${cardCls} overflow-hidden`}>
+      <div id={sectionAnchor("customer")} className={`${cardCls} overflow-hidden`}>
         <div className={headCls}>Customer</div>
         <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1.5">
@@ -1000,7 +1039,7 @@ export function OrderForm({
       </div>
 
       {/* Contact */}
-      <div className={`${cardCls} overflow-hidden`}>
+      <div id={sectionAnchor("contact")} className={`${cardCls} overflow-hidden`}>
         <div className={headCls}>Contact</div>
         <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1.5">
@@ -1045,7 +1084,7 @@ export function OrderForm({
           complete address exactly as the Unifi portal renders it. No Confirm
           step: the submit run drives the portal with this text as-is, so its
           accuracy is entirely the agent's responsibility. */}
-      <div className={`${cardCls} overflow-hidden`}>
+      <div id={sectionAnchor("address")} className={`${cardCls} overflow-hidden`}>
         <div className={headCls}>
           Installation Address <span className="text-[#697386] font-normal">— paste the full address from the Unifi portal</span>
         </div>
@@ -1151,7 +1190,7 @@ export function OrderForm({
           own stacking context. Without an explicit z-index the later Device /
           Documents cards would paint over this card's open dropdown. Package
           must also outrank Device, whose own dropdown sits below it. */}
-      <div className={`${cardCls} relative z-30`}>
+      <div id={sectionAnchor("package")} className={`${cardCls} relative z-30`}>
         <div className={headCls}>
           Package <span className="text-[#DF1B41]">*</span>{" "}
           <span className="text-[#697386] font-normal">— pick the speed, then the bundle</span>
@@ -1252,7 +1291,7 @@ export function OrderForm({
           something the portal applies by itself (a channel bundle, a discount).
           Ranks above the later cards for its own dropdown, below Package. */}
       {(isWithDevice || showIncluded) && (
-        <div className={`${cardCls} relative z-20`}>
+        <div id={sectionAnchor("device")} className={`${cardCls} relative z-20`}>
           <div className={headCls}>
             Device{" "}
             <span className="text-[#697386] font-normal">
@@ -1474,7 +1513,7 @@ export function OrderForm({
           Set per order by the agent who knows the customer. It used to be one
           global setting an admin kept for everyone, which meant a customer who
           could take a slot tomorrow waited as long as one who could not. */}
-      <div className={`${cardCls} overflow-hidden`}>
+      <div id={sectionAnchor("appointment")} className={`${cardCls} overflow-hidden`}>
         <div className={headCls}>
           Appointment{" "}
           <span className="text-[#697386] font-normal">— how soon the install may be booked</span>
@@ -1525,7 +1564,7 @@ export function OrderForm({
           copy required: a draft without one dies mid-submit with every field
           filled and nothing on screen saying which one was missing. There is no
           Type select here — the card IS the type, following the chosen ID Type. */}
-      <div className={`${cardCls} overflow-hidden`}>
+      <div id={sectionAnchor("documents")} className={`${cardCls} overflow-hidden`}>
         <div className={headCls}>
           {idDocLabel}
           <span className="ml-1.5 text-[#DF1B41] font-normal">*</span>
@@ -1948,13 +1987,25 @@ export function OrderForm({
           {saving ? "Saving…" : draftId ? "Update Draft" : "Save Order"}
         </Button>
         {missingRequired.length > 0 ? (
-          <span className="min-w-0 truncate text-xs text-[#697386]" aria-live="polite">
-            {missingRequired.length} required field{missingRequired.length === 1 ? "" : "s"} left
-            <span className="hidden sm:inline">
-              {" · "}
-              {missingRequired.slice(0, 3).join(", ")}
-              {missingRequired.length > 3 ? "…" : ""}
+          // Grouped by CARD, each a link that scrolls there. "4 left" told the
+          // agent how many; on a six-card form it never said where. Under `sm`
+          // the names collapse to a count per card so the bar stays one line.
+          <span className="flex min-w-0 items-center gap-2 overflow-x-auto text-xs text-[#697386]" aria-live="polite">
+            <span className="shrink-0 font-medium text-[#0A2540]">
+              {missingRequired.length} left
             </span>
+            {missingGroups.map((g) => (
+              <button
+                key={g.section}
+                type="button"
+                onClick={() => goToSection(g.section)}
+                title={g.fields.join(", ")}
+                className="shrink-0 cursor-pointer rounded-md border border-[#E3E8EF] px-2 py-0.5 text-[11px] text-[#425466] transition-colors hover:border-[#635BFF] hover:text-[#635BFF] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#635BFF]"
+              >
+                <span className="sm:hidden">{SECTION_SHORT[g.section]} {g.fields.length}</span>
+                <span className="hidden sm:inline">{g.label} {g.fields.length}</span>
+              </button>
+            ))}
           </span>
         ) : (
           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[#0E9F6E]" aria-live="polite">

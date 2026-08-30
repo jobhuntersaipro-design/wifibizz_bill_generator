@@ -1,5 +1,70 @@
 # Current Feature
 
+## Failure → Action, and a Section-Aware Required Bar
+
+**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/failure-to-action`). Vercel-only — no
+scraper change, no migration. Phase 1 of the 2026-08-31 product plan.
+Spec: [context/features/failure-to-action-and-section-bar.md](features/failure-to-action-and-section-bar.md).
+
+### Part A — every failure has a button
+
+`actionFor(order)` in `src/lib/failure-action.ts` resolves a failure to one of six actions — `fix_field`,
+`resubmit`, `wait`, `check_portal`, `reconnect`, `contact_admin`. The copy table `SUBMIT_ERROR_CODES`
+gained an `action` (and a `section` for `fix_field`) on every entry, so a code cannot have advice
+without a way to act on it. Thirteen codes that had NO copy — five scraper codes and BizzFlow's own
+five (`session_expired`, `abandoned`, `portal_timeout`, `infra`, `cancelled`) — now have short entries.
+
+Two state rules override the table: a pending retry is always `wait` (the pill already says so; no
+button), and `check_portal` with no portal order number degrades to `contact_admin` — a button pointing
+at a record that does not exist is worse than none.
+
+`fix_field` opens the draft on the card that needs fixing: `/new-order?draft=<id>&focus=<section>`.
+
+### Part B — the sticky bar says where
+
+`missingRequired` became `{ label, section }[]`, placed by `sectionOf(label)` — which **throws** for a
+label nobody placed, so a new required field cannot ship without saying which card it lives on. The bar
+reads *11 left · Customer 2 · Contact 2 · Address 4 · Package 1 · Documents 2*, each chip a button that
+scrolls to the card and focuses its first empty field. Every card carries `id="section-<name>"`.
+
+### Three things the browser found
+
+1. **The deep link did nothing the first time.** The form renders a loader while a draft fetches, so a
+   mount-time `scrollIntoView` found no cards and silently returned. The effect now fires when
+   `loadingDraft` turns false, once. Verified after: Device card at 30px from the top, an input inside
+   it focused.
+2. **On a phone, Customer and Contact both abbreviated to "C2".** Single initials collide. Now two-letter
+   chips (`Cu Co Ad Pk Dv Ap Do`), with a test pinning them unique.
+3. **The Orders table never shows a finished failure inline** — its progress panel unmounts the moment
+   the status leaves `submitting`. So for an agent watching the list, the failure TOAST is the surface.
+   It now carries the same *Fix the draft* action as its button. The spec named "the expanded row" as a
+   surface; that surface only exists mid-run.
+
+### Also
+
+The dealer-portal order URL was pasted in three components and about to be guessed wrong in a fourth
+(`esales.unifi.com.my/portal/orders?…` — invented). It is one helper now, `portalOrderUrl`, and the
+three copies use it.
+
+### Verified in the browser
+
+On the real signed-in agent session, with ORD-0003 temporarily given `device_out_of_stock` (restored to
+NULL afterwards): the detail page's *Last run* card shows the failure with **Fix the draft →
+`?draft=…&focus=device`**; clicking it opened the draft with the Device card in view and its input
+focused; an empty New Order form's bar read *11 left* with five section chips whose tooltips name the
+fields; all seven anchors present on a draft with a package (Device is absent on an empty form, by
+design — the card only renders once a package is picked).
+
+**Tests:** 14 in `failure-action.test.ts` — every table entry resolves, every `fix_field` has a section,
+unknown code → contact_admin, wait overrides, check_portal degrades without an order, BizzFlow's own
+codes, the note wording, every required label placed, an unplaced label throwing, grouping in card order,
+`?focus=` validation, short labels unique. **708 vitest passing**, `npm run build`, lint identical to
+baseline (9642), `tsc` unchanged.
+
+**NOT verified:** the e-mail's *Fix the draft* link rendered in a mail client (the template tests pass;
+nothing was sent); the toast action clicked live (needs a real failing submit); `reconnect` and
+`check_portal` buttons on screen — only `fix_field` was exercised.
+
 ## Fix — a Submitted Order Showed "Unclassified" in the Error Column
 
 **Status:** CODE COMPLETE (branch `fix/admin-submitted-shows-no-error`). Vercel-only, no migration.

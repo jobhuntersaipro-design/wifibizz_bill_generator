@@ -4,6 +4,7 @@
 // retry-policy is pure (no Prisma, no next/*), so importing it here keeps this
 // module client-safe. It owns the "is another run already owed?" rule, which
 // the predicates below have to respect.
+import type { FormSection } from "@/lib/order-sections";
 import { isRetryPending } from "@/lib/retry-policy";
 
 export const MAX_DOCS = 10;
@@ -416,9 +417,20 @@ export interface SubmitErrorCopy {
   title: string;
   /** What the portal's code actually means, in one sentence. */
   subtext: string;
-  /** The action that clears it. */
+  /** The action that clears it, in prose. */
   fix: string;
+  /**
+   * The same remedy as a BUTTON — see `failure-action.ts`. Every entry carries
+   * one so a code can never have advice without a way to act on it.
+   */
+  action: FailureActionKind;
+  /** For fix_field: which card of the draft to open. */
+  section?: FormSection;
 }
+
+/** Mirrors FailureAction in failure-action.ts; declared here to avoid a cycle. */
+export type FailureActionKind =
+  | "fix_field" | "resubmit" | "wait" | "check_portal" | "reconnect" | "contact_admin";
 
 /**
  * The one error code BizzFlow raises itself rather than reading off the portal.
@@ -461,6 +473,7 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
     fix:
       "Check the portal for this customer. Void anything the stopped run left " +
       "behind, then submit again \u2014 nothing will retry it on its own.",
+    action: "check_portal",
   },
   address_no_tm_service: {
     title: "TM does not serve this address",
@@ -472,6 +485,8 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
       "Check the unit number with the customer first, since a neighbouring unit " +
       "in the same building is often serviceable. If the address is right, this " +
       "order cannot go ahead \u2014 delete the draft rather than resubmitting it.",
+    action: "fix_field",
+    section: "address",
   },
   device_out_of_stock: {
     title: "Device out of stock",
@@ -480,6 +495,8 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
       "Information page, and refused this order because Unifi has no stock of " +
       "the device on it. Nothing about the customer or the address is wrong.",
     fix: "Edit the order, choose a different device, then resubmit.",
+    action: "fix_field",
+    section: "device",
   },
   voice_number_taken: {
     title: "Every voice number offered was already taken",
@@ -492,6 +509,7 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
     fix:
       "Submit again in a few minutes. The order already exists in the portal, " +
       "so check it there before creating a second one.",
+    action: "resubmit",
   },
   appointment_slot_taken: {
     title: "Appointment slot taken by another order",
@@ -506,6 +524,7 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
       "Submit again to book from the calendar's current availability. The " +
       "order already exists in the portal, so check it there before creating " +
       "a second one.",
+    action: "resubmit",
   },
   appointment_not_booked: {
     title: "The order has no appointment on it",
@@ -520,6 +539,7 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
       "Open the order in the portal, add the appointment under Install " +
       "Information, and continue it there. The order already exists, so do not " +
       "resubmit without checking — that creates a second one.",
+    action: "resubmit",
   },
   pay_page_not_ready: {
     title: "Pay page never finished loading",
@@ -530,6 +550,7 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
     fix:
       "Submit again. The order already exists in the portal and is waiting at " +
       "the Pay step, so check it there first rather than creating a second one.",
+    action: "check_portal",
   },
   pay_click_did_not_take: {
     title: "Payment unconfirmed",
@@ -540,6 +561,7 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
     fix:
       "Check this order in the Unifi portal before doing anything else. Only " +
       "resubmit once you have confirmed it was NOT paid.",
+    action: "check_portal",
   },
   customer_ic_name_mismatch: {
     title: "That ID number belongs to a different customer",
@@ -554,6 +576,8 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
       "name, so correct the name on the draft to match it. Either way the portal " +
       "already holds a part-made order under the number above: void it there " +
       "before submitting again.",
+    action: "fix_field",
+    section: "customer",
   },
   erf_not_downloaded: {
     title: "No e-RF (registration form)",
@@ -565,6 +589,88 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
     fix:
       "Check the order in the Unifi portal before doing anything else. If it " +
       "was paid, the form is on the order's confirmation page under Print e-RF.",
+    action: "check_portal",
+  },
+  address_not_found: {
+    title: "The portal could not find this address",
+    subtext:
+      "The address search returned no unit matching what was typed. Usually a " +
+      "spelling that differs from the portal's own, or a unit that is not in " +
+      "TM's records under this name.",
+    fix: "Paste the address exactly as the Unifi portal shows it, then submit again.",
+    action: "fix_field",
+    section: "address",
+  },
+  address_already_has_service: {
+    title: "This address already has a service",
+    subtext:
+      "The portal reports an active line at this unit. A new connection cannot " +
+      "be placed on top of it.",
+    fix: "Confirm the unit with the customer. If it is the wrong unit, correct the address.",
+    action: "fix_field",
+    section: "address",
+  },
+  login_id_invalid: {
+    title: "The portal rejected the generated login ID",
+    subtext: "An internal ID the run generates for the customer's account was refused.",
+    fix: "Nothing to change on the draft \u2014 submit again and the run generates a new one.",
+    action: "resubmit",
+  },
+  login_id_taken: {
+    title: "The generated login ID was already in use",
+    subtext: "The run collided with an existing account ID on the portal.",
+    fix: "Nothing to change on the draft \u2014 submit again and the run generates a new one.",
+    action: "resubmit",
+  },
+  vobb_unavailable: {
+    title: "Voice service is unavailable for this address",
+    subtext: "The portal could not provision the voice line this package includes.",
+    fix: "This is a portal-side limit. Tell your admin, quoting the reference.",
+    action: "contact_admin",
+  },
+  msr_customer_id_limit: {
+    title: "This customer has reached the portal's account limit",
+    subtext: "Unifi caps how many accounts one ID number may hold.",
+    fix: "This cannot be fixed from the draft. Tell your admin.",
+    action: "contact_admin",
+  },
+  msr_offline_approval: {
+    title: "The portal routed this order for offline approval",
+    subtext: "Unifi has held the order for manual review on their side.",
+    fix: "Nothing to do here. Tell your admin so it can be followed up with Unifi.",
+    action: "contact_admin",
+  },
+  session_expired: {
+    title: "Your dealer session expired",
+    subtext: "The run started, but the portal had already logged the session out.",
+    fix: "Reconnect on the Order Entry page, then submit again.",
+    action: "reconnect",
+  },
+  portal_timeout: {
+    title: "The portal did not respond in time",
+    subtext: "A step waited as long as it is allowed to and the portal never answered.",
+    fix: "Usually a slow portal. Submit again.",
+    action: "resubmit",
+  },
+  infra: {
+    title: "The order service hit a problem",
+    subtext: "Something on our side, not the portal or the draft.",
+    fix: "Submit again. If it repeats, tell your admin.",
+    action: "resubmit",
+  },
+  abandoned: {
+    title: "The run stopped reporting",
+    subtext:
+      "It was abandoned after running far longer than any run should. It may " +
+      "have reached the portal before it stopped.",
+    fix: "Check at Unifi for this customer before submitting again.",
+    action: "check_portal",
+  },
+  unknown_error: {
+    title: "The portal refused the order",
+    subtext: "The scraper could not classify the portal's reason.",
+    fix: "Read the portal's message above. If it is not something on the draft, tell your admin.",
+    action: "contact_admin",
   },
 };
 
@@ -1353,3 +1459,14 @@ export function filterOrders(
     );
   });
 }
+
+/**
+ * The dealer portal's page for a Customer Order Number.
+ *
+ * The ONE place this URL is written. It used to be pasted into three
+ * components, and a fourth copy was about to be guessed wrong — a link that
+ * lands on the wrong portal page is worse than no link, because the agent
+ * trusts it.
+ */
+export const portalOrderUrl = (orderId: string): string =>
+  `https://dealer.unifi.com.my/esales/h5/onBoarding/OrderDetails?custOrderId=${encodeURIComponent(orderId)}&custOrderNbr=${encodeURIComponent(orderId)}`;
