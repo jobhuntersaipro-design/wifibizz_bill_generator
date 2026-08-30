@@ -51,6 +51,61 @@ already effectively reentrant, which is why this is a gate-and-config change rat
 
 ---
 
+## Read this first: throughput scales per ACCOUNT, not per person
+
+**Some agents currently share a BizzFlow login (confirmed 2026-08-30). For them, this project delivers
+nothing until that changes.**
+
+The unit being serialised is the **dealer portal session**, and `DealerAccount.userId` is `@unique` —
+one Unifi dealer login per BizzFlow account. Two humans signed into the same BizzFlow account therefore
+share one dealer session, so they must share one slot. That is not a limitation to engineer around: two
+concurrent runs driving one portal login is the collision the lock exists to prevent.
+
+So at `N=4`, four agents on four accounts get four concurrent submits. Four agents on **one** account get
+one — exactly what they have today, on an 8 GB droplet instead of a 2 GB one.
+
+### What two people on one account see
+
+| Situation | Result | Correct? |
+|---|---|---|
+| A submits, B submits another order | B refused `USER_JOB_IN_PROGRESS`; B's order → `failed` with the message, Submit re-enabled. Not stuck | **Yes** — they share a dealer session |
+| B presses Connect / Disconnect during A's run | Refused by the Phase 3.4 login guard | Yes |
+| B looks at the Orders list | Already sees A's order in `Submitting` with the live checklist — status is read from the database, not from the tab that started it | Yes, already works |
+| B reads the refusal message | *"You already have a submit running"* — **false from B's point of view.** B pressed nothing | **No** — see below |
+| Anyone asks who submitted an order | Unanswerable. `lastSubmitUserId` holds the BizzFlow user, identical for both | **No** — only separate accounts fix this |
+
+### The copy fix (in Phase 5)
+
+Do **not** build a "logged in elsewhere" prompt. NextAuth runs `strategy: "jwt"` and the `Session` table
+was dropped in Phase 10, so the app has no server-side record of sessions to count; adding one means
+restoring session persistence, a migration, and a write per request — real machinery to render a warning.
+
+The signal already exists and is better: B can see the running order in the list. It simply is not wired
+into the refusal. So the message names **what** is running rather than asserting **who** acted:
+
+> *"A submit is already running on this account — ORD-0042 (MUHAMMAD SAHINU), started 4m 20s ago."*
+
+BizzFlow already knows which order holds the `jobId`, so this needs no identity tracking. It tells B the
+true and useful thing: that a run is in flight and it is not theirs.
+
+### Prerequisite, and an open blocker
+
+**Migrating shared logins to one BizzFlow account per agent is a prerequisite of this project, not a
+follow-up.** Without it the ramp in Phase 4 buys those agents no throughput at all.
+
+**But it only works if each agent also has their own Unifi dealer staff code — and that is unconfirmed.**
+Two BizzFlow accounts pointing at the *same* staff code would hold two session files for one portal
+account, which does not remove the collision, it moves it from our lock to Unifi's. Whether the portal
+tolerates concurrent sessions for one staff code is unknown and cannot be determined from here.
+
+**Settle this before spending anything on Phase 4:**
+
+- [ ] How many distinct Unifi dealer staff codes do we actually have?
+- [ ] Does the portal allow one staff code to hold two live sessions at once?
+- [ ] If not, the real ceiling is **the number of dealer staff codes**, and no droplet size changes it.
+
+---
+
 ## Design
 
 ### Two levels, not one
@@ -180,7 +235,7 @@ new endpoint and no new public surface is needed.
 
 | State | Message |
 |---|---|
-| Your own run in flight | *"You already have a submit running. It has been going for 4m 5s."* |
+| A run on your account | *"A submit is already running on this account — ORD-0042 (NAME), started 4m 20s ago."* Names the order rather than asserting who acted, because a shared login makes "you" false — see [Read this first](#read-this-first-throughput-scales-per-account-not-per-person) |
 | All slots busy | *"3 of 4 agents are submitting — your turn shortly."* |
 | Stuck (past cap) | *"A task has been stuck on the server for 6h 0m…"* (already shipped) |
 
@@ -231,3 +286,6 @@ be started until the ramp to 4 shows it is needed.
 - [ ] The blocking login guard (Phase 3.4) is in scope after all
 - [ ] `deploy.sh` drain mode is accepted as a necessary cost of concurrency
 - [ ] The portal-side risk is understood as untestable in advance, and the ramp is the mitigation
+- [ ] **Shared BizzFlow logins are migrated to one account per agent** — without this the ramp buys those agents nothing
+- [ ] **The number of distinct Unifi dealer staff codes is confirmed**, and whether one code may hold two live sessions. If it may not, that count — not the droplet — is the real ceiling
+- [ ] No "logged in elsewhere" prompt is built; the refusal names the running order instead
