@@ -19,9 +19,9 @@
 
 ### Notes
 
-**Blocked on Phase 0**, which is the merge above: it must be **deployed**, not merely merged. With
-per-agent slots a leaked job stops blocking everyone loudly and starts blocking one agent silently, so
-the reaper, `GET /jobs` and force-release have to exist first.
+**Phase 0 is DONE** — merged, pushed and deployed as `scraper-v2026.08.30-2`. The reaper, `GET /jobs`
+and force-release are live, which is what makes per-agent slots safe to build: with slots, a leaked job
+stops blocking everyone loudly and starts blocking one agent silently.
 
 **Sizing is measured, not estimated** — 365 MB of Chromium RSS for a blank page in the running container,
 budgeted to ~700 MB for the real portal. CPU is the constraint that gets under-provisioned, and the
@@ -47,7 +47,11 @@ The spec's review checklist has **8 unticked items**. The three that change the 
 
 ## Fix — a Blocking R2 Download Pinned the Event Loop and Held the Submit Lock for 7 Hours
 
-**Status:** MERGED TO MAIN AND PUSHED 2026-08-30 (`b6e012d`, merge `58d2bd6`; branch deleted).
+**Status:** MERGED TO MAIN AND PUSHED 2026-08-30 (`b6e012d`, merge `58d2bd6`; branch deleted), and the
+scraper half **DEPLOYED as `scraper-v2026.08.30-2`** — container recreated, so `api_server` restarted with
+it. Verified live inside the running container: the reaper, the `to_thread` call and the R2 timeouts are
+all present; `GET /jobs` answers **401 without the token** and 200 with it; force-release on an unknown
+job answers `404 unknown_job`; `/health` now carries `max_job_runtime_s: 1800` and `oldest_active_age_s`.
 Scraper + BizzFlow, no migration. **Needs a droplet deploy AND an `api_server` restart** — a deploy alone
 keeps the old imports, so until then production still runs the code that hung.
 **Production was unblocked first** by restarting `bizzflow-scraper-scraper-1` at 2026-08-30 03:26 UTC
