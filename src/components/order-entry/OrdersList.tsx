@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { toast } from "sonner";
+import { actionFor } from "@/lib/failure-action";
 import {
   listOrders,
   startSubmit,
@@ -54,6 +55,31 @@ interface ProgressState {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * The remedy as the toast's action button.
+ *
+ * The Orders table never shows a finished failure inline — its progress panel
+ * unmounts the moment the status leaves `submitting` — so for an agent watching
+ * the list, this toast IS the failure surface. Giving it the same button the
+ * detail page has means "fix the draft" is one click from where they are, not
+ * a trip through the row menu. Only the fix_field case navigates; the others
+ * already have their controls on the row (Resubmit) or need the detail page.
+ */
+function toastAction(
+  id: string,
+  final: { errorCode?: string | null; orderId?: string | null; status: string; autoRetries?: number; autoRetryAt?: Date | string | null },
+): { label: string; onClick: () => void } | undefined {
+  const r = actionFor({ errorCode: final.errorCode, orderId: final.orderId, status: final.status,
+    autoRetries: final.autoRetries, autoRetryAt: final.autoRetryAt });
+  if (r.action !== "fix_field") return undefined;
+  return {
+    label: "Fix the draft",
+    onClick: () => {
+      window.location.assign(`/dashboard/order-entry/new-order?draft=${id}&focus=${r.section ?? "customer"}`);
+    },
+  };
+}
 
 export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   const [orders, setOrders] = useState<OrderListItem[]>([]);
@@ -339,6 +365,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
       const copy = submitErrorCopy(final.errorCode);
       toast.warning(copy ? `${name} — ${copy.title}` : name, {
         description: copy ? copy.fix : final.errorMessage ?? "Needs checking in the portal.",
+        action: toastAction(id, final),
       });
       return false;
     }
@@ -349,6 +376,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     const failCopy = submitErrorCopy(final.errorCode);
     toast.error(failCopy ? `${name} — ${failCopy.title}` : name, {
       description: failCopy ? failCopy.fix : final.errorMessage ?? "Submit failed",
+      action: toastAction(id, final),
     });
     return false;
   }

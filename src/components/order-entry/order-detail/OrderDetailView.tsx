@@ -111,6 +111,7 @@ export function OrderDetailView({ order }: { order: OrderListItem }) {
                 // This page reads the event history rather than the progress
                 // poll, so the run's own stages are the floor here.
                 observedStages={attempts?.[0]?.events.map((e) => e.stage)}
+                order={order}
               />
             </div>
           </SectionCard>
