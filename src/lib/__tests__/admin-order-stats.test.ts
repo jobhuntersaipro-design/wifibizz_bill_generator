@@ -11,8 +11,10 @@ import { describe, it, expect } from "vitest";
 import {
   dayKeyMYT,
   countAttempts,
-  submitsPerDay,
-  fillDays,
+  submitsPerBucket,
+  fillBuckets,
+  bucketKey,
+  autoGranularity,
   errorBreakdown,
   agentStats,
   purgePhrase,
@@ -72,7 +74,7 @@ describe("the day an event belongs to", () => {
   });
 
   it("buckets an evening submit onto the local day the agent worked", () => {
-    const rows = submitsPerDay([
+    const rows = submitsPerBucket([
       ev({ status: "submitted", createdAt: new Date("2026-08-20T20:00:00Z") }),
     ]);
     expect(rows).toEqual([{ day: "2026-08-21", count: 1 }]);
@@ -81,7 +83,7 @@ describe("the day an event belongs to", () => {
 
 describe("the trend", () => {
   it("counts only successful submits", () => {
-    const rows = submitsPerDay([
+    const rows = submitsPerBucket([
       ev({ status: "submitted" }),
       ev({ orderId: "o2", status: "failed" }),
       ev({ orderId: "o3", status: "submitting" }),
@@ -92,7 +94,7 @@ describe("the trend", () => {
   it("fills quiet days with zero rather than compressing them away", () => {
     // A trend drawn only from days with activity turns a quiet week into one
     // step and reads as steady work.
-    const filled = fillDays(
+    const filled = fillBuckets(
       [{ day: "2026-08-20", count: 2 }, { day: "2026-08-23", count: 1 }],
       new Date("2026-08-20T02:00:00Z"),
       new Date("2026-08-23T02:00:00Z"),
@@ -107,8 +109,8 @@ describe("the trend", () => {
 
   it("terminates on a reversed range instead of spinning", () => {
     expect(
-      fillDays([], new Date("2026-08-23T02:00:00Z"), new Date("2026-08-20T02:00:00Z")).length,
-    ).toBeLessThan(400);
+      fillBuckets([], new Date("2026-08-23T02:00:00Z"), new Date("2026-08-20T02:00:00Z")).length,
+    ).toBeLessThan(1200);
   });
 });
 
@@ -198,5 +200,85 @@ describe("the purge phrase", () => {
   it("refuses an empty phrase even when the order has no name", () => {
     // Otherwise an empty box would match an empty phrase and purge on a click.
     expect(purgePhraseMatches({ reference: null, fullName: "" }, "")).toBe(false);
+  });
+});
+
+describe("bucketing by week and month", () => {
+  it("puts a week on its Monday, in Malaysia time", () => {
+    // 2026-08-20 is a Thursday; its week starts Monday the 17th.
+    expect(bucketKey(new Date("2026-08-20T04:00:00Z"), "week")).toBe("2026-08-17");
+    expect(bucketKey(new Date("2026-08-20T04:00:00Z"), "month")).toBe("2026-08");
+    expect(bucketKey(new Date("2026-08-20T04:00:00Z"), "day")).toBe("2026-08-20");
+  });
+
+  it("keeps a Sunday-night submit in the week the agent worked", () => {
+    // Sunday 2026-08-23 23:30 MYT = Sunday 15:30 UTC. Still that week.
+    expect(bucketKey(new Date("2026-08-23T15:30:00Z"), "week")).toBe("2026-08-17");
+  });
+
+  it("moves a Monday-morning submit into the NEW week", () => {
+    // THE case that would be silently wrong. Sunday 2026-08-23 20:00 UTC is
+    // Monday 2026-08-24 04:00 MYT. Computing the weekday from the UTC instant
+    // would file the agent's Monday work under the previous week.
+    expect(bucketKey(new Date("2026-08-23T20:00:00Z"), "week")).toBe("2026-08-24");
+    expect(bucketKey(new Date("2026-08-23T20:00:00Z"), "day")).toBe("2026-08-24");
+  });
+
+  it("rolls a month over on the Malaysian boundary, not the UTC one", () => {
+    // 2026-08-31 20:00 UTC is 2026-09-01 04:00 MYT.
+    expect(bucketKey(new Date("2026-08-31T20:00:00Z"), "month")).toBe("2026-09");
+    expect(bucketKey(new Date("2026-08-31T10:00:00Z"), "month")).toBe("2026-08");
+  });
+});
+
+describe("choosing a granularity", () => {
+  it("does not draw ninety thin bars", () => {
+    const from = new Date("2026-06-01T00:00:00Z");
+    const days = (n: number) => new Date(from.getTime() + n * 86400_000);
+    expect(autoGranularity(from, days(31))).toBe("day");
+    expect(autoGranularity(from, days(32))).toBe("week");
+    expect(autoGranularity(from, days(180))).toBe("week");
+    expect(autoGranularity(from, days(181))).toBe("month");
+  });
+
+  it("reads a reversed range by its length, not its sign", () => {
+    // Order must not change the answer: |to - from| is the span either way.
+    const jan = new Date("2026-01-01T00:00:00Z"), jun = new Date("2026-06-01T00:00:00Z");
+    expect(autoGranularity(jun, jan)).toBe(autoGranularity(jan, jun)); // 151d -> week
+    const jan27 = new Date("2027-01-01T00:00:00Z");
+    expect(autoGranularity(jan27, jan)).toBe("month"); // 365d, reversed
+  });
+});
+
+describe("filling buckets", () => {
+  it("emits a zero for a quiet week", () => {
+    const filled = fillBuckets(
+      [{ day: "2026-08-03", count: 2 }],
+      new Date("2026-08-03T02:00:00Z"),
+      new Date("2026-08-19T02:00:00Z"),
+      "week",
+    );
+    expect(filled).toEqual([
+      { day: "2026-08-03", count: 2 },
+      { day: "2026-08-10", count: 0 },
+      { day: "2026-08-17", count: 0 },
+    ]);
+  });
+
+  it("emits a zero for a quiet month, across a year boundary", () => {
+    const filled = fillBuckets(
+      [{ day: "2026-12", count: 1 }],
+      new Date("2026-11-05T02:00:00Z"),
+      new Date("2027-01-05T02:00:00Z"),
+      "month",
+    );
+    expect(filled.map((f) => f.day)).toEqual(["2026-11", "2026-12", "2027-01"]);
+    expect(filled[1].count).toBe(1);
+  });
+
+  it("never repeats a bucket when stepping by day", () => {
+    const filled = fillBuckets([], new Date("2026-08-01T02:00:00Z"),
+      new Date("2026-08-31T02:00:00Z"), "week");
+    expect(new Set(filled.map((f) => f.day)).size).toBe(filled.length);
   });
 });

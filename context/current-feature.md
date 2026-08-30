@@ -1,5 +1,105 @@
 # Current Feature
 
+## Admin Agent Handling — Connection State, Live Jobs, Chart Filters, Agent Page
+
+**Status:** CODE COMPLETE, PARTIALLY VERIFIED IN BROWSER (branch `feature/admin-agent-handling`).
+Vercel-only — no scraper change, **no migration**.
+Spec: [context/features/admin-agent-handling.md](features/admin-agent-handling.md).
+
+All four phases built. **Phase 4 is not browser-verified** — see the gap below.
+
+### Phase 1 — connection state
+
+`describeConnection()` in `src/lib/agent-connection.ts` reads the STORED `sessionExpiresAt`, the same
+column `dealerSessionLive()` uses to decide whether a run may start — so admin's badge and the submit
+gate cannot disagree. Four states, plus an **expiring** amber inside 30 minutes, because a run takes
+minutes and a session that lapses mid-flight strands an order the portal has already numbered.
+
+A **Connection** column on the By-agent table and Users, and a **Connected now** tile — present tense,
+unlike its neighbours, because "who can submit right now" is the question you ask before wondering why
+nothing is moving. Counted over ALL agents, not just those in the date range.
+
+### Phase 2 — live jobs panel
+
+A **Running now** card polling the auth-gated `GET /jobs` server-side under the admin gate. Per job:
+agent, the BizzFlow order (resolved by `Order.jobId`), stage, elapsed, and **Stuck** in red past the
+droplet's own cap — the same rule the agent-side hover text uses.
+
+**A job whose order cannot be found is reported as "unknown order", not dropped.** A slot held by
+something nobody can name is exactly what the 2026-08-29 stuck lock looked like from outside.
+
+**Release tries an ordinary cancel first and only forces on `not_cancellable`.** The ordinary cancel
+does more — the droplet stops the run and tears the browser down — so it is attempted first, and the
+two outcomes are reported differently because they mean different things to whoever pressed the button.
+
+### Phase 3 — chart filters
+
+`bucketKey(date, granularity)` for day/week/month, all Malaysia time, weeks Monday-start.
+`fillDays` → `fillBuckets`, `submitsPerDay` → `submitsPerBucket`, plus `autoGranularity`
+(≤31d day, ≤180d week, else month) and `bucketLabel`.
+
+**Weeks are computed from the SHIFTED date, never the UTC instant.** A Monday 04:00 MYT submit is
+Sunday 20:00 UTC, and taking the weekday from the raw instant would file the agent's Monday work under
+the previous week. Pinned by a test.
+
+The agent filter narrows the EVENT QUERY, so the tiles, the trend and the errors all describe the same
+agent and cannot disagree. The order table's separate agent select was removed — two selects for one
+concept is how a page starts lying about who you are looking at.
+
+### Phase 4 — agent detail page
+
+`/admin/agents/[id]`, reached from the Users row, the By-agent row and every order row's agent name.
+It **reuses `OrderOversight` with `agentId` pinned** rather than rebuilding: same live panel, charts and
+orders table, narrowed. The By-agent table and the agent selector hide when pinned.
+
+The only control is the order-entry access toggle (optimistic, and it puts the switch BACK on failure
+rather than leaving it lying). **No edit form** — Users has one, and a second copy is how two drift.
+
+### A real bug the verification found
+
+The panel rendered an **expired admin session** as *"Could not reach the order service."* That would
+send an admin to debug the droplet when they only need to log in again. `adminLiveJobs` now returns
+`reachable: true` for an auth failure and the panel shows the reason — an expired session says so.
+
+### Verified in the browser
+
+Against the dev server on the real admin login, driving a stub droplet so a running and a stuck job
+could be produced on demand:
+
+- **Running now** naming a real order and agent — *ORD-0003 · louis.cclin@gmail.com ·
+  creating_customer · running 1m 35s*.
+- **Stuck** at 2h against the 1800s cap, red-bordered, arriving via the 10s poll with no reload.
+- The **release dialog** copy, and the **force fallback** — the stub refused the ordinary cancel with
+  `409 not_cancellable`, the action retried with `?force=1`, and the toast reported the honest weaker
+  outcome: *"Slot released. The run itself was not stopped."*
+- The **unreachable** state, seen for real while the stub was restarting.
+- The **Connection** column (*Never connected*), the **Connected now** tile, and the **Charts:** filter
+  bar with its agent options.
+
+**Tests:** 10 new in `agent-connection.test.ts` and 9 new in `admin-order-stats.test.ts` (week/month
+bucketing including the Monday-morning MYT boundary, the auto-granularity thresholds at 31/32 and
+180/181, zero-weeks and zero-months, no repeated bucket). **681 vitest passing** (was 662; the 4
+failing files are the Playwright e2e specs vitest collects, pre-existing). `npm run build`, lint
+identical to baseline (9642), `tsc` unchanged.
+
+**Dev database restored** — the `job_id` temporarily set on ORD-0003 to let the panel name a real order
+is back to NULL.
+
+### NOT verified — needs an admin login
+
+**The admin JWT expired partway through (8h expiry) and I did not renew it**, because logging in through
+the browser would have put the admin password into the session transcript. Serving it to the page over
+localhost instead was correctly blocked as credential exfiltration, and I did not work around it.
+
+Left unverified as a result:
+- **The whole of Phase 4** — `/admin/agents/[id]` has never been rendered.
+- The **ordinary-cancel-succeeds** branch of Release (only the force fallback was exercised).
+- **Granularity switching** in the browser (the pure logic is unit-tested at every boundary).
+- The three inbound links to the agent page.
+
+Each needs one signed-in admin session; the build and types are clean, so this is a rendering check
+rather than a logic one.
+
 ## Admin Order Oversight
 
 **Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/admin-order-oversight`). Vercel-only — no

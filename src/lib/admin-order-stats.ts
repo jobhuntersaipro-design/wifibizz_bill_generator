@@ -49,6 +49,46 @@ export function dayKeyMYT(at: Date): string {
   return shifted.toISOString().slice(0, 10);
 }
 
+export type Granularity = "day" | "week" | "month";
+
+/**
+ * Which bucket an event falls in, at the requested granularity — all in
+ * Malaysia time, for the reason given on dayKeyMYT.
+ *
+ * Weeks are MONDAY-start and identified by that Monday's date, so a bucket key
+ * sorts lexicographically and is directly printable. Months are `YYYY-MM`.
+ */
+export function bucketKey(at: Date, granularity: Granularity = "day"): string {
+  const day = dayKeyMYT(at);
+  if (granularity === "day") return day;
+  if (granularity === "month") return day.slice(0, 7);
+  // Walk back to Monday using the SHIFTED date, never the original: computing
+  // the weekday from the UTC instant would put a Monday 04:00 MYT event
+  // (Sunday 20:00 UTC) in the previous week.
+  const shifted = new Date(`${day}T00:00:00Z`);
+  const dow = (shifted.getUTCDay() + 6) % 7; // Mon=0 … Sun=6
+  shifted.setUTCDate(shifted.getUTCDate() - dow);
+  return shifted.toISOString().slice(0, 10);
+}
+
+/**
+ * A sensible granularity for a range, so 90 days is not 90 thin bars.
+ * Overridable — this is a default, not a rule.
+ */
+export function autoGranularity(from: Date, to: Date): Granularity {
+  const days = Math.abs(to.getTime() - from.getTime()) / 86400_000;
+  if (days <= 31) return "day";
+  if (days <= 180) return "week";
+  return "month";
+}
+
+/** How a bucket is labelled on an axis. */
+export function bucketLabel(key: string, granularity: Granularity): string {
+  if (granularity === "month") return key;
+  if (granularity === "week") return `w/c ${key.slice(5)}`;
+  return key.slice(5);
+}
+
 /**
  * Attempts, counted as distinct (order, attempt) pairs.
  *
@@ -59,12 +99,15 @@ export function countAttempts(events: StatEvent[]): number {
   return new Set(events.map((e) => `${e.orderId}:${e.attempt}`)).size;
 }
 
-/** Successful submits per day (MYT), for the trend. */
-export function submitsPerDay(events: StatEvent[]): { day: string; count: number }[] {
+/** Successful submits per bucket (MYT), for the trend. */
+export function submitsPerBucket(
+  events: StatEvent[],
+  granularity: Granularity = "day",
+): { day: string; count: number }[] {
   const byDay = new Map<string, Set<string>>();
   for (const e of events) {
     if (e.status !== "submitted") continue;
-    const day = dayKeyMYT(e.createdAt);
+    const day = bucketKey(e.createdAt, granularity);
     // Distinct (order, attempt) even here: a duplicated terminal event must not
     // inflate a day's total.
     if (!byDay.has(day)) byDay.set(day, new Set());
@@ -76,28 +119,33 @@ export function submitsPerDay(events: StatEvent[]): { day: string; count: number
 }
 
 /**
- * Fill the gaps between the first and last day of the range.
+ * Fill the gaps between the first and last bucket of the range.
  *
- * A trend drawn only from days that had activity compresses a quiet week into a
- * single step and reads as steady work. Days with nothing get an explicit zero.
+ * A trend drawn only from buckets that had activity compresses a quiet week
+ * into a single step and reads as steady work. Empty buckets get a zero.
  */
-export function fillDays(
+export function fillBuckets(
   rows: { day: string; count: number }[],
   from: Date,
   to: Date,
+  granularity: Granularity = "day",
 ): { day: string; count: number }[] {
   const have = new Map(rows.map((r) => [r.day, r.count]));
   const out: { day: string; count: number }[] = [];
-  const cursor = new Date(Date.UTC(
-    from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate(),
-  ));
-  const end = dayKeyMYT(to);
-  // Guard the loop rather than trusting the dates: a reversed range would
-  // otherwise spin forever.
-  for (let i = 0; i < 400; i++) {
-    const key = cursor.toISOString().slice(0, 10);
-    out.push({ day: key, count: have.get(key) ?? 0 });
-    if (key >= end) break;
+  const seen = new Set<string>();
+  // Step by DAY and collapse to the bucket key, rather than stepping by week or
+  // month: month lengths differ and Date arithmetic on month ends is a classic
+  // off-by-one, while a day walk is exact for every granularity.
+  const cursor = new Date(`${dayKeyMYT(from)}T00:00:00Z`);
+  const endKey = bucketKey(to, granularity);
+  // Bounded rather than trusting the dates: a reversed range would spin forever.
+  for (let i = 0; i < 1200; i++) {
+    const key = bucketKey(new Date(cursor.getTime() - 8 * 3600_000), granularity);
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push({ day: key, count: have.get(key) ?? 0 });
+    }
+    if (key >= endKey) break;
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   return out;

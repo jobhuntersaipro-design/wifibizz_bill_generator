@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { useState, useEffect, useCallback } from "react";
 import { getUsers, createUser, updateUser, deleteUser, topupUserCaseLimit, setOrderEntryAccess } from "@/actions/admin-users";
 import { Button } from "@/components/ui/button";
@@ -158,7 +160,15 @@ export function UserManagement() {
             <tbody className="divide-y divide-[#E3E8EF]/60">
               {users.map((user) => (
                 <tr key={user.id} className="hover:bg-[#F6F9FC] transition-colors duration-100">
-                  <td className="px-4 py-3 font-medium text-[#0A2540]">{user.name || "—"}</td>
+                  <td className="px-4 py-3 font-medium">
+                    {/* Third way into the agent page, beside the By-agent table
+                        and every order row — this is the list you are already
+                        looking at when you wonder how somebody is doing. */}
+                    <Link href={`/admin/agents/${user.id}`}
+                      className="text-[#0A2540] hover:text-[#635BFF] hover:underline">
+                      {user.name || user.email || "—"}
+                    </Link>
+                  </td>
                   <td className="px-4 py-3 text-[#425466] hidden sm:table-cell">{user.email || "—"}</td>
                   <td className="px-4 py-3 hidden lg:table-cell">
                     {user.passwordRaw ? (
