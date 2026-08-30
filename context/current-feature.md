@@ -2,8 +2,9 @@
 
 ## Admin Agent Handling — Connection State, Live Jobs, Chart Filters, Agent Page
 
-**Status:** CODE COMPLETE, PARTIALLY VERIFIED IN BROWSER (branch `feature/admin-agent-handling`).
-Vercel-only — no scraper change, **no migration**.
+**Status:** MERGED TO MAIN AND DEPLOYED 2026-08-30 (`ee61160` + review fixes `ef1d8c7`, merge
+`eda1b6f`; branch deleted). Vercel-only — no scraper change, **no migration**, so nothing had to be
+applied to production. Build confirmed via the Vercel CLI: compiled clean, Build Completed.
 Spec: [context/features/admin-agent-handling.md](features/admin-agent-handling.md).
 
 All four phases built. **Phase 4 is not browser-verified** — see the gap below.
@@ -54,6 +55,20 @@ orders table, narrowed. The By-agent table and the agent selector hide when pinn
 
 The only control is the order-entry access toggle (optimistic, and it puts the switch BACK on failure
 rather than leaving it lying). **No edit form** — Users has one, and a second copy is how two drift.
+
+### Review findings, fixed before merge (`ef1d8c7`)
+
+`/feature review` caught three things against the spec:
+
+1. **The Connection column never reached the Users list**, which the spec named explicitly alongside the
+   By-agent table — `getUsers` was not even loading `dealerAccount`. It now sits beside Order Entry,
+   because both answer "can this agent work right now", and access enabled while the session is dead is
+   the pairing worth seeing.
+2. **The status filter broke a rule the earlier feature had set** — its options came from every order
+   even with an agent selected, so it could offer a status that agent has none of: an option that
+   always yields an empty table, which reads as a broken filter.
+3. **The agent page fetched every order** and discarded most client-side, though the action already
+   accepted an `agentId`.
 
 ### A real bug the verification found
 
