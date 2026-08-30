@@ -157,3 +157,53 @@ export function deviceRequired(isWithDevice: boolean, split: Pick<PlanOfferSplit
   if (!isWithDevice) return false;
   return !split.known || split.devices.length > 0;
 }
+
+/**
+ * The speed a plan sells, as a person says it: "100M" → "100 Mbps", "1G" → "1 Gbps".
+ *
+ * The portal's own shorthand is what `dealer-offers.ts` records and what the
+ * collapsed plan row prints, so it is kept as the sort key while only the
+ * heading is spelled out.
+ */
+export function bandwidthLabel(bandwidth: string | null | undefined): string {
+  const raw = (bandwidth ?? "").trim().toUpperCase();
+  const m = /^(\d+(?:\.\d+)?)\s*([MG])B?P?S?$/.exec(raw);
+  if (!m) return raw || "Other speeds";
+  return `${m[1]} ${m[2] === "G" ? "Gbps" : "Mbps"}`;
+}
+
+/** Megabits per second, for ordering. Unparseable speeds sort last. */
+export function bandwidthMbps(bandwidth: string | null | undefined): number {
+  const raw = (bandwidth ?? "").trim().toUpperCase();
+  const m = /^(\d+(?:\.\d+)?)\s*([MG])B?P?S?$/.exec(raw);
+  if (!m) return Number.POSITIVE_INFINITY;
+  return Number(m[1]) * (m[2] === "G" ? 1000 : 1);
+}
+
+export interface BandwidthGroup<T> {
+  /** The raw value, unique per group — usable as a React key and a toggle id. */
+  key: string;
+  label: string;
+  plans: T[];
+}
+
+/**
+ * Split plans into speed groups, slowest first.
+ *
+ * Grouped on the raw value rather than the label so two spellings of one speed
+ * cannot collapse into a heading whose count disagrees with the rows under it.
+ */
+export function groupPlansByBandwidth<T extends { bandwidth: string | null }>(
+  plans: T[],
+): BandwidthGroup<T>[] {
+  const by = new Map<string, T[]>();
+  for (const p of plans) {
+    const key = (p.bandwidth ?? "").trim().toUpperCase();
+    const list = by.get(key);
+    if (list) list.push(p);
+    else by.set(key, [p]);
+  }
+  return [...by.entries()]
+    .map(([key, list]) => ({ key, label: bandwidthLabel(key), plans: list }))
+    .sort((a, b) => bandwidthMbps(a.key) - bandwidthMbps(b.key) || a.key.localeCompare(b.key));
+}

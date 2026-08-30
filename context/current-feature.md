@@ -1,5 +1,67 @@
 # Current Feature
 
+## Plan Settings, Plans Grouped by Speed, and Three Fields That Now Say They Are Required
+
+**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/plan-settings-and-required-fields`).
+Vercel-only — no scraper change, no migration.
+
+Three asks (2026-08-30), all copy and layout except the last, which changes what a draft may be saved with.
+
+### 1. Plan Details → Plan Settings
+
+Renamed on both surfaces — the admin page heading and its sidebar link, and the agent-facing tab under
+`/dashboard/order-entry`. **The ROUTES are untouched** (`/admin/plans`,
+`/dashboard/order-entry/plan-details`), so existing links and bookmarks keep working; the `PlanDetails`
+component name is internal and stayed as it is.
+
+### 2. Published plans grouped by speed, collapsibly
+
+Sixty plans under one category heading made "which 300Mbps plans are published?" a scrolling exercise. A
+speed level now sits **inside** the portal category rather than replacing it — "too", and the category is the
+portal's own vocabulary, so dropping it would merge Home, Business and VOF plans into one 300 Mbps list.
+Each speed is a disclosure: 100 Mbps · 300 Mbps · 500 Mbps · 1 Gbps · 2 Gbps, slowest first, with its own
+count, a real `<button>` carrying `aria-expanded`/`aria-controls` at 44px, and the same chevron treatment the
+plan rows use.
+
+**Open by default** — a section that hides every row until it is clicked answers "which plans are published?"
+with a blank page. Collapsing is for putting a speed you are done with out of the way, not for hiding the
+list on arrival.
+
+**Grouped on the raw value (`100M`), labelled separately** (`100 Mbps`): two spellings of one speed cannot
+collapse into a heading whose count disagrees with the rows under it. A missing or unrecognised speed gets
+its own **Other speeds** group sorted last rather than being dropped — a plan that vanishes from an admin
+page is worse than one filed under a vague heading. The rules are pure in `plan-offer.ts`
+(`bandwidthLabel`, `bandwidthMbps`, `groupPlansByBandwidth`) with 5 new vitest cases.
+
+### 3. Package, Full Name and Contact Number are starred — and Handphone is renamed
+
+**Handphone → Contact Number**, the only place that string appeared in the app.
+
+Full Name and Package were **already** save-blockers in `missingRequired` and simply were not marked, so the
+asterisk only makes them tell the truth. **Contact Number was not**, so starring it meant genuinely making it
+required: it joins `missingRequired` (the sticky bar counts and names it) and gains its own `handleSave`
+guard, beside the email one. Enforced in the FORM rather than in `orderInputSchema`, following the precedent
+its neighbours set — Email and Package are both form-only rules there and `mobile` stays optional in zod.
+
+**Two consequences, stated rather than discovered later:** existing drafts with no contact number cannot be
+re-saved until one is added — the same consequence the MyKad and supporting-document rules carried; and
+`scripts/bulk_create_order` writes through Prisma directly, so it never runs this rule and can still create a
+draft without a number.
+
+**Verified in the browser** against the dev server on the real admin login and the real signed-in agent
+session. Admin: the speed headings render in ascending order with their counts (13 / 17 / 14 / 9 / 2),
+clicking *300 Mbps* collapsed its 17 rows while its neighbours stayed open, a search narrowed to a single
+group with its matches already open, and at 375px there is no horizontal overflow with the toggle measured at
+44px. Order form: all three asterisks render, "Handphone" is gone from the page, the tab reads **Plan
+Settings**, and the sticky bar went from *10 required fields left* to **11** with the contact number empty
+and back to 10 once a number was typed — which is what proves the new rule is really in the count rather than
+only in the label. 632 vitest passing (5 new; the 4 failing files are the Playwright e2e specs vitest
+collects, pre-existing), `npm run build`, lint clean on every touched file.
+
+**NOT verified:** a save actually refused for a missing contact number — the guard sits behind the address
+and postcode checks, so it is unreachable until the rest of the form is filled, exactly as the email guard
+beside it has always been; and production, where the rename and the grouping have not yet been deployed.
+
 ## A Retrying Order Reads as Running, and a Running Submit Can Be Stopped
 
 **Status:** MERGED TO MAIN AND PUSHED 2026-08-30 (`ba6f33c`, merge `bfd5815`; branch deleted), and the

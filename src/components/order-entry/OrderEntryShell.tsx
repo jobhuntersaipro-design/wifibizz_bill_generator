@@ -45,7 +45,7 @@ const TABS = [
   // Drafts made the submitted ones look like they belonged somewhere else. The
   // ROUTE stays /drafts so existing links and bookmarks keep working.
   { href: "/dashboard/order-entry/drafts", label: "Orders" },
-  { href: "/dashboard/order-entry/plan-details", label: "Plan Details" },
+  { href: "/dashboard/order-entry/plan-details", label: "Plan Settings" },
 ];
 
 export default function OrderEntryShell({

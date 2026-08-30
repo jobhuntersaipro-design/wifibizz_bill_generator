@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 import {
   adminListPlans,
@@ -16,6 +16,8 @@ import {
 import {
   OFFER_GROUP_KINDS,
   OFFER_GROUP_KIND_LABEL,
+  groupPlansByBandwidth,
+  type BandwidthGroup,
   type OfferGroupKind,
   type OfferGroupView,
   type OfferItemView,
@@ -649,6 +651,66 @@ function PlanRow({
 }
 
 /**
+ * One speed inside a category — 100 Mbps, 300 Mbps — as a disclosure.
+ *
+ * Open by default: a section that hides every row until it is clicked answers
+ * "which plans are published?" with an empty page. Collapsing is for putting a
+ * speed you are done with out of the way, not for hiding the list on arrival.
+ */
+function SpeedSection({
+  group,
+  onChanged,
+  openRows,
+}: {
+  group: BandwidthGroup<PlanView>;
+  onChanged: () => void;
+  openRows: boolean;
+}) {
+  const [open, setOpen] = useState(true);
+  const panelId = useId();
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-controls={panelId}
+        className="group flex min-h-11 w-full items-center gap-2 border-b border-[#E3E8EF] bg-[#FBFCFE] px-4 py-2 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#635BFF] cursor-pointer"
+      >
+        <svg
+          className={`h-3.5 w-3.5 shrink-0 text-[#8792A2] transition-transform duration-200 group-hover:text-[#635BFF] ${open ? "rotate-90" : ""}`}
+          viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+        >
+          <path d="m9 6 6 6-6 6" />
+        </svg>
+        <span className="text-[12px] font-semibold text-[#425466] group-hover:text-[#635BFF] transition-colors">
+          {group.label}
+        </span>
+        <span className="rounded-full bg-[#E3E8EF] px-2 py-0.5 text-[11px] font-medium tabular-nums text-[#425466]">
+          {group.plans.length}
+        </span>
+      </button>
+      {open && (
+        <div id={panelId}>
+          {group.plans.map((p) => (
+            // The key carries the search state so starting or clearing a search
+            // remounts the row at the right open/closed default; within a search
+            // it is stable, so typing never disturbs a row being read.
+            <PlanRow
+              key={`${p.id}${openRows ? "-q" : ""}`}
+              plan={p}
+              onChanged={onChanged}
+              openByDefault={openRows}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * One publish-state section — Published or Not published — with the portal's own
  * offer categories as sub-headings inside it.
  *
@@ -712,15 +774,12 @@ function StateSection({
             {category}
             <span className="ml-2 tabular-nums text-[#B4BCC8]">{list.length}</span>
           </h3>
-          {list.map((p) => (
-            // The key carries the search state so starting or clearing a search
-            // remounts the row at the right open/closed default; within a search
-            // it is stable, so typing never disturbs a row being read.
-            <PlanRow
-              key={`${p.id}${openRows ? "-q" : ""}`}
-              plan={p}
+          {groupPlansByBandwidth(list).map((group) => (
+            <SpeedSection
+              key={`${category}-${group.key}`}
+              group={group}
               onChanged={onChanged}
-              openByDefault={openRows}
+              openRows={openRows}
             />
           ))}
         </div>

@@ -8,7 +8,7 @@ import { adminLogout } from "@/actions/admin-auth";
 
 const navItems = [
   { label: "Users", href: "/admin", icon: UsersIcon },
-  { label: "Plan Details", href: "/admin/plans", icon: PlanIcon },
+  { label: "Plan Settings", href: "/admin/plans", icon: PlanIcon },
 ];
 
 export function AdminSidebar({ open, onClose }: { open?: boolean; onClose?: () => void }) {
