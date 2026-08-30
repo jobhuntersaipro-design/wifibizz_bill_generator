@@ -1195,12 +1195,19 @@ async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = 
             im_keys = cust.get("im_doc_keys") or []
             id_keys = cust.get("id_doc_keys") or []
             other_keys = cust.get("other_doc_keys") or []
+            # asyncio.to_thread, NOT a direct call. download_many is blocking
+            # boto3, and running it inline pins the event loop — which is what
+            # let a stalled download hold the droplet's single-browser lock for
+            # 6h40m on 2026-08-29: with the loop blocked, this run's own
+            # asyncio.wait_for(600s) could never fire, so the job stayed
+            # `running` forever with no stage, no error and no traceback.
+            # Awaiting a thread yields to the loop, so the cap applies again.
             if im_keys:
-                im_paths = r2_download.download_many(im_keys)
+                im_paths = await asyncio.to_thread(r2_download.download_many, im_keys)
             if id_keys:
-                id_paths = r2_download.download_many(id_keys)
+                id_paths = await asyncio.to_thread(r2_download.download_many, id_keys)
             if other_keys:
-                other_paths = r2_download.download_many(other_keys)
+                other_paths = await asyncio.to_thread(r2_download.download_many, other_keys)
         except Exception as e:
             return {"status": "error", "error": "doc_download_failed",
                     "stage": "documents", "message": f"R2 download: {e}"}

@@ -71,7 +71,13 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   // tab rejects yours with "The server can only run one browser job at a time."
   // Polled rather than inferred from this page, because this page cannot see
   // those runs at all.
-  const [serverBusy, setServerBusy] = useState(false);
+  // Not a bare boolean: the hover text says how long the lock has been held,
+  // and calls it stuck once it passes the server's own cap on a single run.
+  const [serverLock, setServerLock] = useState<{
+    busy: boolean;
+    ageS: number | null;
+    maxRuntimeS: number | null;
+  }>({ busy: false, ageS: null, maxRuntimeS: null });
   // Search + the four filter dropdowns, as one value. One object rather than
   // five useStates so `filterOrders` takes exactly what the toolbar edits, and
   // adding a filter later cannot forget to wire itself into the predicate.
@@ -170,7 +176,9 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     const read = async () => {
       try {
         const res = await scraperBusy();
-        if (active && res.success) setServerBusy(res.busy);
+        if (active && res.success) {
+          setServerLock({ busy: res.busy, ageS: res.ageS, maxRuntimeS: res.maxRuntimeS });
+        }
       } catch {
         // Fails open, as the action does: never grey out a button because a
         // health check could not be reached.
@@ -583,7 +591,9 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     busy: busyId === o.id,
     busyKind: busyId === o.id ? busyKind : null,
     batchRunning,
-    serverBusy,
+    serverBusy: serverLock.busy,
+    serverBusyAgeS: serverLock.ageS,
+    serverMaxRuntimeS: serverLock.maxRuntimeS,
     selected: selected.has(o.id),
     onToggleSelect: () => toggleOne(o.id),
     onSubmit: () => handleSubmit(o.id, o.fullName),
@@ -610,7 +620,9 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
         devices={devices}
         selectedCount={selectedCount}
         batchRunning={batchRunning}
-        serverBusy={serverBusy}
+        serverBusy={serverLock.busy}
+        serverBusyAgeS={serverLock.ageS}
+        serverMaxRuntimeS={serverLock.maxRuntimeS}
         onClearSelection={() => setSelected(new Set())}
         onSubmitSelected={handleSubmitSelected}
       />

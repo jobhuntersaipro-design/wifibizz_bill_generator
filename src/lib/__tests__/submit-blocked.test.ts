@@ -38,6 +38,46 @@ describe("submitBlockedReason", () => {
     );
   });
 
+  it("says how long the server has been busy", () => {
+    // "Please wait" with no horizon is what left agents staring at a greyed-out
+    // button for six hours on 2026-08-29.
+    expect(
+      submitBlockedReason({ serverBusy: true, serverBusyAgeS: 245, serverMaxRuntimeS: 1800 }),
+    ).toBe("A task has been running on the server for 4m 5s. Please wait until it finishes.");
+  });
+
+  it("calls a job past the server's own cap stuck, not something to wait for", () => {
+    const reason = submitBlockedReason({
+      serverBusy: true,
+      serverBusyAgeS: 6 * 3600,
+      serverMaxRuntimeS: 1800,
+    });
+    expect(reason).toMatch(/stuck/i);
+    expect(reason).toMatch(/clear itself/i);
+    // Must NOT tell them to keep waiting — the whole point is that this one
+    // will not finish on its own schedule.
+    expect(reason).not.toMatch(/wait until it finishes/i);
+  });
+
+  it("keeps the original sentence when the droplet reports no age", () => {
+    // A build from before /health carried an age. Falling back beats printing
+    // "for 0s", which would read as a run that just started.
+    expect(submitBlockedReason({ serverBusy: true, serverBusyAgeS: null })).toBe(
+      "A task is already running on the server. Please wait until it finishes.",
+    );
+    expect(submitBlockedReason({ serverBusy: true, serverBusyAgeS: -1 })).toBe(
+      "A task is already running on the server. Please wait until it finishes.",
+    );
+  });
+
+  it("does not call a job stuck without a cap to judge it against", () => {
+    // No max_job_runtime_s means we cannot know what is too long. Reporting the
+    // elapsed time is honest; calling it stuck would be a guess.
+    const reason = submitBlockedReason({ serverBusy: true, serverBusyAgeS: 6 * 3600 });
+    expect(reason).toMatch(/6h 0m/);
+    expect(reason).not.toMatch(/stuck/i);
+  });
+
   it("gives a reason whenever it blocks", () => {
     // A greyed-out button with no explanation is worse than one that errors, so
     // every blocking combination must produce text.
@@ -45,6 +85,8 @@ describe("submitBlockedReason", () => {
       { rowBusy: true },
       { batchRunning: true },
       { serverBusy: true },
+      { serverBusy: true, serverBusyAgeS: 30, serverMaxRuntimeS: 1800 },
+      { serverBusy: true, serverBusyAgeS: 99999, serverMaxRuntimeS: 1800 },
       { rowBusy: true, batchRunning: true, serverBusy: true },
     ]) {
       expect(submitBlockedReason(state)).toBeTruthy();

@@ -859,11 +859,31 @@ export function submitBlockedReason(state: {
   rowBusy?: boolean;
   batchRunning?: boolean;
   serverBusy?: boolean;
+  /** Seconds the server's oldest active job has been going, from /health. */
+  serverBusyAgeS?: number | null;
+  /** The server's own outer cap. Past it, a job cannot still be working. */
+  serverMaxRuntimeS?: number | null;
 }): string | null {
   if (state.rowBusy) return "This order is being worked on.";
   if (state.batchRunning) return "A batch submit is running — please wait until it finishes.";
   if (state.serverBusy) {
-    return "A task is already running on the server. Please wait until it finishes.";
+    const age = state.serverBusyAgeS;
+    if (typeof age !== "number" || !Number.isFinite(age) || age < 0) {
+      // Older droplet builds do not report an age. Falling back to the original
+      // sentence keeps the worst case at the behaviour that shipped, rather
+      // than printing "for 0s" on every hover.
+      return "A task is already running on the server. Please wait until it finishes.";
+    }
+    const cap = state.serverMaxRuntimeS;
+    const elapsed = formatDuration(age * 1000);
+    if (typeof cap === "number" && Number.isFinite(cap) && cap > 0 && age > cap) {
+      // Past the server's own cap this is not a run to wait for — it is a
+      // wedged one. Saying "please wait" here is what left agents staring at a
+      // greyed-out button for 6 hours on 2026-08-29, so it says so instead, and
+      // says the server clears it by itself.
+      return `A task has been stuck on the server for ${elapsed}. It should clear itself shortly — tell an admin if Submit is still greyed out in a few minutes.`;
+    }
+    return `A task has been running on the server for ${elapsed}. Please wait until it finishes.`;
   }
   return null;
 }
