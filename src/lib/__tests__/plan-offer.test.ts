@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
+  bandwidthLabel,
   deviceRequired,
+  groupPlansByBandwidth,
   nestOfferItems,
   splitPlanOffer,
   toOfferGroupKind,
@@ -108,5 +110,46 @@ describe("deviceRequired", () => {
 
   it("never demands one from a package that carries no device", () => {
     expect(deviceRequired(false, { devices: [tv], known: true })).toBe(false);
+  });
+});
+
+describe("bandwidth grouping", () => {
+  it("spells the portal's shorthand out", () => {
+    expect(bandwidthLabel("100M")).toBe("100 Mbps");
+    expect(bandwidthLabel("1G")).toBe("1 Gbps");
+    expect(bandwidthLabel("500Mbps")).toBe("500 Mbps");
+  });
+
+  it("keeps an unrecognised speed rather than inventing one", () => {
+    expect(bandwidthLabel("FTTH")).toBe("FTTH");
+    expect(bandwidthLabel(null)).toBe("Other speeds");
+    expect(bandwidthLabel("  ")).toBe("Other speeds");
+  });
+
+  it("orders slowest first, with gigabits above megabits", () => {
+    const groups = groupPlansByBandwidth([
+      { bandwidth: "1G" },
+      { bandwidth: "100M" },
+      { bandwidth: "2G" },
+      { bandwidth: "300M" },
+    ]);
+    expect(groups.map((g) => g.key)).toEqual(["100M", "300M", "1G", "2G"]);
+  });
+
+  it("sorts a plan with no speed last instead of dropping it", () => {
+    const groups = groupPlansByBandwidth([{ bandwidth: null }, { bandwidth: "100M" }]);
+    expect(groups.map((g) => g.label)).toEqual(["100 Mbps", "Other speeds"]);
+    expect(groups[1].plans).toHaveLength(1);
+  });
+
+  it("groups on the raw value, so every plan lands in exactly one heading", () => {
+    const plans = [
+      { bandwidth: "100M" },
+      { bandwidth: "100m" },
+      { bandwidth: "300M" },
+    ];
+    const groups = groupPlansByBandwidth(plans);
+    expect(groups).toHaveLength(2);
+    expect(groups.reduce((n, g) => n + g.plans.length, 0)).toBe(plans.length);
   });
 });

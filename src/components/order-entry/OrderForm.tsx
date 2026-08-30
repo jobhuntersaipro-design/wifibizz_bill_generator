@@ -288,13 +288,16 @@ export function OrderForm({
     if (!stateVal) missing.push("State");
     if (!city.trim()) missing.push("City");
     if (!offerName) missing.push("Package");
+    // The portal's Personal Customer form insists on a contact number, and the
+    // installer rings it — an order without one strands at the customer create.
+    if (!mobile.trim()) missing.push("Contact Number");
     // The ID copy is required by the portal's Personal Customer form, so it is a
     // save-blocker like any other required field rather than a nice-to-have.
     if (!hasIdentityDocument(documents)) missing.push("MyKad / Passport");
     // Same rule, one card down: the order needs the paperwork behind it too.
     if (!hasSupportingDocument(documents)) missing.push("Supporting Document");
     return missing;
-  }, [isMykadLike, idNumber, fullName, emailValid, street, postcode, stateVal, city, offerName, documents]);
+  }, [isMykadLike, idNumber, fullName, emailValid, street, postcode, stateVal, city, offerName, mobile, documents]);
 
   // The ID copy follows the chosen ID Type and lives in its own card, so it is
   // NOT one of the Supporting card's select options — the card is the type.
@@ -817,6 +820,10 @@ export function OrderForm({
       toast.error("Enter a valid email address.");
       return;
     }
+    if (!mobile.trim()) {
+      toast.error("Contact number is required.");
+      return;
+    }
     // The address is required — an empty or half-typed one is what makes the
     // portal reject the customer profile as "data incomplete", so block it here.
     const addrCheck = validateMalaysianAddress(street);
@@ -958,7 +965,7 @@ export function OrderForm({
             )}
           </div>
           <div className="space-y-1.5 sm:col-span-2">
-            <Label className={labelCls}>Full Name</Label>
+            <Label className={labelCls}>Full Name <span className="text-[#DF1B41]">*</span></Label>
             <Input value={fullName} onChange={(e) => setFullName(e.target.value.toUpperCase())} onBlur={handleNameBlur} required className={`${inputCls} uppercase`} placeholder="AS PER ID" />
           </div>
           <div className="space-y-1.5">
@@ -997,7 +1004,7 @@ export function OrderForm({
         <div className={headCls}>Contact</div>
         <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1.5">
-            <Label className={labelCls}>Handphone</Label>
+            <Label className={labelCls}>Contact Number <span className="text-[#DF1B41]">*</span></Label>
             <div className="flex gap-2">
               <div className={`flex items-center gap-1 px-3 h-10 rounded-lg border bg-[#F6F9FC] text-sm text-[#425466] ${mobilePrefix.startsWith("0") ? "border-[#DF1B41]" : "border-[#E3E8EF]"}`}>
                 <span>+</span>
@@ -1146,7 +1153,8 @@ export function OrderForm({
           must also outrank Device, whose own dropdown sits below it. */}
       <div className={`${cardCls} relative z-30`}>
         <div className={headCls}>
-          Package <span className="text-[#697386] font-normal">— pick the speed, then the bundle</span>
+          Package <span className="text-[#DF1B41]">*</span>{" "}
+          <span className="text-[#697386] font-normal">— pick the speed, then the bundle</span>
         </div>
         <div className="p-6 space-y-3">
           {/* Speed first: it's what the customer actually asked for, and it cuts
