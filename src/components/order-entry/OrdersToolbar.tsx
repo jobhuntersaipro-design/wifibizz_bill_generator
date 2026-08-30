@@ -73,6 +73,8 @@ export function OrdersToolbar({
   selectedCount,
   batchRunning,
   serverBusy,
+  serverBusyAgeS,
+  serverMaxRuntimeS,
   onClearSelection,
   onSubmitSelected,
 }: {
@@ -84,6 +86,11 @@ export function OrdersToolbar({
   batchRunning: boolean;
   /** The droplet is running a browser job — anyone's. See submitBlockedReason. */
   serverBusy?: boolean;
+  /** Seconds the server's oldest active job has run — makes the hover text say
+   *  how long, and lets a wedged lock be named as stuck rather than "please wait". */
+  serverBusyAgeS?: number | null;
+  /** The server's own cap on one run; past it a job cannot still be working. */
+  serverMaxRuntimeS?: number | null;
   onClearSelection: () => void;
   onSubmitSelected: () => void;
 }) {
@@ -188,7 +195,7 @@ export function OrdersToolbar({
             >
               Clear
             </button>
-            <BlockedHint reason={batchRunning ? null : submitBlockedReason({ serverBusy })}>
+            <BlockedHint reason={batchRunning ? null : submitBlockedReason({ serverBusy, serverBusyAgeS, serverMaxRuntimeS })}>
             <button
               type="button"
               onClick={onSubmitSelected}

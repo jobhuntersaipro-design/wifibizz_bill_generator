@@ -1,5 +1,118 @@
 # Current Feature
 
+## Fix — a Blocking R2 Download Pinned the Event Loop and Held the Submit Lock for 7 Hours
+
+**Status:** CODE COMPLETE, NOT COMMITTED (branch `fix/stuck-job-lock-visibility`). Scraper + BizzFlow.
+No migration. **Needs a droplet deploy AND an `api_server` restart** — a deploy alone keeps the old imports.
+**Production was unblocked first** by restarting `bizzflow-scraper-scraper-1` at 2026-08-30 03:26 UTC
+(`active_jobs` 1 → 0); the three dealer sessions in the bind-mounted `sessions/` survived it.
+
+Reported as *"it shows there's a running task on production"* against `/dashboard/order-entry/drafts`, with
+the agent-facing complaint that **nobody can see what the backend is doing**.
+
+### What was actually true
+
+`/health` reported `active_jobs: 1`, and that bare count is the WHOLE input to the UI —
+`scraperBusy()` polls it every 10s and `submitBlockedReason()` turns it into a greyed-out Submit reading
+*"A task is already running on the server."* The count is a sum over an in-memory `JOBS` dict.
+
+Evidence gathered before changing anything: **zero Chromium processes** in the container, the newest job log
+**7 hours old**, `/health/browser` launching a real headless Chromium cleanly, and `/health` answering a
+stable `1` across 12 probes (gunicorn runs `-w 1`, so there is one registry, not a per-worker split).
+
+The stuck record was `8bfa1c8ef9d344218cf41636ded619a8` — `status: running`, `started_at 20:42:44`, **no
+`stage` at all**, and a log containing nothing but its own "started" line.
+
+### Root cause — a sync call inside the coroutine, so the timeout could not fire
+
+`enter_full_order` downloads the order's attachments from R2 **before** it emits its first stage, and
+`r2_download.download_many()` is a **blocking boto3 call made directly inside the coroutine**. Its client is
+built with `Config(signature_version="s3v4")` and no `connect_timeout`, no `read_timeout` and no retry cap,
+and `download_file` waits on an s3transfer future with no timeout.
+
+While that blocks, the event loop cannot run — so **`asyncio.wait_for(..., timeout=600)` can never fire**.
+That is what turns a stalled download into an immortal job: no exception, no output, no timeout, and the
+global single-browser lock held until the process restarts. It is the same class of defect this codebase
+already recorded for `_auto_otp_task` (a blocking helper called on the shared loop).
+
+### Why nobody could see it
+
+- **There is no way to list jobs.** `GET /jobs/<id>` needs an id you already have; there is no `GET /jobs`.
+- **Nothing expires.** A `queued`/`running` entry is only moved by the thread that owns it.
+- **Cancel cannot help** — it needs the id, and returns `409 not_cancellable` once the task handle is gone,
+  which is exactly the stale case.
+- **The only lever was a restart**, which `deploy.sh` itself refuses while `active_jobs > 0`.
+
+### Plan
+
+1. **Root cause** — `r2_download` gets real botocore timeouts and a retry cap; `oe_feasibility` awaits it
+   through `asyncio.to_thread` so a stall can no longer pin the loop and the 600s cap applies again.
+2. **Reaper** — any `queued`/`running` job older than its own cap plus grace is finalized as `abandoned`,
+   so the lock is self-healing and can never be held longer than one job's legal lifetime.
+3. **Close the registration windows** — the region between `JOBS[id] = queued` and `status = running`
+   (thread spawn, imports, log open) is not covered by the try/except that guarantees a terminal status.
+4. **`GET /jobs`** (auth-gated) — id, kind, status, age. The missing observability.
+5. **`/health` reports `oldest_active_age_s`** — a bare number, safe on a publicly-served route.
+6. **Force-cancel** — finalize a job with no live task handle, so clearing a wedged lock never again needs a
+   container restart that could kill a real in-flight submit.
+7. **TTL eviction** of terminal jobs — `JOBS` currently grows for the process's whole lifetime on a 1GB box.
+8. **The UI says how long, and when it looks stuck** — instead of an unbounded "please wait".
+
+### Decisions worth recording
+
+- **The reaper's cap is DERIVED from `OE_ORDER_TIMEOUT`, not fixed beside it** (`max(1800, cap * 3)`).
+  That env var is overridable on the droplet, and a hardcoded backstop would quietly start abandoning real
+  billable runs the day somebody raised it. Pinned by a test.
+- **A queued batch member is never reaped for waiting.** Members run one at a time, so a member queued four
+  hours ago may still be legitimately next; only the batch PARENT is under a clock, and its cap scales with
+  the member count. Reaping members would fail orders the batch was still going to run.
+- **Eviction only ever touches terminal jobs.** Conflating it with reaping would let a wedged run vanish
+  silently instead of being reported as `abandoned`.
+- **`abandoned` is its own `error_kind`**, distinct from a portal refusal: only one of them means a real
+  order may exist at Unifi, and the copy says to check before submitting again.
+- **Force-release says what it does NOT do.** It frees the lock; it cannot reach a thread the task cancel
+  could not, so it reports "the run itself was not stopped" rather than claiming a stop.
+- **`GET /jobs` carries no customer data** — no `result`, no `stages`, no payload. It answers "what is
+  holding the lock", which needs none of it, and a listing that leaked PII would be a worse problem than
+  the one it solves. Pinned by a test that greps the response for a name and an address.
+- **The UI falls back to the old sentence when the droplet reports no age**, so a not-yet-deployed droplet
+  degrades to the behaviour that shipped rather than printing "for 0s".
+
+### Verified
+
+**Production was diagnosed and unblocked live before any code was written.** `/health` returned
+`active_jobs: 1`; the container held **zero Chromium processes**, the newest job log was 7 hours old,
+`/health/browser` launched a real headless Chromium cleanly, and 12 consecutive `/health` probes all
+returned `1` (gunicorn runs `-w 1`, so there is one registry and the count was not flapping between
+workers). Querying the two suspicious 96-byte job logs by id named the culprit:
+`8bfa1c8ef9d344218cf41636ded619a8`, `status: running`, `started_at 20:42:44`, **no stage at all**.
+Restarting `bizzflow-scraper-scraper-1` took it to `active_jobs: 0`; the three dealer sessions in the
+bind-mounted `sessions/` survived, one of them written at 02:35 the same morning.
+
+**Tests:** 20 new scraper cases in `tests/test_stale_jobs.py` (the live shape reaped; a working run left
+alone; a lone queued job with no thread; a queued batch member NOT reaped; a batch cap scaled to its size;
+a stale job no longer refusing a real submit while a genuinely running one still does; the age on `/health`;
+the listing naming the job and carrying no PII; force-release and its honesty; eviction sparing active jobs;
+an unparseable timestamp never reaped on a guess) and 5 in `tests/test_r2_download_bounded.py` — the last of
+which **demonstrates the bug before and after in the same test**: a blocking sleep called inline runs to
+completion despite a 0.2s `wait_for` (the cap was a fiction), and awaited through `to_thread` the cap fires
+on schedule. Full scraper suite **336 passed + 1 skipped** (was 312 + 1). 9 vitest cases in
+`submit-blocked.test.ts` (4 new), **636 vitest passing** (the 4 failing files are the Playwright e2e specs
+vitest collects, pre-existing). `npm run build`, lint identical to baseline (9642), `tsc` unchanged (the
+same two pre-existing errors).
+
+**Next, and specced separately:** the global one-job-at-a-time lock becomes **per agent** — many agents
+submitting at once, one browser job each. Spec:
+[context/features/per-agent-submit-concurrency.md](features/per-agent-submit-concurrency.md).
+It targets 4 concurrent agents on an 8 GB / 4 vCPU droplet, ships defaulting to 1, and **depends on this
+branch being deployed first**: with per-agent slots a leaked job stops blocking everyone loudly and
+starts blocking one agent silently, so the reaper has to exist before slots do.
+
+**NOT verified: the droplet.** None of this has run against the real `api_server` — the reaper, the
+listing and the force-release are proven against Flask's test client, and the R2 fix against a synthetic
+stall rather than a real one. Also unverified: that the R2 stall recurs at all, so whether the timeouts
+alone would have caught it is unknown — the `to_thread` change is what makes it reportable either way.
+
 ## Plan Settings, Plans Grouped by Speed, and Three Fields That Now Say They Are Required
 
 **Status:** MERGED TO MAIN 2026-08-30 (`7b7bfc1`, merge `0671780`; branch deleted). NOT PUSHED.

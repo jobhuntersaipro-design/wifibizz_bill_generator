@@ -100,6 +100,11 @@ export interface RowActions {
   batchRunning: boolean;
   /** The droplet is running a browser job — anyone's. See submitBlockedReason. */
   serverBusy?: boolean;
+  /** Seconds the server's oldest active job has run — makes the hover text say
+   *  how long, and lets a wedged lock be named as stuck rather than "please wait". */
+  serverBusyAgeS?: number | null;
+  /** The server's own cap on one run; past it a job cannot still be working. */
+  serverMaxRuntimeS?: number | null;
   selected: boolean;
   onToggleSelect: () => void;
   onSubmit: () => void;
@@ -369,7 +374,12 @@ function PrimaryAction({ o, a }: { o: OrderListItem; a: RowActions }) {
   // tooltip would.
   const blocked = a.busy
     ? null
-    : submitBlockedReason({ batchRunning: a.batchRunning, serverBusy: a.serverBusy });
+    : submitBlockedReason({
+        batchRunning: a.batchRunning,
+        serverBusy: a.serverBusy,
+        serverBusyAgeS: a.serverBusyAgeS,
+        serverMaxRuntimeS: a.serverMaxRuntimeS,
+      });
   // `canSubmit`/`canResubmit` both refuse a row with a retry owed, which would
   // otherwise leave it with NO button at all — a row that silently loses its
   // action reads as broken. It keeps the submit button, disabled and saying

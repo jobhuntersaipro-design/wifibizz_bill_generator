@@ -664,21 +664,34 @@ export async function deleteOrder(id: string) {
  */
 export async function scraperBusy() {
   const session = await auth();
-  if (!session?.user?.id) return { success: false as const, busy: false, reachable: false };
+  if (!session?.user?.id) {
+    return { success: false as const, busy: false, ageS: null, maxRuntimeS: null, reachable: false };
+  }
   try {
     const res = await fetch(`${SCRAPER_API_URL}/health`, {
       cache: "no-store",
       signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) return { success: true as const, busy: false, reachable: false };
-    const data = (await res.json()) as { active_jobs?: number };
+    if (!res.ok) {
+      return { success: true as const, busy: false, ageS: null, maxRuntimeS: null, reachable: false };
+    }
+    const data = (await res.json()) as {
+      active_jobs?: number;
+      oldest_active_age_s?: number | null;
+      max_job_runtime_s?: number | null;
+    };
     return {
       success: true as const,
       busy: (data.active_jobs ?? 0) > 0,
+      // How long the lock has been held, and the server's own cap on a single
+      // run. Both are absent on a droplet build from before they existed, which
+      // the UI treats as "no age known" rather than as zero.
+      ageS: typeof data.oldest_active_age_s === "number" ? data.oldest_active_age_s : null,
+      maxRuntimeS: typeof data.max_job_runtime_s === "number" ? data.max_job_runtime_s : null,
       reachable: true,
     };
   } catch {
-    return { success: true as const, busy: false, reachable: false };
+    return { success: true as const, busy: false, ageS: null, maxRuntimeS: null, reachable: false };
   }
 }
 

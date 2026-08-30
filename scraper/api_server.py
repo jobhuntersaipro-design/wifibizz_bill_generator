@@ -57,14 +57,22 @@ def health():
     call time, long after the module has finished importing.
     """
     with JOBS_LOCK:
-        active = sum(
-            1 for job in JOBS.values() if job.get("status") in ("queued", "running")
-        )
+        # Reaping here is deliberate: /health is polled every 10s by every open
+        # Orders page, which makes it the most reliable clock this process has.
+        # A wedged job therefore clears itself without anyone deploying.
+        _reap_stale_jobs_locked()
+        _evict_finished_jobs_locked()
+        active, oldest = _active_jobs_locked()
 
     return jsonify(
         {
             "status": "healthy",
             "active_jobs": active,
+            # Bare seconds, no id and no owner — enough for the UI to say how
+            # long Submit has been blocked and to call out a run that has
+            # outlived any legal one, and safe on a publicly-served route.
+            "oldest_active_age_s": int(oldest) if oldest is not None else None,
+            "max_job_runtime_s": JOB_MAX_RUNTIME,
             "timestamp": datetime.now().isoformat(),
             "service": "BizzFlow order-entry API",
         }
@@ -84,6 +92,194 @@ JOBS_LOCK = Lock()
 # by the run itself, so a finished job cannot be "cancelled" into a stale loop.
 JOB_TASKS = {}
 
+# ---- Stale-job reaping ----------------------------------------------------
+#
+# WHY THIS EXISTS. Nothing but the owning thread ever moves a job out of
+# queued/running, so a thread that dies — or blocks somewhere the run's own
+# asyncio.wait_for cannot reach — leaves an immortal entry. That entry holds the
+# global single-browser lock, which greys out Submit for EVERY agent, and the
+# only remedy was restarting this process (which deploy.sh itself refuses while
+# active_jobs > 0). Live case, 2026-08-29: a blocking R2 download pinned the
+# event loop, the 600s cap never fired, and one job held the lock for 6h40m.
+#
+# The reaper makes that self-healing: the lock can never be held longer than one
+# job's legal lifetime plus a grace margin.
+
+# The outer backstop, DERIVED from the per-run cap rather than fixed beside it.
+# A single run is capped at OE_ORDER_TIMEOUT (600s full-flow), and that is
+# overridable on the droplet — a hardcoded 1800 here would quietly start
+# abandoning real, billable runs the day somebody raised it to an hour. Three
+# times the cap leaves room for a run that is shutting down cleanly.
+JOB_MAX_RUNTIME = int(os.environ.get(
+    "OE_JOB_MAX_RUNTIME",
+    max(1800, int(os.environ.get("OE_ORDER_TIMEOUT", "600")) * 3),
+))
+
+# A single submit flips queued -> running the moment its thread starts, so a
+# lone job still queued after this never got a thread at all.
+JOB_MAX_QUEUED = int(os.environ.get("OE_JOB_MAX_QUEUED", "180"))
+
+# Per batch member, for the batch parent's own cap: members run one at a time,
+# so a 10-order batch legitimately holds the lock far longer than one order.
+JOB_BATCH_PER_MEMBER = int(os.environ.get("OE_JOB_BATCH_PER_MEMBER", "900"))
+
+# How long a FINISHED job stays readable. BizzFlow polls a job for minutes, not
+# days; keeping every result forever grows this dict for the process's whole
+# life on a 1GB box.
+JOB_RETAIN_S = int(os.environ.get("OE_JOB_RETAIN", "86400"))
+
+
+def _parse_job_time(value):
+    """Parse a job timestamp. They are written naive-UTC; stages append a Z."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.rstrip("Z"))
+    except ValueError:
+        return None
+
+
+def _job_age_s(job, now=None):
+    """Seconds since this job last provably moved, or None if unknowable.
+
+    Prefers started_at over created_at: a batch member sits legitimately queued
+    while earlier members run, so its creation time says nothing about it.
+    """
+    now = now or datetime.utcnow()
+    at = _parse_job_time(job.get("started_at")) or _parse_job_time(job.get("created_at"))
+    if at is None:
+        return None
+    return max(0.0, (now - at).total_seconds())
+
+
+def _job_deadline_s(job):
+    """The age past which this job cannot still be legitimately working."""
+    params = job.get("params") or {}
+    if job.get("status") == "queued":
+        # A member waiting its turn inside a live batch is not stale, however
+        # long it waits — the batch parent is the one under a clock, and the
+        # batch runner closes its own members out when it ends.
+        if params.get("batch_job_id"):
+            return None
+        return JOB_MAX_QUEUED
+    if params.get("kind") == "order_batch":
+        total = params.get("total")
+        total = total if isinstance(total, int) and total > 0 else 1
+        return max(JOB_MAX_RUNTIME, total * JOB_BATCH_PER_MEMBER)
+    return JOB_MAX_RUNTIME
+
+
+def _reap_stale_jobs_locked(now=None):
+    """Finalize jobs that cannot still be running. CALLER MUST HOLD JOBS_LOCK.
+
+    Returns the reaped ids. `abandoned` is its own error_kind so BizzFlow can
+    tell "we lost track of this run" from "the portal refused it" — the two need
+    different words in front of an agent, and only one of them means a real
+    order may exist at Unifi.
+    """
+    now = now or datetime.utcnow()
+    reaped = []
+    for job_id, job in list(JOBS.items()):
+        if job.get("status") not in ("queued", "running"):
+            continue
+        deadline = _job_deadline_s(job)
+        if deadline is None:
+            continue
+        age = _job_age_s(job, now)
+        if age is None or age < deadline:
+            continue
+        job.update(
+            status="error",
+            finished_at=now.isoformat(),
+            error=(
+                "This run stopped reporting and was abandoned after "
+                f"{int(age // 60)} minutes. It may have reached the portal — "
+                "check at Unifi before submitting again."
+            ),
+            error_kind="abandoned",
+            abandoned_after_s=int(age),
+        )
+        JOBS[job_id] = job
+        JOB_TASKS.pop(job_id, None)
+        reaped.append(job_id)
+    if reaped:
+        print(f"[{now.isoformat()}] reaped {len(reaped)} stale job(s): {', '.join(reaped)}")
+    return reaped
+
+
+def _evict_finished_jobs_locked(now=None):
+    """Drop long-finished jobs. CALLER MUST HOLD JOBS_LOCK.
+
+    Only terminal jobs are ever evicted, so this can never free the lock — that
+    is the reaper's job, and conflating the two would let a wedged run vanish
+    silently instead of being reported as abandoned.
+    """
+    now = now or datetime.utcnow()
+    dropped = 0
+    for job_id, job in list(JOBS.items()):
+        if job.get("status") in ("queued", "running"):
+            continue
+        at = _parse_job_time(job.get("finished_at"))
+        if at is None or (now - at).total_seconds() < JOB_RETAIN_S:
+            continue
+        JOBS.pop(job_id, None)
+        JOB_TASKS.pop(job_id, None)
+        dropped += 1
+    return dropped
+
+
+def _active_jobs_locked(now=None):
+    """(count, oldest age in seconds or None). CALLER MUST HOLD JOBS_LOCK."""
+    now = now or datetime.utcnow()
+    ages = [
+        _job_age_s(job, now) or 0.0
+        for job in JOBS.values()
+        if job.get("status") in ("queued", "running")
+    ]
+    return len(ages), (max(ages) if ages else None)
+
+
+def _job_summary(job_id, job, now=None):
+    """One row for GET /jobs — no customer data, so it is safe to list.
+
+    Deliberately omits `result`, `stages` and `params` beyond the kind: those
+    carry the customer's name and address, and this listing exists to answer
+    "what is holding the lock", which needs none of it.
+    """
+    params = job.get("params") or {}
+    return {
+        "job_id": job_id,
+        "kind": params.get("kind"),
+        "dry_run": params.get("dry_run"),
+        "batch_job_id": params.get("batch_job_id"),
+        "status": job.get("status"),
+        "stage": job.get("stage"),
+        "created_at": job.get("created_at"),
+        "started_at": job.get("started_at"),
+        "finished_at": job.get("finished_at"),
+        "age_s": int(_job_age_s(job, now) or 0),
+        "error_kind": job.get("error_kind"),
+        "cancellable": job_id in JOB_TASKS,
+    }
+
+
+
+def _fail_job_now(job_id, message, kind="spawn_failed"):
+    """Finalize a job that never got off the ground.
+
+    The registry entry is written BEFORE the thread starts, and everything the
+    thread does before it sets status="running" is outside the try/except that
+    guarantees a terminal status. A failure in that window used to leave a job
+    queued forever — holding the single-browser lock for every agent.
+    """
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job or job.get("status") not in ("queued", "running"):
+            return
+        job.update(status="error", finished_at=datetime.utcnow().isoformat(),
+                   error=message, error_kind=kind)
+        JOBS[job_id] = job
+
 
 def _jobs_dir():
     d = os.path.join(os.getcwd(), "jobs")
@@ -99,6 +295,40 @@ def _logs_dir():
 
 def _is_order_job(job) -> bool:
     return bool(job) and job.get("params", {}).get("kind") == "order_entry"
+
+
+@app.get("/jobs")
+def jobs_list():
+    """List every job this process knows about — the answer to "what is running?".
+
+    Auth-gated like /orders. Without this there is no way to ask which job holds
+    the single-browser lock: GET /jobs/<id> needs an id you already have, and a
+    job whose owner never reported one leaves nothing to look up. That is what
+    made the 2026-08-29 incident un-diagnosable from outside the box.
+
+    Rows carry no customer data — see _job_summary.
+    """
+    if not _order_entry_authorized(request):
+        if not os.environ.get("ORDER_ENTRY_API_TOKEN"):
+            return jsonify({"success": False, "error": "ORDER_ENTRY_DISABLED",
+                            "message": "ORDER_ENTRY_API_TOKEN not configured on server."}), 503
+        return jsonify({"success": False, "error": "UNAUTHORIZED"}), 401
+
+    now = datetime.utcnow()
+    with JOBS_LOCK:
+        reaped = _reap_stale_jobs_locked(now)
+        _evict_finished_jobs_locked(now)
+        rows = [_job_summary(jid, job, now) for jid, job in JOBS.items()]
+        active, oldest = _active_jobs_locked(now)
+
+    # Newest first: the thing you came to look at is almost always the last one.
+    rows.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+    return jsonify({
+        "jobs": rows,
+        "active_jobs": active,
+        "oldest_active_age_s": int(oldest) if oldest is not None else None,
+        "reaped": reaped,
+    }), 200
 
 
 @app.get("/jobs/<job_id>")
@@ -164,8 +394,38 @@ def job_cancel(job_id):
         # Running, but not yet inside its loop (or already past it). Nothing to
         # cancel — reported rather than silently claimed as stopped, because the
         # caller decides what to write on the order from this answer.
-        return jsonify({"error": "not_cancellable",
-                        "message": "That job cannot be stopped right now."}), 409
+        #
+        # `?force=1` finalizes the record anyway. That is for the wedged case:
+        # a job whose thread is gone or blocked somewhere the task cancel cannot
+        # reach still holds the global single-browser lock, and before this the
+        # ONLY way to release it was restarting the process — which deploy.sh
+        # refuses while a job is active, and which kills any genuinely running
+        # submit with it. Forcing does NOT stop whatever may still be executing,
+        # so it says so rather than claiming the run was stopped.
+        if request.args.get("force") not in ("1", "true", "yes"):
+            return jsonify({"error": "not_cancellable",
+                            "message": "That job cannot be stopped right now. "
+                                       "Retry with ?force=1 to release the lock "
+                                       "without stopping the run."}), 409
+        with JOBS_LOCK:
+            job = JOBS.get(job_id)
+            if not job:
+                return jsonify({"error": "unknown_job"}), 404
+            if job.get("status") not in ("queued", "running"):
+                return jsonify({"error": "not_running",
+                                "message": "That job has already finished."}), 409
+            job.update(
+                status="error",
+                finished_at=datetime.utcnow().isoformat(),
+                error="Force-released by an administrator because it had stopped "
+                      "reporting. It may have reached the portal — check at Unifi "
+                      "before submitting again.",
+                error_kind="abandoned",
+            )
+            JOBS[job_id] = job
+        print(f"[{datetime.utcnow().isoformat()}] job {job_id} FORCE-RELEASED")
+        return jsonify({"job_id": job_id, "forced": True,
+                        "message": "Lock released. The run itself was not stopped."}), 200
 
     loop, task = handle
     # The job runs its own loop on its own thread; touching the task from this
@@ -250,6 +510,38 @@ def _run_order_job(job_id: str, payload: dict, dry_run: bool, user_key: str = No
                    stop_after_customer_create: bool = False,
                    full_order: bool = False, do_pay: bool = False,
                    notify_order_id: str = None):
+    """Guarded entry point for one order run.
+
+    Everything the runner does before it sets status="running" — the imports,
+    opening the log file — sits outside the try/except that guarantees a
+    terminal status. A failure there left the job queued forever, holding the
+    global single-browser lock for every agent.
+
+    Catches BaseException, not Exception, on purpose: the observed live case
+    produced NO traceback in the job log, which is what a BaseException escaping
+    an `except Exception` chain looks like. The job is finalized either way, then
+    the raise continues — run_batch records it as that member's failure, and a
+    lone thread's stderr keeps its own trace.
+    """
+    try:
+        _run_order_job_inner(
+            job_id, payload, dry_run, user_key, stop_after_customer_fill,
+            stop_after_customer_create, full_order, do_pay, notify_order_id,
+        )
+    except BaseException as e:
+        _fail_job_now(
+            job_id,
+            f"The run stopped without reporting: {e!r}",
+            kind="runner_died",
+        )
+        raise
+
+
+def _run_order_job_inner(job_id: str, payload: dict, dry_run: bool, user_key: str = None,
+                         stop_after_customer_fill: bool = False,
+                         stop_after_customer_create: bool = False,
+                         full_order: bool = False, do_pay: bool = False,
+                         notify_order_id: str = None):
     """Background runner for enter_order()/enter_full_order(); logs to logs/<job_id>.log.
 
     `notify_order_id` is BizzFlow's own Order id. When set, this job POSTs an
@@ -513,6 +805,9 @@ def create_order():
 
     # Single-browser global lock — reject if any job (scrape or order) is active.
     with JOBS_LOCK:
+        # Reap first: a job that cannot still be running must not be allowed to
+        # refuse a real one.
+        _reap_stale_jobs_locked()
         for job in JOBS.values():
             if job.get("status") in ("queued", "running"):
                 return jsonify({"success": False, "error": "JOB_IN_PROGRESS",
@@ -531,12 +826,19 @@ def create_order():
     if not dry_run and isinstance(payload.get("order_ref"), dict):
         notify_order_id = payload["order_ref"].get("order_id")
 
-    Thread(
-        target=_run_order_job,
-        args=(job_id, payload, dry_run, user_key, stop_after_customer_fill,
-              stop_after_customer_create, full_order, do_pay, notify_order_id),
-        daemon=True,
-    ).start()
+    try:
+        Thread(
+            target=_run_order_job,
+            args=(job_id, payload, dry_run, user_key, stop_after_customer_fill,
+                  stop_after_customer_create, full_order, do_pay, notify_order_id),
+            daemon=True,
+        ).start()
+    except Exception as e:  # noqa: BLE001 — the entry is already registered
+        # Without this the queued entry outlives the failure and blocks every
+        # later submit with JOB_IN_PROGRESS.
+        _fail_job_now(job_id, f"Could not start the run: {e}")
+        return jsonify({"success": False, "error": "SPAWN_FAILED",
+                        "message": f"Could not start the run: {e}"}), 500
     return jsonify({"job_id": job_id, "status": "queued", "dry_run": dry_run}), 202
 
 
@@ -671,6 +973,9 @@ def create_order_batch():
     # batch starts (BizzFlow has already written those ids onto its orders), and
     # it makes a lone /orders call correctly refuse while a batch is mid-run.
     with JOBS_LOCK:
+        # Reap first: a job that cannot still be running must not be allowed to
+        # refuse a real one.
+        _reap_stale_jobs_locked()
         for job in JOBS.values():
             if job.get("status") in ("queued", "running"):
                 return jsonify({"success": False, "error": "JOB_IN_PROGRESS",
@@ -694,11 +999,20 @@ def create_order_batch():
                            "batch_job_id": batch_job_id},
             }
 
-    Thread(
-        target=_run_batch_job,
-        args=(batch_job_id, batch_id, jobs, dry_run, user_key, full_order, do_pay),
-        daemon=True,
-    ).start()
+    try:
+        Thread(
+            target=_run_batch_job,
+            args=(batch_job_id, batch_id, jobs, dry_run, user_key, full_order, do_pay),
+            daemon=True,
+        ).start()
+    except Exception as e:  # noqa: BLE001 — parent AND members are registered
+        # Every member was registered queued up front, so all of them have to be
+        # closed out here or they hold the lock forever.
+        _fail_job_now(batch_job_id, f"Could not start the batch: {e}")
+        for job_id, _order in jobs:
+            _fail_job_now(job_id, "The batch never started.", kind="batch_aborted")
+        return jsonify({"success": False, "error": "SPAWN_FAILED",
+                        "message": f"Could not start the batch: {e}"}), 500
     return jsonify({"batch_job_id": batch_job_id, "status": "queued",
                     "total": len(jobs)}), 202
 
