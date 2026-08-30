@@ -1,5 +1,9 @@
 "use client";
 
+import Link from "next/link";
+import { ConnectionBadge } from "@/components/admin/order-oversight";
+import type { ConnectionView } from "@/lib/agent-connection";
+
 import { useState, useEffect, useCallback } from "react";
 import { getUsers, createUser, updateUser, deleteUser, topupUserCaseLimit, setOrderEntryAccess } from "@/actions/admin-users";
 import { Button } from "@/components/ui/button";
@@ -17,6 +21,7 @@ interface UserRow {
   orderEntryEnabled: boolean;
   wifibizzEmail: string | null;
   lastCrawlAt: string | null;
+  connection: ConnectionView;
   createdAt: string;
 }
 
@@ -150,6 +155,7 @@ export function UserManagement() {
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden lg:table-cell">WifiBizz Email</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden md:table-cell">Case Limit</th>
                 <th className="text-center px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Order Entry</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden md:table-cell">Connection</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden lg:table-cell">Notes</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden md:table-cell">Created</th>
                 <th className="text-right px-4 py-3 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Actions</th>
@@ -158,7 +164,15 @@ export function UserManagement() {
             <tbody className="divide-y divide-[#E3E8EF]/60">
               {users.map((user) => (
                 <tr key={user.id} className="hover:bg-[#F6F9FC] transition-colors duration-100">
-                  <td className="px-4 py-3 font-medium text-[#0A2540]">{user.name || "—"}</td>
+                  <td className="px-4 py-3 font-medium">
+                    {/* Third way into the agent page, beside the By-agent table
+                        and every order row — this is the list you are already
+                        looking at when you wonder how somebody is doing. */}
+                    <Link href={`/admin/agents/${user.id}`}
+                      className="text-[#0A2540] hover:text-[#635BFF] hover:underline">
+                      {user.name || user.email || "—"}
+                    </Link>
+                  </td>
                   <td className="px-4 py-3 text-[#425466] hidden sm:table-cell">{user.email || "—"}</td>
                   <td className="px-4 py-3 hidden lg:table-cell">
                     {user.passwordRaw ? (
@@ -199,6 +213,12 @@ export function UserManagement() {
                       />
                     </button>
                   </td>
+                  {/* Beside Order Entry deliberately: both answer "can this
+                      agent work right now", and access being on while the
+                      session is dead is exactly the pairing worth seeing. */}
+                  <td className="px-4 py-3 hidden md:table-cell">
+                    <ConnectionBadge view={user.connection} />
+                  </td>
                   <td className="px-4 py-3 max-w-50 truncate text-[#697386] text-xs hidden lg:table-cell">{user.notes || "—"}</td>
                   <td className="px-4 py-3 text-xs text-[#697386] tabular-nums hidden md:table-cell">
                     {new Date(user.createdAt).toLocaleDateString()}
@@ -235,7 +255,7 @@ export function UserManagement() {
               ))}
               {users.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-16 text-center">
+                  <td colSpan={10} className="px-4 py-16 text-center">
                     <div className="flex flex-col items-center gap-2">
                       <div className="w-10 h-10 rounded-lg bg-[#F6F9FC] flex items-center justify-center mb-2">
                         <UsersEmptyIcon className="w-5 h-5 text-[#697386]" />
