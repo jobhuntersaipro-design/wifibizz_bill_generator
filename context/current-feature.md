@@ -101,6 +101,13 @@ on schedule. Full scraper suite **336 passed + 1 skipped** (was 312 + 1). 9 vite
 vitest collects, pre-existing). `npm run build`, lint identical to baseline (9642), `tsc` unchanged (the
 same two pre-existing errors).
 
+**Next, and specced separately:** the global one-job-at-a-time lock becomes **per agent** — many agents
+submitting at once, one browser job each. Spec:
+[context/features/per-agent-submit-concurrency.md](features/per-agent-submit-concurrency.md).
+It targets 4 concurrent agents on an 8 GB / 4 vCPU droplet, ships defaulting to 1, and **depends on this
+branch being deployed first**: with per-agent slots a leaked job stops blocking everyone loudly and
+starts blocking one agent silently, so the reaper has to exist before slots do.
+
 **NOT verified: the droplet.** None of this has run against the real `api_server` — the reaper, the
 listing and the force-release are proven against Flask's test client, and the R2 fix against a synthetic
 stall rather than a real one. Also unverified: that the R2 stall recurs at all, so whether the timeouts
