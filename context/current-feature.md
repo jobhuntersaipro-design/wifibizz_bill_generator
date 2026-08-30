@@ -1,5 +1,63 @@
 # Current Feature
 
+## Fix — the Admin Topbar Was Unnavigable on Mobile
+
+**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `fix/admin-mobile-nav`). Vercel-only — no scraper
+change, no migration.
+
+Reported: hard to go back or reach another page from `/admin` on a phone. Four separate causes:
+
+- **The topbar said "Administration" and nothing else** — a static label. On mobile the sidebar is a
+  hidden drawer, so nothing on screen said which page you were on.
+- **No back affordance.** From `/admin/orders/[id]` or `/admin/agents/[id]` the only way back was an
+  in-page link that scrolls out of view, or opening the drawer and re-picking a section.
+- **A 36px hamburger** (`p-2` around a 20px icon), under the 44px target used everywhere else here.
+- **A drawer with no close button** — dismissable only by tapping the backdrop, which nothing suggested.
+
+### The fix
+
+The topbar is contextual: `/admin` → **Users**, `/admin/orders` → **Orders**, `/admin/plans` →
+**Plan Settings**, and the detail pages read **Order** / **Agent** with a back chevron to their parent.
+
+**A detail page swaps the drawer toggle FOR the back chevron rather than showing both** — two navigation
+controls competing in one 44px strip is how people press the wrong one, and the drawer is still one tap
+away from the parent page.
+
+Both come from one pure `adminNavContext(pathname)` in `src/lib/admin-nav.ts`, so a page cannot be
+labelled one thing while its back button goes somewhere else.
+
+**An unmapped route gets the generic label and the DRAWER, never a back button.** A guessed back target
+on a page nobody has mapped is worse than none, because it silently sends you somewhere unrelated.
+
+Also: both controls at 44px, an explicit **×** in the drawer, and the title truncates rather than
+pushing the ADMIN pill off the right edge.
+
+### A bug the tests caught before the browser did
+
+`/admin` was in the section-prefix list, and as a prefix it matches EVERY admin route — so
+`/admin/something-new` came back labelled **Users**, confidently and wrongly. It is out of that list
+now; the exact `/admin` match above it handles the real Users page.
+
+### Verified in the browser
+
+At 390×844 on a throwaway `/admin-navbar-preview` route (deleted afterwards), because the admin JWT had
+expired and renewing it would have put the password in the transcript. `pathname` was made injectable on
+`AdminTopbar` — the same reason `describeConnection` takes `now` — so every route state could be
+rendered without navigating to it.
+
+All six states measured: control **44×44** in each, back chevrons resolving to `/admin/orders` and
+`/admin` respectively, the drawer toggle on the three sections and on the unmapped route, titles correct,
+and **no horizontal overflow** on any. The drawer's close button measured 44×44, inside the panel and not
+overlapping the logo, and closing slid the panel to `left: -240`.
+
+7 new vitest in `admin-nav.test.ts` (the three sections, trailing slashes, both detail pages, the unmapped
+fallback, and `/admin` never shadowing a longer path). **688 passing**, `npm run build`, lint identical to
+baseline (9642), `tsc` unchanged.
+
+**NOT verified:** the topbar inside the real admin shell — it has only been rendered in isolation, so the
+integration with `AdminShell`'s drawer state rests on the props being unchanged. And nothing was checked
+on a real phone.
+
 ## Admin Agent Handling — Connection State, Live Jobs, Chart Filters, Agent Page
 
 **Status:** MERGED TO MAIN AND DEPLOYED 2026-08-30 (`ee61160` + review fixes `ef1d8c7`, merge

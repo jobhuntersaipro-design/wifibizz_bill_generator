@@ -30,6 +30,19 @@ export function AdminSidebar({ open, onClose }: { open?: boolean; onClose?: () =
         "fixed inset-y-0 left-0 z-50 transition-transform duration-300 md:relative md:translate-x-0",
         open ? "translate-x-0" : "-translate-x-full"
       )}>
+      {/* Close — mobile only. The drawer used to be dismissable only by tapping
+          the backdrop, which nothing on screen suggested. */}
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close menu"
+        className="absolute right-2 top-2 flex h-11 w-11 items-center justify-center rounded-lg text-[#697386] transition-colors hover:bg-[#E3E8EF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF] md:hidden"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
+          <path d="M18 6 6 18M6 6l12 12" />
+        </svg>
+      </button>
+
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-5 py-5">
         <div className="w-8 h-8 rounded-lg bg-[#0A2540] flex items-center justify-center">
