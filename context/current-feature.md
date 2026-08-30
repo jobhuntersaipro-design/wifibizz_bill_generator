@@ -1,9 +1,55 @@
 # Current Feature
 
+## Per-Agent Submit Concurrency
+
+**Status:** NOT STARTED — spec loaded 2026-08-30, awaiting review sign-off.
+**Spec:** [context/features/per-agent-submit-concurrency.md](features/per-agent-submit-concurrency.md)
+
+### Goals
+
+- Many agents submit at once; **each agent limited to one browser job at a time**.
+- Replace the single global lock with **two levels**: per user (fixed at 1) and global (`N`, via
+  `OE_MAX_CONCURRENT_JOBS`).
+- **Ship inert.** At `N=1` behaviour is byte-identical to today; concurrency is raised and rolled back by
+  one environment variable, never by shipping code.
+- Target **4 concurrent agents on 4 vCPU / 8 GB**, reached by ramping 1 → 2 → 3 → 4 with an observation
+  window at each step.
+- Two distinct refusals — `USER_JOB_IN_PROGRESS` and `SERVER_AT_CAPACITY` — because "your own run" and
+  "the queue is full" are different facts needing different sentences.
+
+### Notes
+
+**Blocked on Phase 0**, which is the merge above: it must be **deployed**, not merely merged. With
+per-agent slots a leaked job stops blocking everyone loudly and starts blocking one agent silently, so
+the reaper, `GET /jobs` and force-release have to exist first.
+
+**Sizing is measured, not estimated** — 365 MB of Chromium RSS for a blank page in the running container,
+budgeted to ~700 MB for the real portal. CPU is the constraint that gets under-provisioned, and the
+failure mode is expensive: starving it pushes runs past `OE_ORDER_TIMEOUT`, and a timeout mid-flight
+leaves a real minted order at Unifi needing a manual void. Never raise `N` without raising vCPU.
+
+**The blocker is cleared:** many distinct dealer staff codes exist and the portal allows one code two
+live sessions (user, 2026-08-30), so the droplet is the ceiling. Recorded as the user's report rather
+than a measurement — worth re-testing at Phase 4 step 2.
+
+**Throughput scales per ACCOUNT, not per person**, and some agents currently share a BizzFlow login. One
+account holds one dealer session and therefore one slot, so those agents get **no benefit at all** until
+their logins are split. That migration is a prerequisite, not a follow-up.
+
+### Open — needs your decision before Phase 1
+
+The spec's review checklist has **8 unticked items**. The three that change the work:
+
+1. Folding dealer logins into the shared capacity budget (Phase 3.3) — the sizing table is wrong without it.
+2. `deploy.sh` drain mode (Phase 3.5) — its "refuse while `active_jobs > 0`" check makes deploys
+   impossible once several agents submit.
+3. Migrating shared BizzFlow logins to one account per agent.
+
 ## Fix — a Blocking R2 Download Pinned the Event Loop and Held the Submit Lock for 7 Hours
 
-**Status:** CODE COMPLETE, NOT COMMITTED (branch `fix/stuck-job-lock-visibility`). Scraper + BizzFlow.
-No migration. **Needs a droplet deploy AND an `api_server` restart** — a deploy alone keeps the old imports.
+**Status:** MERGED TO MAIN 2026-08-30 (`b6e012d`, merge on `main`; branch cleanup pending). NOT PUSHED.
+Scraper + BizzFlow, no migration. **Needs a droplet deploy AND an `api_server` restart** — a deploy alone
+keeps the old imports, so until then production still runs the code that hung.
 **Production was unblocked first** by restarting `bizzflow-scraper-scraper-1` at 2026-08-30 03:26 UTC
 (`active_jobs` 1 → 0); the three dealer sessions in the bind-mounted `sessions/` survived it.
 
