@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { ACTIVE_ORDER } from "@/lib/order-scope";
 import { Prisma } from "@/generated/prisma/client";
 import { uploadToR2 } from "@/lib/r2";
 import {
@@ -294,7 +295,10 @@ async function findDuplicateAddress(
   sessionUserId: string,
 ): Promise<{ id: string; fullName: string } | null> {
   const existing = input.id
-    ? await prisma.order.findUnique({ where: { id: input.id }, select: { userId: true } })
+    ? await prisma.order.findFirst({
+        where: { id: input.id, ...ACTIVE_ORDER },
+        select: { userId: true },
+      })
     : null;
   const ownerId = existing?.userId ?? sessionUserId;
 
@@ -308,6 +312,7 @@ async function findDuplicateAddress(
     where: {
       userId: ownerId,
       orderId: null,
+      ...ACTIVE_ORDER,
       ...(input.id ? { id: { not: input.id } } : {}),
     },
     select: { id: true, fullName: true, street: true, addressFull: true, addressId: true },
@@ -349,8 +354,8 @@ export async function saveOrder(rawInput: OrderInput) {
   // record" rule — the row menu already hides Edit for both, but the menu can
   // be bypassed and an edit here would desynchronise or resurrect the record.
   if (input.id) {
-    const existing = await prisma.order.findUnique({
-      where: { id: input.id },
+    const existing = await prisma.order.findFirst({
+      where: { id: input.id, ...ACTIVE_ORDER },
       select: { status: true },
     });
     if (existing?.status === "cancelled" || existing?.status === "submitted") {
@@ -438,7 +443,7 @@ export async function getOrder(id: string) {
 
   const superAdmin = await isSuperAdmin(session.user.id);
   const order = await prisma.order.findFirst({
-    where: superAdmin ? { id } : { id, userId: session.user.id },
+    where: superAdmin ? { id, ...ACTIVE_ORDER } : { id, userId: session.user.id, ...ACTIVE_ORDER },
   });
   if (!order) return { success: false as const, error: "Order not found.", data: null };
   return { success: true as const, data: order };
@@ -524,7 +529,7 @@ export async function getOrderDetail(id: string): Promise<{
 
   const superAdmin = await isSuperAdmin(session.user.id);
   const order = await prisma.order.findFirst({
-    where: superAdmin ? { id } : { id, userId: session.user.id },
+    where: superAdmin ? { id, ...ACTIVE_ORDER } : { id, userId: session.user.id, ...ACTIVE_ORDER },
     include: { user: { select: { email: true } } },
   });
   if (!order) return { success: false, error: "Order not found.", data: null };
@@ -569,7 +574,7 @@ export async function listOrders(): Promise<{
 
   const orders = await prisma.order.findMany({
     // Superadmins see ALL drafts; everyone else only their own.
-    where: superAdmin ? {} : { userId: session.user.id },
+    where: superAdmin ? { ...ACTIVE_ORDER } : { userId: session.user.id, ...ACTIVE_ORDER },
     orderBy: { createdAt: "desc" },
     include: { user: { select: { email: true } } },
   });
@@ -608,7 +613,7 @@ export async function cancelOrder(id: string) {
   if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
   const superAdmin = await isSuperAdmin(session.user.id);
   const order = await prisma.order.findFirst({
-    where: superAdmin ? { id } : { id, userId: session.user.id },
+    where: superAdmin ? { id, ...ACTIVE_ORDER } : { id, userId: session.user.id, ...ACTIVE_ORDER },
     select: { id: true, status: true, attempt: true },
   });
   if (!order) return { success: false as const, error: "Order not found." };
@@ -641,8 +646,21 @@ export async function deleteOrder(id: string) {
   const session = await auth();
   if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
   const superAdmin = await isSuperAdmin(session.user.id);
-  const res = await prisma.order.deleteMany({
-    where: superAdmin ? { id } : { id, userId: session.user.id },
+  // Soft delete: the row and its whole status history survive so admin
+  // oversight can show what was deleted. The agent's list stops showing it
+  // because every agent-facing read carries ACTIVE_ORDER.
+  //
+  // `autoRetryAt` and `jobId` are cleared in the SAME write, and that is not
+  // tidiness. `sweepPendingRetries` selects on autoRetryAt, status and
+  // autoRetries alone — deletion does not enter that query — so a deleted order
+  // with a retry owed would be picked up by the cron and submitted to the LIVE
+  // portal, minting a real billable order for a draft the agent deleted, with
+  // no row in their list to show it happened. The sweep also filters on
+  // ACTIVE_ORDER; either guard alone is a single point of failure for an
+  // expensive mistake.
+  const res = await prisma.order.updateMany({
+    where: superAdmin ? { id, ...ACTIVE_ORDER } : { id, userId: session.user.id, ...ACTIVE_ORDER },
+    data: { deletedAt: new Date(), autoRetryAt: null, jobId: null },
   });
   if (res.count === 0) return { success: false as const, error: "Order not found." };
   return { success: true as const };
@@ -734,7 +752,7 @@ export async function startSubmit(id: string) {
   // session (user_key), regardless of who created the draft.
   const superAdmin = await isSuperAdmin(session.user.id);
   const order = await prisma.order.findFirst({
-    where: superAdmin ? { id } : { id, userId: session.user.id },
+    where: superAdmin ? { id, ...ACTIVE_ORDER } : { id, userId: session.user.id, ...ACTIVE_ORDER },
   });
   if (!order) return { success: false as const, error: "Order not found." };
 
@@ -778,7 +796,7 @@ export async function stopSubmit(id: string) {
   if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
   const superAdmin = await isSuperAdmin(session.user.id);
   const order = await prisma.order.findFirst({
-    where: superAdmin ? { id } : { id, userId: session.user.id },
+    where: superAdmin ? { id, ...ACTIVE_ORDER } : { id, userId: session.user.id, ...ACTIVE_ORDER },
     select: { id: true, status: true, attempt: true, jobId: true, stage: true },
   });
   if (!order) return { success: false as const, error: "Order not found." };
@@ -875,7 +893,7 @@ export async function getOrderHistory(id: string): Promise<{
 
   const superAdmin = await isSuperAdmin(session.user.id);
   const order = await prisma.order.findFirst({
-    where: superAdmin ? { id } : { id, userId: session.user.id },
+    where: superAdmin ? { id, ...ACTIVE_ORDER } : { id, userId: session.user.id, ...ACTIVE_ORDER },
     select: { id: true },
   });
   if (!order) return { success: false, error: "Order not found.", attempts: [] };
@@ -951,6 +969,7 @@ export async function startBatchSubmit(ids: string[]) {
   const rows = await prisma.order.findMany({
     where: {
       id: { in: ids },
+      ...ACTIVE_ORDER,
       ...(superAdmin ? {} : { userId: session.user.id }),
     },
     // Oldest created FIRST. The browser loop ran rows in whatever order the

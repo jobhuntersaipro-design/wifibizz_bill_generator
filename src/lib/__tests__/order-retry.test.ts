@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 const orderFindUnique = vi.fn();
+const orderFindFirst = vi.fn();
 const orderUpdateMany = vi.fn();
 const orderUpdate = vi.fn();
 const orderFindMany = vi.fn();
@@ -20,6 +21,9 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     order: {
       findUnique: (...a: unknown[]) => orderFindUnique(...a),
+      // maybeAutoRetry resolves the order with findFirst, not findUnique, so it
+      // can carry the ACTIVE_ORDER filter — a deleted order must never retry.
+      findFirst: (...a: unknown[]) => orderFindFirst(...a),
       updateMany: (...a: unknown[]) => orderUpdateMany(...a),
       update: (...a: unknown[]) => orderUpdate(...a),
       findMany: (...a: unknown[]) => orderFindMany(...a),
@@ -50,7 +54,7 @@ const ORDER = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  orderFindUnique.mockResolvedValue({ ...ORDER });
+  orderFindFirst.mockResolvedValue({ ...ORDER });
   orderUpdateMany.mockResolvedValue({ count: 1 });
   orderUpdate.mockResolvedValue({});
   startSubmitRun.mockResolvedValue({ ok: true, jobId: "job_2", attempt: 2 });
@@ -70,7 +74,7 @@ describe("maybeAutoRetry", () => {
   });
 
   it("falls back to the owner when no submitting session was recorded", async () => {
-    orderFindUnique.mockResolvedValue({ ...ORDER, lastSubmitUserId: null });
+    orderFindFirst.mockResolvedValue({ ...ORDER, lastSubmitUserId: null });
     await maybeAutoRetry("ord_1");
     expect(startSubmitRun.mock.calls[0][1]).toMatchObject({ userKey: "user_1" });
   });
@@ -91,14 +95,14 @@ describe("maybeAutoRetry", () => {
   });
 
   it("refuses a terminal failure and says so in the history", async () => {
-    orderFindUnique.mockResolvedValue({ ...ORDER, errorCode: "device_out_of_stock" });
+    orderFindFirst.mockResolvedValue({ ...ORDER, errorCode: "device_out_of_stock" });
     await expect(maybeAutoRetry("ord_1")).resolves.toBe("no");
     expect(startSubmitRun).not.toHaveBeenCalled();
     expect(recordEvent.mock.calls[0][0].message).toContain("No automatic retry");
   });
 
   it("says nothing at all about an order that succeeded", async () => {
-    orderFindUnique.mockResolvedValue({ ...ORDER, status: "submitted" });
+    orderFindFirst.mockResolvedValue({ ...ORDER, status: "submitted" });
     await expect(maybeAutoRetry("ord_1")).resolves.toBe("no");
     expect(recordEvent).not.toHaveBeenCalled();
   });
@@ -106,7 +110,7 @@ describe("maybeAutoRetry", () => {
   it("names the stranded portal order before the next run overwrites it", async () => {
     // The number is only reachable from the row until the retry replaces it, and
     // it is what someone needs in order to void the duplicate.
-    orderFindUnique.mockResolvedValue({
+    orderFindFirst.mockResolvedValue({
       ...ORDER,
       status: "warning",
       orderId: "2608000122816567",
@@ -168,6 +172,41 @@ describe("sweepPendingRetries", () => {
     expect(orderFindMany.mock.calls[0][0].where).toMatchObject({
       autoRetries: { lt: 3 },
       status: { in: ["failed", "warning"] },
+    });
+  });
+});
+
+describe("a deleted order must never be retried", () => {
+  /**
+   * The expensive failure this guards.
+   *
+   * The portal mints its order number EARLY, so a retry on an order the agent
+   * deleted creates a real, billable order at Unifi — and there is no row in
+   * the agent's list to show it happened. Deleting clears `autoRetryAt`, but the
+   * sweep must refuse it independently: one write elsewhere is not enough to
+   * rest an outcome like that on.
+   */
+  it("is not selected by the sweep", async () => {
+    orderFindMany.mockResolvedValue([]);
+    await sweepPendingRetries();
+    const where = orderFindMany.mock.calls[0][0].where;
+    expect(where.deletedAt).toBeNull();
+  });
+
+  it("is refused even if the sweep somehow hands it over", async () => {
+    // findFirst carries the filter, so a deleted row resolves to null and the
+    // retry stops at "no" rather than starting a run.
+    orderFindFirst.mockResolvedValue(null);
+    await expect(maybeAutoRetry("ord_deleted")).resolves.toBe("no");
+    expect(startSubmitRun).not.toHaveBeenCalled();
+  });
+
+  it("looks the order up with the deleted filter, not by bare id", async () => {
+    orderFindFirst.mockResolvedValue(null);
+    await maybeAutoRetry("ord_1");
+    expect(orderFindFirst.mock.calls[0][0].where).toMatchObject({
+      id: "ord_1",
+      deletedAt: null,
     });
   });
 });

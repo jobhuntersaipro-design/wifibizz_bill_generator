@@ -21,7 +21,10 @@ const retryFailedMembers = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    order: { findUnique: (...a: unknown[]) => findOrder(...a) },
+    // findFirst, not findUnique: the route resolves the order through the
+    // ACTIVE_ORDER filter so a webhook for an order the agent deleted mid-run
+    // is dropped rather than reconciled onto a row nobody can see.
+    order: { findFirst: (...a: unknown[]) => findOrder(...a) },
     batchRun: { findUnique: (...a: unknown[]) => findBatch(...a) },
   },
 }));
@@ -230,5 +233,19 @@ describe("malformed events", () => {
     const POST = await loadRoute(SECRET);
     const res = await POST(post({ event: "batch_finished", batchId: "batch_1" }, `Bearer ${SECRET}`));
     expect(res.status).toBe(500);
+  });
+});
+
+describe("an order the agent deleted mid-run", () => {
+  it("is acknowledged and dropped, not reconciled", async () => {
+    // The route resolves through ACTIVE_ORDER, so a deleted row comes back
+    // null. Reconciling it would write a result onto a row nobody can see and
+    // could re-arm a retry on an order the agent deliberately removed.
+    findOrder.mockResolvedValue(null);
+    const POST = await loadRoute(SECRET);
+    const res = await POST(post({ event: "order_finished", orderId: "ord_deleted" }, `Bearer ${SECRET}`));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ skipped: "unknown_order" });
+    expect(findOrder.mock.calls[0][0].where).toMatchObject({ deletedAt: null });
   });
 });

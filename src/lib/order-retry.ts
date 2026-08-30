@@ -12,6 +12,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { ACTIVE_ORDER } from "@/lib/order-scope";
 import { recordEvent } from "@/lib/order-history";
 import { startSubmitRun } from "@/lib/order-start";
 import { MAX_AUTO_RETRIES, retryVerdict } from "@/lib/retry-policy";
@@ -43,7 +44,11 @@ export type RetryOutcome =
  * at Unifi.
  */
 export async function maybeAutoRetry(orderId: string): Promise<RetryOutcome> {
-  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  // ACTIVE_ORDER, not a bare id lookup. A deleted order must never be retried:
+  // the portal mints an order number early, so a retry on something the agent
+  // deleted creates a real billable order at Unifi with nothing in their list
+  // to show it happened.
+  const order = await prisma.order.findFirst({ where: { id: orderId, ...ACTIVE_ORDER } });
   if (!order) return "no";
 
   const verdict = retryVerdict({
@@ -157,6 +162,11 @@ export async function sweepPendingRetries(limit = 3): Promise<number> {
       autoRetryAt: { lte: new Date() },
       status: { in: ["failed", "warning"] },
       autoRetries: { lt: MAX_AUTO_RETRIES },
+      // Deleting an order clears autoRetryAt, so this is the second of two
+      // guards rather than the only one — but a sweep that could pick up a
+      // deleted order would submit it to the live portal, which is not a
+      // failure mode worth leaving to a single write elsewhere.
+      ...ACTIVE_ORDER,
     },
     orderBy: { autoRetryAt: "asc" },
     take: limit,
