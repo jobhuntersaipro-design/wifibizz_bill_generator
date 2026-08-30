@@ -2,7 +2,7 @@
 
 ## Plan Settings, Plans Grouped by Speed, and Three Fields That Now Say They Are Required
 
-**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/plan-settings-and-required-fields`).
+**Status:** MERGED TO MAIN 2026-08-30 (`7b7bfc1`, merge `0671780`; branch deleted). NOT PUSHED.
 Vercel-only — no scraper change, no migration.
 
 Three asks (2026-08-30), all copy and layout except the last, which changes what a draft may be saved with.
