@@ -2,8 +2,10 @@
 
 ## Failure → Action, and a Section-Aware Required Bar
 
-**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/failure-to-action`). Vercel-only — no
-scraper change, no migration. Phase 1 of the 2026-08-31 product plan.
+**Status:** MERGED TO MAIN AND DEPLOYED 2026-08-31 (`7934540`, merge `b170ce7`; branch deleted).
+Vercel-only — no scraper change, no migration, so nothing had to be applied to production. Build
+confirmed via the Vercel CLI: compiled clean, Build Completed, `bizzflow.top` aliased to it.
+Phase 1 of the 2026-08-31 product plan.
 Spec: [context/features/failure-to-action-and-section-bar.md](features/failure-to-action-and-section-bar.md).
 
 ### Part A — every failure has a button
