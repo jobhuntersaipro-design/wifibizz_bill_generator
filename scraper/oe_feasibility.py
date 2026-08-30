@@ -14,6 +14,7 @@ Returns dicts, never raises for expected flow errors; InfraError only on lost
 session. dry_run=True is the safety gate — it never clicks Order (no order created).
 """
 import asyncio
+import contextvars
 import json
 import os
 import random
@@ -48,6 +49,29 @@ from shell_modal import describe_blocking_dialog, read_shell_dialog
 # interception). Only when BOTH fail is it a real error.
 # ─────────────────────────────────────────────────────────────────────────────
 _OVERLAY_SEL = ".blockUI, .ui-widget-overlay.blocking, .modal-backdrop.in"
+
+# Which run is executing, for filenames that must not collide between concurrent
+# submits. A ContextVar rather than a module global BECAUSE it is per-context:
+# every job runs asyncio.run() on its own thread, so each gets its own value and
+# two runs cannot read each other's. A plain global would be the exact bug this
+# is here to prevent.
+_RUN_TAG = contextvars.ContextVar("bf_run_tag", default="")
+
+
+def _set_run_tag(payload: dict) -> None:
+    """Name this run for diagnostics: <order id>-a<attempt>.
+
+    Best-effort — a diagnostic label must never be the thing that breaks a
+    submit, so an unusable payload just leaves the tag empty.
+    """
+    try:
+        ref = payload.get("order_ref") or {}
+        oid = ref.get("order_id") or payload.get("id") or ""
+        attempt = payload.get("attempt")
+        tag = f"{oid}-a{attempt}" if oid and attempt is not None else str(oid)
+        _RUN_TAG.set(re.sub(r"[^A-Za-z0-9_.-]", "", tag)[:64])
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _stage_emitter(on_stage):
@@ -1181,6 +1205,7 @@ async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = 
     import dealer_login_service
     from order_entry import create_personal_customer
 
+    _set_run_tag(payload)
     stage = _stage_emitter(on_stage)
 
     # Download the attachments from R2: chat captures + ID copies, plus every
@@ -3903,7 +3928,11 @@ async def _debug_screenshot(page, tag: str) -> str | None:
     Best-effort — a diagnostic must never be the thing that breaks the run."""
     try:
         os.makedirs("logs", exist_ok=True)
-        path = f"logs/debug_{tag}.png"
+        # Scoped to the run. The filename used to be the failure KIND alone, so
+        # two concurrent submits failing the same way overwrote each other and
+        # the survivor was indistinguishable from the loser.
+        run = _RUN_TAG.get()
+        path = f"logs/debug_{run}_{tag}.png" if run else f"logs/debug_{tag}.png"
         await page.screenshot(path=path, full_page=True)
         return path
     except Exception:

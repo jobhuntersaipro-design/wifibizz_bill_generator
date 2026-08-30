@@ -2,8 +2,88 @@
 
 ## Per-Agent Submit Concurrency
 
-**Status:** NOT STARTED — spec loaded 2026-08-30, awaiting review sign-off.
+**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/per-agent-submit-concurrency`).
+Phases 1, 2, 3 and 5 built; **Phase 4 (resize + ramp) is operational and NOT done** — it costs money and
+needs a day of observation per step, so it is the user's to trigger. **Ships inert at `N=1`.**
 **Spec:** [context/features/per-agent-submit-concurrency.md](features/per-agent-submit-concurrency.md)
+
+### What was built
+
+**Phase 1** — `user_key` is recorded on every job record (single, batch parent, batch member) and exposed
+by `GET /jobs`, so the registry can finally tell one agent's run from another's.
+
+**Phase 2** — `_capacity_refusal_locked()` replaces the global scan, in ONE place so the single submit
+and the batch cannot come to disagree about who may run. Per user is fixed at 1 and has no env var;
+global is `OE_MAX_CONCURRENT_JOBS`, default 1.
+
+**The batch subtlety that would have broken it:** members are registered `queued` up front and run
+sequentially inside the parent's slot, so `_active_slot_jobs_locked()` excludes anything carrying a
+`batch_job_id`. Counting them would put a 10-order batch instantly over capacity and refuse everybody —
+including the batch itself. A test pins 11 active records resolving to 1 slot.
+
+**Phase 3** — the debug screenshot is scoped to the run via a **`ContextVar`** (not a module global,
+which would be the very bug it prevents; each job runs `asyncio.run()` on its own thread, so each gets
+its own value); the boto3 client init is double-checked-locked; dealer logins draw from a shared
+`OE_MAX_BROWSERS` budget rather than their own invisible pool; connect/disconnect are refused while that
+agent has a run in flight; and `deploy.sh` gained a **drain mode** (`DRAIN_TIMEOUT`, default 900s) —
+without it, "refuse while `active_jobs > 0`" makes deploying impossible once several agents submit.
+
+**Phase 5** — `scraperBusy()` reads the auth-gated `GET /jobs` instead of public `/health`, because the
+UI must tell "a run on YOUR account" from "every slot is busy" and `/health` must never carry per-agent
+state. The running order is named from rows already loaded, so it costs no extra request.
+
+### Decisions worth recording
+
+- **`SERVER_LOW_MEMORY` only fires when something is already running.** On an idle box the honest answer
+  to low memory is to try, not to refuse every submit forever with no way back.
+- **Unreadable `/proc/meminfo` means "do not judge", never "low".** Refusing because a stat file would
+  not parse is a self-inflicted outage.
+- **`_pending_login_count` fails OPEN at 0** — an import problem in the login service must not become
+  "no agent may submit".
+- **`order-start.ts` now keys on the 409/503 STATUS, not the error string.** The codes have already
+  split once (from `JOB_IN_PROGRESS`), and a droplet on an older or newer build must still be understood.
+- **The login guard is the one deliberate behaviour change at `N=1`**, and it is stated rather than
+  hidden: a fresh portal login mid-run may invalidate the session that run is driving, and the portal
+  mints the order number early, so losing a run mid-flight strands a real order.
+
+### Verified in the browser
+
+Against the dev server on the real signed-in superadmin session, driving a stub droplet so all four
+states could be produced on demand. **All four messages were read off the live tooltip:**
+
+| State | Rendered |
+|---|---|
+| A run on this account, order nameable | *"A submit is already running on this account — ORD-0002 (WOJAK LANG), started 4m 20s ago."* |
+| Same, order not nameable | *"A submit is already running on this account, started 4m 20s ago."* |
+| Every slot busy, someone else's run | *"All 4 submit slots are busy (4 of 4) — your turn shortly."* |
+| Past the server's cap | *"A task has been stuck on the server for 6h 0m…"* — and it **wins over** the own-run message, correctly: a stuck run is not one to wait for whoever owns it |
+
+The stuck state appeared **without a reload**, which also proves the 10s poll picks up a change. Going
+back to idle re-enabled the buttons and removed the tooltip wrapper entirely (parent `DIV`, not `SPAN`),
+so `BlockedHint` adds no wrapper and no tab stop when nothing blocks. Zero console errors.
+
+**The dev database was restored** — ORD-0002 was temporarily set to `submitting` to produce the labelled
+message and is back to `draft` with `stage` null, as it was.
+
+**Tests:** 20 new scraper cases in `tests/test_capacity_gate.py` — the per-user rule, a different agent
+NOT blocked, the two codes staying distinct, `N=1` behaving exactly as the old global lock, batch slot
+accounting both ways, the shared browser budget, the login service failing open, all three memory-valve
+readings, and the login/logout guards including a stale job not locking an agent out of reconnecting.
+**357 scraper passed + 1 skipped** (was 337). 14 vitest in `submit-blocked.test.ts` (5 new),
+**641 vitest passing** (the 4 failing files are the Playwright e2e specs vitest collects, pre-existing).
+`npm run build`, lint identical to baseline (9642), `tsc` unchanged (the same two pre-existing errors).
+
+**One real bug the lint caught, not the tests:** the `useMemo` deriving the running order's label was
+placed after an early return, so it would have been called conditionally — `react-hooks/rules-of-hooks`.
+It is above the `loading` return now.
+
+**Two tests were rewritten because they drove the LIVE portal.** `test_another_agent_may_still_connect`
+called the real `dealer_login_service`, which launches a browser against Unifi: the file took 52s and was
+making real login attempts. Stubbed, it runs in 0.22s. A unit suite must never touch the portal.
+
+**NOT verified:** anything at `N > 1` — every test and every browser check ran with the gate at its
+default of 1, and real concurrency has never executed; Phase 4's resize and ramp; and the memory valve
+against genuine memory pressure rather than a patched reading.
 
 ### Goals
 

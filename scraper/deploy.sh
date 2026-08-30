@@ -5,6 +5,7 @@
 #   ./deploy.sh                     # deploy the newest scraper-v* tag
 #   ./deploy.sh scraper-v2026.08.17-1
 #   ./deploy.sh --force <tag>       # skip the in-flight-job confirmation
+#   DRAIN_TIMEOUT=0 ./deploy.sh     # do not wait for running jobs (old behaviour)
 #   ./deploy.sh --rollback          # go back to the previously deployed ref
 #
 # This script lives in the repo and therefore replaces *itself* during
@@ -20,6 +21,9 @@ HEALTH_URL="${HEALTH_URL:-https://scraper.bizzflow.top/health}"
 TAG_GLOB="scraper-v*"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-120}"   # seconds to wait for /health after a rebuild
 BUSY_WINDOW_MIN="${BUSY_WINDOW_MIN:-10}"  # a job log touched this recently = probably running
+# Seconds to wait for in-flight jobs to finish before asking to proceed anyway.
+# 0 disables draining and restores the old refuse-immediately behaviour.
+DRAIN_TIMEOUT="${DRAIN_TIMEOUT:-900}"
 STATE_FILE="$APP_DIR/.last-deploy"
 
 say()  { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
@@ -119,6 +123,38 @@ elif [ -n "$HEALTH_JSON" ]; then
     BUSY_WHY="these job logs were written in the last $BUSY_WINDOW_MIN minutes:
 $(printf '      %s\n' $RECENT)"
   fi
+fi
+
+# ── 3b. Drain ──────────────────────────────────────────────────────────────
+# With several agents submitting concurrently there is almost always a job in
+# flight, so "refuse while busy" would make deploying impossible. Instead wait
+# for the runs to finish — a submit is capped at OE_ORDER_TIMEOUT and the
+# service reaps anything past it, so this terminates rather than hanging.
+#
+# It does NOT stop new jobs arriving: that would need a service-side quiesce
+# flag, and a deploy that blocks submits while it waits is its own outage. The
+# window is small and the confirmation below is still the backstop.
+if [ -n "$BUSY" ] && [ "$DRAIN_TIMEOUT" -gt 0 ] && [ -n "$ACTIVE" ]; then
+  say "Waiting for $ACTIVE job(s) to finish (up to ${DRAIN_TIMEOUT}s)"
+  drain_start=$(date +%s)
+  while :; do
+    sleep 10
+    HEALTH_JSON="$(curl -fsS --max-time 5 "$HEALTH_URL" 2>/dev/null || true)"
+    ACTIVE="$(printf '%s' "$HEALTH_JSON" | tr -d ' ' | sed -n 's/.*"active_jobs":\([0-9]\{1,\}\).*/\1/p')"
+    [ -n "$ACTIVE" ] || break                 # service gone: nothing left to wait for
+    if [ "$ACTIVE" -eq 0 ]; then
+      BUSY=""; BUSY_WHY=""
+      info "drained — no jobs in flight"
+      break
+    fi
+    elapsed=$(( $(date +%s) - drain_start ))
+    if [ "$elapsed" -ge "$DRAIN_TIMEOUT" ]; then
+      BUSY_WHY="still $ACTIVE job(s) after ${DRAIN_TIMEOUT}s of waiting."
+      info "gave up waiting: $BUSY_WHY"
+      break
+    fi
+    info "  ${elapsed}s: $ACTIVE still running"
+  done
 fi
 
 if [ -n "$BUSY" ]; then

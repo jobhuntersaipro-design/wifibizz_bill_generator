@@ -105,6 +105,13 @@ export interface RowActions {
   serverBusyAgeS?: number | null;
   /** The server's own cap on one run; past it a job cannot still be working. */
   serverMaxRuntimeS?: number | null;
+  /** The blocking run is on THIS account — not necessarily this person's. */
+  serverBusyIsMine?: boolean;
+  /** Names the running order, e.g. "ORD-0042 (NAME)". */
+  serverBusyOrderLabel?: string | null;
+  /** Slots in use / total, for the capacity sentence above concurrency 1. */
+  serverSlots?: number | null;
+  serverCapacity?: number | null;
   selected: boolean;
   onToggleSelect: () => void;
   onSubmit: () => void;
@@ -379,6 +386,10 @@ function PrimaryAction({ o, a }: { o: OrderListItem; a: RowActions }) {
         serverBusy: a.serverBusy,
         serverBusyAgeS: a.serverBusyAgeS,
         serverMaxRuntimeS: a.serverMaxRuntimeS,
+        serverBusyIsMine: a.serverBusyIsMine,
+        serverBusyOrderLabel: a.serverBusyOrderLabel,
+        serverSlots: a.serverSlots,
+        serverCapacity: a.serverCapacity,
       });
   // `canSubmit`/`canResubmit` both refuse a row with a retry owed, which would
   // otherwise leave it with NO button at all — a row that silently loses its

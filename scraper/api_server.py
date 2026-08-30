@@ -63,11 +63,19 @@ def health():
         _reap_stale_jobs_locked()
         _evict_finished_jobs_locked()
         active, oldest = _active_jobs_locked()
+        slots = len(_active_slot_jobs_locked())
 
     return jsonify(
         {
             "status": "healthy",
+            # Unchanged meaning — deploy.sh reads this to decide whether work is
+            # in flight, so it must keep counting every active job.
             "active_jobs": active,
+            # Slots in use vs available, for the UI's "3 of 4 agents are
+            # submitting". Bare numbers with no ids and no owner, which is what
+            # keeps them safe on a route Caddy serves publicly.
+            "slots_in_use": slots,
+            "capacity": MAX_CONCURRENT_JOBS,
             # Bare seconds, no id and no owner — enough for the UI to say how
             # long Submit has been blocked and to call out a run that has
             # outlived any legal one, and safe on a publicly-served route.
@@ -122,6 +130,39 @@ JOB_MAX_QUEUED = int(os.environ.get("OE_JOB_MAX_QUEUED", "180"))
 # Per batch member, for the batch parent's own cap: members run one at a time,
 # so a 10-order batch legitimately holds the lock far longer than one order.
 JOB_BATCH_PER_MEMBER = int(os.environ.get("OE_JOB_BATCH_PER_MEMBER", "900"))
+
+# ---- Capacity -------------------------------------------------------------
+#
+# Two levels, and they answer different questions.
+#
+#   per user  — fixed at 1, NOT configurable. Two runs for one agent would drive
+#               the same sessions/dealer_<user>.json and the same portal login.
+#               That is a correctness rule, not a resource one, so there is no
+#               env var to get it wrong with.
+#   global    — OE_MAX_CONCURRENT_JOBS, a machine limit: RAM and CPU for N
+#               concurrent Chromiums (~700MB and ~1 vCPU each).
+#
+# DEFAULT 1 = today's behaviour exactly. Concurrency is raised by moving one
+# environment variable and restarting, and rolled back the same way — never by
+# shipping code. That matters because the untestable part of this (how the
+# portal reacts to concurrent dealer sessions from one datacenter IP) can only
+# be learned by ramping, and a variable can be walked back in a minute.
+MAX_CONCURRENT_JOBS = int(os.environ.get("OE_MAX_CONCURRENT_JOBS", "1"))
+
+# Every browser this box may run at once — order jobs AND pending dealer logins,
+# which launch their own Chromium under dealer_login_service's MAX_CONCURRENT_LOGINS
+# and would otherwise be a second, invisible budget: at N=4 that is 4 + 4 = 8
+# browsers, ~5.6GB, over an 8GB box once the base load is counted.
+#
+# The default reproduces today's implicit ceiling (1 order + 4 logins), so
+# nothing changes until it is set deliberately alongside N.
+MAX_BROWSERS = int(os.environ.get("OE_MAX_BROWSERS", str(MAX_CONCURRENT_JOBS + 4)))
+
+# Refuse a new job below this much available memory. Roughly one Chromium's
+# working set, so the check means "there is room for the run you are asking
+# for". Only applied when something is ALREADY running: on an idle box the
+# honest answer to low memory is to try, not to refuse every submit forever.
+MIN_FREE_MB = int(os.environ.get("OE_MIN_FREE_MB", "700"))
 
 # How long a FINISHED job stays readable. BizzFlow polls a job for minutes, not
 # days; keeping every result forever grows this dict for the process's whole
@@ -239,6 +280,96 @@ def _active_jobs_locked(now=None):
     return len(ages), (max(ages) if ages else None)
 
 
+def _active_slot_jobs_locked():
+    """Active jobs that occupy a browser slot. CALLER MUST HOLD JOBS_LOCK.
+
+    A batch MEMBER does not hold a slot — its parent holds the single slot for
+    the whole run and the members execute inside it, one at a time. Counting
+    them would put a 10-order batch instantly over any capacity and refuse
+    everybody, including the batch itself.
+    """
+    return [
+        job for job in JOBS.values()
+        if job.get("status") in ("queued", "running")
+        and not (job.get("params") or {}).get("batch_job_id")
+    ]
+
+
+def _capacity_refusal_locked(user_key):
+    """Why this caller may not start a job right now, or None. HOLD JOBS_LOCK.
+
+    Returns (http_status, body) so both routes refuse identically — a second
+    copy of this rule is how the single submit and the batch would come to
+    disagree about who is allowed to run.
+    """
+    for job in JOBS.values():
+        if job.get("status") not in ("queued", "running"):
+            continue
+        if user_key and (job.get("params") or {}).get("user_key") == user_key:
+            # Their own run, including one started in another browser on a
+            # shared login. Named separately from capacity because it is a
+            # different fact: it clears when THEIR run ends, not when a queue
+            # drains.
+            return 409, {"success": False, "error": "USER_JOB_IN_PROGRESS",
+                         "message": "A submit is already running on this account. "
+                                    "Wait for it to finish, then try again."}
+
+    slots = len(_active_slot_jobs_locked())
+    if slots >= MAX_CONCURRENT_JOBS:
+        return 409, {"success": False, "error": "SERVER_AT_CAPACITY",
+                     "message": f"All {MAX_CONCURRENT_JOBS} submit slots are busy. "
+                                "Your turn shortly.",
+                     "active": slots, "capacity": MAX_CONCURRENT_JOBS}
+
+    if slots + _pending_login_count() >= MAX_BROWSERS:
+        return 409, {"success": False, "error": "SERVER_AT_CAPACITY",
+                     "message": "The server is at its browser limit. Try again shortly.",
+                     "active": slots, "capacity": MAX_CONCURRENT_JOBS}
+
+    # Last line of defence, and the only one grounded in reality rather than in
+    # a number somebody typed into an env file. A Chromium that cannot get its
+    # memory does not fail cleanly — it takes the box into swap and drags every
+    # other run past its timeout with it, and a submit that times out mid-flight
+    # strands a real minted order at Unifi.
+    free_mb = _available_memory_mb()
+    if free_mb is not None and slots > 0 and free_mb < MIN_FREE_MB:
+        return 503, {"success": False, "error": "SERVER_LOW_MEMORY",
+                     "message": "The server is low on memory. Try again shortly.",
+                     "available_mb": int(free_mb)}
+    return None
+
+
+def _available_memory_mb():
+    """Memory actually available, or None if it cannot be read.
+
+    None means "do not judge" — refusing submits because a stat file could not
+    be parsed would be a self-inflicted outage. `MemAvailable` is the right
+    field: MemFree ignores reclaimable cache and reads far lower than the truth.
+    """
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) / 1024
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def _pending_login_count():
+    """How many dealer logins are holding a browser right now.
+
+    Imported lazily and failing OPEN (0): a login-service import problem must
+    not be able to refuse every submit on the box.
+    """
+    try:
+        import dealer_login_service
+        with dealer_login_service._PENDING_LOCK:
+            return len(dealer_login_service._PENDING)
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 def _job_summary(job_id, job, now=None):
     """One row for GET /jobs — no customer data, so it is safe to list.
 
@@ -250,6 +381,10 @@ def _job_summary(job_id, job, now=None):
     return {
         "job_id": job_id,
         "kind": params.get("kind"),
+        # Which agent holds this slot. A BizzFlow user id (a cuid), not a name or
+        # an email — enough to answer "whose run is this?" without the listing
+        # carrying personal data.
+        "user_key": params.get("user_key"),
         "dry_run": params.get("dry_run"),
         "batch_job_id": params.get("batch_job_id"),
         "status": job.get("status"),
@@ -320,12 +455,18 @@ def jobs_list():
         _evict_finished_jobs_locked(now)
         rows = [_job_summary(jid, job, now) for jid, job in JOBS.items()]
         active, oldest = _active_jobs_locked(now)
+        slots = len(_active_slot_jobs_locked())
 
     # Newest first: the thing you came to look at is almost always the last one.
     rows.sort(key=lambda r: r.get("created_at") or "", reverse=True)
     return jsonify({
         "jobs": rows,
         "active_jobs": active,
+        # Same fields /health carries, so a caller that needs the per-agent rows
+        # does not have to make a second request for the numbers.
+        "slots_in_use": slots,
+        "capacity": MAX_CONCURRENT_JOBS,
+        "max_job_runtime_s": JOB_MAX_RUNTIME,
         "oldest_active_age_s": int(oldest) if oldest is not None else None,
         "reaped": reaped,
     }), 200
@@ -808,15 +949,19 @@ def create_order():
         # Reap first: a job that cannot still be running must not be allowed to
         # refuse a real one.
         _reap_stale_jobs_locked()
-        for job in JOBS.values():
-            if job.get("status") in ("queued", "running"):
-                return jsonify({"success": False, "error": "JOB_IN_PROGRESS",
-                                "message": "The server can only run one browser job at a time."}), 409
+        refusal = _capacity_refusal_locked(user_key)
+        if refusal:
+            status, body = refusal
+            return jsonify(body), status
         job_id = uuid.uuid4().hex
         JOBS[job_id] = {
             "status": "queued",
             "created_at": datetime.utcnow().isoformat(),
-            "params": {"dry_run": dry_run, "kind": "order_entry"},
+            # user_key is recorded so the gate can be PER AGENT rather than
+            # global: without it there is nothing in the registry to tell one
+            # agent's run from another's.
+            "params": {"dry_run": dry_run, "kind": "order_entry",
+                       "user_key": user_key},
         }
 
     # Report this run's completion to BizzFlow so the result email arrives with
@@ -835,7 +980,7 @@ def create_order():
         ).start()
     except Exception as e:  # noqa: BLE001 — the entry is already registered
         # Without this the queued entry outlives the failure and blocks every
-        # later submit with JOB_IN_PROGRESS.
+        # later submit as though the box were at capacity.
         _fail_job_now(job_id, f"Could not start the run: {e}")
         return jsonify({"success": False, "error": "SPAWN_FAILED",
                         "message": f"Could not start the run: {e}"}), 500
@@ -909,7 +1054,7 @@ def _run_batch_job(batch_job_id: str, batch_id: str, jobs, dry_run: bool,
         JOBS[batch_job_id] = job
         # Any member still `queued` never ran — only reachable if run_batch
         # itself died. Left as-is it would look in-flight forever and block the
-        # next /orders call with JOB_IN_PROGRESS, so it is failed explicitly
+        # next /orders call as though the box were at capacity, so it is failed explicitly
         # rather than abandoned.
         for job_id, _order in jobs:
             member = JOBS.get(job_id)
@@ -976,10 +1121,10 @@ def create_order_batch():
         # Reap first: a job that cannot still be running must not be allowed to
         # refuse a real one.
         _reap_stale_jobs_locked()
-        for job in JOBS.values():
-            if job.get("status") in ("queued", "running"):
-                return jsonify({"success": False, "error": "JOB_IN_PROGRESS",
-                                "message": "The server can only run one browser job at a time."}), 409
+        refusal = _capacity_refusal_locked(user_key)
+        if refusal:
+            status, body = refusal
+            return jsonify(body), status
         for job_id, _order in jobs:
             if job_id in JOBS:
                 return jsonify({"success": False, "error": "JOB_ID_TAKEN",
@@ -989,14 +1134,14 @@ def create_order_batch():
             "status": "queued",
             "created_at": datetime.utcnow().isoformat(),
             "params": {"dry_run": dry_run, "kind": "order_batch", "batch_id": batch_id,
-                       "total": len(jobs)},
+                       "total": len(jobs), "user_key": user_key},
         }
         for job_id, _order in jobs:
             JOBS[job_id] = {
                 "status": "queued",
                 "created_at": datetime.utcnow().isoformat(),
                 "params": {"dry_run": dry_run, "kind": "order_entry",
-                           "batch_job_id": batch_job_id},
+                           "batch_job_id": batch_job_id, "user_key": user_key},
             }
 
     try:
@@ -1054,6 +1199,38 @@ def _internal_unauthorized_response():
     return jsonify({"success": False, "error": "UNAUTHORIZED"}), 401
 
 
+def _login_refusal(user_key):
+    """Why this user may not start a dealer login right now, or None.
+
+    Two separate reasons, and only the first is about capacity:
+
+    1. **They have an order job in flight.** A fresh portal login on the same
+       dealer account mid-run may invalidate the very session that run is
+       driving, and because the portal mints the order number early, losing a
+       run mid-flight strands a real order at Unifi. This is the one deliberate
+       behaviour change at the default concurrency of 1.
+    2. **The box is at its browser limit.** A login launches its own Chromium,
+       so it draws from the same budget as order jobs — otherwise it is a second
+       invisible pool and the RAM sizing is fiction.
+    """
+    with JOBS_LOCK:
+        _reap_stale_jobs_locked()
+        for job in JOBS.values():
+            if job.get("status") not in ("queued", "running"):
+                continue
+            if user_key and (job.get("params") or {}).get("user_key") == user_key:
+                return 409, {
+                    "success": False, "error": "ORDER_JOB_IN_PROGRESS",
+                    "message": "A submit is running on this account. Reconnecting now "
+                               "could break it — wait for it to finish.",
+                }
+        slots = len(_active_slot_jobs_locked())
+    if slots + _pending_login_count() >= MAX_BROWSERS:
+        return 409, {"success": False, "error": "SERVER_AT_CAPACITY",
+                     "message": "The server is at its browser limit. Try again shortly."}
+    return None
+
+
 @app.post("/dealer/login/request-otp")
 def dealer_request_otp():
     """Step 1: fill credentials + channel, click GET. Body: {staff_code,
@@ -1073,6 +1250,11 @@ def dealer_request_otp():
     if not staff_code or not password:
         return jsonify({"success": False, "error": "STAFF_CODE_PASSWORD_REQUIRED",
                         "message": "staff_code and password are required."}), 400
+
+    refusal = _login_refusal(user_key)
+    if refusal:
+        status, body = refusal
+        return jsonify(body), status
 
     import dealer_login_service
 
@@ -1165,6 +1347,23 @@ def dealer_logout():
 
     data = request.get_json(silent=True) or {}
     user_key = data.get("user_key") or "shared"
+
+    # Same rule as connecting, for the same reason: a run in flight is driving
+    # this user's session. Deleting the file does not kill the live browser (the
+    # cookies are already in memory), but the run's own reconnect logic and any
+    # later step that re-reads the session would find nothing.
+    with JOBS_LOCK:
+        _reap_stale_jobs_locked()
+        busy = any(
+            job.get("status") in ("queued", "running")
+            and (job.get("params") or {}).get("user_key") == user_key
+            for job in JOBS.values()
+        )
+    if user_key and busy:
+        return jsonify({"success": False, "error": "ORDER_JOB_IN_PROGRESS",
+                        "message": "A submit is running on this account. Disconnecting "
+                                   "now could break it — wait for it to finish, or stop "
+                                   "the submit first."}), 409
 
     import dealer_login_service
 

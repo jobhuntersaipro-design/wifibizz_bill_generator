@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { toast } from "sonner";
 import {
   listOrders,
@@ -75,9 +75,13 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   // and calls it stuck once it passes the server's own cap on a single run.
   const [serverLock, setServerLock] = useState<{
     busy: boolean;
+    /** The blocking run is on THIS account — on a shared login, maybe not this person's. */
+    mine: boolean;
+    slots: number;
+    capacity: number;
     ageS: number | null;
     maxRuntimeS: number | null;
-  }>({ busy: false, ageS: null, maxRuntimeS: null });
+  }>({ busy: false, mine: false, slots: 0, capacity: 1, ageS: null, maxRuntimeS: null });
   // Search + the four filter dropdowns, as one value. One object rather than
   // five useStates so `filterOrders` takes exactly what the toolbar edits, and
   // adding a filter later cannot forget to wire itself into the predicate.
@@ -177,7 +181,10 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
       try {
         const res = await scraperBusy();
         if (active && res.success) {
-          setServerLock({ busy: res.busy, ageS: res.ageS, maxRuntimeS: res.maxRuntimeS });
+          setServerLock({
+            busy: res.busy, mine: res.mine, slots: res.slots,
+            capacity: res.capacity, ageS: res.ageS, maxRuntimeS: res.maxRuntimeS,
+          });
         }
       } catch {
         // Fails open, as the action does: never grey out a button because a
@@ -528,6 +535,19 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     }
   }
 
+  // Which order the account's in-flight run belongs to, named so the blocked
+  // message can say WHAT is running rather than asserting who started it — on a
+  // shared login "you already have a submit running" is false for whoever
+  // pressed nothing. Read off rows already loaded, so it costs no extra request.
+  const runningLabel = useMemo(() => {
+    if (!serverLock.mine) return null;
+    const running = orders.find((o) => o.status === "submitting");
+    if (!running) return null;
+    return running.reference
+      ? `${running.reference} (${running.fullName})`
+      : running.fullName;
+  }, [serverLock.mine, orders]);
+
   if (loading) {
     return (
       <div className="flex flex-col items-center gap-3 rounded-xl border border-[#E3E8EF] bg-white p-12">
@@ -594,6 +614,10 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     serverBusy: serverLock.busy,
     serverBusyAgeS: serverLock.ageS,
     serverMaxRuntimeS: serverLock.maxRuntimeS,
+    serverBusyIsMine: serverLock.mine,
+    serverBusyOrderLabel: runningLabel,
+    serverSlots: serverLock.slots,
+    serverCapacity: serverLock.capacity,
     selected: selected.has(o.id),
     onToggleSelect: () => toggleOne(o.id),
     onSubmit: () => handleSubmit(o.id, o.fullName),
@@ -623,6 +647,10 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
         serverBusy={serverLock.busy}
         serverBusyAgeS={serverLock.ageS}
         serverMaxRuntimeS={serverLock.maxRuntimeS}
+        serverBusyIsMine={serverLock.mine}
+        serverBusyOrderLabel={runningLabel}
+        serverSlots={serverLock.slots}
+        serverCapacity={serverLock.capacity}
         onClearSelection={() => setSelected(new Set())}
         onSubmitSelected={handleSubmitSelected}
       />

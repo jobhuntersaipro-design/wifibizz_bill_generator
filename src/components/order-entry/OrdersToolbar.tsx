@@ -75,6 +75,10 @@ export function OrdersToolbar({
   serverBusy,
   serverBusyAgeS,
   serverMaxRuntimeS,
+  serverBusyIsMine,
+  serverBusyOrderLabel,
+  serverSlots,
+  serverCapacity,
   onClearSelection,
   onSubmitSelected,
 }: {
@@ -91,6 +95,13 @@ export function OrdersToolbar({
   serverBusyAgeS?: number | null;
   /** The server's own cap on one run; past it a job cannot still be working. */
   serverMaxRuntimeS?: number | null;
+  /** The blocking run is on THIS account — not necessarily this person's. */
+  serverBusyIsMine?: boolean;
+  /** Names the running order, e.g. "ORD-0042 (NAME)". */
+  serverBusyOrderLabel?: string | null;
+  /** Slots in use / total, for the capacity sentence above concurrency 1. */
+  serverSlots?: number | null;
+  serverCapacity?: number | null;
   onClearSelection: () => void;
   onSubmitSelected: () => void;
 }) {
@@ -195,7 +206,10 @@ export function OrdersToolbar({
             >
               Clear
             </button>
-            <BlockedHint reason={batchRunning ? null : submitBlockedReason({ serverBusy, serverBusyAgeS, serverMaxRuntimeS })}>
+            <BlockedHint reason={batchRunning ? null : submitBlockedReason({
+              serverBusy, serverBusyAgeS, serverMaxRuntimeS,
+              serverBusyIsMine, serverBusyOrderLabel, serverSlots, serverCapacity,
+            })}>
             <button
               type="button"
               onClick={onSubmitSelected}

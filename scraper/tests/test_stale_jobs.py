@@ -143,15 +143,21 @@ def test_a_stale_job_cannot_refuse_a_real_submit():
 
 
 def test_a_genuinely_running_job_still_refuses_a_second_submit():
-    """The single-browser rule is the reason the lock exists — reaping must not
-    weaken it for a run that is actually working."""
+    """The capacity rule is the reason the lock exists — reaping must not weaken
+    it for a run that is actually working.
+
+    At the default capacity of 1 that refusal is SERVER_AT_CAPACITY (it was
+    JOB_IN_PROGRESS before the gate split into per-user and global). The status
+    is still 409, which is what every caller actually keys on.
+    """
     _reset()
+    api_server.MAX_CONCURRENT_JOBS = 1
     with api_server.JOBS_LOCK:
         api_server.JOBS["working"] = _job("running", age_s=60)
     resp = _client().post(
         "/orders", json={"payload": {"customer": {}}, "dry_run": True}, headers=AUTH)
     assert resp.status_code == 409
-    assert resp.get_json()["error"] == "JOB_IN_PROGRESS"
+    assert resp.get_json()["error"] == "SERVER_AT_CAPACITY"
 
 
 # ── somebody can ask what is holding it ────────────────────────────────────

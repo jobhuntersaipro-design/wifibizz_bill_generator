@@ -664,34 +664,57 @@ export async function deleteOrder(id: string) {
  */
 export async function scraperBusy() {
   const session = await auth();
-  if (!session?.user?.id) {
-    return { success: false as const, busy: false, ageS: null, maxRuntimeS: null, reachable: false };
-  }
+  const idle = {
+    busy: false, mine: false, slots: 0, capacity: 1,
+    ageS: null, maxRuntimeS: null, reachable: false,
+  };
+  if (!session?.user?.id) return { success: false as const, ...idle };
   try {
-    const res = await fetch(`${SCRAPER_API_URL}/health`, {
+    // GET /jobs, not /health: the UI needs to tell "a run on YOUR account" from
+    // "every slot is busy", and those are different sentences. /health is served
+    // publicly by Caddy and must never carry per-agent state, so the per-agent
+    // answer comes from the auth-gated listing instead. This runs server-side in
+    // a Server Action, so the token never reaches the browser.
+    const res = await fetch(`${SCRAPER_API_URL}/jobs`, {
       cache: "no-store",
+      headers: { "X-Internal-Token": ORDER_TOKEN },
       signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) {
-      return { success: true as const, busy: false, ageS: null, maxRuntimeS: null, reachable: false };
-    }
+    if (!res.ok) return { success: true as const, ...idle };
     const data = (await res.json()) as {
-      active_jobs?: number;
-      oldest_active_age_s?: number | null;
+      jobs?: { user_key?: string | null; status?: string; age_s?: number }[];
+      slots_in_use?: number;
+      capacity?: number;
       max_job_runtime_s?: number | null;
+      oldest_active_age_s?: number | null;
     };
+    const capacity = typeof data.capacity === "number" ? data.capacity : 1;
+    const slots = typeof data.slots_in_use === "number" ? data.slots_in_use : 0;
+    const active = (data.jobs ?? []).filter(
+      (j) => j.status === "queued" || j.status === "running",
+    );
+    const own = active.find((j) => j.user_key === session.user!.id);
     return {
       success: true as const,
-      busy: (data.active_jobs ?? 0) > 0,
-      // How long the lock has been held, and the server's own cap on a single
-      // run. Both are absent on a droplet build from before they existed, which
-      // the UI treats as "no age known" rather than as zero.
-      ageS: typeof data.oldest_active_age_s === "number" ? data.oldest_active_age_s : null,
+      // Blocked either way, but for different reasons the caller must separate.
+      busy: !!own || slots >= capacity,
+      /** A run on THIS account — possibly started by someone else on a shared login. */
+      mine: !!own,
+      slots,
+      capacity,
+      // Their own run's age when there is one, else the oldest on the box —
+      // the number shown must belong to the run being described.
+      ageS: own
+        ? (typeof own.age_s === "number" ? own.age_s : null)
+        : (typeof data.oldest_active_age_s === "number" ? data.oldest_active_age_s : null),
       maxRuntimeS: typeof data.max_job_runtime_s === "number" ? data.max_job_runtime_s : null,
       reachable: true,
     };
   } catch {
-    return { success: true as const, busy: false, ageS: null, maxRuntimeS: null, reachable: false };
+    // Fails OPEN, exactly as before: a health read that could not be made must
+    // never grey out a button. The submit itself gives a clear error if the
+    // droplet really is down.
+    return { success: true as const, ...idle };
   }
 }
 
