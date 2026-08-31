@@ -11,7 +11,8 @@ import {
   adminLiveJobs, adminReleaseJob, adminBulkPurgePreview, adminBulkPurge,
   type AdminOrderRow, type AdminStats, type LiveJob,
 } from "@/actions/admin-orders";
-import { purgePhrase, UNCLASSIFIED, bucketLabel, orderErrorLabel, type Granularity } from "@/lib/admin-order-stats";
+import { purgePhrase, bucketLabel, orderErrorLabel, type Granularity } from "@/lib/admin-order-stats";
+import { errorShortLabel } from "@/lib/order-types";
 import { matchesOrderSearch, toCsv } from "@/lib/admin-search";
 import { formatDuration } from "@/lib/order-types";
 import LottieSpot from "@/components/order-entry/LottieSpot";
@@ -24,8 +25,9 @@ const isoDay = (d: Date) => d.toISOString().slice(0, 10);
 
 /** Error codes are snake_case machine tokens; this is the only place they face a human. */
 function prettyCode(code: string): string {
-  if (code === UNCLASSIFIED) return "Unclassified";
-  return code.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+  // Shared with the agent-facing status line, so one code cannot read
+  // "Blacklisted IC" on one table and "Blacklisted ic" on the other.
+  return errorShortLabel(code) ?? code;
 }
 
 export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = {}) {

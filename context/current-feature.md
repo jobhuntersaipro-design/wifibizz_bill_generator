@@ -81,16 +81,50 @@ happened because `order_id_not_found` is unclassified and the deny-list default 
 The `select_plan` check is kept — it costs one read and would catch a warn the portal raises earlier
 on some other order.
 
+### The failure now names itself on both tables (2026-08-31)
+
+Two asks off the first live run's row. The agent's Orders table showed a bare **Failed** pill — the
+reason existed only on the detail page, so the row that showed the problem could not say what it was
+— and the admin Error column printed **"Blacklisted ic"**, a humanised slug with the acronym left
+lowercase.
+
+- **`errorShortLabel(code)`** in `order-types.ts` — one pure function, used by both tables, so a code
+  cannot read "Blacklisted IC" on one and "Blacklisted ic" on the other. It is built from the CODE,
+  not from `SUBMIT_ERROR_CODES`: only ~10 of the scraper's ~55 codes have copy, and a column has to
+  say something sensible for the rest (`order_id_not_found` → "Order ID not found"). A small acronym
+  table cases IC / ID / ERF / MSR / TM / OTP / PII / VoBB.
+- **Short, not the copy title** (the user's choice): these are table cells, and titles like *"That ID
+  number belongs to a different customer"* would wrap or truncate. The full sentence and its fix stay
+  on the failure panel one click away.
+- **Every failure names itself**, not only this one — "Failed" alone says nothing an agent can act
+  on. An uncoded failure reads **Unclassified**, matching the admin table's own bucket; a blank there
+  would read as "no reason recorded" rather than "the portal never said".
+- **Silent while a retry is owed.** The pill reads *Retrying · 2 of 3* in that window because nobody
+  has to do anything yet, and a reason underneath would dress an unfinished run as an outcome — the
+  same rule the pill itself already follows.
+
+**Verified in the browser** on the dev server against the real signed-in session, reading the live
+DOM rather than a picture, with ORD-0003 staged through three states and **restored to exactly what
+it was** (`warning`, both error fields NULL, no retry owed): the Status cell reads
+*Warning · Blacklisted IC · Needs voiding*; with the code cleared and only a message left it reads
+*Unclassified*; with a retry owed it reads *Retrying · 2 of 3* and **no reason line**; the other three
+rows (Cancelled, Draft, Submitted) show none. At 375px the mobile card carries it too, right edge 342
+of 375, and there is no horizontal overflow at either width.
+
+**NOT verified in a browser: the admin column** — `/admin/orders` sits behind the expired local admin
+JWT, the same standing gap as Phases 5–7, and signing in would put the admin password in the
+transcript. The change there is `prettyCode` delegating to the same unit-tested function.
+
 ### Verified
 
 **Tests:** 8 in `test_select_plan_gesture.py` (the blacklist reported with its code; the same warn
 found in the TOP document rather than the iframe; **the warn stacked with the Customer dialog — the
 live shape**; the Customer dialog alone NOT read as a refusal; the order-number wait stopping on the
 refusal rather than on the clock; the happy path still reading its number; an unrecognised dialog not
-ending the run; the clean choice still passing) and 4 new checks in `test_error_dialog.py` (the
+ending the run; the clean choice still passing) 5 in `submit-error-codes.test.ts` for the label (the acronyms, an ordinary code, a code with no copy at all, the Unclassified bucket, and null for nothing) and 4 new checks in `test_error_dialog.py` (the
 live sentence mapping, `40300805` extracted, the spaced spelling, and the blacklist rule sitting
 first in the table without swallowing the stock refusal). **365 scraper passed + 1 skipped** (was
-357), **758 vitest** (was 756), `npm run build`, lint identical to baseline (9642).
+357), **763 vitest** (was 756), `npm run build`, lint identical to baseline (9642).
 
 **NOT verified live: the corrected detection.** The first live run is what found the fix above, and
 the second has not been made — the fixtures reproduce the live DOM shape from that run's own
