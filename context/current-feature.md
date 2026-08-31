@@ -5,7 +5,8 @@
 **Status:** CODE COMPLETE, VERIFIED IN BROWSER — **committed directly on `main` (`9a2062f`), NOT on a
 feature branch**: the branch step was skipped by mistake after Phase 2's merge. The work is verified and
 green, so it stands rather than being rewritten, but it is a workflow deviation and is named as one.
-Not yet pushed. Vercel-only — no scraper change, no migration. Phase 3 of the 2026-08-31 product plan.
+**PUSHED AND DEPLOYED 2026-08-31** — build compiled clean, Build Completed, `bizzflow.top` aliased.
+Vercel-only — no scraper change, no migration. Phase 3 of the 2026-08-31 product plan.
 Spec: [context/features/motion-pack-1.md](features/motion-pack-1.md).
 
 **The constraint that shaped it:** the app owns exactly five Lottie assets, exported from the user's
