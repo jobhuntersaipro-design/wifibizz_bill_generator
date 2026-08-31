@@ -21,6 +21,16 @@ import { mandatoryGroupsFor } from "@/actions/plans";
 export const SCRAPER_API_URL = process.env.SCRAPER_API_URL ?? "http://localhost:5000";
 export const ORDER_TOKEN = process.env.ORDER_ENTRY_API_TOKEN ?? "";
 
+/**
+ * How long to wait before trying a hand-off the droplet refused as busy.
+ *
+ * Not a backoff on failure — it is "come back when a slot is likely free", and
+ * the length is a guess at one short job rather than a policy. Lives here (not
+ * in order-retry) because `startSubmitRun` stamps it too: a MANUAL submit that
+ * hits SERVER_AT_CAPACITY must not strand as a bare Failed with nothing owed.
+ */
+export const BUSY_RETRY_DELAY_MS = 2 * 60 * 1000;
+
 export const SESSION_EXPIRED_MSG =
   "Your dealer session has expired. Reconnect on the Order Entry page, then submit again.";
 
@@ -135,8 +145,27 @@ export async function startSubmitRun(
   const fail = async (message: string, opts_: { busy?: boolean } = {}) => {
     await prisma.order.update({
       where: { id: order.id },
-      data: { status: "failed", errorMessage: message },
+      data: {
+        status: "failed",
+        errorMessage: message,
+        // A busy refusal (409 at capacity, 503 low memory, or an unreachable
+        // box) is the DROPLET's state, not this order's failure — so the same
+        // write that files it as failed leaves a due date for the retry sweep.
+        // One update, not two: a separate write would open a window where the
+        // row reads Failed with nothing owed, which is the live incident this
+        // exists to close (a manual submit refused at capacity stranded as
+        // "unclassified failure" until a human resubmitted).
+        ...(opts_.busy ? { autoRetryAt: new Date(Date.now() + BUSY_RETRY_DELAY_MS) } : {}),
+      },
     });
+    if (opts_.busy) {
+      await recordEvent({
+        orderId: order.id,
+        attempt,
+        status: "info",
+        message: "The order service was busy with another job — this submit will start again shortly.",
+      });
+    }
     return { ok: false as const, busy: !!opts_.busy, error: message };
   };
 
