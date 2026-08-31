@@ -2,9 +2,11 @@
 
 ## In-App Outcome Notifications
 
-**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/in-app-outcome-notifications`).
-Vercel-only — no scraper change. **Needs `prisma migrate deploy` on production** (`orders.outcome_seen_at`
-+ backfill; Vercel's build script applies it automatically). Phase 2 of the 2026-08-31 product plan.
+**Status:** MERGED TO MAIN AND DEPLOYED 2026-08-31 (`7c37f83`, merge `09c179d`; branch deleted).
+Vercel-only — no scraper change. The migration (`orders.outcome_seen_at` + backfill) was **applied to
+production during the Vercel build** — confirmed in the build log (`Applying migration
+20260831060000_order_outcome_seen` → Compiled → Build Completed), `bizzflow.top` aliased to the build.
+Phase 2 of the 2026-08-31 product plan.
 Spec: [context/features/in-app-outcome-notifications.md](features/in-app-outcome-notifications.md).
 
 One concept: an **unseen outcome** — a terminal order (`submitted`/`failed`/`warning`) no signed-in eye
