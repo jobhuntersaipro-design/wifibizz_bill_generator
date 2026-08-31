@@ -12,9 +12,16 @@ import { createHash, randomBytes } from "crypto";
 /** 30 minutes — long enough to read a mail on a phone, short enough to leak safely. */
 export const RESET_TOKEN_TTL_MS = 30 * 60 * 1000;
 
-export function newResetToken(): { token: string; tokenHash: string; expiresAt: Date } {
+/** 7 days. An invite travels over WhatsApp to somebody who may not open it
+ * today; a 30-minute invite is dead before the agent is off the phone. Still
+ * hashed, still single-use — only the clock differs. */
+export const INVITE_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+export function newResetToken(
+  ttlMs: number = RESET_TOKEN_TTL_MS,
+): { token: string; tokenHash: string; expiresAt: Date } {
   const token = randomBytes(32).toString("base64url");
-  return { token, tokenHash: hashResetToken(token), expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS) };
+  return { token, tokenHash: hashResetToken(token), expiresAt: new Date(Date.now() + ttlMs) };
 }
 
 export function hashResetToken(token: string): string {

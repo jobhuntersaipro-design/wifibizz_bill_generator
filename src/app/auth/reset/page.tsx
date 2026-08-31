@@ -16,7 +16,12 @@ import { AuthShell } from "@/components/auth/AuthShell";
  */
 function ResetInner() {
   const router = useRouter();
-  const token = useSearchParams().get("token") ?? "";
+  const params = useSearchParams();
+  const token = params.get("token") ?? "";
+  // An invite IS a set-password link — same token machinery, same form, same
+  // action. Only the words differ, because "reset" to somebody who never had a
+  // password reads as an error.
+  const welcome = params.get("welcome") === "1";
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
@@ -37,7 +42,12 @@ function ResetInner() {
   }
 
   return (
-    <AuthShell title="Choose a new password" subtitle="The link works once and expires after 30 minutes.">
+    <AuthShell
+      title={welcome ? "Welcome to BizzFlow" : "Choose a new password"}
+      subtitle={welcome
+        ? "Choose the password you'll sign in with. The link works once."
+        : "The link works once and expires after 30 minutes."}
+    >
       <form onSubmit={submit} className="space-y-4">
         {error && (
           <p className="rounded-lg border border-[#FCA5A5] bg-[#FEF2F2] px-4 py-3 text-sm text-[#B42318]">
@@ -57,7 +67,7 @@ function ResetInner() {
         </div>
         <Button type="submit" disabled={busy}
           className="w-full h-10 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540]">
-          {busy ? "Saving…" : "Set new password"}
+          {busy ? "Saving…" : welcome ? "Set my password" : "Set new password"}
         </Button>
       </form>
     </AuthShell>

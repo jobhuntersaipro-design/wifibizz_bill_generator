@@ -4,7 +4,7 @@
  * POST would meet them.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { hashResetToken, isTokenUsable, newResetToken, passwordProblem, RESET_TOKEN_TTL_MS } from "@/lib/password-reset";
+import { hashResetToken, isTokenUsable, newResetToken, passwordProblem, RESET_TOKEN_TTL_MS, INVITE_TOKEN_TTL_MS } from "@/lib/password-reset";
 
 const userFindUnique = vi.fn();
 const userFindFirst = vi.fn();
@@ -153,5 +153,25 @@ describe("the pure token rules", () => {
   it("shares one password rule between change and reset", () => {
     expect(passwordProblem("short")).toMatch(/8 characters/);
     expect(passwordProblem("longenough")).toBeNull();
+  });
+});
+
+describe("invite tokens", () => {
+  it("live seven days — an invite travels over WhatsApp, not a fresh inbox", () => {
+    const inv = newResetToken(INVITE_TOKEN_TTL_MS);
+    const days = (inv.expiresAt.getTime() - Date.now()) / 86400_000;
+    expect(days).toBeGreaterThan(6.9);
+    expect(days).toBeLessThanOrEqual(7);
+  });
+
+  it("default stays the 30-minute reset — a longer default would silently widen every reset", () => {
+    const r = newResetToken();
+    expect(r.expiresAt.getTime() - Date.now()).toBeLessThanOrEqual(RESET_TOKEN_TTL_MS);
+  });
+
+  it("are otherwise the SAME machinery: hashed, and judged by the same usability rule", () => {
+    const inv = newResetToken(INVITE_TOKEN_TTL_MS);
+    expect(hashResetToken(inv.token)).toBe(inv.tokenHash);
+    expect(isTokenUsable({ usedAt: null, expiresAt: inv.expiresAt })).toBe(true);
   });
 });

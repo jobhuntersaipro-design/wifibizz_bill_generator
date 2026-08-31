@@ -5,7 +5,7 @@ import { ConnectionBadge } from "@/components/admin/order-oversight";
 import type { ConnectionView } from "@/lib/agent-connection";
 
 import { useState, useEffect, useCallback } from "react";
-import { getUsers, createUser, updateUser, deleteUser, topupUserCaseLimit, setOrderEntryAccess } from "@/actions/admin-users";
+import { getUsers, createUser, createInviteLink, updateUser, deleteUser, topupUserCaseLimit, setOrderEntryAccess } from "@/actions/admin-users";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -97,6 +97,23 @@ export function UserManagement() {
     setModalMode("create");
   }
 
+  async function inviteUser(user: UserRow) {
+    const res = await createInviteLink(user.id);
+    if (!res.success || !res.url) {
+      toast.error(res.error ?? "Could not create the invite link");
+      return;
+    }
+    // Clipboard is the delivery — admin pastes it into whatever channel they
+    // already use with this agent. The URL is also shown, because clipboard
+    // access can be refused and a link you cannot see is a link you cannot send.
+    try {
+      await navigator.clipboard.writeText(res.url);
+      toast.success(`Invite link copied for ${user.name || user.email}`, { description: res.url });
+    } catch {
+      toast.info("Copy this invite link", { description: res.url, duration: 15000 });
+    }
+  }
+
   function openEdit(user: UserRow) {
     setEditingUser(user);
     setModalMode("edit");
@@ -178,7 +195,9 @@ export function UserManagement() {
                     {user.passwordRaw ? (
                       <PasswordCell password={user.passwordRaw} />
                     ) : (
-                      <span className="text-[#697386]">—</span>
+                      /* Password-less = invited: the agent sets their own
+                         through the link, and there is nothing here to show. */
+                      <span className="rounded-full bg-[#EFF4FF] px-2 py-0.5 text-[11px] text-[#3538CD]">Invited</span>
                     )}
                   </td>
                   <td className="px-4 py-3 hidden lg:table-cell">
@@ -236,6 +255,13 @@ export function UserManagement() {
                         className="inline-flex items-center px-2.5 py-1 text-xs font-medium text-[#09825D] hover:bg-green-50 rounded-md transition-colors"
                       >
                         Topup
+                      </button>
+                      <button
+                        onClick={() => void inviteUser(user)}
+                        className="inline-flex items-center px-2.5 py-1 text-xs font-medium text-[#425466] hover:bg-[#F6F9FC] rounded-md transition-colors"
+                        title="Copy a 7-day set-password link. Clicking again mints a fresh one."
+                      >
+                        Invite
                       </button>
                       <button
                         onClick={() => openEdit(user)}
@@ -354,7 +380,27 @@ function UserFormModal({
     }
 
     if (result.success) {
-      toast.success(mode === "create" ? "User created" : "User updated");
+      // A password-less create is an INVITE flow: hand the admin the link in
+      // the same gesture, so "create then hunt for the Invite button" never
+      // happens on the happy path.
+      // `result` is a union with updateUser's return, which TS cannot narrow
+      // through `in` here — the create branch is the only one that sets it.
+      const createdId = (result as { userId?: string }).userId;
+      if (mode === "create" && !formData.password && createdId) {
+        const invite = await createInviteLink(createdId);
+        if (invite.success && invite.url) {
+          try {
+            await navigator.clipboard.writeText(invite.url);
+            toast.success("User created — invite link copied", { description: invite.url });
+          } catch {
+            toast.info("User created — copy the invite link", { description: invite.url, duration: 15000 });
+          }
+        } else {
+          toast.success("User created — use the Invite button to make a link");
+        }
+      } else {
+        toast.success(mode === "create" ? "User created" : "User updated");
+      }
       onSaved();
       onClose();
     } else {
@@ -398,8 +444,7 @@ function UserFormModal({
                   id="password"
                   name="password"
                   type={showPassword ? "text" : "password"}
-                  required={mode === "create"}
-                  placeholder={mode === "edit" ? "••••••••" : ""}
+                  placeholder={mode === "edit" ? "••••••••" : "leave blank to invite instead"}
                   className="rounded-lg h-9 border-[#E3E8EF] pr-9"
                 />
                 <button

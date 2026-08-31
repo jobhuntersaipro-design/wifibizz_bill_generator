@@ -1,5 +1,50 @@
 # Current Feature
 
+## Onboarding — Invite Links and a Getting-Started Checklist
+
+**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/agent-onboarding`). Vercel-only —
+no scraper change, **no migration** (invites reuse `password_reset_tokens`). Phase 6 of the 2026-08-31
+product plan. Spec: [context/features/agent-onboarding.md](features/agent-onboarding.md).
+
+### Built
+
+- **An invite IS a set-password link.** `newResetToken()` takes a TTL; invites get 7 days (an invite
+  travels over WhatsApp to somebody who may not open it today), resets keep 30 minutes. Same hashing,
+  same single-use claim, same page — `/auth/reset?welcome=1` swaps the words, because "reset" to
+  somebody who never had a password reads as an error.
+- **Copy-link delivery, audited.** `createInviteLink(userId)` — admin-gated, writes `invite_created`
+  to the Phase 5 trail — returns the URL; the Users row gains an **Invite** button that copies it
+  (with the URL shown in the toast, because clipboard access can be refused and a link you cannot see
+  is a link you cannot send). A second click mints a fresh token: resend and revoke in one gesture.
+- **Create-user no longer requires a password.** Blank creates a password-less account (bcrypt against
+  null is already false — no new sign-in failure mode), the modal mints and copies the invite in the
+  same gesture, and the Users table shows an **Invited** chip where the password would be.
+- **Getting-started checklist** on the dashboard: two items, only for order-entry agents, only while
+  incomplete. Judged on `lastConnectedAt` — the FIRST connection ever — not session liveness, so a
+  lapsed session (the sidebar warning's job) never reopens a checklist somebody finished weeks ago.
+  No dismiss: completion is the dismissal.
+
+### Verified in the browser
+
+The welcome variant (`?welcome=1`): title "Welcome to BizzFlow", button "Set my password". The
+checklist card with `lastConnectedAt` staged NULL — both items, the connect link — and the card GONE
+after the restore. Restore is byte-exact: the driver reads the original `2026-08-09T05:40:57.645Z`.
+
+**The neon driver's timezone handling cost two correction rounds AGAIN** (write 05:40 → reads 13:40;
+the driver subtracts 8h reading naive timestamps on a UTC+8 machine). The working rule, recorded for
+next time: **a naive timestamp read through the driver shows stored+(-8h); to restore a driver-read
+value of T, write T+8h as the naive literal.**
+
+**Tests:** 3 new (invite TTL ≈ 7 days; the default UNCHANGED at 30 minutes — a longer default would
+silently widen every reset; same hash/usability machinery). **732 vitest passing**, `npm run build`,
+lint identical to baseline (9642), `tsc` unchanged.
+
+**NOT verified:** the full invite chain (mint → open → set password → sign in) — it would create or
+alter a real credential; the pieces are each verified and the chain is Phase 4's reset flow with
+different words. The admin-side Invite button and Invited chip have not rendered (admin JWT expired
+locally) — first real use after deploy is their live test, alongside the two debts already queued
+(Phase 4's end-to-end reset, Phase 5's first Activity row).
+
 ## People Audit Trail
 
 **Status:** MERGED TO MAIN AND DEPLOYED 2026-08-31 (`b208a1e`, merge `3341e37`; branch deleted).
