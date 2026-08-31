@@ -560,6 +560,11 @@ function OrderTable({ rows, onRestore, onPurge }: {
                 <Link href={`/admin/agents/${o.agentId}`} className="text-[#425466] hover:text-[#635BFF] hover:underline">
                   {o.agentEmail ?? "—"}
                 </Link>
+                {/* The staff code rides under the e-mail rather than taking its
+                    own column: this table has no breakpoints, and the Order
+                    cell beside it already reads as two lines. A dash rather
+                    than a blank when the agent has never connected. */}
+                <div className="text-xs tabular-nums text-[#697386]">{o.agentStaffCode ?? "—"}</div>
               </td>
               <td className="py-2.5 pr-3">
                 <StatusPill status={o.status} deleted={!!o.deletedAt} />

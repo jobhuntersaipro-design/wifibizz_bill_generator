@@ -1,5 +1,62 @@
 # Current Feature
 
+## Staff Code on Both Order Tables
+
+**Status:** CODE COMPLETE, AGENT TABLE VERIFIED IN BROWSER (branch `feature/staff-code-columns`, not
+yet committed). Vercel-only — no scraper change, no migration.
+
+Ask (2026-08-31): both order tables — admin `/admin/orders` oversight and the agent-facing Orders tab
+— must say which **dealer staff code** an order belongs to.
+
+### The honest limit, stated first
+
+**No staff code is recorded on an order.** `DealerAccount.staffCode` is one row per BizzFlow user —
+the code that user is *currently* connected as. So the column shows the OWNING agent's current staff
+code, joined at read time, and that carries two consequences the user accepted when choosing this
+option over a migration:
+
+1. If an agent reconnects under a different staff code, every one of their past rows re-labels.
+2. A superadmin submitting another agent's draft runs under their OWN dealer session, so the code
+   shown is the draft owner's, not necessarily the one the portal saw.
+
+Freezing the code onto the order at submit time would fix both and needs a migration; it was
+declined for now. An agent who has never connected shows a dash, never a blank.
+
+### Built
+
+- `staffCode` on `OrderListItem`, filled by `toOrderListItem` from
+  `user.dealerAccount.staffCode`. **Not superadmin-gated** like `createdByEmail` is — a
+  non-superadmin only ever sees their own orders, so the value is their own code.
+- Agent table: a **Staff Code** column at `2xl`, spliced next to Made By so the two "who" columns sit
+  together, plus a field on the mobile card. The header splice and the row's cell order are changed
+  together — the one earlier bug in this table was a header spliced at a different point than the
+  cell, which silently mislabelled every column to its right.
+- Admin table: the code renders as a **second line under the agent's e-mail** rather than a new
+  column — that table has no breakpoints and its Order cell already uses the same two-line pattern,
+  so this costs no width.
+
+### Verified in the browser
+
+On the real signed-in session against the dev database, read off the live DOM rather than a picture,
+because the one bug this table has had was a header spliced at a different point than its cell: the
+headers read `… BizzFlow Order ID · Made By · Staff Code · Package …` and each row's values land in
+the matching cells (`aiboot1@gmailcom` under Made By, `TMRS00517` under Staff Code). The mobile card
+carries the field too, and there is **no horizontal overflow at 1920 or 375**.
+
+**Three dev users genuinely share `TMRS00517`** — confirmed against the database, not inferred from
+the screen — so identical codes across three different agents' rows is the shared-dealer-login state
+these docs already record, not a broken join.
+
+**Deliberately NOT changed:** the admin search box and the CSV export still cover name / IC /
+ORD-reference / portal order number and do not know about the staff code. Adding it changes the
+export's shape and the search placeholder, and neither was asked for.
+
+**NOT verified:** the admin table on screen — it sits behind the expired local admin JWT, the same
+standing gap as Phases 5–7's admin halves, and signing in would put the admin password in the
+transcript. The change there is one rendered line off a field the action now selects. Also
+unverified: the dash for an agent with no dealer account — every order in the dev database belongs to
+one of the three users who have a code.
+
 ## The 2026-08-31 Product Plan — COMPLETE (8 built, 1 closed as already-existing)
 
 **Status:** DONE 2026-08-31. All shipped phases merged and deployed to production the same day.
