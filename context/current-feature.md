@@ -32,6 +32,50 @@ WhatsApp/Telegram. No mascot, no confetti. State-matcher bug left as-is. Shared-
 the concurrency ramp (Phase 4 of the earlier per-agent-concurrency spec) remain open and are
 prerequisites of each other.
 
+## Fix — a Busy Refusal Stranded a Manual Submit as "Failed / Unclassified"
+
+**Status:** CODE COMPLETE (branch `fix/busy-submit-defers`, not yet committed). Vercel-only — no
+scraper change, no migration.
+
+Reported live 2026-08-31 with two accounts signed in: account 1 submitting normally, account 2's
+submit refused with *"All 1 submit slots are busy — your turn shortly"* and ORD-0062 stranded as
+**Failed** with *"Tell your admin: an unclassified failure."*
+
+### The concurrency half is NOT a bug — it is the shipped N=1 state
+
+The per-account gate worked exactly as designed: account 2 got `SERVER_AT_CAPACITY` (the global
+refusal), not `USER_JOB_IN_PROGRESS` — proof the registry correctly told the two accounts apart.
+What blocked it is the **global cap**: `OE_MAX_CONCURRENT_JOBS` was never raised on the droplet, so
+`/health` reports `capacity: 1` — the documented "ships inert at N=1" state. Phase 4 (droplet
+resize + ramp 1→2→3→4) remains the user's to trigger; the standing rule holds: never raise N
+without raising vCPU/RAM (~700 MB per concurrent browser; the box has ~1.5 GB free with
+`MIN_FREE_MB=700`, so N=2 without a resize would likely be refused by the memory valve anyway).
+
+### The half that WAS a bug, fixed here
+
+A **manual** submit refused as busy landed on `status: failed` with the droplet's sentence and
+**nothing owed** — `startSubmitRun`'s `fail()` wrote no `autoRetryAt`, no webhook ever fires for a
+run that never started, so the sweep never came back and the row read as a terminal failure with
+alarming admin copy. Only the automatic-retry path deferred on busy.
+
+`fail()` now stamps `autoRetryAt = now + BUSY_RETRY_DELAY_MS` **in the same update** that writes
+`failed` when the refusal is busy (409 at capacity, 503 low memory, or an unreachable/timed-out
+box), plus an info event in the trail. The pill reads **Retrying · 1 of 3** instead of Failed, and
+the existing sweep (page load + 5-minute cron) hands the run back to the droplet once a slot frees.
+`BUSY_RETRY_DELAY_MS` moved from `order-retry.ts` into `order-start.ts` (order-retry already
+imports order-start, so no cycle) because both sides now stamp it. A non-busy refusal (bad payload,
+missing token) stays a plain failure with nothing owed. Batch aborts are deliberately untouched —
+deferring members individually would change batch semantics; noted, not built.
+
+**Tests:** 4 new in `order-start-busy.test.ts` (the 409 deferral in one write; unreachable defers
+too; a non-busy refusal stamps nothing; the droplet's busy sentence passes `retryVerdict`). The
+`order-retry.test.ts` mock of order-start gained the moved constant — without it the deferral date
+computed from NaN. **756 vitest passing**, `npm run build`, lint identical to baseline (9642).
+
+**NOT verified:** the live loop end to end (two real accounts colliding, then the deferred submit
+starting on its own once the slot frees) — the deferral write and the sweep predicate are the same
+machinery the auto path has run since the auto-retry feature shipped.
+
 ## Clone Order, and a Duplicate-IC Hint
 
 **Status:** MERGED TO MAIN AND DEPLOYED 2026-08-31 (`8c053f7`, merge `b2cf172`; branch deleted).

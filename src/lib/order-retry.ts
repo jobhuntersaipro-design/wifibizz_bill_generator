@@ -14,18 +14,8 @@
 import { prisma } from "@/lib/prisma";
 import { ACTIVE_ORDER } from "@/lib/order-scope";
 import { recordEvent } from "@/lib/order-history";
-import { startSubmitRun } from "@/lib/order-start";
+import { BUSY_RETRY_DELAY_MS, startSubmitRun } from "@/lib/order-start";
 import { MAX_AUTO_RETRIES, retryVerdict } from "@/lib/retry-policy";
-
-/**
- * How long to wait before trying a hand-off that the droplet refused.
- *
- * Not a backoff on failure — retries are immediate by design. This covers only
- * the case where the single browser was busy with somebody else's job, so it is
- * "come back when the box is likely free", and the length is a guess at one
- * short job rather than a policy.
- */
-const BUSY_RETRY_DELAY_MS = 2 * 60 * 1000;
 
 export type RetryOutcome =
   /** A run was handed to the scraper. The caller must NOT send a result email. */

@@ -35,6 +35,9 @@ vi.mock("@/lib/order-history", () => ({
 }));
 vi.mock("@/lib/order-start", () => ({
   startSubmitRun: (...a: unknown[]) => startSubmitRun(...a),
+  // The busy-deferral delay really lives in order-start (startSubmitRun stamps
+  // it too); the mock must carry it or the deferral date computes from NaN.
+  BUSY_RETRY_DELAY_MS: 2 * 60 * 1000,
 }));
 
 const { maybeAutoRetry, sweepPendingRetries } = await import("@/lib/order-retry");
