@@ -45,20 +45,58 @@ its own failure.
 - **`TERMINAL_ERROR_CODES`** gains it. The deny-list default is to retry, so without this the
   automatic retry would ask three more times.
 
+### The first live run found it in the wrong place — fixed (2026-08-31, `cmth00dae…`)
+
+The check shipped reading **the topmost** dialog two seconds after the offer row was chosen. The live
+run's own log says what that read: `dialog after choosing the offer (continuing): Customer Fuzzy
+Search Cancel`. The portal opens the Customer fuzzy-search dialog on that very click (the ORD-0009
+case), and the two captures settle the sequence — `submit-1-offer_grid.jpg` shows the Customer dialog
+and **no warn**, `submit-1-failure.jpg` shows the blacklist warn over the offer grid with the Customer
+dialog gone. So **the portal validates the IC as the order is created, not when the plan is picked**.
+
+The run therefore walked on, spent its full 20-second wait for an order number that was never going
+to be minted, and reported `order_id_not_found` — a code that says the number is missing, not why,
+and which is not terminal, so the automatic retry asked again 7 seconds later. Both of the user's
+complaints are that one miss.
+
+Three changes:
+
+- **Read EVERY visible dialog, not the topmost.** `read_dialog_texts` + `classified_refusal` return
+  the first dialog that `map_error` can name (or that carries a `[code]`), so a refusal stacked
+  under, over or beside a legitimate dialog is still found. Pinned by a test that asserts the warn is
+  **not** the dialog a topmost-only reader would have picked — without which the test would pass
+  vacuously.
+- **The order-number wait is where it bites.** `_capture_order_id` takes `page` and stops as soon as
+  a nameable refusal is on screen, and the `order_id_not_found` branch reports that refusal instead.
+  A test pins the early stop (under 10s, not the full 20) and that the happy path still reads its
+  number.
+- **The attach-customer failure path** consults the same reader, because a portal refusal on screen
+  outranks a generic "could not attach" — except `customer_ic_name_mismatch`, which is our OWN
+  deliberate refusal and more specific than anything the portal is saying.
+
+**"Do not try again" needs no separate work, and that is the point of classifying it:** the retry
+happened because `order_id_not_found` is unclassified and the deny-list default is to retry. As
+`blacklisted_ic` it is in `TERMINAL_ERROR_CODES`, so the first detection ends it.
+
+The `select_plan` check is kept — it costs one read and would catch a warn the portal raises earlier
+on some other order.
+
 ### Verified
 
-**Tests:** 4 new in `test_select_plan_gesture.py` (the blacklist reported with its code; the same
-warn found when the portal puts it in the TOP document rather than the iframe; an unrecognised dialog
-NOT ending the run; the clean choice still passing) and 4 new checks in `test_error_dialog.py` (the
+**Tests:** 8 in `test_select_plan_gesture.py` (the blacklist reported with its code; the same warn
+found in the TOP document rather than the iframe; **the warn stacked with the Customer dialog — the
+live shape**; the Customer dialog alone NOT read as a refusal; the order-number wait stopping on the
+refusal rather than on the clock; the happy path still reading its number; an unrecognised dialog not
+ending the run; the clean choice still passing) and 4 new checks in `test_error_dialog.py` (the
 live sentence mapping, `40300805` extracted, the spaced spelling, and the blacklist rule sitting
-first in the table without swallowing the stock refusal). **361 scraper passed + 1 skipped** (was
+first in the table without swallowing the stock refusal). **365 scraper passed + 1 skipped** (was
 357), **758 vitest** (was 756), `npm run build`, lint identical to baseline (9642).
 
-**NOT verified: the live portal.** The fixtures prove the algorithm, not the real DOM — in
-particular which container the warn actually renders in and whether its body is a `.modal-message`.
-The user is running the live test with a known blacklisted IC (820902075145, Kartik a/l Subramaniam,
-Unifi Home 500Mbps Premium Value With Device (36M) at the Eco Majestic address). If the reader misses
-it, the run degrades to today's behaviour — a downstream timeout — rather than to anything worse.
+**NOT verified live: the corrected detection.** The first live run is what found the fix above, and
+the second has not been made — the fixtures reproduce the live DOM shape from that run's own
+captures, which is a long way better than a guess but still not the portal. What IS live-proven:
+the warn's wording and code (`[40300805]`), that it renders while the order number is being waited
+for, and that the Customer dialog shares the screen with it a moment earlier.
 
 ## Staff Code on Both Order Tables
 
