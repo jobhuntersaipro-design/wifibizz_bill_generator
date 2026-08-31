@@ -466,7 +466,7 @@ async function isSuperAdmin(userId: string): Promise<boolean> {
  * row looks like.
  */
 function toOrderListItem(
-  o: Prisma.OrderGetPayload<{ include: { user: { select: { email: true } } } }>,
+  o: Prisma.OrderGetPayload<{ include: { user: { select: { email: true, dealerAccount: { select: { staffCode: true } } } } } }>,
   opts: { superAdmin: boolean; installationDateOverride?: string | null },
 ): OrderListItem {
   return {
@@ -512,6 +512,12 @@ function toOrderListItem(
       : [],
     createdAt: o.createdAt.toISOString(),
     createdByEmail: opts.superAdmin ? o.user?.email ?? null : null,
+    // The OWNING agent's dealer staff code, read live from their DealerAccount.
+    // Deliberately NOT superadmin-gated the way createdByEmail is: a
+    // non-superadmin only ever receives their own orders, so this is their own
+    // code. Null when that agent has never connected a dealer account — the
+    // column shows a dash rather than pretending to a code.
+    staffCode: o.user?.dealerAccount?.staffCode ?? null,
   };
 }
 
@@ -530,7 +536,7 @@ export async function getOrderDetail(id: string): Promise<{
   const superAdmin = await isSuperAdmin(session.user.id);
   const order = await prisma.order.findFirst({
     where: superAdmin ? { id, ...ACTIVE_ORDER } : { id, userId: session.user.id, ...ACTIVE_ORDER },
-    include: { user: { select: { email: true } } },
+    include: { user: { select: { email: true, dealerAccount: { select: { staffCode: true } } } } },
   });
   if (!order) return { success: false, error: "Order not found.", data: null };
 
@@ -590,7 +596,7 @@ export async function listOrders(): Promise<{
     // Superadmins see ALL drafts; everyone else only their own.
     where: superAdmin ? { ...ACTIVE_ORDER } : { userId: session.user.id, ...ACTIVE_ORDER },
     orderBy: { createdAt: "desc" },
-    include: { user: { select: { email: true } } },
+    include: { user: { select: { email: true, dealerAccount: { select: { staffCode: true } } } } },
   });
 
   // Read the installation appointment out of the e-RF for any completed order

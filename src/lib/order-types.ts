@@ -1236,6 +1236,10 @@ export interface OrderListItem {
   documents: OrderDocument[];
   createdAt: string;
   createdByEmail?: string | null; // only populated for superadmins (all-drafts view)
+  // Dealer staff code of the agent who owns the order, joined at READ time from
+  // DealerAccount — nothing stamps it onto the order itself, so it reflects the
+  // code that agent is connected as today. Null = never connected.
+  staffCode?: string | null;
 }
 
 /* ── Drafts-table display helpers ─────────────────────────────────────────── */

@@ -718,6 +718,13 @@ export function OrderRow({
         </TableCell>
       )}
 
+      {/* Sits immediately after Made By, matching the COLUMNS splice. An agent
+          who has never connected a dealer account has no code, and a dash says
+          so — a blank cell reads as a rendering fault. */}
+      <TableCell className="hidden px-4 py-4 align-middle text-[12px] tabular-nums text-[#425466] 2xl:table-cell">
+        {o.staffCode ?? "—"}
+      </TableCell>
+
       <TableCell className="max-w-[220px] px-4 py-4 align-middle text-[13px] text-[#425466]">
         <OneLine text={o.offerName} className="leading-snug" />
         {o.remarks?.trim() && <Remarks text={o.remarks} />}
@@ -821,6 +828,7 @@ export function OrderCard({
             how "08-09" becomes genuinely ambiguous. */}
         <Field label="Installation" value={formatInstallation(o.installationDate)} />
         {isSuperAdmin && <Field label="Made by" value={o.createdByEmail ?? null} />}
+        <Field label="Staff Code" value={o.staffCode ?? null} />
         <div className="flex gap-2">
           <dt className="w-20 shrink-0 text-[#8792A2]">Order No.</dt>
           <dd className="min-w-0 flex-1">
