@@ -23,6 +23,7 @@ export type AuditAction =
   | "order_restored"
   | "order_purged"
   | "job_released"
+  | "invite_created"
   | "password_changed"
   | "password_reset";
 

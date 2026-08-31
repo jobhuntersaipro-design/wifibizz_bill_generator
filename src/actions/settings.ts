@@ -496,3 +496,34 @@ export async function sendTestNotification(typed: string) {
   }
   return { success: true as const, to: target.to };
 }
+
+/**
+ * The getting-started checklist's one question: has this agent ever connected
+ * a dealer account? Judged on lastConnectedAt, not the session's liveness — a
+ * lapsed session is a RECONNECT problem (the sidebar warning's job), not an
+ * onboarding one, and a checklist that reopened on every expiry would nag
+ * people who finished it weeks ago.
+ */
+export async function getOnboardingState() {
+  const session = await auth();
+  if (!session?.user?.id) return { show: false as const };
+  try {
+    const [user, dealer] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { orderEntryEnabled: true },
+      }),
+      prisma.dealerAccount.findUnique({
+        where: { userId: session.user.id },
+        select: { lastConnectedAt: true },
+      }),
+    ]);
+    // Agents without order-entry access have nothing to set up — their
+    // onboarding IS complete at sign-in.
+    if (!user?.orderEntryEnabled) return { show: false as const };
+    if (dealer?.lastConnectedAt) return { show: false as const };
+    return { show: true as const };
+  } catch {
+    return { show: false as const };
+  }
+}

@@ -61,16 +61,18 @@ export async function getUsers() {
 export async function createUser(data: {
   name: string;
   email: string;
-  password: string;
+  /** Optional since onboarding: blank creates a password-less account that
+   * cannot sign in until the agent sets one through an invite link. */
+  password?: string;
   notes?: string;
   caseLimit?: number;
   wifibizzEmail?: string;
-}): Promise<ActionResult> {
+}): Promise<ActionResult & { userId?: string }> {
   const denied = await requireAdmin();
   if (denied) return denied;
 
-  if (!data.email || !data.password) {
-    return { success: false, error: "Email and password are required" };
+  if (!data.email) {
+    return { success: false, error: "Email is required" };
   }
 
   try {
@@ -79,14 +81,14 @@ export async function createUser(data: {
       return { success: false, error: "A user with this email already exists" };
     }
 
-    const hashedPassword = await bcrypt.hash(data.password, 12);
+    const hashedPassword = data.password ? await bcrypt.hash(data.password, 12) : null;
 
     const user = await prisma.user.create({
       data: {
         name: data.name || null,
         email: data.email,
         password: hashedPassword,
-        passwordRaw: data.password,
+        passwordRaw: data.password ?? null,
         notes: data.notes || null,
         caseLimit: data.caseLimit ?? 10,
       },
@@ -128,7 +130,7 @@ export async function createUser(data: {
       });
     }
 
-    return { success: true };
+    return { success: true, userId: user.id };
   } catch (err) {
     console.error("createUser error:", err);
     return { success: false, error: "Failed to create user" };
@@ -364,5 +366,36 @@ export async function deleteUser(userId: string): Promise<ActionResult> {
   } catch (err) {
     console.error("deleteUser error:", err);
     return { success: false, error: "Failed to delete user" };
+  }
+}
+
+/**
+ * Mint an invite — a 7-day, single-use set-password link.
+ *
+ * COPY-LINK by design, not e-mail: several live accounts have unreal login
+ * addresses, and an invite that silently cannot arrive is worse than no
+ * button. A second click simply mints a fresh token, which is both "resend"
+ * and "revoke by outliving" in one gesture.
+ */
+export async function createInviteLink(userId: string): Promise<ActionResult & { url?: string }> {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true } });
+    if (!user) return { success: false, error: "User not found" };
+
+    const { newResetToken, INVITE_TOKEN_TTL_MS } = await import("@/lib/password-reset");
+    const { appBaseUrl } = await import("@/lib/notifications/templates");
+    const { token, tokenHash, expiresAt } = newResetToken(INVITE_TOKEN_TTL_MS);
+    await prisma.passwordResetToken.create({ data: { userId, tokenHash, expiresAt } });
+    await recordAudit({
+      actor: ADMIN_ACTOR, action: "invite_created", targetUser: userId,
+      detail: "7-day set-password link minted.",
+    });
+    const base = appBaseUrl() ?? "";
+    return { success: true, url: `${base}/auth/reset?token=${token}&welcome=1` };
+  } catch (e) {
+    console.error("createInviteLink error:", e);
+    return { success: false, error: "Could not create the invite link" };
   }
 }
