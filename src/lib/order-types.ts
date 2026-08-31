@@ -462,6 +462,44 @@ export const STOPPED_MSG =
   "Stopped by the agent while it was running. The portal may already hold an " +
   "order for this customer \u2014 check at Unifi before submitting again.";
 
+/**
+ * Words an error code spells lowercase that a person never does.
+ *
+ * The labels below are built from the CODE, not from `SUBMIT_ERROR_CODES`,
+ * because only ~10 of the scraper's codes have copy and a column must still say
+ * something sensible for the rest. Humanising the slug alone gets it almost
+ * right and then prints "Blacklisted ic", which is what an agent reported.
+ */
+const CODE_ACRONYMS: Record<string, string> = {
+  ic: "IC",
+  id: "ID",
+  erf: "ERF",
+  msr: "MSR",
+  tm: "TM",
+  otp: "OTP",
+  pii: "PII",
+  vobb: "VoBB",
+};
+
+/**
+ * A failure code as a short human label: `blacklisted_ic` -> "Blacklisted IC".
+ *
+ * Short on purpose. It goes in table columns — the admin Error column and the
+ * line under the agent's status pill — where the copy titles ("That ID number
+ * belongs to a different customer") would wrap or truncate. The full sentence
+ * still lives on the failure panel.
+ */
+export function errorShortLabel(code: string | null | undefined): string | null {
+  if (!code) return null;
+  const words = code.split("_").filter(Boolean);
+  if (words.length === 0) return null;
+  const out = words.map((w) => CODE_ACRONYMS[w] ?? w);
+  if (!CODE_ACRONYMS[words[0]]) {
+    out[0] = out[0].charAt(0).toUpperCase() + out[0].slice(1);
+  }
+  return out.join(" ");
+}
+
 export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
   submit_stopped: {
     title: "Stopped by the agent",

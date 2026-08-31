@@ -9,6 +9,7 @@ import {
   canCancel,
   canSubmit,
   createdParts,
+  errorShortLabel,
   formatCreated,
   formatCreatedFull,
   needsVoiding,
@@ -16,6 +17,7 @@ import {
   type OrderListItem,
   portalOrderUrl,
 } from "@/lib/order-types";
+import { isFailureStatus } from "@/lib/admin-order-stats";
 import { installationParts } from "@/lib/erf-appointment";
 import { isRetryPending, retryPillLabel, triesSuffix } from "@/lib/retry-policy";
 import { useFlashOnChange } from "@/lib/use-flash";
@@ -248,6 +250,32 @@ function StatusBadge({ o }: { o: OrderListItem }) {
           the outcome it belongs to. */}
       {triesSuffix(o)}
     </span>
+  );
+}
+
+/**
+ * The reason under the status pill.
+ *
+ * "Failed" on its own says nothing an agent can act on — the reason lived only
+ * in the detail page, so the row that shows the problem could not name it. Kept
+ * to the short label rather than the full sentence: this is a table cell, and
+ * the sentence plus its fix are on the failure panel one click away.
+ *
+ * Silent while a retry is owed. The pill reads "Retrying" in that window
+ * because nobody has to do anything yet, and a reason underneath would dress an
+ * unfinished run as an outcome — the same rule the pill itself follows.
+ */
+function FailureReason({ o }: { o: OrderListItem }) {
+  if (!isFailureStatus(o.status) || isRetryPending(o)) return null;
+  // An uncoded failure still shows something: a run that failed with no code is
+  // exactly the case the admin table calls Unclassified, and a blank line here
+  // would read as "no reason recorded" rather than "the portal never said".
+  const label = errorShortLabel(o.errorCode) ?? (o.errorMessage ? "Unclassified" : null);
+  if (!label) return null;
+  return (
+    <p className="mt-1 max-w-[160px] truncate text-[11px] text-[#8792A2]" title={label}>
+      {label}
+    </p>
   );
 }
 
@@ -703,6 +731,7 @@ export function OrderRow({
           the row you are reading never scrolls out of view. */}
       <TableCell className="px-4 py-4 align-middle">
         <StatusBadge o={o} />
+        <FailureReason o={o} />
         {needsVoiding(o) && <NeedsVoiding />}
       </TableCell>
 
@@ -814,6 +843,7 @@ export function OrderCard({
         </div>
         <div className="shrink-0 text-right">
           <StatusBadge o={o} />
+          <FailureReason o={o} />
         </div>
       </div>
 

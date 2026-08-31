@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   ERF_NOT_DOWNLOADED,
+  errorShortLabel,
   SUBMIT_ERROR_CODES,
   portalCodeFrom,
   submitErrorCopy,
@@ -92,5 +93,40 @@ describe("the e-RF completeness code", () => {
     // the raw message.
     expect(ERF_NOT_DOWNLOADED).toBe("erf_not_downloaded");
     expect(SUBMIT_ERROR_CODES[ERF_NOT_DOWNLOADED]).toBeDefined();
+  });
+});
+
+
+describe("errorShortLabel", () => {
+  it("cases the acronyms a slug spells lowercase", () => {
+    // The reported bug: the admin Error column printed "Blacklisted ic".
+    expect(errorShortLabel("blacklisted_ic")).toBe("Blacklisted IC");
+    expect(errorShortLabel("customer_ic_name_mismatch")).toBe("Customer IC name mismatch");
+    expect(errorShortLabel("erf_not_downloaded")).toBe("ERF not downloaded");
+    expect(errorShortLabel("msr_customer_id_limit")).toBe("MSR customer ID limit");
+    expect(errorShortLabel("login_id_taken")).toBe("Login ID taken");
+  });
+
+  it("reads sensibly for an ordinary code", () => {
+    expect(errorShortLabel("device_out_of_stock")).toBe("Device out of stock");
+    expect(errorShortLabel("address_not_found")).toBe("Address not found");
+  });
+
+  it("labels a code nobody has written copy for", () => {
+    // Only ~10 of the scraper's codes have copy. Building the label from the
+    // code is what lets the column say something for the other ~45.
+    expect(SUBMIT_ERROR_CODES["order_id_not_found"]).toBeUndefined();
+    expect(errorShortLabel("order_id_not_found")).toBe("Order ID not found");
+  });
+
+  it("matches the admin table's Unclassified bucket", () => {
+    expect(errorShortLabel("unclassified")).toBe("Unclassified");
+  });
+
+  it("returns null for nothing at all, so the caller can show a dash", () => {
+    expect(errorShortLabel(null)).toBeNull();
+    expect(errorShortLabel(undefined)).toBeNull();
+    expect(errorShortLabel("")).toBeNull();
+    expect(errorShortLabel("__")).toBeNull();
   });
 });
