@@ -84,11 +84,11 @@ export async function getWifibizzCredentials() {
 export async function getSidebarInfo() {
   const session = await auth();
   if (!session?.user?.id) {
-    return { email: null, agent: null, orderEntryEnabled: false };
+    return { email: null, agent: null, orderEntryEnabled: false, dealerSessionExpiresAt: null };
   }
 
   try {
-    const [user, wifibizzUser] = await Promise.all([
+    const [user, wifibizzUser, dealer] = await Promise.all([
       prisma.user.findUnique({
         where: { id: session.user.id },
         select: { orderEntryEnabled: true },
@@ -97,11 +97,16 @@ export async function getSidebarInfo() {
         where: { userId: session.user.id },
         select: { wifibizzEmail: true, id: true },
       }),
+      // For the sidebar's session warning — same column the submit gate reads.
+      prisma.dealerAccount.findUnique({
+        where: { userId: session.user.id },
+        select: { sessionExpiresAt: true },
+      }),
     ]);
     const orderEntryEnabled = !!user?.orderEntryEnabled;
 
     if (!wifibizzUser) {
-      return { email: null, agent: null, orderEntryEnabled };
+      return { email: null, agent: null, orderEntryEnabled, dealerSessionExpiresAt: dealer?.sessionExpiresAt?.toISOString() ?? null };
     }
 
     // Get the most common agent from the user's cases
@@ -116,9 +121,10 @@ export async function getSidebarInfo() {
       email: wifibizzUser.wifibizzEmail,
       agent: rows.length > 0 ? rows[0].agent : null,
       orderEntryEnabled,
+      dealerSessionExpiresAt: dealer?.sessionExpiresAt?.toISOString() ?? null,
     };
   } catch {
-    return { email: null, agent: null, orderEntryEnabled: false };
+    return { email: null, agent: null, orderEntryEnabled: false, dealerSessionExpiresAt: null };
   }
 }
 

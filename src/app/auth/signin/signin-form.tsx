@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -160,6 +161,13 @@ export function SignInForm() {
                 "Sign in"
               )}
             </Button>
+
+            <Link
+              href="/auth/forgot"
+              className="block text-center text-sm text-[#635BFF] hover:underline"
+            >
+              Forgot your password?
+            </Link>
           </form>
 
           <p className="mt-6 text-center text-xs text-[#697386] animate-fade-in" style={{ animationDelay: "700ms" }}>

@@ -1,5 +1,56 @@
 # Current Feature
 
+## Self-Service Account — Change Password, Reset by E-mail, Session Warnings
+
+**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/self-service-account`). Vercel-only —
+no scraper change. **Needs `prisma migrate deploy`** (`password_reset_tokens`; Vercel's build applies
+it). Phase 4 of the 2026-08-31 product plan.
+Spec: [context/features/self-service-account.md](features/self-service-account.md).
+Decisions confirmed: 30-minute links; a successful reset lands on SIGN-IN, never auto-login.
+
+### What was built
+
+**Change password** — an Account card on Settings requiring the CURRENT password via bcrypt before any
+write (an open stolen session must not take the account quietly), rate-limited because wrong guesses
+ARE password guesses, and updating both stores together — `passwordRaw`'s admin visibility was kept
+deliberately, and breaking it silently would make the admin Users page lie.
+
+**Reset by e-mail** — `/auth/forgot` → mail (existing Resend shell, new `accountEmailShell`) →
+`/auth/reset`. Tokens are 32 random bytes stored as SHA-256 (a DB leak must not hand out live links;
+SHA rather than bcrypt because the input is random — brute force is hopeless and the lookup stays an
+indexed equality), 30-minute expiry, single-use via a CONDITIONAL claim so a double-click cannot burn
+two. The forgot page answers identically for known and unknown addresses. Reset mail goes to the login
+e-mail only. `AuthShell` extracted to a component rather than exported from the page — Next restricts
+page exports, and the reset page importing from the forgot PAGE would couple two routes for nothing.
+
+**Session warnings** — the dashboard sidebar shows an amber "Dealer session expired — reconnect" line,
+judged by the SAME `describeConnection` the admin page and submit gate use, so the warning and a
+refused submit cannot disagree. Green renders nothing: absence of warning is the calm signal.
+
+### A bug my own patching caused, found in the browser
+
+`getSidebarInfo` has four returns and my regex patched only the single-line ones — the multi-line
+SUCCESS return (the one that fires for a real user) never carried `dealerSessionExpiresAt`, so the
+staged expired session produced no warning. Fixed and re-verified: the amber line renders with the
+right link.
+
+### Verified in the browser
+
+Real signed-in session, dev database: the forgot page's neutral reply for an unknown address (no mail
+sent, **zero token rows created**); a bogus reset token refused with a path to a new link; the Account
+card's wrong-current-password submit refused SERVER-side ("Current password is incorrect."); the
+sidebar warning with a doctored expiry. **All staging restored** — the dealer expiry back to NULL.
+
+**Tests:** 13 new in `account-actions.test.ts` — the current-password gate, both stores together, the
+shared password rule, the rate limit, the identical forgot replies (with exactly one mail sent), hash
+stored ≠ token mailed, the conditional claim and its lost race, expired/used/unknown tokens, and the
+pure token rules. **725 vitest passing**, `npm run build`, lint identical to baseline (9642), `tsc`
+unchanged.
+
+**NOT verified:** a real end-to-end reset (a live mail → link → new password → sign-in) — sending needs
+a real recipient inbox and changing a real password; the change-password HAPPY path (same reason — it
+would change the dev login); and the reset e-mail's rendering in a mail client.
+
 ## Motion Pack 1 — State Spots, Count-Ups, One-Shot Transitions
 
 **Status:** CODE COMPLETE, VERIFIED IN BROWSER — **committed directly on `main` (`9a2062f`), NOT on a
