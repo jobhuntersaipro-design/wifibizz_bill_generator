@@ -2,9 +2,10 @@
 
 ## Self-Service Account — Change Password, Reset by E-mail, Session Warnings
 
-**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/self-service-account`). Vercel-only —
-no scraper change. **Needs `prisma migrate deploy`** (`password_reset_tokens`; Vercel's build applies
-it). Phase 4 of the 2026-08-31 product plan.
+**Status:** MERGED TO MAIN AND DEPLOYED 2026-08-31 (`e87d83c`, merge `926a892`; branch deleted).
+Vercel-only — no scraper change. The migration (`password_reset_tokens`) was applied to production
+during the Vercel build — confirmed in the build log — and `bizzflow.top` is aliased to the build.
+Phase 4 of the 2026-08-31 product plan.
 Spec: [context/features/self-service-account.md](features/self-service-account.md).
 Decisions confirmed: 30-minute links; a successful reset lands on SIGN-IN, never auto-login.
 
