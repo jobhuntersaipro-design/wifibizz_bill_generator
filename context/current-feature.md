@@ -2,8 +2,9 @@
 
 ## Clone Order, and a Duplicate-IC Hint
 
-**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/clone-order-ic-hint`). Vercel-only —
-no scraper change, no migration. Phase 8 of the 2026-08-31 product plan.
+**Status:** MERGED TO MAIN AND DEPLOYED 2026-08-31 (`8c053f7`, merge `b2cf172`; branch deleted).
+Vercel-only — no scraper change, no migration. Build compiled clean, Build Completed, `bizzflow.top`
+aliased. Phase 8 of the 2026-08-31 product plan.
 Spec: [context/features/clone-order-and-ic-hint.md](features/clone-order-and-ic-hint.md).
 
 ### Built
