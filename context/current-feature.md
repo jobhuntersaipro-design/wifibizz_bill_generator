@@ -1,5 +1,37 @@
 # Current Feature
 
+## The 2026-08-31 Product Plan — COMPLETE (8 built, 1 closed as already-existing)
+
+**Status:** DONE 2026-08-31. All shipped phases merged and deployed to production the same day.
+
+| # | Phase | Outcome |
+|---|---|---|
+| 1 | Failure → action + section-aware required bar | ✅ deployed |
+| 2 | In-app outcome notifications | ✅ deployed (migration) |
+| 3 | Motion pack | ✅ deployed |
+| 4 | Self-service account (change/reset password, session warnings) | ✅ deployed (migration) |
+| 5 | People audit trail | ✅ deployed (migration) |
+| 6 | Onboarding — invite links + getting-started checklist | ✅ deployed |
+| 7 | Admin search, stuck-lock alerting, bulk purge, CSV | ✅ deployed |
+| 8 | Clone order + duplicate-IC hint | ✅ deployed |
+| 9 | WifiBizz parity | **Closed without work** — Combine already IS generate-all (all types ticked, auto-generating missing bills since 2026-08-27), and the crawl page already renders step/percent/counts. The analysis line was stale |
+
+### Standing items for the user's next production session
+
+1. Flip order-entry access on any user → the first **Activity** row should appear (Phase 5's live test).
+2. Click **Invite** on a user → link copies, *Invited* chip renders (Phase 6's admin half).
+3. Send yourself a **password reset** from `/auth/forgot` and click through (Phase 4's end-to-end chain).
+4. Try the **search box** on admin Orders with an IC fragment (Phase 7).
+5. Set **`ADMIN_ALERT_EMAIL`** on Vercel (`vercel env add ADMIN_ALERT_EMAIL production`) to turn the
+   stuck-lock e-mail on — until then alerting is log-only.
+
+### Standing decisions carried through the plan
+
+No roles (admin actor is one shared identity, recorded as such). Raw password column kept. No
+WhatsApp/Telegram. No mascot, no confetti. State-matcher bug left as-is. Shared-login migration and
+the concurrency ramp (Phase 4 of the earlier per-agent-concurrency spec) remain open and are
+prerequisites of each other.
+
 ## Clone Order, and a Duplicate-IC Hint
 
 **Status:** MERGED TO MAIN AND DEPLOYED 2026-08-31 (`8c053f7`, merge `b2cf172`; branch deleted).

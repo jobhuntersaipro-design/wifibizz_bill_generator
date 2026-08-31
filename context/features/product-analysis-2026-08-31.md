@@ -222,4 +222,4 @@ is how a working form breaks. Proposed as its own decision after Phase 1.
 | 6 | Onboarding — invite link, set password, connect-dealer checklist | M |
 | 7 | Admin search, alerting, bulk purge, CSV | M |
 | 8 | Clone order + duplicate-IC hint | S |
-| 9 | WifiBizz parity — generate-all on case list, crawl progress (state matcher left as-is) | S |
+| 9 | ~~WifiBizz parity~~ — **CLOSED WITHOUT WORK 2026-08-31**: both items already existed. Combine (every row + panel, all types ticked by default, auto-generating missing bills since 2026-08-27) IS generate-all; the crawl page already renders step, percent bar and per-case counts. The analysis line was stale — A7 was written without re-checking Combine's auto-generate. State matcher stays as-is per the standing decision | — |
