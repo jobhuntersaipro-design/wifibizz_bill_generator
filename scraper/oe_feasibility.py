@@ -380,42 +380,73 @@ OFFER_ROW_INDEX_JS = r"""((want) => {
 OFFER_ROWS_TIMEOUT_MS = 15000
 
 
-# Read the topmost visible dialog's text WITHOUT touching it.
+# Read EVERY visible dialog's text WITHOUT touching any of them.
+#
+# "The topmost dialog" was the wrong question, and the live run proved it: two
+# seconds after the offer was chosen the top dialog was the Customer fuzzy
+# search, so the blacklist warn — which the portal raises against the CUSTOMER a
+# moment later — was never read, the run walked on, and it died 20 polls later
+# as `order_id_not_found` (an unclassified code, so the retry then asked twice
+# more). Reading them all means a refusal stacked under, over or beside a
+# legitimate dialog is still found.
 #
 # `READ_ERROR_DIALOG_JS` clicks OK, and `_capture_dialog_message` only ever
 # looks inside #myIframe — the stock refusal proved the portal also renders
-# refusals as shell modals in the top document, where an iframe-only scan sees
-# nothing and reports a clean page. This covers both containers and clicks
-# NOTHING, because it runs at a point where a legitimate dialog (the Customer
-# fuzzy search) can be open and dismissing it would break the happy path.
-READ_DIALOG_TEXT_JS = r"""(() => {
+# refusals as shell modals in the top document. This covers both containers and
+# clicks NOTHING, because a legitimate dialog (the Customer fuzzy search) can be
+# open here and dismissing it would break the happy path.
+READ_DIALOG_TEXTS_JS = r"""(() => {
   const vis=e=>{ if(!e) return false;
     const r=e.getBoundingClientRect();
     return (e.offsetParent!==null || getComputedStyle(e).position==='fixed')
            && r.width>0 && r.height>0; };
   const SELECTORS=['.ui-dialog','.modal.in','.modal.show','.ant-modal','[role=dialog]'];
   const f=document.querySelector('#myIframe'), fd=f&&f.contentDocument;
+  const out=[], seen=new Set();
   for(const d of [fd, document]){
     if(!d) continue;
     for(const sel of SELECTORS){
       for(const dl of [...d.querySelectorAll(sel)].filter(vis).reverse()){
+        if(seen.has(dl)) continue;      // one node, many selectors
+        seen.add(dl);
         const body=((dl.querySelector('.modal-message,.modal-body,.ant-modal-body')||dl)
                      .innerText||'').replace(/\s+/g,' ').trim();
-        if(body) return body.slice(0,300);
+        if(body) out.push(body.slice(0,300));
       }
     }
   }
-  return null;
+  return out;
 })"""
 
 
-async def read_dialog_text(page) -> str | None:
-    """The topmost visible dialog's text, read and left alone. Never raises —
-    this runs on the happy path, where a probe must not be able to end a run."""
+async def read_dialog_texts(page) -> list:
+    """Every visible dialog's text, read and left alone. Never raises — this
+    runs on the happy path, where a probe must not be able to end a run."""
     try:
-        return await page.evaluate(READ_DIALOG_TEXT_JS)
+        return await page.evaluate(READ_DIALOG_TEXTS_JS) or []
     except Exception:  # noqa: BLE001
+        return []
+
+
+async def classified_refusal(page) -> dict | None:
+    """The first visible dialog that is a refusal we can NAME, or None.
+
+    "Can name" means `map_error` classified it, or it carries the portal's own
+    bracketed code. Anything else is left alone and reported by the caller's own
+    stage-specific error: this reads the screen, and a read must not become a
+    new way to fail.
+    """
+    if page is None:
         return None
+    for text in await read_dialog_texts(page):
+        code = map_error(text)
+        pcode = portal_code(text)
+        if code == UNKNOWN_ERROR and not pcode:
+            continue
+        return {"message": text,
+                "error": code if code != UNKNOWN_ERROR else "portal_refused",
+                **({"portal_code": pcode} if pcode else {})}
+    return None
 
 
 async def select_plan(frame, plan: dict, page=None) -> dict:
@@ -492,20 +523,11 @@ async def select_plan(frame, plan: dict, page=None) -> dict:
     # new way to fail. The read is deliberately read-only: the Customer fuzzy
     # dialog can legitimately open on this very click, and dismissing it would
     # break the happy path.
-    if page is not None:
-        warn = await read_dialog_text(page)
-        if warn:
-            code = map_error(warn)
-            pcode = portal_code(warn)
-            if code != UNKNOWN_ERROR or pcode:
-                print(f"  ⚠ portal refused the offer: {warn}", flush=True)
-                return {"status": "error",
-                        "error": code if code != UNKNOWN_ERROR else "offer_rejected",
-                        "stage": "select_plan", "matched": matched,
-                        "message": warn,
-                        **({"portal_code": pcode} if pcode else {})}
-            print(f"  ↳ dialog after choosing the offer (continuing): {warn[:140]}",
-                  flush=True)
+    refusal = await classified_refusal(page)
+    if refusal:
+        print(f"  ⚠ portal refused the offer: {refusal['message']}", flush=True)
+        return {"status": "error", "stage": "select_plan", "matched": matched,
+                **refusal}
     return {"status": "ok", "stage": "select_plan", "matched": matched}
 
 
@@ -629,12 +651,18 @@ def describe_order_not_ready(state: dict) -> str:
     return "Order button not ready."
 
 
-async def _capture_order_id(frame, attempts: int = 20) -> str | None:
+async def _capture_order_id(frame, attempts: int = 20, page=None) -> str | None:
     """After Order is clicked, read the 'Customer Order Number' from the header.
 
     `attempts` is one second each. The default waits for the New Connection page
     to render on the success path; the failure path passes 1, where the page is
     already up and the only question is whether a number was ever minted.
+
+    Given `page`, it stops early once a refusal it can NAME is on screen. This
+    is where the blacklist warn actually stands: the portal validates the
+    customer as the order is created, so the number never comes, and without
+    this the run spends the full 20 seconds waiting for it and then reports
+    `order_id_not_found` — a code that says the number is missing, not why.
     """
     import re
     for _ in range(max(1, attempts)):
@@ -642,6 +670,8 @@ async def _capture_order_id(frame, attempts: int = 20) -> str | None:
         m = re.search(r"(?:Customer\s+)?Order\s+N(?:o|umber)\.?\s*[:：]?\s*([A-Z0-9]{6,})", txt, re.I)
         if m:
             return m.group(1)
+        if await classified_refusal(page):
+            return None
         await asyncio.sleep(1)
     return None
 
@@ -1168,6 +1198,16 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
         stage("attaching_customer")
         r = await attach_customer(frame, cust)
         if r["status"] != "ok":
+            # A portal refusal on screen outranks a generic attach failure: the
+            # step reports what it could not do, the dialog says why. It never
+            # overrides CUSTOMER_IC_NAME_MISMATCH, which is our OWN deliberate
+            # refusal and more specific than anything the portal is saying.
+            if r.get("error") != CUSTOMER_IC_NAME_MISMATCH:
+                refusal = await classified_refusal(page)
+                if refusal:
+                    print(f"  ⚠ portal refused the customer: {refusal['message']}",
+                          flush=True)
+                    r = {**r, **refusal}
             stage("attaching_customer",
                   _detail(r.get("message") or r.get("error"), "failed"))
             # The portal minted the order number back at the Order click, two
@@ -1196,8 +1236,19 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
 
     stage("capturing_order_no")
     await asyncio.sleep(3)  # let the New Connection order-detail page render
-    order_id = await _capture_order_id(frame)
+    order_id = await _capture_order_id(frame, page=page)
     if not order_id:
+        # No number, and the portal is usually saying why. Live 2026-08-31
+        # (cmth00dae…): a blacklisted customer refused HERE — the offer and the
+        # address were both fine, the warn went up as the order was created, and
+        # the run reported only "Portal did not show a Customer Order Number".
+        # That code is unclassified, so the automatic retry then asked twice
+        # more for an answer that cannot change.
+        refusal = await classified_refusal(page)
+        if refusal:
+            print(f"  ⚠ portal refused the order: {refusal['message']}", flush=True)
+            stage("capturing_order_no", _detail(refusal["message"], "failed"))
+            return {"status": "error", "stage": "capture_order_id", **refusal}
         stage("capturing_order_no",
               _detail("Portal did not show a Customer Order Number", "failed"))
         return {"status": "error", "error": "order_id_not_found", "stage": "capture_order_id"}

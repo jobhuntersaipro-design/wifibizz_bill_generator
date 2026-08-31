@@ -27,7 +27,9 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from oe_feasibility import OFFER_ROW_INDEX_JS, select_plan  # noqa: E402
+from oe_feasibility import (  # noqa: E402
+    OFFER_ROW_INDEX_JS, _capture_order_id, classified_refusal, read_dialog_texts,
+    select_plan)
 
 # Two offers whose names differ only past the point where a "contains" match
 # would be ambiguous, plus the portal's real quirks: an internal id in the first
@@ -294,3 +296,93 @@ def test_a_clean_offer_choice_still_passes():
     """The happy path pays one read and nothing else."""
     r = _run_with(GRID, PLAN)
     assert r["status"] == "ok"
+
+
+def test_a_warn_stacked_with_the_customer_dialog_is_still_found():
+    """The live failure (cmth00dae…, 2026-08-31).
+
+    Two seconds after the offer was chosen the TOP dialog was the Customer fuzzy
+    search, so a reader that took only the topmost dialog logged
+    "Customer Fuzzy Search Cancel" and walked past the blacklist warn. Reading
+    every visible dialog is what makes the refusal findable whichever one the
+    portal happens to stack on top.
+    """
+    customer = (DIALOG.replace("MESSAGE_TEXT", "Fuzzy Search Customer Name Cancel")
+                      .replace("TITLE_TEXT", "Customer")
+                      .replace('id="warn"', 'id="cust"')
+                      .replace("top:40px;left:40px", "top:200px;left:200px"))
+    stacked = _grid_that_warns(BLACKLIST_MSG) + customer
+
+    async def go(page, frame):
+        await page.set_content(
+            HOST.replace("FIXTURE_HTML", stacked.replace("&", "&amp;").replace('"', "&quot;")))
+        r = await select_plan(page.frame_locator("#myIframe"), {"name": PLAN}, page=page)
+        return r, await read_dialog_texts(page)
+
+    r, texts = _run(go)
+    assert r["status"] == "error"
+    assert r["error"] == "blacklisted_ic"
+    # Without this the test would pass vacuously: it only proves anything while
+    # the warn is NOT the dialog a topmost-only reader would have picked, which
+    # is the live shape it was written from.
+    assert len(texts) > 1
+    assert "blacklist" not in texts[0].lower(), texts
+
+
+def test_the_customer_dialog_alone_is_not_a_refusal():
+    """The other half of the same rule: the fuzzy-search dialog opening on this
+    click is the NORMAL path (ORD-0009), and must not end the run."""
+    async def go(page, frame):
+        await page.set_content(
+            HOST.replace("FIXTURE_HTML", GRID.replace("&", "&amp;").replace('"', "&quot;"))
+            + DIALOG.replace("MESSAGE_TEXT", "Fuzzy Search Cancel").replace("TITLE_TEXT", "Customer")
+                    .replace("top:40px;left:40px", "top:520px;left:40px"))
+        return await classified_refusal(page)
+    assert _run(go) is None
+
+
+# ── The order-number wait, where the warn actually stood ────────────────────
+ORDER_PAGE = """
+<div id="page">New Connection — Customer Order Information</div>
+<div id="dlgHost"></div>
+"""
+
+
+def _order_page_with(dialog_html: str) -> str:
+    return ORDER_PAGE.replace('<div id="dlgHost"></div>', dialog_html)
+
+
+def test_the_order_number_wait_stops_as_soon_as_the_portal_refuses():
+    """Without this the run spends its full 20-second wait for a number the
+    portal has already refused to mint, then reports `order_id_not_found` — a
+    code that says the number is missing, not why, and which the automatic
+    retry then asks twice more."""
+    warn = DIALOG.replace("MESSAGE_TEXT", BLACKLIST_MSG).replace("TITLE_TEXT", "Warn")
+
+    async def go(page, frame):
+        await page.set_content(
+            HOST.replace("FIXTURE_HTML",
+                         _order_page_with(warn).replace("&", "&amp;").replace('"', "&quot;")))
+        f = page.frame_locator("#myIframe")
+        started = asyncio.get_event_loop().time()
+        oid = await _capture_order_id(f, attempts=20, page=page)
+        return oid, asyncio.get_event_loop().time() - started, await classified_refusal(page)
+
+    oid, elapsed, refusal = _run(go)
+    assert oid is None
+    # It gave up on the refusal, not on the clock.
+    assert elapsed < 10, elapsed
+    assert refusal["error"] == "blacklisted_ic"
+    assert refusal["portal_code"] == "40300805"
+
+
+def test_the_order_number_is_still_read_when_the_portal_mints_one():
+    """The guard must not cost the happy path its order number."""
+    async def go(page, frame):
+        page_html = _order_page_with(
+            '<div>Customer Order Number: 2608000122936216</div>')
+        await page.set_content(
+            HOST.replace("FIXTURE_HTML",
+                         page_html.replace("&", "&amp;").replace('"', "&quot;")))
+        return await _capture_order_id(page.frame_locator("#myIframe"), attempts=3, page=page)
+    assert _run(go) == "2608000122936216"
