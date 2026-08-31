@@ -2,9 +2,10 @@
 
 ## Admin Tools — Search, Alerting, Bulk Purge, CSV
 
-**Status:** CODE COMPLETE (branch `feature/admin-tools-pack`). Vercel-only — no scraper change, no
-migration. One new env var: **`ADMIN_ALERT_EMAIL`** (unset = alerting stays log-only, today's
-behaviour). Phase 7 of the 2026-08-31 product plan.
+**Status:** MERGED TO MAIN AND DEPLOYED 2026-08-31 (`7b2f516`, merge `135337c`; branch deleted).
+Vercel-only — no scraper change, no migration. Build compiled clean, Build Completed, `bizzflow.top`
+aliased. **`ADMIN_ALERT_EMAIL` remains unset on Vercel**, so alerting is log-only until the user picks
+an address (`vercel env add ADMIN_ALERT_EMAIL production`). Phase 7 of the 2026-08-31 product plan.
 Spec: [context/features/admin-tools-pack.md](features/admin-tools-pack.md).
 
 ### Built
