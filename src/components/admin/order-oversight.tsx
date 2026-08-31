@@ -13,6 +13,9 @@ import {
 } from "@/actions/admin-orders";
 import { purgePhrase, UNCLASSIFIED, bucketLabel, orderErrorLabel, type Granularity } from "@/lib/admin-order-stats";
 import { formatDuration } from "@/lib/order-types";
+import LottieSpot from "@/components/order-entry/LottieSpot";
+import { useAnimatedCounter } from "@/components/dashboard/shared";
+import { useFlashOnChange } from "@/lib/use-flash";
 import type { ConnectionView } from "@/lib/agent-connection";
 
 const DAY = 86400_000;
@@ -363,11 +366,22 @@ function Totals({ stats }: { stats: AdminStats | null }) {
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
       {tiles.map((x) => (
-        <div key={x.label} className="rounded-xl border border-[#E3E8EF] bg-white p-4">
-          <p className="text-xs text-[#697386]">{x.label}</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums text-[#0A2540]">{x.value}</p>
-        </div>
+        <Tile key={x.label} label={x.label} value={x.value} />
       ))}
+    </div>
+  );
+}
+
+function Tile({ label, value }: { label: string; value: number }) {
+  // Counts up only when the value changes for a reason the admin caused — a
+  // load, a range change, a filter. The hook animates on target change alone,
+  // so unrelated re-renders leave the number still; a number that dances is a
+  // number nobody trusts. tabular-nums (below) keeps the width from jittering.
+  const shown = useAnimatedCounter(value, 500);
+  return (
+    <div className="rounded-xl border border-[#E3E8EF] bg-white p-4">
+      <p className="text-xs text-[#697386]">{label}</p>
+      <p className="mt-1 text-2xl font-semibold tabular-nums text-[#0A2540]">{shown}</p>
     </div>
   );
 }
@@ -395,7 +409,17 @@ function Trend({ trend, granularity }: {
 }
 
 function Errors({ errors }: { errors: { code: string; count: number }[] }) {
-  if (errors.length === 0) return <Empty>No failed attempts in this range.</Empty>;
+  if (errors.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-1 py-6">
+        {/* One-shot, not a loop: "nothing failed" is an all-clear to note and
+            move past, not an activity to watch. Reduced motion keeps the text
+            alone, which said everything already. */}
+        <LottieSpot name="success" size={44} loop={false} fallback={null} />
+        <p className="text-sm text-[#697386]">No failed attempts in this range.</p>
+      </div>
+    );
+  }
   const max = errors[0].count;
   return (
     <ul className="space-y-2">
@@ -473,9 +497,17 @@ function OrderTable({ rows, onRestore, onPurge }: {
             <th className="pb-2 font-medium">Actions</th>
           </tr>
         </thead>
-        <tbody>
-          {rows.map((o) => (
-            <tr key={o.id} className="border-b border-[#F0F3F8] last:border-0">
+        {/* Keyed on the filter state: changing a filter remounts the body, so
+            the one-shot entrance replays for the NEW result set and never for
+            an unrelated re-render. Delay capped at 15 rows — beyond that a
+            stagger reads as slowness, not polish. */}
+        <tbody key={`${rows.length}:${rows[0]?.id ?? ""}`}>
+          {rows.map((o, i) => (
+            <tr
+              key={o.id}
+              className="animate-fade-in-up border-b border-[#F0F3F8] last:border-0"
+              style={{ animationDelay: `${Math.min(i, 15) * 20}ms` }}
+            >
               <td className="py-2.5 pr-3">
                 <Link href={`/admin/orders/${o.id}`} className="text-[#635BFF] hover:underline">
                   {o.reference ?? o.fullName}
@@ -525,6 +557,9 @@ function OrderTable({ rows, onRestore, onPurge }: {
 }
 
 function StatusPill({ status, deleted }: { status: string; deleted: boolean }) {
+  // The one place motion carries information on this table: the row whose
+  // status just CHANGED is the row worth glancing at. Mount is not a change.
+  const flash = useFlashOnChange(status, "animate-pill-flash");
   // Deleted wins over the status: an admin scanning this column needs to know
   // the row is gone from the agent's world before anything else about it.
   if (deleted) {
@@ -536,7 +571,7 @@ function StatusPill({ status, deleted }: { status: string; deleted: boolean }) {
     : status === "warning" ? "bg-[#FFFAEB] text-[#B54708]"
     : status === "submitting" ? "bg-[#EFF4FF] text-[#3538CD]"
     : "bg-[#F1F3F6] text-[#697386]";
-  return <span className={`rounded-full px-2 py-0.5 text-xs ${tone}`}>{status}</span>;
+  return <span className={`rounded-full px-2 py-0.5 text-xs ${tone} ${flash}`}>{status}</span>;
 }
 
 /**
@@ -546,11 +581,14 @@ function StatusPill({ status, deleted }: { status: string; deleted: boolean }) {
  * never sit beside text saying the session expired.
  */
 export function ConnectionBadge({ view }: { view: ConnectionView }) {
+  // Pulses once when the STATE changes to good — an agent reconnecting is
+  // news; a badge that was always green is not.
+  const flash = useFlashOnChange(view.state, view.tone === "good" ? "animate-pill-flash" : "");
   const tone =
     view.tone === "good" ? "bg-[#ECFDF3] text-[#027A48]"
     : view.tone === "warn" ? "bg-[#FFFAEB] text-[#B54708]"
     : "bg-[#F1F3F6] text-[#697386]";
-  return <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs ${tone}`}>{view.label}</span>;
+  return <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs ${tone} ${flash}`}>{view.label}</span>;
 }
 
 function Select({ value, onChange, label, options }: {

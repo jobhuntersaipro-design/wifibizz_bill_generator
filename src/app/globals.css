@@ -727,6 +727,16 @@
   animation: doc-arrive 900ms ease-out both;
 }
 
+/* One-shot attention flashes — used by useFlashOnChange. Motion that carries
+   information: the pill whose STATUS changed, the badge that just went green.
+   Both are inside the reduced-motion block's blanket disable, like every other
+   animation here. */
+@keyframes pill-flash {
+  0% { box-shadow: 0 0 0 0 rgba(99, 91, 255, 0.55); }
+  100% { box-shadow: 0 0 0 8px rgba(99, 91, 255, 0); }
+}
+.animate-pill-flash { animation: pill-flash 0.7s ease-out 1; }
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

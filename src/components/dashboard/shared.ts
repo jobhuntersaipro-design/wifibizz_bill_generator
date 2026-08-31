@@ -214,6 +214,18 @@ export function useAnimatedCounter(target: number, duration: number = 600): numb
     if (target === prevTarget.current) return;
     const start = prevTarget.current;
     prevTarget.current = target;
+    // A counting number is motion. Reduced motion (or a browser without
+    // matchMedia, e.g. a test runner) gets the final value at once.
+    if (
+      typeof window === "undefined" ||
+      !window.matchMedia ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      // Deferred a frame for the same reason the animated path always was:
+      // a synchronous setState inside an effect cascades renders.
+      const raf = requestAnimationFrame(() => setCount(target));
+      return () => cancelAnimationFrame(raf);
+    }
     const startTime = performance.now();
 
     function tick(now: number) {

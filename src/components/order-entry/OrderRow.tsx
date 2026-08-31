@@ -18,6 +18,7 @@ import {
 } from "@/lib/order-types";
 import { installationParts } from "@/lib/erf-appointment";
 import { isRetryPending, retryPillLabel, triesSuffix } from "@/lib/retry-policy";
+import { useFlashOnChange } from "@/lib/use-flash";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
@@ -217,6 +218,10 @@ function OneLine({
 }
 
 function StatusBadge({ o }: { o: OrderListItem }) {
+  // One-shot flash when the STATUS changes under a watching eye — the poll
+  // flipping submitting→failed is the moment worth a glance, and this is the
+  // only motion on the row. Mount is not a change, so a fresh page stays still.
+  const flash = useFlashOnChange(o.status, "animate-pill-flash");
   // A failure with a retry already owed is not a finished outcome, and must not
   // be dressed as one: `applyResult` writes `failed`/`warning` a beat before the
   // retry starts, and a red pill next to a live Submit button in that window is
@@ -229,7 +234,7 @@ function StatusBadge({ o }: { o: OrderListItem }) {
         retrying
           ? STATUS_STYLES.submitting
           : STATUS_STYLES[o.status] ?? STATUS_STYLES.draft
-      }`}
+      } ${flash}`}
     >
       {(o.status === "submitting" || retrying) && (
         <span className="inline-block h-2.5 w-2.5 animate-spin rounded-full border-2 border-amber-600 border-t-transparent" />
@@ -639,16 +644,24 @@ export function OrderRow({
   o,
   a,
   isSuperAdmin,
+  entranceDelayMs,
 }: {
   o: OrderListItem;
   a: RowActions;
+  /** One-shot fade-in-up stagger; the table sets it when the RESULT SET changes. */
+  entranceDelayMs?: number;
   isSuperAdmin: boolean;
 }) {
   return (
     /* An explicit `bg-white` so the pinned cells' `bg-inherit` has a colour to
        inherit — without it they are transparent and the scrolled columns show
        straight through them. */
-    <TableRow className="border-b border-[#E3E8EF] bg-white transition-colors duration-150 hover:bg-[#F6F9FC]">
+    <TableRow
+      className={`border-b border-[#E3E8EF] bg-white transition-colors duration-150 hover:bg-[#F6F9FC] ${
+        entranceDelayMs !== undefined ? "animate-fade-in-up" : ""
+      }`}
+      style={entranceDelayMs !== undefined ? { animationDelay: `${entranceDelayMs}ms` } : undefined}
+    >
       <TableCell className="sticky left-0 z-20 bg-inherit px-4 py-4 align-middle">
         {canSubmit(o) && (
           <Checkbox
@@ -743,14 +756,21 @@ export function OrderCard({
   o,
   a,
   isSuperAdmin,
+  entranceDelayMs,
 }: {
   o: OrderListItem;
   a: RowActions;
   isSuperAdmin: boolean;
+  entranceDelayMs?: number;
 }) {
   const address = formatAddress(o);
   return (
-    <li className="border-b border-[#E3E8EF] px-4 py-4 last:border-0">
+    <li
+      className={`border-b border-[#E3E8EF] px-4 py-4 last:border-0 ${
+        entranceDelayMs !== undefined ? "animate-fade-in-up" : ""
+      }`}
+      style={entranceDelayMs !== undefined ? { animationDelay: `${entranceDelayMs}ms` } : undefined}
+    >
       <div className="flex items-start gap-3">
         {canSubmit(o) && (
           <Checkbox

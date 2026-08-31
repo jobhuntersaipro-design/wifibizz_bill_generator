@@ -1,5 +1,6 @@
 "use client";
 
+import LottieSpot from "@/components/order-entry/LottieSpot";
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -312,7 +313,13 @@ export default function CrawlPage() {
             {crawling && progress && (
               <div className="mt-5 animate-fade-in">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-[#697386]">{progress.step}</span>
+                  <span className="flex items-center gap-2 text-xs text-[#697386]">
+                    {/* Marks the WAITING state, exactly as the submit checklist
+                        uses it. Reduced motion falls back to nothing extra —
+                        the spinner in the button already carries the state. */}
+                    <LottieSpot name="processing" size={18} fallback={null} />
+                    {progress.step}
+                  </span>
                   <span className="text-xs font-semibold text-[#0A2540] tabular-nums">
                     {progress.percent}%
                   </span>

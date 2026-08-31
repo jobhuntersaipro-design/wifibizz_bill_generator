@@ -141,10 +141,13 @@ export function OrdersTable({
     <TooltipProvider delay={150} closeDelay={0}>
     <div className="overflow-hidden rounded-xl border border-[#E3E8EF] bg-white">
       {/* ── Cards (<768px) ─────────────────────────────────────────────────── */}
-      <ul className="md:hidden">
-        {orders.map((o) => (
+      {/* Keyed on the result set: a filter change remounts the list and replays
+          the one-shot entrance for the NEW rows; a poll updating the same rows
+          does not. Stagger capped at 15 — beyond that it reads as slowness. */}
+      <ul className="md:hidden" key={`${orders.length}:${orders[0]?.id ?? ""}`}>
+        {orders.map((o, i) => (
           <Fragment key={o.id}>
-            <OrderCard o={o} a={actionsFor(o)} isSuperAdmin={isSuperAdmin} />
+            <OrderCard o={o} a={actionsFor(o)} isSuperAdmin={isSuperAdmin} entranceDelayMs={Math.min(i, 15) * 20} />
             {expanded.has(o.id) && o.status === "submitting" && (
               <li className="border-b border-[#E3E8EF] last:border-0">
                 <SubmitProgress
@@ -204,10 +207,10 @@ export function OrdersTable({
               )}
             </TableRow>
           </TableHeader>
-          <TableBody>
-            {orders.map((o) => (
+          <TableBody key={`${orders.length}:${orders[0]?.id ?? ""}`}>
+            {orders.map((o, i) => (
               <Fragment key={o.id}>
-                <OrderRow o={o} a={actionsFor(o)} isSuperAdmin={isSuperAdmin} />
+                <OrderRow o={o} a={actionsFor(o)} isSuperAdmin={isSuperAdmin} entranceDelayMs={Math.min(i, 15) * 20} />
                 {expanded.has(o.id) && o.status === "submitting" && (
                   <TableRow className="border-b border-[#E3E8EF] hover:bg-transparent">
                     <TableCell colSpan={colSpan} className="p-0">

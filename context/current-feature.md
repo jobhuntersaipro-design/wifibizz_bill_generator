@@ -1,5 +1,63 @@
 # Current Feature
 
+## Motion Pack 1 — State Spots, Count-Ups, One-Shot Transitions
+
+**Status:** CODE COMPLETE, VERIFIED IN BROWSER — **committed directly on `main` (`9a2062f`), NOT on a
+feature branch**: the branch step was skipped by mistake after Phase 2's merge. The work is verified and
+green, so it stands rather than being rewritten, but it is a workflow deviation and is named as one.
+Not yet pushed. Vercel-only — no scraper change, no migration. Phase 3 of the 2026-08-31 product plan.
+Spec: [context/features/motion-pack-1.md](features/motion-pack-1.md).
+
+**The constraint that shaped it:** the app owns exactly five Lottie assets, exported from the user's
+LottieFiles account — new illustrations cannot be minted here. So the pack is reuse plus code-authored
+CSS, and every piece sits inside the existing global `prefers-reduced-motion` blanket disable.
+
+### What went in
+
+- **State spots (reuse):** the case list's empty state renders `empty-orders` (falling back to the old
+  grey icon under reduced motion); the crawl page's progress line carries `processing`; the admin error
+  breakdown's empty state plays `success` ONCE — "nothing failed" is an all-clear to note, not an
+  activity to watch. The admin "Running now" idle state deliberately stays plain text: calm is the
+  message, and motion there would imply activity.
+- **Count-ups:** the admin oversight tiles now use the SAME `useAnimatedCounter` the dashboard KPIs
+  already had — discovered during the survey, so phase B was mostly wiring. The hook gained the
+  reduced-motion snap it never had: under `prefers-reduced-motion` (or no `matchMedia`, e.g. a test
+  runner) it renders the target at once.
+- **One-shot transitions:** new `useFlashOnChange` — a class for 700ms when a value CHANGES, never on
+  mount, so a fresh page stays still. Wired to the agent status pill, the admin status pill, and the
+  Connection badge (which flashes only when turning green). Both order tables stagger their rows
+  20ms/row capped at 15 on RESULT-SET changes — the container is keyed on the set, so a filter change
+  replays the entrance and a poll updating the same rows does not.
+
+### Dropped for honesty (recorded in the spec)
+
+Per-failure error animation, disconnected/merged spots (no fitting asset), confetti and mascot
+(decided out), and the submit-button-morphs-to-progress-bar idea.
+
+### The lint rule caught both new setStates
+
+`react-hooks/set-state-in-effect` flagged the flash trigger AND the reduced-motion snap — the same rule
+this repo hit on the plans page. Both now defer one frame (`requestAnimationFrame`), which is
+indistinguishable to the eye and returns lint to baseline.
+
+### Verified in the browser
+
+On the real signed-in session: the case list's empty state renders a live Lottie canvas (searched for a
+nonsense term, `No cases found` + canvas present, then cleared); the drafts table's rows carry
+`animate-fade-in-up` with delays **0/20/40/60ms**, and applying the Draft status filter remounted the
+body — the one remaining row re-entered at 0ms, which is the keyed-container rule working; the admin
+tiles' count-up uses the hook the dashboard has run for months.
+
+**Tests:** none new, and stated plainly why: the vitest environment is node with no jsdom or
+testing-library, so hooks cannot be renderHook-tested here. `useAnimatedCounter` is long-shipped
+dashboard code; `useFlashOnChange` is 20 lines whose mount/change rule was verified in the browser
+instead. **712 vitest passing**, `npm run build`, lint identical to baseline (9642), `tsc` unchanged.
+
+**NOT verified:** the pill flash on a live status change (needs a run finishing under a watching eye);
+the crawl-page spot (needs a crawl running); the admin all-clear spot and tile count-ups on screen (the
+admin JWT is expired locally); and reduced-motion fallbacks by emulation — they rest on the global CSS
+block and LottieSpot's existing tested behaviour.
+
 ## In-App Outcome Notifications
 
 **Status:** MERGED TO MAIN AND DEPLOYED 2026-08-31 (`7c37f83`, merge `09c179d`; branch deleted).
