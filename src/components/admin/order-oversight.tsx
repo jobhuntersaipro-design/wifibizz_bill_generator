@@ -8,10 +8,11 @@ import {
 import { toast } from "sonner";
 import {
   adminListOrders, adminOrderStats, adminRestoreOrder, adminPurgeOrder,
-  adminLiveJobs, adminReleaseJob,
+  adminLiveJobs, adminReleaseJob, adminBulkPurgePreview, adminBulkPurge,
   type AdminOrderRow, type AdminStats, type LiveJob,
 } from "@/actions/admin-orders";
 import { purgePhrase, UNCLASSIFIED, bucketLabel, orderErrorLabel, type Granularity } from "@/lib/admin-order-stats";
+import { matchesOrderSearch, toCsv } from "@/lib/admin-search";
 import { formatDuration } from "@/lib/order-types";
 import LottieSpot from "@/components/order-entry/LottieSpot";
 import { useAnimatedCounter } from "@/components/dashboard/shared";
@@ -40,6 +41,8 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
   // null = follow the range's own default; a value pins it.
   const [granularity, setGranularity] = useState<Granularity | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
+  const [search, setSearch] = useState("");
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [purgeTarget, setPurgeTarget] = useState<AdminOrderRow | null>(null);
 
   const load = useCallback(async () => {
@@ -71,8 +74,9 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
   const filtered = useMemo(
     () => orders.filter((o) =>
       (!agentFilter || o.agentId === agentFilter) &&
-      (!statusFilter || (statusFilter === "deleted" ? o.deletedAt : o.status === statusFilter))),
-    [orders, agentFilter, statusFilter],
+      (!statusFilter || (statusFilter === "deleted" ? o.deletedAt : o.status === statusFilter)) &&
+      matchesOrderSearch(o, search)),
+    [orders, agentFilter, statusFilter, search],
   );
 
   const agentOptions = useMemo(() => {
@@ -90,6 +94,25 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
     )].sort(),
     [orders, agentFilter],
   );
+
+  function exportCsv() {
+    // Exactly the FILTERED rows: an export that ignores the filters exports
+    // something the screen never showed.
+    const csv = toCsv(
+      ["reference", "name", "ic", "agent", "status", "error_code", "portal_order", "package", "created", "deleted_at"],
+      filtered.map((o) => [
+        o.reference, o.fullName, o.idNumber, o.agentEmail, o.status, o.errorCode,
+        o.orderId, o.offerName, o.createdAt instanceof Date ? o.createdAt.toISOString() : String(o.createdAt),
+        o.deletedAt ? (o.deletedAt instanceof Date ? o.deletedAt.toISOString() : String(o.deletedAt)) : null,
+      ]),
+    );
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `orders-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   async function restore(o: AdminOrderRow) {
     const res = await adminRestoreOrder(o.id);
@@ -161,11 +184,30 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
           {/* Agent is chosen once, above, and applies to the charts AND this
               table: two selects for one concept is how a page starts lying
               about which agent you are looking at. */}
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search name, IC, ORD-…, portal no."
+            className="w-56 rounded-md border border-[#E3E8EF] px-2 py-1.5 text-xs text-[#425466] placeholder:text-[#B4BCCA]"
+          />
           <Select value={statusFilter} onChange={setStatusFilter} label="All statuses"
             options={[...statusOptions.map((s) => ({ value: s, label: s })), { value: "deleted", label: "deleted" }]} />
+          <button type="button" onClick={exportCsv} disabled={filtered.length === 0}
+            className="rounded-md border border-[#E3E8EF] px-2.5 py-1.5 text-xs text-[#425466] transition-colors hover:border-[#635BFF] disabled:opacity-40">
+            Export CSV · {filtered.length}
+          </button>
+          <button type="button" onClick={() => setBulkOpen(true)}
+            className="ml-auto rounded-md border border-[#FCA5A5] px-2.5 py-1.5 text-xs text-[#B42318] transition-colors hover:bg-[#FEF2F2]">
+            Purge old deleted…
+          </button>
         </div>
         <OrderTable rows={filtered} onRestore={restore} onPurge={setPurgeTarget} />
       </Card>
+
+      {bulkOpen && (
+        <BulkPurgeDialog onClose={() => setBulkOpen(false)} onDone={() => { setBulkOpen(false); void load(); }} />
+      )}
 
       {purgeTarget && (
         <PurgeDialog
@@ -606,6 +648,94 @@ function Select({ value, onChange, label, options }: {
 
 function Empty({ children }: { children: React.ReactNode }) {
   return <p className="py-8 text-center text-sm text-[#697386]">{children}</p>;
+}
+
+/**
+ * Purge every order soft-deleted longer than the cutoff — the PII release
+ * valve in one gesture. Confirmed by typing the COUNT: the single purge's
+ * guards-against-haste rule, adapted because there is no one name to type.
+ * The server recomputes the set, so a stale preview cannot widen the blast.
+ */
+function BulkPurgeDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [days, setDays] = useState<30 | 90 | 180>(90);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0A2540]/40 p-4">
+      <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
+        <h3 className="text-base font-semibold text-[#0A2540]">Purge old deleted orders?</h3>
+        <div className="mt-3 flex gap-2">
+          {([30, 90, 180] as const).map((d) => (
+            <button key={d} type="button" onClick={() => setDays(d)}
+              className={`rounded-md border px-3 py-1.5 text-xs ${days === d
+                ? "border-[#635BFF] bg-[#EFF4FF] text-[#3538CD]" : "border-[#E3E8EF] text-[#425466]"}`}>
+              Older than {d} days
+            </button>
+          ))}
+        </div>
+        {/* Keyed on `days`: switching cutoffs REMOUNTS the body with a fresh
+            null preview — the same key-not-effect pattern the plans page set,
+            and what keeps setState out of the effect (lint:
+            react-hooks/set-state-in-effect). */}
+        <BulkPurgeBody key={days} days={days} onClose={onClose} onDone={onDone} />
+      </div>
+    </div>
+  );
+}
+
+function BulkPurgeBody({ days, onClose, onDone }: {
+  days: 30 | 90 | 180; onClose: () => void; onDone: () => void;
+}) {
+  const [preview, setPreview] = useState<{ id: string; label: string }[] | null>(null);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    adminBulkPurgePreview(days).then((r) => { if (alive && r.success) setPreview(r.data); });
+    return () => { alive = false; };
+  }, [days]);
+
+  async function confirm() {
+    setBusy(true);
+    const res = await adminBulkPurge(days, typed);
+    setBusy(false);
+    if (res.success) { toast.success(`${res.purged} orders purged permanently.`); onDone(); }
+    else toast.error(res.error ?? "Purge failed.");
+  }
+
+  return (
+    <>
+        {preview === null ? (
+          <p className="mt-4 text-sm text-[#697386]">Counting…</p>
+        ) : preview.length === 0 ? (
+          <p className="mt-4 rounded-md bg-[#F6F9FC] px-3 py-2 text-sm text-[#425466]">
+            Nothing has been deleted for longer than {days} days.
+          </p>
+        ) : (
+          <>
+            <p className="mt-4 text-sm text-[#425466]">
+              This destroys <strong>{preview.length}</strong> order{preview.length === 1 ? "" : "s"} and
+              their entire histories. It cannot be undone.
+            </p>
+            <p className="mt-2 max-h-24 overflow-y-auto rounded-md bg-[#F6F9FC] px-3 py-2 text-xs text-[#697386]">
+              {preview.map((p) => p.label).join(" · ")}
+            </p>
+            <label className="mt-3 block text-xs text-[#697386]">
+              Type <strong className="text-[#0A2540]">{preview.length}</strong> to confirm
+              <input value={typed} onChange={(e) => setTyped(e.target.value)} inputMode="numeric"
+                className="mt-1 w-full rounded-md border border-[#E3E8EF] px-3 py-2 text-sm text-[#0A2540]" />
+            </label>
+          </>
+        )}
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" onClick={onClose}
+            className="rounded-md border border-[#E3E8EF] px-3 py-2 text-sm text-[#425466]">Cancel</button>
+          <button type="button" onClick={confirm} disabled={busy || !preview || preview.length === 0}
+            className="rounded-md bg-[#B42318] px-3 py-2 text-sm text-white disabled:opacity-50">
+            {busy ? "Purging…" : "Purge permanently"}
+          </button>
+        </div>
+    </>
+  );
 }
 
 function PurgeDialog({ order, onClose, onDone }: {

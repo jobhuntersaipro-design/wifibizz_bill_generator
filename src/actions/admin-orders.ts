@@ -477,3 +477,71 @@ export async function adminGetAgent(id: string) {
     return { success: false as const, error: "Could not load the agent.", data: null };
   }
 }
+
+/* ── Bulk purge — the PII release valve, in one gesture ─────────────────── */
+
+const bulkCutoff = (days: number) => new Date(Date.now() - days * 86400_000);
+
+/** What WOULD go: soft-deleted longer than the cutoff. The dialog shows this
+ * list; the purge itself recomputes it, because the dialog's copy can be stale
+ * by the time the admin finishes typing the count. */
+export async function adminBulkPurgePreview(cutoffDays: number) {
+  const denied = await requireAdmin();
+  if (denied) return { ...denied, data: [] as { id: string; label: string }[] };
+  if (![30, 90, 180].includes(cutoffDays)) {
+    return { success: false as const, error: "Pick 30, 90 or 180 days.", data: [] };
+  }
+  const rows = await prisma.order.findMany({
+    where: { deletedAt: { lt: bulkCutoff(cutoffDays) } },
+    select: { id: true, reference: true, fullName: true, deletedAt: true },
+    orderBy: { deletedAt: "asc" },
+  });
+  return {
+    success: true as const,
+    data: rows.map((r) => ({ id: r.id, label: r.reference ?? r.fullName })),
+  };
+}
+
+/**
+ * Destroy every order soft-deleted longer than the cutoff.
+ *
+ * Confirmed by TYPING THE COUNT — the single purge's guards-against-haste rule,
+ * adapted because there is no one name to type. The count is checked against a
+ * SERVER-side recomputation: if the set changed since the dialog rendered
+ * (an agent deleted one more order mid-dialog), the numbers disagree and the
+ * purge refuses rather than destroying a set nobody was shown.
+ */
+export async function adminBulkPurge(cutoffDays: number, typedCount: string) {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+  if (![30, 90, 180].includes(cutoffDays)) {
+    return { success: false as const, error: "Pick 30, 90 or 180 days." };
+  }
+  try {
+    const rows = await prisma.order.findMany({
+      where: { deletedAt: { lt: bulkCutoff(cutoffDays) } },
+      select: { id: true },
+    });
+    if (rows.length === 0) return { success: false as const, error: "Nothing old enough to purge." };
+    if (typedCount.trim() !== String(rows.length)) {
+      return {
+        success: false as const,
+        error: `That count doesn't match — ${rows.length} order${rows.length === 1 ? "" : "s"} would be purged. Re-check and type that number.`,
+      };
+    }
+    // deleteMany scoped by the SAME predicate plus the ids, so a row restored
+    // mid-flight is not destroyed on the strength of a stale preview.
+    const res = await prisma.order.deleteMany({
+      where: { id: { in: rows.map((r) => r.id) }, deletedAt: { lt: bulkCutoff(cutoffDays) } },
+    });
+    await recordAudit({
+      actor: ADMIN_ACTOR,
+      action: "order_purged",
+      detail: `Bulk purge: ${res.count} deleted order${res.count === 1 ? "" : "s"} older than ${cutoffDays} days.`,
+    });
+    return { success: true as const, purged: res.count };
+  } catch (e) {
+    console.error("[adminBulkPurge]", e);
+    return { success: false as const, error: "Could not purge." };
+  }
+}

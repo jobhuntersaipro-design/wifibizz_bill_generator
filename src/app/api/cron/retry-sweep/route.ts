@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { sweepPendingRetries } from "@/lib/order-retry";
 import { scraperBusy } from "@/actions/order";
+import { sendEmail } from "@/lib/notifications/resend";
+import { inAlertWindow } from "@/lib/admin-search";
 
 /**
  * Start the automatic retries that were owed but could not be handed off.
@@ -50,6 +52,22 @@ export async function GET(req: Request) {
             "the droplet's reaper is not clearing it. Submit is greyed out for every agent. " +
             "Check GET /jobs on the scraper, then POST /jobs/<id>/cancel?force=1.",
         );
+        // Once per incident, statelessly: this cron runs every 5 minutes and
+        // the age crosses the cap exactly once, so mailing only inside the
+        // first window past it fires a single mail with no table and no
+        // marker. If that one send fails there is no retry — accepted: the
+        // admin Orders page still shows the stuck row, and this is a nudge,
+        // not the system of record.
+        const alertTo = process.env.ADMIN_ALERT_EMAIL?.trim();
+        if (alertTo && typeof age === "number" && typeof cap === "number" && inAlertWindow(age, cap)) {
+          await sendEmail({
+            to: alertTo,
+            subject: "⚠️ BizzFlow: a submit has been stuck for " + Math.round(age / 60) + " minutes",
+            html: `<p>A submit job has held the order service's slot for <strong>${Math.round(age / 60)} minutes</strong>, past the ${Math.round(cap / 60)}-minute cap. Submit may be blocked for agents.</p>
+                   <p>Open <a href="https://bizzflow.top/admin/orders">Admin → Orders</a> — the run shows in <em>Running now</em> marked <strong>Stuck</strong>, with a Release button.</p>
+                   <p>This mail is sent once per incident.</p>`,
+          }).catch((e) => console.error("[cron/retry-sweep] alert mail failed:", e));
+        }
       }
     } catch (e) {
       // Never fail the sweep over a health read — starting the owed retries is
