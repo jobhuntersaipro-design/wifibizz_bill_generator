@@ -1,5 +1,6 @@
 "use client";
 
+import { AccountPasswordCard } from "@/components/dashboard/AccountPasswordCard";
 import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -212,6 +213,10 @@ export default function SettingsPage() {
         <p className="text-sm text-[#697386] mt-1">
           Manage your WifiBizz integration credentials
         </p>
+      </div>
+
+      <div className="max-w-xl animate-fade-in-up" style={{ animationDelay: "150ms" }}>
+        <AccountPasswordCard />
       </div>
 
       <div className="max-w-xl animate-fade-in-up" style={{ animationDelay: "200ms" }}>

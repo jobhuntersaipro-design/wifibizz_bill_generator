@@ -329,3 +329,25 @@ export function testEmail(to: string): { subject: string; html: string } {
     ),
   };
 }
+
+/**
+ * A minimal transactional mail for account flows (password reset). Reuses the
+ * same visual shell as the order mails so the sender is recognisably the same
+ * app, but takes plain strings — nothing order-shaped.
+ */
+export function accountEmailShell(
+  title: string,
+  body: string,
+  cta: { label: string; url: string },
+  footnote: string,
+): string {
+  return shell(
+    "🔐",
+    title,
+    `<p style="margin:0 0 12px;font-size:14px;line-height:1.6;color:${INK};">${esc(body)}</p>
+     <div style="margin:18px 0;">
+       <a href="${esc(cta.url)}" style="display:inline-block;padding:10px 18px;background:${BRAND};color:#fff;border-radius:8px;font-size:14px;font-weight:600;text-decoration:none;">${esc(cta.label)}</a>
+     </div>
+     <p style="margin:0;font-size:12px;color:${MUTED};">${esc(footnote)}</p>`,
+  );
+}

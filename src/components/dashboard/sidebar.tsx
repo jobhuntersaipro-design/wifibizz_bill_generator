@@ -7,6 +7,7 @@ import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { getSidebarInfo } from "@/actions/settings";
 import { unseenOutcomes } from "@/actions/order";
+import { describeConnection } from "@/lib/agent-connection";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboardIcon },
@@ -22,9 +23,22 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
     email: string | null;
     agent: string | null;
     orderEntryEnabled: boolean;
-  }>({ email: null, agent: null, orderEntryEnabled: false });
+    dealerSessionExpiresAt?: string | null;
+  }>({ email: null, agent: null, orderEntryEnabled: false, dealerSessionExpiresAt: null });
 
   // Hide the Order Entry link unless the admin has granted this user access.
+  // The dealer session, judged by the SAME rule the admin page and the submit
+  // gate use — so this warning and a refused submit can never disagree. Only a
+  // problem is shown; a healthy session renders nothing, because absence of
+  // warning IS the calm signal.
+  const dealerConn = describeConnection(
+    sidebarInfo.dealerSessionExpiresAt ? { sessionExpiresAt: sidebarInfo.dealerSessionExpiresAt } : null,
+  );
+  const showDealerWarning =
+    sidebarInfo.orderEntryEnabled &&
+    sidebarInfo.dealerSessionExpiresAt !== null &&
+    (dealerConn.state === "expired" || dealerConn.state === "expiring");
+
   const visibleNavItems = navItems.filter(
     (item) => item.href !== "/dashboard/order-entry" || sidebarInfo.orderEntryEnabled
   );
@@ -114,6 +128,17 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
           );
         })}
       </nav>
+
+      {showDealerWarning && (
+        <Link
+          href="/dashboard/order-entry"
+          className="mx-3 mb-2 block rounded-lg border border-[#FEDF89] bg-[#FFFAEB] px-3 py-2 text-[11px] leading-snug text-[#B54708] hover:border-[#B54708]"
+        >
+          {dealerConn.state === "expired"
+            ? "Dealer session expired — reconnect to submit orders."
+            : `Dealer session ${dealerConn.label.replace("Connected · ", "")} — reconnect soon.`}
+        </Link>
+      )}
 
       {/* Bottom section */}
       <div className="px-3 pb-4 space-y-1 animate-fade-in" style={{ animationDelay: "400ms" }}>
