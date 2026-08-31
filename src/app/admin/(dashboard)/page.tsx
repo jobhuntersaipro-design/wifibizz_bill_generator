@@ -1,4 +1,5 @@
 import { UserManagement } from "@/components/admin/user-management";
+import { ActivityLog } from "@/components/admin/activity-log";
 
 export default function AdminPage() {
   return (
@@ -10,6 +11,7 @@ export default function AdminPage() {
         </p>
       </div>
       <UserManagement />
+      <ActivityLog />
     </div>
   );
 }
