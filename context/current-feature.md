@@ -2,8 +2,9 @@
 
 ## Staff Code on Both Order Tables
 
-**Status:** CODE COMPLETE, AGENT TABLE VERIFIED IN BROWSER (branch `feature/staff-code-columns`, not
-yet committed). Vercel-only — no scraper change, no migration.
+**Status:** MERGED TO MAIN AND DEPLOYED 2026-08-31 (`290d43b`, merge `67a7545`; branch deleted).
+Vercel-only — no scraper change, no migration. Build compiled clean in 1m, deployment `c0sub05w7`
+Ready, `bizzflow.top` aliased to it.
 
 Ask (2026-08-31): both order tables — admin `/admin/orders` oversight and the agent-facing Orders tab
 — must say which **dealer staff code** an order belongs to.
