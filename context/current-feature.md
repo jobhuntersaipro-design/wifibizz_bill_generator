@@ -1,5 +1,47 @@
 # Current Feature
 
+## People Audit Trail
+
+**Status:** CODE COMPLETE (branch `feature/people-audit-trail`). Vercel-only — no scraper change.
+**Needs `prisma migrate deploy`** (`admin_audit_log`; Vercel's build applies it). Phase 5 of the
+2026-08-31 product plan. Spec: [context/features/people-audit-trail.md](features/people-audit-trail.md).
+
+One append-only table and one honest limit stated first: **the admin JWT carries `role: "admin"` and
+nothing else**, so admin rows say WHAT/WHEN/TO WHOM with a constant actor — two people sharing the
+admin password are indistinguishable, which is the recorded cost of declining roles. Self-service
+password events carry the real user id.
+
+### Built
+
+- `src/lib/audit.ts` — `recordAudit()` (NEVER throws: an audit outage must not take user management
+  down; a failed write is logged and swallowed, and that trade is stated) + `listAudit()`. No update,
+  no delete, anywhere. The table has **no relations**, so purging a user or an order cannot destroy the
+  record of who purged it — the purge hook writes its row AFTER the cascade for exactly that reason.
+- **Hooks:** user create/update/delete, order-entry access flips, case-limit top-ups (beside
+  `CaseLimitChangeLog`, which stays as billing's record), order restore/purge, job release — recording
+  whether the run was actually stopped or only the slot freed — and self-service password change/reset.
+- **`user_updated` records field NAMES, never values** — "Changed email, password." — and drops
+  `passwordRaw` from the list entirely rather than naming a second secret store. Pinned by a test that
+  reads the hook's source.
+- **Activity view** on the admin Users page: latest 20, expand, load older. Target user ids resolve to
+  names at READ time — the trail stores ids so it survives renames, and a deleted user's raw id still
+  shows, because "done to somebody who no longer exists" is exactly what a trail is for. Renders
+  nothing while the trail is empty.
+
+### Verified
+
+**Tests:** 4 new in `audit.test.ts` — the write shape, recordAudit never throwing on a dead table, the
+no-secrets rule pinned against the hook's actual source, and the reader's ordering/cap. **729 vitest
+passing**, `npm run build`, lint identical to baseline (9642), `tsc` unchanged. Migration applied to
+dev.
+
+**NOT verified in a browser, and why:** every hook sits behind the admin gate, the local admin JWT is
+expired, and the one agent-side hook that could fire without it (a password change) would require
+putting a real credential into the session transcript — the same line held in earlier phases. So the
+Activity list has never rendered with rows; its empty-state (renders nothing) is the only state seen.
+First real admin action after deploy will be the live test — flip order-entry access on any user and
+the row should appear.
+
 ## Self-Service Account — Change Password, Reset by E-mail, Session Warnings
 
 **Status:** MERGED TO MAIN AND DEPLOYED 2026-08-31 (`e87d83c`, merge `926a892`; branch deleted).

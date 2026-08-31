@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { verifyAdminSession } from "@/lib/admin-auth";
 import { SCRAPER_API_URL, ORDER_TOKEN } from "@/lib/order-start";
 import { describeConnection, isConnected, type ConnectionView } from "@/lib/agent-connection";
+import { ADMIN_ACTOR, recordAudit } from "@/lib/audit";
 import {
   agentStats,
   errorBreakdown,
@@ -254,6 +255,7 @@ export async function adminRestoreOrder(id: string) {
       data: { deletedAt: null },
     });
     if (res.count === 0) return { success: false as const, error: "Order is not deleted." };
+    await recordAudit({ actor: ADMIN_ACTOR, action: "order_restored", targetOrder: id });
     return { success: true as const };
   } catch (e) {
     console.error("[adminRestoreOrder]", e);
@@ -287,8 +289,15 @@ export async function adminPurgeOrder(id: string, typedPhrase: string) {
     if (!purgePhraseMatches(order, typedPhrase)) {
       return { success: false as const, error: "That does not match the order's name." };
     }
-    // Cascades order_status_events. Nothing survives this.
+    // Cascades order_status_events. Nothing survives this — except the audit
+    // row written below, which is the point of the trail having no relations.
     await prisma.order.delete({ where: { id } });
+    await recordAudit({
+      actor: ADMIN_ACTOR,
+      action: "order_purged",
+      targetOrder: id,
+      detail: `Purged ${order.reference ?? order.fullName} permanently.`,
+    });
     return { success: true as const };
   } catch (e) {
     console.error("[adminPurgeOrder]", e);
@@ -416,6 +425,8 @@ export async function adminReleaseJob(jobId: string) {
   try {
     const first = await call(false);
     if (first.ok) {
+      await recordAudit({ actor: ADMIN_ACTOR, action: "job_released", targetOrder: null,
+        detail: `Released job ${jobId} — the run itself was cancelled.` });
       return { success: true as const, stopped: true,
                message: "The run was cancelled — the browser is being torn down." };
     }
@@ -431,6 +442,8 @@ export async function adminReleaseJob(jobId: string) {
     if (!forced.ok) {
       return { success: false as const, error: fBody.message || fBody.error || "Could not release the job." };
     }
+    await recordAudit({ actor: ADMIN_ACTOR, action: "job_released", targetOrder: null,
+      detail: `Force-released job ${jobId} — the run itself was NOT stopped.` });
     return { success: true as const, stopped: false,
              message: "Slot released. The run itself was not stopped." };
   } catch (e) {

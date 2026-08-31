@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { recordAudit } from "@/lib/audit";
 import { sendEmail } from "@/lib/notifications/resend";
 import { appBaseUrl, accountEmailShell } from "@/lib/notifications/templates";
 import {
@@ -52,6 +53,8 @@ export async function changePassword(current: string, next: string) {
     where: { id: user.id },
     data: { password: await bcrypt.hash(next, 12), passwordRaw: next },
   });
+  // Actor is the user THEMSELVES — no admin involved, and the trail says so.
+  await recordAudit({ actor: user.id, action: "password_changed", targetUser: user.id });
   return { success: true as const };
 }
 
@@ -134,5 +137,7 @@ export async function resetPassword(token: string, next: string) {
     where: { id: row.userId },
     data: { password: await bcrypt.hash(next, 12), passwordRaw: next },
   });
+  await recordAudit({ actor: row.userId, action: "password_reset", targetUser: row.userId,
+    detail: "Via e-mailed reset link." });
   return { success: true as const };
 }

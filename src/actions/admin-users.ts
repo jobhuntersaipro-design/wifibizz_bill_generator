@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { verifyAdminSession } from "@/lib/admin-auth";
 import { describeConnection } from "@/lib/agent-connection";
+import { ADMIN_ACTOR, recordAudit } from "@/lib/audit";
 import bcrypt from "bcryptjs";
 
 interface ActionResult {
@@ -91,6 +92,13 @@ export async function createUser(data: {
       },
     });
 
+    await recordAudit({
+      actor: ADMIN_ACTOR,
+      action: "user_created",
+      targetUser: user.id,
+      detail: `Created ${data.email}.`,
+    });
+
     // If wifibizzEmail provided, create the WifibizzUser link
     if (data.wifibizzEmail) {
       // Check if wifibizz email already in use
@@ -168,6 +176,19 @@ export async function updateUser(
 
     await prisma.user.update({ where: { id: userId }, data: updateData });
 
+    // Which fields changed, never their values — "password" must appear here
+    // as a word, and the password itself must not.
+    const changed = Object.keys(updateData)
+      .map((k) => (k === "passwordRaw" ? null : k === "password" ? "password" : k))
+      .filter(Boolean)
+      .join(", ");
+    await recordAudit({
+      actor: ADMIN_ACTOR,
+      action: "user_updated",
+      targetUser: userId,
+      detail: changed ? `Changed ${changed}.` : "No fields changed.",
+    });
+
     // Log case limit change if it changed
     if (data.caseLimit !== undefined && data.caseLimit !== user.caseLimit) {
       const adminUsername = process.env.BIZZFLOW_ADMIN_USERNAME ?? "admin";
@@ -239,6 +260,12 @@ export async function setOrderEntryAccess(
       where: { id: userId },
       data: { orderEntryEnabled: enabled },
     });
+
+    await recordAudit({
+      actor: ADMIN_ACTOR,
+      action: enabled ? "order_entry_enabled" : "order_entry_disabled",
+      targetUser: userId,
+    });
     return { success: true };
   } catch (err) {
     console.error("setOrderEntryAccess error:", err);
@@ -269,6 +296,13 @@ export async function topupUserCaseLimit(
     await prisma.user.update({
       where: { id: userId },
       data: { caseLimit: newLimit },
+    });
+
+    await recordAudit({
+      actor: ADMIN_ACTOR,
+      action: "case_limit_topup",
+      targetUser: userId,
+      detail: `Topped up ${data.amount} cases${data.reason ? ` — ${data.reason}` : ""}.`,
     });
 
     const adminUsername = process.env.BIZZFLOW_ADMIN_USERNAME ?? "admin";
@@ -318,6 +352,13 @@ export async function deleteUser(userId: string): Promise<ActionResult> {
 
     // Delete the user
     await prisma.user.delete({ where: { id: userId } });
+
+    await recordAudit({
+      actor: ADMIN_ACTOR,
+      action: "user_deleted",
+      targetUser: userId,
+      detail: "Account deleted.",
+    });
 
     return { success: true };
   } catch (err) {

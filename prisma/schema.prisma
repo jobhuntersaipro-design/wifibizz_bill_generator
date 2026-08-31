@@ -393,6 +393,22 @@ model CaseLimitChangeLog {
   @@map("case_limit_change_log")
 }
 
+// Who did what to whom — the people audit trail. Append-only by convention AND
+// by code (src/lib/audit.ts exposes record + read, nothing else). No relations
+// on purpose: purging a user must not destroy the record of who purged them.
+model AdminAuditLog {
+  id          String   @id @default(cuid())
+  actor       String // "admin" (the one shared admin identity) or a user id
+  action      String // fixed vocabulary — see src/lib/audit.ts
+  targetUser  String?  @map("target_user")
+  targetOrder String?  @map("target_order")
+  detail      String? // one human sentence; never a secret, never JSON
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("admin_audit_log")
+}
+
 // A pending self-service password reset. The mailed token is never stored —
 // tokenHash is its SHA-256 — and usedAt makes it single-use.
 model PasswordResetToken {
