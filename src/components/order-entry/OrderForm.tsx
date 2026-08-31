@@ -1,6 +1,7 @@
 "use client";
 
 import { groupMissing, isFormSection, sectionAnchor, sectionOf, SECTION_SHORT, type FormSection, type MissingField } from "@/lib/order-sections";
+import { ordersForIc } from "@/actions/order";
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -151,15 +152,19 @@ export function OrderForm({
   onSaved,
   onBack,
   focusSection,
+  cloneId,
 }: {
   editingId?: string | null;
   onSaved?: () => void;
   onBack?: () => void;
   /** Open the form scrolled to this card, first input focused — from a failure's "Fix the draft". */
   focusSection?: FormSection | null;
+  /** Prefill from this order and SAVE AS NEW: run state, reference and — the
+   * load-bearing exclusion — documents are never carried. See clone-order.ts. */
+  cloneId?: string | null;
 }) {
   const [draftId, setDraftId] = useState<string | null>(editingId ?? null);
-  const [loadingDraft, setLoadingDraft] = useState(!!editingId);
+  const [loadingDraft, setLoadingDraft] = useState(!!editingId || !!cloneId);
 
   const [idType, setIdType] = useState<IdType>("MyKad");
   const [idNumber, setIdNumber] = useState("");
@@ -323,6 +328,30 @@ export function OrderForm({
       (inputs.find((i) => !i.value) ?? inputs[0])?.focus({ preventScroll: true });
     }, 350);
   }, []);
+
+  // Does this IC already have orders? Informational, never blocking: the
+  // portal attaches the existing customer record correctly — this exists to
+  // stop the UNINTENTIONAL duplicate draft, not the deliberate second line.
+  const [icHint, setIcHint] = useState<{
+    mine: { id: string; reference: string | null; status: string }[];
+    othersCount: number;
+  } | null>(null);
+  useEffect(() => {
+    const complete = isMykadLike ? isCompleteMykad(idNumber) : idNumber.trim().length >= 6;
+    if (!complete) { setIcHint(null); return; }
+    let alive = true;
+    // Debounced: fires only after typing settles, and a failed lookup shows
+    // nothing — a hint must never block typing.
+    const t = setTimeout(() => {
+      ordersForIc(idNumber, draftId ?? cloneId ?? undefined)
+        .then((res) => {
+          if (!alive) return;
+          setIcHint(res.success && (res.mine.length || res.othersCount) ? res : null);
+        })
+        .catch(() => { if (alive) setIcHint(null); });
+    }, 500);
+    return () => { alive = false; clearTimeout(t); };
+  }, [idNumber, isMykadLike, draftId, cloneId]);
 
   // A failure's "Fix the draft" lands here with ?focus=<section>. Fires once
   // the draft has LOADED, not on mount: while a draft is fetching the form
@@ -566,9 +595,10 @@ export function OrderForm({
   // Load an existing draft for editing. setState runs in the async callback
   // (not synchronously in the effect), so it doesn't cascade renders.
   useEffect(() => {
-    if (!editingId) return;
+    const sourceId = editingId || cloneId;
+    if (!sourceId) return;
     let active = true;
-    getOrder(editingId).then((res) => {
+    getOrder(sourceId).then((res) => {
       if (!active) return;
       if (res.success && res.data) {
         const o = res.data;
@@ -600,11 +630,17 @@ export function OrderForm({
         setLeadHours(String(leadHoursOrDefault(o.appointmentLeadHours as number | null)));
         // Only keep documents that carry a namespaced key (servable via the
         // authenticated proxy); drop any legacy public-URL entries.
-        const docs = Array.isArray(o.documents)
-          ? (o.documents as unknown as OrderDocument[]).filter((d) => d && typeof d.key === "string" && d.key.startsWith("orders/"))
-          : [];
-        setDocuments(docs);
-        setDraftId(o.id);
+        if (editingId) {
+          const docs = Array.isArray(o.documents)
+            ? (o.documents as unknown as OrderDocument[]).filter((d) => d && typeof d.key === "string" && d.key.startsWith("orders/"))
+            : [];
+          setDocuments(docs);
+          setDraftId(o.id);
+        }
+        // Clone mode: documents stay EMPTY and draftId stays null, so saving
+        // CREATES. Not an omission — the R2 key scheme mints the same key for
+        // two orders on one customer, and shared entries would make that
+        // documented replace-trap a certainty.
       } else {
         toast.error(res.error ?? "Couldn't load that draft.");
       }
@@ -613,7 +649,7 @@ export function OrderForm({
     return () => {
       active = false;
     };
-  }, [editingId]);
+  }, [editingId, cloneId]);
 
   function handlePrefixChange(v: string) {
     const digits = v.replace(/\D/g, "");
@@ -1039,6 +1075,32 @@ export function OrderForm({
       </div>
 
       {/* Contact */}
+      {icHint && (
+        <div className="rounded-lg border border-[#BFD4FF] bg-[#EFF4FF] px-4 py-3 text-[12px] leading-relaxed text-[#3538CD]">
+          <span className="font-semibold">This IC already has orders.</span>{" "}
+          {icHint.mine.map((m, i) => (
+            <span key={m.id}>
+              {i > 0 && " · "}
+              <a
+                href={`/order-entry/orders/${m.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-[#0A2540]"
+              >
+                {m.reference ?? "draft"} ({m.status})
+              </a>
+            </span>
+          ))}
+          {icHint.othersCount > 0 && (
+            <span>
+              {icHint.mine.length > 0 ? " — and " : " "}
+              {icHint.othersCount} by another agent
+            </span>
+          )}
+          . The portal will attach the existing customer record rather than creating a new one.
+        </div>
+      )}
+
       <div id={sectionAnchor("contact")} className={`${cardCls} overflow-hidden`}>
         <div className={headCls}>Contact</div>
         <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">

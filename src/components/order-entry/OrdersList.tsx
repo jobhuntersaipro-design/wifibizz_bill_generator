@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { actionFor } from "@/lib/failure-action";
 import { UnseenOutcomes } from "@/components/order-entry/UnseenOutcomes";
@@ -83,6 +84,7 @@ function toastAction(
 }
 
 export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
+  const router = useRouter();
   const [orders, setOrders] = useState<OrderListItem[]>([]);
   const [loading, setLoading] = useState(true);
   // Set when the list itself couldn't be fetched — shown instead of an empty
@@ -652,6 +654,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     onSubmit: () => handleSubmit(o.id, o.fullName),
     onResubmit: () => setResubmitId(o.id),
     onEdit: () => onEdit(o.id),
+    onClone: () => router.push(`/dashboard/order-entry/new-order?clone=${o.id}`),
     onCancelOrder: () => setCancelId(o.id),
     onStopSubmit: () => setStopId(o.id),
     onDelete: () => setDeleteId(o.id),

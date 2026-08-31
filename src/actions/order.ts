@@ -1262,3 +1262,39 @@ export async function markOutcomeSeen(ids: string[]) {
   });
   return { success: true as const, marked: res.count };
 }
+
+/**
+ * Does this IC already have orders? The New Order form's duplicate hint.
+ *
+ * Separator-insensitive on both sides (940811-03-4224 finds 940811034224),
+ * which SQL cannot do against the raw column — so this loads the slim
+ * candidate set and matches in code, the same trade the unpaginated list
+ * already made at this scale.
+ *
+ * Scoping is the point: the caller sees THEIR OWN matches by reference and
+ * status, and only a COUNT of other agents' — another agent's customer list is
+ * not theirs to browse, but "someone else is already working this IC" is
+ * exactly the collision worth surfacing.
+ */
+export async function ordersForIc(idNumberRaw: string, excludeId?: string) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false as const, mine: [], othersCount: 0 };
+  }
+  const strip = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const needle = strip(idNumberRaw || "");
+  if (!needle) return { success: true as const, mine: [], othersCount: 0 };
+
+  const rows = await prisma.order.findMany({
+    where: { ...ACTIVE_ORDER, ...(excludeId ? { id: { not: excludeId } } : {}) },
+    select: { id: true, idNumber: true, userId: true, reference: true, status: true },
+  });
+  const matches = rows.filter((r) => strip(r.idNumber) === needle);
+  return {
+    success: true as const,
+    mine: matches
+      .filter((r) => r.userId === session.user!.id)
+      .map((r) => ({ id: r.id, reference: r.reference, status: r.status })),
+    othersCount: matches.filter((r) => r.userId !== session.user!.id).length,
+  };
+}
