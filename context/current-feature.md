@@ -2,9 +2,9 @@
 
 ## Onboarding — Invite Links and a Getting-Started Checklist
 
-**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/agent-onboarding`). Vercel-only —
-no scraper change, **no migration** (invites reuse `password_reset_tokens`). Phase 6 of the 2026-08-31
-product plan. Spec: [context/features/agent-onboarding.md](features/agent-onboarding.md).
+**Status:** MERGED TO MAIN AND DEPLOYED 2026-08-31 (`49c2807`, merge `d3386bd`; branch deleted).
+Vercel-only — no scraper change, no migration (invites reuse `password_reset_tokens`). Build compiled
+clean, Build Completed, `bizzflow.top` aliased. Phase 6 of the 2026-08-31 product plan. Spec: [context/features/agent-onboarding.md](features/agent-onboarding.md).
 
 ### Built
 
