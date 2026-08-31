@@ -2,9 +2,10 @@
 
 ## People Audit Trail
 
-**Status:** CODE COMPLETE (branch `feature/people-audit-trail`). Vercel-only — no scraper change.
-**Needs `prisma migrate deploy`** (`admin_audit_log`; Vercel's build applies it). Phase 5 of the
-2026-08-31 product plan. Spec: [context/features/people-audit-trail.md](features/people-audit-trail.md).
+**Status:** MERGED TO MAIN AND DEPLOYED 2026-08-31 (`b208a1e`, merge `3341e37`; branch deleted).
+Vercel-only — no scraper change. The migration (`admin_audit_log`) was applied to production during
+the Vercel build — confirmed in the build log — and `bizzflow.top` is aliased to the build. Phase 5 of
+the 2026-08-31 product plan. Spec: [context/features/people-audit-trail.md](features/people-audit-trail.md).
 
 One append-only table and one honest limit stated first: **the admin JWT carries `role: "admin"` and
 nothing else**, so admin rows say WHAT/WHEN/TO WHOM with a constant actor — two people sharing the
