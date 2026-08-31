@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { getSidebarInfo } from "@/actions/settings";
+import { unseenOutcomes } from "@/actions/order";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboardIcon },
@@ -37,6 +38,14 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
   // Fetch sidebar info on mount
   useEffect(() => {
     getSidebarInfo().then(setSidebarInfo);
+  }, []);
+
+  // The Order Entry link's unseen-outcome count. Mount-only, no poll: the
+  // sidebar renders on every dashboard page, and the live 30s cadence lives in
+  // the Order Entry shell where the agent is actually working.
+  const [unseenCount, setUnseenCount] = useState(0);
+  useEffect(() => {
+    unseenOutcomes().then((r) => { if (r.success) setUnseenCount(r.count); }).catch(() => {});
   }, []);
 
   return (
@@ -96,6 +105,11 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
                 )}
               />
               {item.label}
+              {item.href === "/dashboard/order-entry" && unseenCount > 0 && (
+                <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#635BFF] px-1 text-[10px] font-semibold text-white">
+                  {unseenCount > 9 ? "9+" : unseenCount}
+                </span>
+              )}
             </Link>
           );
         })}

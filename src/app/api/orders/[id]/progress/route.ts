@@ -47,6 +47,19 @@ export async function GET(
     select: { autoRetries: true, autoRetryAt: true },
   });
 
+  // The watcher's own browser receiving the terminal state IS the seeing, so
+  // the badge never counts an outcome the agent watched happen. Conditional on
+  // NULL so a later poll cannot move the timestamp, and never stamped for a
+  // non-terminal state — an in-flight run has no outcome to have seen. The
+  // webhook path stamps nothing: it fires with the tab closed, which is exactly
+  // the case the unseen badge exists for.
+  if (state.status === "submitted" || state.status === "failed" || state.status === "warning") {
+    await prisma.order.updateMany({
+      where: { id, outcomeSeenAt: null },
+      data: { outcomeSeenAt: new Date() },
+    });
+  }
+
   return NextResponse.json({
     ...state,
     autoRetries: retry?.autoRetries ?? 0,

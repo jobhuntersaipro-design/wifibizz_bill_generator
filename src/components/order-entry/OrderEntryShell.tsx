@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { unseenOutcomes } from "@/actions/order";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -56,6 +57,19 @@ export default function OrderEntryShell({
   isSuperAdmin?: boolean;
 }) {
   const pathname = usePathname();
+
+  // Outcomes no signed-in eye has seen — the number on the Orders tab. Count
+  // only, polled at the same 30s cadence style as the rest of the page's
+  // polls; the card on the Orders page itself carries the rows.
+  const [unseenCount, setUnseenCount] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const read = () =>
+      unseenOutcomes().then((r) => { if (alive && r.success) setUnseenCount(r.count); }).catch(() => {});
+    void read();
+    const t = setInterval(read, 30_000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
   // Wide tables (drafts, catalogue) get the full width; the order FORM stays
   // narrow so its fields don't stretch into an unreadable line length.
   const isWide = pathname?.endsWith("/drafts") || pathname?.endsWith("/plan-details");
@@ -825,6 +839,14 @@ export default function OrderEntryShell({
                 }`}
               >
                 {tab.label}
+                {tab.label === "Orders" && unseenCount > 0 && (
+                  <span
+                    className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#635BFF] px-1 text-[10px] font-semibold text-white"
+                    aria-label={`${unseenCount} unseen outcome${unseenCount === 1 ? "" : "s"}`}
+                  >
+                    {unseenCount > 9 ? "9+" : unseenCount}
+                  </span>
+                )}
               </Link>
             );
           })}

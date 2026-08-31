@@ -150,6 +150,10 @@ export async function startSubmitRun(
       // Held HERE, in the one place every start goes through, so the reset rule
       // cannot be forgotten by a new caller.
       ...(opts.auto ? {} : { autoRetries: 0, autoRetryAt: null }),
+      // A new run produces a fresh outcome, so the previous one's "seen" no
+      // longer describes anything. Cleared on EVERY path — person, batch,
+      // automatic retry — for the same cannot-be-forgotten reason as above.
+      outcomeSeenAt: null,
     },
   });
 

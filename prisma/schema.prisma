@@ -129,6 +129,13 @@ model Order {
   // because it is the most representative single image of a submit.
   screenshotUrl String? @map("screenshot_url")
 
+  // When a signed-in eye first saw this order's terminal outcome — NULL on a
+  // finished order means "unseen", which is what the Orders-tab badge counts.
+  // Stamped by the progress poll (the watcher's own browser delivering the
+  // terminal state IS the seeing), the detail page, or a dismiss; cleared by
+  // startSubmitRun so every new run produces a fresh outcome.
+  outcomeSeenAt DateTime? @map("outcome_seen_at")
+
   // Soft delete. An agent's Delete sets this rather than destroying the row:
   // the order and its whole status history survive so admin oversight can see
   // what was deleted, while the agent's own list stops showing it.

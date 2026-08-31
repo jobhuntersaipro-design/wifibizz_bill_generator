@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { toast } from "sonner";
 import { actionFor } from "@/lib/failure-action";
+import { UnseenOutcomes } from "@/components/order-entry/UnseenOutcomes";
 import {
   listOrders,
   startSubmit,
@@ -665,6 +666,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
 
   return (
     <div className="space-y-3">
+      <UnseenOutcomes />
       <OrdersToolbar
         filters={filters}
         onChange={setFilters}
