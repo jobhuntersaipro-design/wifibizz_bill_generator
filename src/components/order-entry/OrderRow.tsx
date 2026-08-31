@@ -118,6 +118,8 @@ export interface RowActions {
   onSubmit: () => void;
   onResubmit: () => void;
   onEdit: () => void;
+  /** Start a NEW draft prefilled from this order — any status. */
+  onClone: () => void;
   onCancelOrder: () => void;
   /** Stop a run that is in flight, on the droplet as well as here. */
   onStopSubmit: () => void;
@@ -539,6 +541,17 @@ function RowMenu({ o, a }: { o: OrderListItem; a: RowActions }) {
             Edit draft
           </DropdownMenuItem>
         )}
+
+        {/* Every status on purpose: cloning a SUBMITTED order is the "second
+            line, same customer" case, and cloning a failed one is "start
+            clean". Run state and documents never carry — see clone-order.ts. */}
+        <DropdownMenuItem
+          onClick={a.onClone}
+          className="cursor-pointer text-[13px] text-[#425466]"
+        >
+          <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+          Clone to new draft
+        </DropdownMenuItem>
         {showStop && (
           <DropdownMenuItem
             variant="destructive"

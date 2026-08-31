@@ -1,5 +1,50 @@
 # Current Feature
 
+## Clone Order, and a Duplicate-IC Hint
+
+**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/clone-order-ic-hint`). Vercel-only —
+no scraper change, no migration. Phase 8 of the 2026-08-31 product plan.
+Spec: [context/features/clone-order-and-ic-hint.md](features/clone-order-and-ic-hint.md).
+
+### Built
+
+- **Clone to new draft** in every row's `⋯` menu — every status on purpose: cloning a SUBMITTED order
+  is the "second line, same customer" case. Opens `new-order?clone=<id>`; the form loads the source
+  through the existing owner-scoped `getOrder`, prefills, and keeps `draftId` null so saving CREATES.
+  **The field line is pinned in `src/lib/clone-order.ts`** as two named, disjoint lists
+  (`CLONED_FIELDS` / `NEVER_CLONED`) walked by tests — a future Order column cannot silently join or
+  miss the clone. Documents are the load-bearing exclusion (the documented R2 same-key replace-trap);
+  `addressId` is the load-bearing inclusion (the portal's own unit id — a same-address clone is the
+  point).
+- **Duplicate-IC hint**: a quiet card under the Customer section when a complete IC already has
+  orders. Debounced 500ms; silent on lookup failure (a hint must never block typing); NON-blocking,
+  because the portal's attach-existing path makes a duplicate IC legitimate — this stops the
+  unintentional duplicate draft. **Scoping:** the agent's OWN matches by reference and status, a bare
+  COUNT of other agents' — pinned by a test asserting another agent's reference never reaches the
+  response. Matching is separator-insensitive on both sides and excludes the order being edited or
+  cloned.
+
+### Verified in the browser
+
+Cloned ORD-0003 as the signed-in superadmin: WOJAK LANG prefilled, package prefilled, **Documents
+0/10**, the sticky button reading **Save Order** (not Update Draft), and the hint reading *"This IC
+already has orders — 1 by another agent"* — the count of 1, not 2, being the exclusion working (the
+clone source itself is excluded, leaving ORD-0002). Fresh load: **zero console errors**; the one error
+seen mid-session was a hot-reload artifact (the dep-array fix landing under an open page — "changed
+size between renders" is exactly what that produces).
+
+**Tests:** 5 in `clone-order.test.ts` (the two lists disjoint and jointly exhaustive over a synthetic
+row; documents on the never side; addressId on the cloned side) and 5 in `orders-for-ic.test.ts`
+(separator-insensitivity both ways; own-named/others-counted with another agent's reference asserted
+ABSENT from the payload; self-exclusion; blank/punctuation queries never hitting the DB; ACTIVE_ORDER
+scoping — a deleted order is not a duplicate). **752 vitest passing**, `npm run build`, lint identical
+to baseline (9642), `tsc` unchanged.
+
+**NOT verified:** actually SAVING a clone (it would create a real draft; the save path is the form's
+standard create, unchanged by this feature); the hint's "mine" branch on screen (the signed-in
+superadmin owns neither WOJAK order — the others-count branch was the one exercised, and "mine" is
+pinned by the unit tests); and 375px.
+
 ## Admin Tools — Search, Alerting, Bulk Purge, CSV
 
 **Status:** MERGED TO MAIN AND DEPLOYED 2026-08-31 (`7b2f516`, merge `135337c`; branch deleted).
