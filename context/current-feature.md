@@ -1,5 +1,65 @@
 # Current Feature
 
+## Blacklisted IC — the Portal's [40300805] Refusal Gets Its Own Code
+
+**Status:** CODE COMPLETE (branch `feature/blacklisted-ic-error`, not yet committed). Scraper +
+Vercel, no migration. **Needs a droplet deploy AND an `api_server` restart** — a deploy alone keeps
+the old imports, so until then production still walks past the warn.
+
+Reported 2026-08-31 with a screenshot of the Feasibility Check: the offer row chosen, and a **Warn**
+dialog over it reading *"[40300805]: You're on our blacklist. Visit our nearest Unifi Store for
+help."* The ask: report that as **Blacklisted IC**.
+
+### Why the portal can say this before an order exists
+
+`enter_full_order` creates the customer profile FIRST and runs feasibility second, so by the time the
+offer row is double-clicked the portal already knows whose IC the order is for. That is what makes
+this a refusal of the **customer** at a step that otherwise only ever refuses the **address** — and
+it fires **before** the Order click, so no Customer Order Number is minted and there is nothing to
+void at Unifi. The copy says so, because sending an agent hunting for an order that never existed is
+its own failure.
+
+### Built
+
+- **`BLACKLISTED_IC` + two rules in `oe_errors.py`** (`blacklist`, `black list`). Because every
+  dialog reader in the flow funnels through `map_error`/`classify_dialog`, this one rule classifies
+  the warn wherever else it may surface — the order-not-ready branch, the device step, the pay tail
+  — without touching any of them.
+- **The one new check, in `select_plan`.** After the dblclick the step read nothing at all, so a warn
+  standing there blocked every later widget and the run died minutes on with a `Locator.click`
+  timeout naming an unrelated combobox. It now reads the screen and returns the portal's verbatim
+  sentence with its `portal_code`.
+- **`read_dialog_text()` / `READ_DIALOG_TEXT_JS`** — a new **read-only** reader, and both halves of
+  that are load-bearing. `READ_ERROR_DIALOG_JS` clicks OK, and the **Customer fuzzy-search dialog
+  legitimately opens on this very click** (the ORD-0009 case), so dismissing what we find would break
+  the happy path. `_capture_dialog_message` could not be reused either: it scans only inside
+  `#myIframe`, and the stock refusal proved the portal also renders refusals as shell modals in the
+  top document — where an iframe-only read reports a clean page and walks on. This covers both
+  containers and touches nothing.
+- **Only a CLASSIFIED dialog (or one carrying a `[code]`) ends the run.** An unrecognised dialog is
+  printed to the run log and the flow continues exactly as it shipped: this reads the screen, and a
+  read must not become a new way to fail.
+- **BizzFlow copy** — `SUBMIT_ERROR_CODES.blacklisted_ic`, title **Blacklisted IC**, `action:
+  contact_admin`. No resubmit button: the same IC gets the same answer, and the refusal costs a whole
+  run to be told so.
+- **`TERMINAL_ERROR_CODES`** gains it. The deny-list default is to retry, so without this the
+  automatic retry would ask three more times.
+
+### Verified
+
+**Tests:** 4 new in `test_select_plan_gesture.py` (the blacklist reported with its code; the same
+warn found when the portal puts it in the TOP document rather than the iframe; an unrecognised dialog
+NOT ending the run; the clean choice still passing) and 4 new checks in `test_error_dialog.py` (the
+live sentence mapping, `40300805` extracted, the spaced spelling, and the blacklist rule sitting
+first in the table without swallowing the stock refusal). **361 scraper passed + 1 skipped** (was
+357), **758 vitest** (was 756), `npm run build`, lint identical to baseline (9642).
+
+**NOT verified: the live portal.** The fixtures prove the algorithm, not the real DOM — in
+particular which container the warn actually renders in and whether its body is a `.modal-message`.
+The user is running the live test with a known blacklisted IC (820902075145, Kartik a/l Subramaniam,
+Unifi Home 500Mbps Premium Value With Device (36M) at the Eco Majestic address). If the reader misses
+it, the run degrades to today's behaviour — a downstream timeout — rather than to anything worse.
+
 ## Staff Code on Both Order Tables
 
 **Status:** MERGED TO MAIN AND DEPLOYED 2026-08-31 (`290d43b`, merge `67a7545`; branch deleted).

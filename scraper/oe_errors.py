@@ -32,6 +32,14 @@ VOBB_UNAVAILABLE = "vobb_unavailable"
 # is handled in the flow and never reaches BizzFlow.
 VOICE_NUMBER_TAKEN = "voice_number_taken"
 DEVICE_OUT_OF_STOCK = "device_out_of_stock"
+# The customer is on Unifi's blacklist. Raised at the Feasibility Check the
+# moment the offer row is chosen — the customer profile is created BEFORE
+# feasibility, so the portal already knows whose IC this order is for:
+#   [40300805]: You're on our blacklist. Visit our nearest Unifi Store for help.
+# Fires BEFORE the Order click, so no order number is minted and there is
+# nothing to void. Nothing in the draft is wrong and nothing the agent can edit
+# will change the answer, which is why it is terminal rather than retryable.
+BLACKLISTED_IC = "blacklisted_ic"
 # The booked appointment slot was taken by another order between booking and the
 # pay-tail Next, where the portal re-validates it:
 #   [40301147]: Technical Error - Slot has been taken. Kindly refresh the page
@@ -64,6 +72,10 @@ UNKNOWN_ERROR = "unknown_error"
 # ── Substring → code rules (matched against .modal-message, case-insensitive) ──
 # Order matters: first match wins, so put more specific substrings first.
 _RULES: list[tuple[str, str]] = [
+    # Blacklist. Nothing else in this table matches "blacklist", so the position
+    # is for reading order, not for precedence.
+    ("blacklist", BLACKLISTED_IC),
+    ("black list", BLACKLISTED_IC),
     # Device stock. The portal refuses the order at the device step with e.g.
     #   [40300338]: Sorry, the SAMSUNG TV 55" is currently out of stock.
     # This fires AFTER the order number is minted, so it strands a real order —

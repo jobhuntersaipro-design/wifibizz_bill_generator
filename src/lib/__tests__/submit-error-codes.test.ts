@@ -19,6 +19,18 @@ describe("submitErrorCopy", () => {
     expect(copy?.subtext.length).toBeGreaterThan(0);
   });
 
+  it("names a blacklisted IC and never offers a resubmit", () => {
+    const copy = submitErrorCopy("blacklisted_ic");
+    // The user asked for this exact title: it is what the agent reads on the
+    // row, in the e-mail and on the detail page.
+    expect(copy?.title).toBe("Blacklisted IC");
+    // The refusal lands before the Order click, so there is no portal order to
+    // void — saying otherwise sends an agent hunting for one that never existed.
+    expect(copy?.subtext.toLowerCase()).toContain("nothing to void");
+    // contact_admin, not resubmit: the same IC gets the same answer.
+    expect(copy?.action).toBe("contact_admin");
+  });
+
   it("returns null for an unknown code so the raw message still renders", () => {
     // A code the scraper learns before the UI does must degrade to the old
     // behaviour, never to a blank panel.

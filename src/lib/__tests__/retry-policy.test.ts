@@ -64,6 +64,19 @@ describe("retryVerdict — what stops", () => {
     }
   });
 
+  it("refuses blacklisted_ic — the same IC gets the same answer every time", () => {
+    // It also refuses BEFORE the Order click, so a retry cannot even leave a
+    // stranded order behind to show for itself: it just spends a run.
+    const v = retryVerdict(
+      failed({
+        errorCode: "blacklisted_ic",
+        errorMessage:
+          "[40300805]: You're on our blacklist. Visit our nearest Unifi Store for help.",
+      }),
+    );
+    expect(v.retry).toBe(false);
+  });
+
   it("refuses erf_not_downloaded even though the run may look finished", () => {
     // The landmine: with ORDER_ENTRY_DO_PAY unset, EVERY successful run lands
     // here as a warning. Retrying it would mint duplicates for orders that

@@ -498,6 +498,21 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
     action: "fix_field",
     section: "device",
   },
+  blacklisted_ic: {
+    title: "Blacklisted IC",
+    subtext:
+      "Unifi refused this order at the Feasibility Check because the customer's " +
+      "ID number is on its blacklist \u2014 the portal's own words are below. " +
+      "Nothing on the draft is wrong: the address, the package and the " +
+      "documents were never the question. No order number was minted, so there " +
+      "is nothing to void at Unifi.",
+    fix:
+      "This is not something the draft can fix \u2014 resubmitting asks the same " +
+      "question and gets the same answer. The customer has to settle it with " +
+      "Unifi themselves at their nearest Unifi Store. Tell your admin so the " +
+      "draft can be closed off.",
+    action: "contact_admin",
+  },
   voice_number_taken: {
     title: "Every voice number offered was already taken",
     subtext:
