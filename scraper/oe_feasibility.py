@@ -380,6 +380,44 @@ OFFER_ROW_INDEX_JS = r"""((want) => {
 OFFER_ROWS_TIMEOUT_MS = 15000
 
 
+# Read the topmost visible dialog's text WITHOUT touching it.
+#
+# `READ_ERROR_DIALOG_JS` clicks OK, and `_capture_dialog_message` only ever
+# looks inside #myIframe — the stock refusal proved the portal also renders
+# refusals as shell modals in the top document, where an iframe-only scan sees
+# nothing and reports a clean page. This covers both containers and clicks
+# NOTHING, because it runs at a point where a legitimate dialog (the Customer
+# fuzzy search) can be open and dismissing it would break the happy path.
+READ_DIALOG_TEXT_JS = r"""(() => {
+  const vis=e=>{ if(!e) return false;
+    const r=e.getBoundingClientRect();
+    return (e.offsetParent!==null || getComputedStyle(e).position==='fixed')
+           && r.width>0 && r.height>0; };
+  const SELECTORS=['.ui-dialog','.modal.in','.modal.show','.ant-modal','[role=dialog]'];
+  const f=document.querySelector('#myIframe'), fd=f&&f.contentDocument;
+  for(const d of [fd, document]){
+    if(!d) continue;
+    for(const sel of SELECTORS){
+      for(const dl of [...d.querySelectorAll(sel)].filter(vis).reverse()){
+        const body=((dl.querySelector('.modal-message,.modal-body,.ant-modal-body')||dl)
+                     .innerText||'').replace(/\s+/g,' ').trim();
+        if(body) return body.slice(0,300);
+      }
+    }
+  }
+  return null;
+})"""
+
+
+async def read_dialog_text(page) -> str | None:
+    """The topmost visible dialog's text, read and left alone. Never raises —
+    this runs on the happy path, where a probe must not be able to end a run."""
+    try:
+        return await page.evaluate(READ_DIALOG_TEXT_JS)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 async def select_plan(frame, plan: dict, page=None) -> dict:
     """plan: {name}. Offers are INLINE in .js-offer-grid (no Main Offer modal).
     Matching is case/space-insensitive; on a miss we log the offers the address
@@ -440,6 +478,34 @@ async def select_plan(frame, plan: dict, page=None) -> dict:
 
     await row.dblclick()
     await asyncio.sleep(2)
+
+    # Choosing the offer is the portal's first chance to refuse the CUSTOMER
+    # rather than the address: the profile was created before feasibility, so it
+    # already knows whose IC this is. The blacklist warn lands exactly here —
+    #   [40300805]: You're on our blacklist. Visit our nearest Unifi Store for help.
+    # Left standing it blocks every later widget, and the run dies minutes on
+    # with a timeout that names some unrelated combobox instead of the reason.
+    #
+    # Only a dialog we can CLASSIFY (or one carrying the portal's own [code])
+    # ends the run. An unrecognised dialog is logged and the flow continues
+    # exactly as before — this reads the screen, and a read must not become a
+    # new way to fail. The read is deliberately read-only: the Customer fuzzy
+    # dialog can legitimately open on this very click, and dismissing it would
+    # break the happy path.
+    if page is not None:
+        warn = await read_dialog_text(page)
+        if warn:
+            code = map_error(warn)
+            pcode = portal_code(warn)
+            if code != UNKNOWN_ERROR or pcode:
+                print(f"  ⚠ portal refused the offer: {warn}", flush=True)
+                return {"status": "error",
+                        "error": code if code != UNKNOWN_ERROR else "offer_rejected",
+                        "stage": "select_plan", "matched": matched,
+                        "message": warn,
+                        **({"portal_code": pcode} if pcode else {})}
+            print(f"  ↳ dialog after choosing the offer (continuing): {warn[:140]}",
+                  flush=True)
     return {"status": "ok", "stage": "select_plan", "matched": matched}
 
 

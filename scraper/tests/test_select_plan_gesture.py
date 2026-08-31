@@ -215,3 +215,82 @@ def test_rows_that_arrive_late_are_still_found():
     r = _run(go)
     assert r["status"] == "ok"
     assert r["matched"] == "Unifi Home 500Mbps Premium Value With Device (36M)"
+
+
+# ── The blacklist refusal (live 2026-08-31, [40300805]) ─────────────────────
+# The customer profile is created BEFORE feasibility, so choosing the offer is
+# the first moment the portal can refuse the CUSTOMER rather than the address.
+# It answers with a Warn dialog over the offer grid. Before this check the run
+# walked on with the dialog standing, and died minutes later on a timeout that
+# named some unrelated widget.
+BLACKLIST_MSG = ("[40300805]: You're on our blacklist. Visit our nearest Unifi "
+                 "Store for help.")
+
+DIALOG = """
+<div class="ui-dialog" id="warn" style="position:fixed;top:40px;left:40px;
+     width:400px;height:160px;background:#fff">
+  <div class="ui-dialog-title">TITLE_TEXT</div>
+  <div class="modal-message">MESSAGE_TEXT</div>
+  <button type="button">OK</button>
+</div>
+"""
+
+
+def _grid_that_warns(message: str, title: str = "Warn", *, in_iframe: bool = True) -> str:
+    """The offer grid, but the dblclick raises a portal dialog instead of
+    revealing Order — which is exactly what a refused offer looks like."""
+    dlg = DIALOG.replace("MESSAGE_TEXT", message).replace("TITLE_TEXT", title)
+    grid = GRID.replace(
+        "document.querySelector('.js-orderNow').className = 'btn btn-default js-orderNow';",
+        "document.querySelector('#dlgHost').innerHTML = " + repr(dlg) + ";"
+        if in_iframe else "window.parent.postMessage('warn','*');")
+    return grid + ('<div id="dlgHost"></div>' if in_iframe else "")
+
+
+def _run_with(html: str, plan: str, top_dialog: str = ""):
+    async def go(page, frame):
+        await page.set_content(
+            HOST.replace("FIXTURE_HTML", html.replace("&", "&amp;").replace('"', "&quot;"))
+            + top_dialog)
+        return await select_plan(page.frame_locator("#myIframe"), {"name": plan}, page=page)
+    return _run(go)
+
+
+PLAN = "Unifi Home 500Mbps Premium Value With Device (36M)"
+
+
+def test_a_blacklisted_customer_is_reported_as_blacklisted_ic():
+    r = _run_with(_grid_that_warns(BLACKLIST_MSG), PLAN)
+    assert r["status"] == "error"
+    assert r["error"] == "blacklisted_ic"
+    # The portal's own sentence, verbatim — it is the only wording a dealer can
+    # quote at Unifi, and our paraphrase is not.
+    assert "blacklist" in r["message"].lower()
+    assert r["portal_code"] == "40300805"
+
+
+def test_the_warn_is_found_when_the_portal_puts_it_in_the_top_document():
+    """The stock refusal turned out to render as a shell modal OUTSIDE
+    #myIframe. An iframe-only read would report a clean page and walk on."""
+    # Parked clear of the 900x500 iframe: a real portal modal covers the page,
+    # but here it must not intercept the dblclick the test still needs to make.
+    top = (DIALOG.replace("MESSAGE_TEXT", BLACKLIST_MSG).replace("TITLE_TEXT", "Warn")
+                 .replace("top:40px;left:40px", "top:520px;left:40px"))
+    r = _run_with(GRID, PLAN, top_dialog=top)
+    assert r["status"] == "error"
+    assert r["error"] == "blacklisted_ic"
+
+
+def test_an_unrecognised_dialog_does_not_end_the_run():
+    """The guard reads the screen; it must not become a new way to fail. A
+    dialog we cannot classify — the Customer fuzzy search legitimately opens on
+    this very click — leaves the flow exactly as it shipped."""
+    r = _run_with(_grid_that_warns("Customer (Fuzzy Search)", title="Customer"), PLAN)
+    assert r["status"] == "ok"
+    assert r["matched"] == PLAN
+
+
+def test_a_clean_offer_choice_still_passes():
+    """The happy path pays one read and nothing else."""
+    r = _run_with(GRID, PLAN)
+    assert r["status"] == "ok"

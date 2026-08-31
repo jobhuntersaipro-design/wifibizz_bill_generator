@@ -19,6 +19,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from oe_errors import (  # noqa: E402
+    BLACKLISTED_IC,
     DEVICE_OUT_OF_STOCK,
     LOGIN_ID_TAKEN,
     UNKNOWN_ERROR,
@@ -73,6 +74,20 @@ def test_mapping() -> None:
              "by other customer")
     check("login collision still maps to login_id_taken",
           map_error(login) == LOGIN_ID_TAKEN, map_error(login))
+
+    # Blacklist, live wording from the agent's screenshot (2026-08-31).
+    black = ("[40300805]: You're on our blacklist. Visit our nearest Unifi Store "
+             "for help.")
+    check("blacklist maps to its own code", map_error(black) == BLACKLISTED_IC,
+          map_error(black))
+    check("blacklist portal code extracted", portal_code(black) == "40300805",
+          str(portal_code(black)))
+    check("a spaced 'black list' maps too",
+          map_error("Customer is on the black list.") == BLACKLISTED_IC)
+    # The blacklist rule sits first in the table, so anything that could be read
+    # as both must still land where it belongs.
+    check("blacklist rule does not swallow the stock refusal",
+          map_error(stock) == DEVICE_OUT_OF_STOCK)
 
     check("unmapped stays unknown", map_error("Something else entirely") == UNKNOWN_ERROR)
     check("no bracketed code → None", portal_code("plain message") is None)

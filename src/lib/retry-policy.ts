@@ -44,6 +44,10 @@ export const TERMINAL_ERROR_CODES: ReadonlySet<string> = new Set([
   "device_out_of_stock",
   // The portal disagrees with the customer's own details.
   "customer_ic_name_mismatch",
+  // Unifi has blacklisted this customer. The same IC gets the same answer on
+  // every try, and the refusal lands before the order number is minted, so a
+  // retry costs a whole run to be told the same thing.
+  "blacklisted_ic",
   // Account/approval limits — a human process, not a flaky one.
   "msr_customer_id_limit",
   "msr_offline_approval",
