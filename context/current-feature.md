@@ -1,5 +1,53 @@
 # Current Feature
 
+## In-App Outcome Notifications
+
+**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/in-app-outcome-notifications`).
+Vercel-only — no scraper change. **Needs `prisma migrate deploy` on production** (`orders.outcome_seen_at`
++ backfill; Vercel's build script applies it automatically). Phase 2 of the 2026-08-31 product plan.
+Spec: [context/features/in-app-outcome-notifications.md](features/in-app-outcome-notifications.md).
+
+One concept: an **unseen outcome** — a terminal order (`submitted`/`failed`/`warning`) no signed-in eye
+has seen. `orders.outcome_seen_at`, NULL = unseen.
+
+**Seen** three ways: the progress poll delivering a terminal state (the watcher's own browser receiving
+it IS the seeing — the webhook stamps nothing, because it fires with the tab closed, which is the case
+the badge exists for); the OWNER opening the detail (a superadmin reading another agent's order does not
+clear that agent's badge); or a dismiss. **Cleared** in `startSubmitRun` — one place, so single, batch
+and auto-retry all reset it. **Backfilled** so deploy day does not hand every agent a badge counting
+their entire history.
+
+Surfaces: a count chip on the Orders tab (30s poll) and the dashboard sidebar link (mount-only — the
+live cadence lives where the agent works), and a **"While you were away"** card atop the Orders list
+whose failure rows carry Phase 1's action button. Rendering the card does NOT mark seen — auto-marking
+on render would empty the badge before anything was read; dismissing is the marking.
+
+`markOutcomeSeen` scopes owner + terminal + unseen **in the WHERE**, not trusted from the caller —
+Server Actions are directly POST-able, and this must not blank another agent's badge or pre-mark an
+in-flight run.
+
+### Verified in the browser
+
+On the real signed-in session against the dev database: tab badge **1**, sidebar badge **1**, the card
+reading *ORD-0001 · HO HO HO · Submitted · Order No. 2608000119715749*, and **Dismiss all** removing the
+card — with the stamp confirmed written in the database afterwards.
+
+**The verification caught my own staging being wrong twice, and the action right both times:** I staged
+ORD-0003, which has `attempt: 0` (never run — correctly excluded) and belongs to ANOTHER agent
+(correctly excluded by owner-scoping even though the signed-in superadmin sees the row in the list). The
+empty card was the feature working. Also re-hit the known trap: the dev server 500ed until restarted,
+because the cached Prisma client predates the migration — exactly what the memory note says.
+
+**Tests:** 4 new — the progress route stamps on `submitted`/`failed`/`warning` conditionally on NULL,
+never on an in-flight run; `startSubmitRun` clears the marker in the attempt write. **712 vitest
+passing**, `npm run build`, lint identical to baseline (9642), `tsc` unchanged. Backfill verified on
+dev: terminal rows seen, the draft untouched. Dev data restored exactly (ORD-0001 back to attempt 0 and
+its original timestamp; ORD-0003 to its backfill state).
+
+**NOT verified:** the badge falling via the 30s poll (the dismiss path was watched; the poll's decrement
+rests on it being the same query); the "watched it finish" stamp against a real run rather than the
+mocked route; and per-account seen semantics on a genuinely shared login.
+
 ## Failure → Action, and a Section-Aware Required Bar
 
 **Status:** MERGED TO MAIN AND DEPLOYED 2026-08-31 (`7934540`, merge `b170ce7`; branch deleted).

@@ -112,3 +112,17 @@ describe("startSubmit", () => {
     expect(orderUpdate.mock.calls[0][0].data).toMatchObject({ attempt: 4 });
   });
 });
+
+describe("the unseen-outcome marker", () => {
+  it("is cleared by every start, so a new run always produces a fresh outcome", async () => {
+    // The badge counts terminal orders with outcomeSeenAt NULL. A resubmit that
+    // left the old "seen" standing would finish invisibly — the exact gap the
+    // in-app notifications exist to close.
+    findFirst.mockResolvedValue(draft({ attempt: 2, outcomeSeenAt: new Date() }));
+    await startSubmit("ord_1");
+    const attemptWrite = orderUpdate.mock.calls
+      .map((c) => c[0].data)
+      .find((d) => "attempt" in d);
+    expect(attemptWrite?.outcomeSeenAt).toBeNull();
+  });
+});

@@ -534,6 +534,20 @@ export async function getOrderDetail(id: string): Promise<{
   });
   if (!order) return { success: false, error: "Order not found.", data: null };
 
+  // Opening the detail IS seeing the outcome — for the OWNER. A superadmin
+  // reading another agent's order does not clear that agent's badge: the
+  // outcome is still news to the person whose customer it is.
+  if (
+    order.userId === session.user.id &&
+    !order.outcomeSeenAt &&
+    ["submitted", "failed", "warning"].includes(order.status)
+  ) {
+    await prisma.order.updateMany({
+      where: { id: order.id, outcomeSeenAt: null },
+      data: { outcomeSeenAt: new Date() },
+    });
+  }
+
   let installationDateOverride: string | null | undefined;
   try {
     const appointments = await fillMissingInstallationDates([order]);
@@ -1161,4 +1175,90 @@ export async function activeBatch() {
     select: { id: true },
   });
   return { success: true as const, batchRunId: batch?.id ?? null };
+}
+
+// ── Unseen outcomes — the in-app "finished while you were away" ─────────────
+
+const TERMINAL_OUTCOME = ["submitted", "failed", "warning"] as const;
+
+/**
+ * Terminal orders no signed-in eye has seen yet.
+ *
+ * Owner-scoped even for superadmins, deliberately: an outcome belongs to the
+ * DRAFT'S owner — a superadmin submitting another agent's draft is acting for
+ * that agent, and the badge must nag the person whose customer it is, not
+ * whoever happened to press the button.
+ */
+export async function unseenOutcomes() {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false as const, count: 0, orders: [] as UnseenOutcome[] };
+  }
+  const rows = await prisma.order.findMany({
+    where: {
+      userId: session.user.id,
+      status: { in: [...TERMINAL_OUTCOME] },
+      outcomeSeenAt: null,
+      attempt: { gt: 0 },
+      ...ACTIVE_ORDER,
+    },
+    orderBy: { updatedAt: "desc" },
+    select: {
+      id: true, reference: true, fullName: true, status: true, orderId: true,
+      errorCode: true, errorMessage: true, autoRetries: true, autoRetryAt: true,
+      updatedAt: true,
+    },
+  });
+  return {
+    success: true as const,
+    count: rows.length,
+    orders: rows.map((o): UnseenOutcome => ({
+      id: o.id,
+      reference: o.reference,
+      fullName: o.fullName,
+      status: o.status,
+      orderId: o.orderId,
+      errorCode: o.errorCode,
+      errorMessage: o.errorMessage,
+      autoRetries: o.autoRetries,
+      autoRetryAt: o.autoRetryAt ? o.autoRetryAt.toISOString() : null,
+      finishedAt: o.updatedAt.toISOString(),
+    })),
+  };
+}
+
+export interface UnseenOutcome {
+  id: string;
+  reference: string | null;
+  fullName: string;
+  status: string;
+  orderId: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  autoRetries: number;
+  autoRetryAt: string | null;
+  finishedAt: string;
+}
+
+/**
+ * Mark outcomes seen — a dismiss, or Dismiss all.
+ *
+ * Owner-scoped and terminal-scoped in the WHERE, not trusted from the caller:
+ * Server Actions are directly POST-able, and this must not be usable to blank
+ * another agent's badge or to pre-mark an in-flight run as seen.
+ */
+export async function markOutcomeSeen(ids: string[]) {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false as const, error: "Unauthorized" };
+  if (!Array.isArray(ids) || ids.length === 0) return { success: true as const, marked: 0 };
+  const res = await prisma.order.updateMany({
+    where: {
+      id: { in: ids },
+      userId: session.user.id,
+      status: { in: [...TERMINAL_OUTCOME] },
+      outcomeSeenAt: null,
+    },
+    data: { outcomeSeenAt: new Date() },
+  });
+  return { success: true as const, marked: res.count };
 }
