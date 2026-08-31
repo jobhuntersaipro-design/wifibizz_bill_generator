@@ -1,5 +1,51 @@
 # Current Feature
 
+## Admin Tools — Search, Alerting, Bulk Purge, CSV
+
+**Status:** CODE COMPLETE (branch `feature/admin-tools-pack`). Vercel-only — no scraper change, no
+migration. One new env var: **`ADMIN_ALERT_EMAIL`** (unset = alerting stays log-only, today's
+behaviour). Phase 7 of the 2026-08-31 product plan.
+Spec: [context/features/admin-tools-pack.md](features/admin-tools-pack.md).
+
+### Built
+
+- **Search** on the oversight table: name, IC, ORD-reference, portal order number — the IC matched
+  separator-insensitive on BOTH sides (`940811-03-4224` finds `940811034224` and vice versa), and a
+  punctuation-only query matches NOTHING rather than everything (a stripped-empty needle would
+  substring-match every row). Client-side over the already-loaded rows, per the earlier unpaginated
+  decision.
+- **Alerting**: the cron sweep's stuck-lock console line now also e-mails `ADMIN_ALERT_EMAIL` —
+  **once per incident, statelessly**: the 5-minute cron mails only while the lock's age sits in
+  `(cap, cap + sweep + 60s slack]`, the one tick where it first crosses. No table, no marker. The
+  slack absorbs cron jitter, without which two ticks could straddle the window and mail never. If the
+  single send fails there is no retry — accepted: the admin page still shows the stuck row, and this
+  is a nudge, not the system of record.
+- **Bulk purge**: 30/90/180-day cutoffs, the exact list shown, confirmed by TYPING THE COUNT, and the
+  server RECOMPUTES the set — a mismatch (an agent deleted one more order mid-dialog) refuses rather
+  than destroying a set nobody was shown. The `deleteMany` carries the same predicate plus the ids, so
+  a row restored mid-flight survives a stale preview. One audit row names count and cutoff.
+- **CSV export** of exactly the FILTERED rows — an export that ignores the filters exports something
+  the screen never showed. Client-side Blob; every field quoted unconditionally (deciding costs more
+  than the bytes), tested against commas, quotes and newlines.
+
+### The lint rule caught the dialog's effect — fixed with the repo's own pattern
+
+`react-hooks/set-state-in-effect` flagged the preview reset. Fixed the way the plans page set the
+precedent: the dialog body is **keyed on the cutoff**, so switching 30→90 REMOUNTS it with a fresh
+null preview and no setState lives in an effect at all.
+
+**Tests:** 10 new in `admin-search.test.ts` (all four search fields, separator-insensitivity both
+ways, the punctuation-only rule, blank-matches-all, CSV quoting and empty-set header, the alert window
+firing only in the first tick and never below cap). **742 vitest passing**, `npm run build`, lint
+identical to baseline (9642), `tsc` unchanged.
+
+**NOT verified in a browser:** the whole surface lives on `/admin/orders` behind the expired local
+admin JWT — same standing gap as Phases 5–6's admin halves. The pure predicates carry the risk and are
+tested; the wiring is compile-checked. **Also not live:** the alert e-mail needs `ADMIN_ALERT_EMAIL`
+set on Vercel, which is the user's address to choose; and a real bulk purge has destroyed nothing yet
+(the dev database has no soft-deleted rows older than 30 days, so only the empty state is reachable
+there).
+
 ## Onboarding — Invite Links and a Getting-Started Checklist
 
 **Status:** MERGED TO MAIN AND DEPLOYED 2026-08-31 (`49c2807`, merge `d3386bd`; branch deleted).
