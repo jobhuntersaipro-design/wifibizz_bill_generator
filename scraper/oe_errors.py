@@ -67,11 +67,32 @@ ERF_NOT_DOWNLOADED = "erf_not_downloaded"
 # describe two different people, and only a human can say which is wrong.
 # See customer_match.py for what happened while this went ungated.
 CUSTOMER_IC_NAME_MISMATCH = "customer_ic_name_mismatch"
+# The portal will not hand over an EXISTING customer record until somebody
+# proves they are that customer. The PII dialog (titled `PII (******: <customer
+# code>)`) offers two tabs: Questions, whose checkboxes the flow can tick, and
+# OTP, which sends a code to the subscriber's own line — 601159345877 on the
+# live case — and greys out Proceed until it is checked.
+#
+# Live 2026-09-01 (cmtha9j3o…, 8 attempts on one screen): the dialog opened on
+# the OTP tab with no answerable questions, so there was nothing the run could
+# do. It is OUR code, not portal wording: the dialog is a form, not a refusal,
+# and it says nothing at all when it cannot be satisfied.
+#
+# Terminal by nature — the code goes to the customer's phone, so a retry is
+# three more runs asking a question only a person can answer.
+PII_VERIFICATION_REQUIRED = "pii_verification_required"
 UNKNOWN_ERROR = "unknown_error"
 
 # ── Substring → code rules (matched against .modal-message, case-insensitive) ──
 # Order matters: first match wins, so put more specific substrings first.
 _RULES: list[tuple[str, str]] = [
+    # PII identity check on an existing customer record. Kept at the top for
+    # the same reason the blacklist rule is: nothing else here matches these
+    # needles, so the position is for reading order rather than precedence.
+    # "send otp" is the OTP tab's own button and the one string that is present
+    # whether or not the reader picked up the dialog's title.
+    ("send otp", PII_VERIFICATION_REQUIRED),
+    ("otp verification", PII_VERIFICATION_REQUIRED),
     # Blacklist. Nothing else in this table matches "blacklist", so the position
     # is for reading order, not for precedence.
     ("blacklist", BLACKLISTED_IC),

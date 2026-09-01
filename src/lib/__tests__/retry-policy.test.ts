@@ -265,3 +265,11 @@ describe("retryPendingAt", () => {
     ).toBeNull();
   });
 });
+
+describe("a PII identity check is not retried", () => {
+  it("stops at the first refusal — three more runs cannot fetch the OTP", () => {
+    expect(
+      retryVerdict(failed({ errorCode: "pii_verification_required" })).retry,
+    ).toBe(false);
+  });
+});

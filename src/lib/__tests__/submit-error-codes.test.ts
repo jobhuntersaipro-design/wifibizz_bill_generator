@@ -130,3 +130,22 @@ describe("errorShortLabel", () => {
     expect(errorShortLabel("__")).toBeNull();
   });
 });
+
+describe("pii_verification_required", () => {
+  it("says the code goes to the customer, not to the agent", () => {
+    const copy = submitErrorCopy("pii_verification_required");
+    // The one thing an agent must take from this row: nothing in the draft is
+    // at fault, and the missing piece is on the customer's phone.
+    expect(copy?.subtext.toLowerCase()).toContain("customer's own");
+    expect(copy?.fix.toLowerCase()).toContain("otp");
+    // Not resubmit: the same dialog is waiting on the other side of one.
+    expect(copy?.action).toBe("check_portal");
+  });
+
+  it("reads as an acronym in a table cell", () => {
+    // Humanising the slug alone would print "Pii verification required".
+    expect(errorShortLabel("pii_verification_required")).toBe(
+      "PII verification required",
+    );
+  });
+});
