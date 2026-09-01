@@ -536,6 +536,23 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
     action: "fix_field",
     section: "device",
   },
+  pii_verification_required: {
+    title: "The portal wants an OTP from the customer",
+    subtext:
+      "This ID number is already an active Unifi subscriber, and the portal will " +
+      "not hand that existing record to a new order until somebody proves they " +
+      "are that customer. It offers two ways: security questions, which the " +
+      "submit answers on its own, or a one-time code sent to the customer's own " +
+      "existing line. On this order there were no questions to answer, so only " +
+      "the code was left \u2014 and it goes to the customer's phone, not to us. " +
+      "Nothing on the draft is wrong.",
+    fix:
+      "This one has to be finished by hand: open the order at Unifi with the " +
+      "customer on the phone, send the OTP to their existing line and enter it, " +
+      "then carry on there. Resubmitting from here reaches the same dialog and " +
+      "stops in the same place.",
+    action: "check_portal",
+  },
   blacklisted_ic: {
     title: "Blacklisted IC",
     subtext:

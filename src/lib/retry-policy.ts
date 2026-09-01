@@ -48,6 +48,10 @@ export const TERMINAL_ERROR_CODES: ReadonlySet<string> = new Set([
   // every try, and the refusal lands before the order number is minted, so a
   // retry costs a whole run to be told the same thing.
   "blacklisted_ic",
+  // The portal wants an identity check on an existing subscriber's record, and
+  // the only route left was a one-time code sent to the CUSTOMER's own phone.
+  // Three more runs cannot produce it — they just reach the same dialog.
+  "pii_verification_required",
   // Account/approval limits — a human process, not a flaky one.
   "msr_customer_id_limit",
   "msr_offline_approval",

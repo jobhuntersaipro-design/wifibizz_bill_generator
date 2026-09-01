@@ -26,6 +26,7 @@ from customer_match import (describe_ic_name_mismatch, may_attach_existing)
 from oe_errors import (APPOINTMENT_SLOT_TAKEN, CUSTOMER_IC_NAME_MISMATCH,
                        DEVICE_OUT_OF_STOCK, ERF_NOT_DOWNLOADED, UNKNOWN_ERROR,
                        VOICE_NUMBER_TAKEN, APPOINTMENT_NOT_BOOKED,
+                       PII_VERIFICATION_REQUIRED,
                        is_missing_appointment, is_slot_taken, map_error,
                        portal_code)
 from oe_helpers import set_combobox
@@ -1022,19 +1023,188 @@ async def attach_customer(frame, customer: dict) -> dict:
     return await _answer_pii_and_proceed(frame, note=note)
 
 
+# The Questions tab's checkbox form. The OTP tab beside it has no equivalent:
+# its code is sent to the CUSTOMER's own line, so it cannot be answered here.
+_PII_QUESTION_CHECKS = 'form.js-mandatory-question-form input[name="answerCheck"]'
+
+# 'Proceed' is unique to the PII dialog, which is what makes it usable both as
+# the button to press and as the test for whether the dialog is still up.
+_PROCEED_BTN = 'button:has-text("Proceed"):visible'
+
+
+async def _pii_dialog_up(frame) -> bool:
+    """Is a PII dialog on screen? Never raises — this is read on the happy path."""
+    try:
+        return await frame.locator(_PROCEED_BTN).count() > 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
+async def _pii_dialog_text(frame) -> str:
+    """The PII dialog's own text, for reporting. Empty string when unreadable."""
+    try:
+        dlg = frame.locator(".ui-dialog:visible, .modal.in:visible").filter(
+            has_text="Proceed").last
+        if not await dlg.count():
+            return ""
+        return " ".join((await dlg.inner_text(timeout=3000)).split())
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+async def _any_visible(locator, n: int) -> bool:
+    """Is any of the first `n` matches actually on screen? Never raises."""
+    for i in range(n):
+        try:
+            if await locator.nth(i).is_visible():
+                return True
+        except Exception:  # noqa: BLE001
+            continue
+    return False
+
+
+async def _activate_pii_questions_tab(frame) -> bool:
+    """Bring the PII dialog's Questions tab to the front. Did anything click?
+
+    The portal renders each tab's panel only while that tab is active, so a
+    dialog that opens on OTP shows no `answerCheck` boxes even for a customer
+    who HAS answerable questions. Live 2026-09-01 (cmtha9j3o…) is exactly that
+    screen, and this is the difference between an order that goes through and
+    one that dies on a greyed-out Proceed.
+
+    The candidates are tried in order and the ANCHOR comes first on purpose: a
+    Bootstrap tab is `<li><a>Questions</a></li>`, the `li` is block-level and so
+    as wide as the whole tab strip, and clicking its centre lands to the RIGHT
+    of the short link and does nothing at all. Found by the fixture, which is
+    the only reason it is not a live failure.
+
+    Best-effort by design: a miss leaves the dialog as it was and the caller
+    reports the refusal, which is what it would have done anyway.
+    """
+    dialogs = ".ui-dialog:visible, .modal.in:visible"
+    candidates = (
+        f'{dialogs} >> a:has-text("Questions")',
+        f'{dialogs} >> [role="tab"]:has-text("Questions")',
+        f'{dialogs} >> li:has-text("Questions") a',
+        f'{dialogs} >> li:has-text("Questions")',
+    )
+    for sel in candidates:
+        try:
+            tab = frame.locator(sel).first
+            if not await tab.count():
+                continue
+            await tab.click(timeout=5000)
+            await asyncio.sleep(1)
+            return True
+        except Exception:  # noqa: BLE001
+            continue
+    return False
+
+
+async def _pii_otp_target(frame) -> str | None:
+    """The line the portal would send the one-time code to, if it is on screen.
+
+    Read by SHAPE, not by field name: the Service Number sits in a combobox
+    whose markup has never been captured, and a guessed `name=` that misses
+    would drop the one detail an agent needs to phone the customer. Any value in
+    the dialog that looks like a Malaysian mobile answers the question.
+    """
+    try:
+        dlg = frame.locator(".ui-dialog:visible, .modal.in:visible").filter(
+            has_text="Proceed").last
+        fields = dlg.locator("input, select")
+        for i in range(min(await fields.count(), 20)):
+            try:
+                v = (await fields.nth(i).input_value(timeout=1000) or "").strip()
+            except Exception:  # noqa: BLE001
+                continue
+            if re.fullmatch(r"60\d{8,11}", v):
+                return v
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 async def _answer_pii_and_proceed(frame, note: str | None = None) -> dict:
-    """Tick every PII mandatory-question checkbox and click Proceed. Shared by
-    the search-attach path (after the result-row dblclick) and the duplicate-IC
-    picker path — both land on the same PII dialog."""
-    checks = frame.locator('form.js-mandatory-question-form input[name="answerCheck"]')
-    for i in range(await checks.count()):
+    """Answer the PII identity check and click Proceed. Shared by the
+    search-attach path (after the result-row dblclick) and the duplicate-IC
+    picker path — both land on the same PII dialog.
+
+    The portal will not release an EXISTING customer record until somebody
+    proves they are that customer, and it offers two ways: security Questions,
+    whose checkboxes this can tick, or an OTP sent to the customer's own line,
+    which it cannot. Proceed stays disabled until one of them is satisfied.
+
+    This used to tick whatever it found and return `ok` whatever happened. With
+    the dialog open on the OTP tab that meant pressing a disabled button and
+    calling it success — the third time this codebase has paid for a step that
+    does not read back its own work (see `create_billing_account`, and the
+    appointment step). It now refuses in words instead.
+    """
+    if not await _pii_dialog_up(frame):
+        # Nothing to answer. Reported rather than assumed either way: claiming
+        # success here would hide a customer that never got attached, and the
+        # old code raised a locator timeout in this state regardless.
+        return {"status": "error", "error": "pii_dialog_not_found",
+                "stage": "attach_customer",
+                "message": "No PII dialog was on screen to answer."}
+
+    checks = frame.locator(_PII_QUESTION_CHECKS)
+    n = await checks.count()
+    # "Answerable" means VISIBLE, not merely present. The portal keeps the
+    # inactive tab's markup in the DOM on some builds, and ticking boxes nobody
+    # can see leaves Proceed exactly as disabled as it was — the state the live
+    # failure sat in for eight attempts.
+    if not await _any_visible(checks, n) and await _activate_pii_questions_tab(frame):
+        checks = frame.locator(_PII_QUESTION_CHECKS)
+        n = await checks.count()
+
+    if not await _any_visible(checks, n):
+        # Only the OTP route is left, and its code goes to the customer's phone.
+        # Refuse WITHOUT pressing Proceed: the button is disabled, so clicking
+        # it buys an 8-second timeout naming a button instead of a reason.
+        text = await _pii_dialog_text(frame)
+        target = await _pii_otp_target(frame)
+        print("  ✗ PII check offers no answerable questions — OTP only", flush=True)
+        return {"status": "error", "error": PII_VERIFICATION_REQUIRED,
+                "stage": "attach_customer",
+                "message": (
+                    "The portal will not release this customer's existing record "
+                    "without an identity check, and offered no security questions "
+                    "to answer — only a one-time code sent to the customer's own "
+                    "line" + (f" ({target})" if target else "") + ". Nobody but "
+                    "the customer can supply that."
+                    + (f" Portal dialog: {text}" if text else ""))}
+
+    for i in range(n):
         try:
             await checks.nth(i).check(timeout=3000)
         except Exception:
             await checks.nth(i).click(force=True)
-    # 'Proceed' is unique to the topmost PII dialog.
-    await frame.locator('button:has-text("Proceed"):visible').first.click(timeout=8000)
-    await asyncio.sleep(4)
+    try:
+        await frame.locator(_PROCEED_BTN).first.click(timeout=8000)
+    except Exception as e:  # noqa: BLE001
+        text = await _pii_dialog_text(frame)
+        return {"status": "error", "error": PII_VERIFICATION_REQUIRED,
+                "stage": "attach_customer",
+                "message": (f"The PII dialog's Proceed did not accept the click "
+                            f"({type(e).__name__}) after answering {n} question(s)."
+                            + (f" Portal dialog: {text}" if text else ""))}
+
+    # Verify. A PII dialog still up means Proceed refused what was answered —
+    # the portal closes it on success, on both paths that reach here.
+    for _ in range(8):
+        await asyncio.sleep(1)
+        if not await _pii_dialog_up(frame):
+            break
+    else:
+        text = await _pii_dialog_text(frame)
+        return {"status": "error", "error": PII_VERIFICATION_REQUIRED,
+                "stage": "attach_customer",
+                "message": (f"Answered {n} PII question(s) and pressed Proceed, but "
+                            f"the portal kept the identity check open."
+                            + (f" Portal dialog: {text}" if text else ""))}
+
     out = {"status": "ok", "stage": "attach_customer"}
     if note:
         out["note"] = note
