@@ -1,5 +1,135 @@
 # Current Feature
 
+## The PII Dialog Wanted an OTP, and Admin Could Not See the Frame That Said So
+
+**Status:** CODE COMPLETE, NOT YET COMMITTED (branch `feature/pii-verification-and-admin-captures`).
+Scraper + Vercel, no migration. The scraper half **needs a droplet deploy AND an `api_server`
+restart** — a deploy alone keeps the old imports, so until then production still walks past the
+dialog and retries it three times.
+
+Reported 2026-09-01 against production order `cmtha9j3o000004l8ak0q0wcm` (admin
+`/admin/orders/<id>`), which failed 8 times. Two asks, one from each half of that hour:
+
+1. The failure had no name — the row read **Unclassified** and the automatic retry asked three more
+   times — and the reason was only legible from a screenshot nobody could open.
+2. **Admin cannot see the captures at all.** The timeline prints
+   `order-screenshots/…/submit-7-failure.jpg` as text, and the only route that serves those objects
+   scopes them to the CALLER's own R2 namespace, which admin has none of. Reading the frame took a
+   hand-written S3 script against the bucket.
+
+### What the frames actually show
+
+`submit-7-offer_grid.jpg` (15:17:03) is healthy — the offer grid with *Unifi Home 100Mbps Premium
+Value (36M)* selected. `submit-7-failure.jpg`, 21 seconds later, is the **PII dialog** stacked over
+Advanced Query, and it is the whole story:
+
+- the customer's IC is **already an active subscriber** — the dialog is titled
+  `PII (******: 101005413283)` and the Advanced Query grid beneath lists that customer code as
+  **Active**;
+- the dialog is open on its **OTP tab**, offering *Send OTP* against the existing line
+  `601159345877`, with **Questions** as the other tab;
+- **Proceed is greyed out.** Nothing proceeds until an OTP is checked or the questions are answered.
+
+All eight attempts died on this identical screen — 1, 2, 3, 5, 6 and 7 were each checked, so there is
+no second cause hiding in the set.
+
+### Why it cost eight runs instead of one
+
+`_answer_pii_and_proceed` is the step that handles this dialog, and it does exactly two things: tick
+every `input[name="answerCheck"]` in `form.js-mandatory-question-form`, then click Proceed. That is
+the **Questions** tab's form. With the dialog open on the OTP tab there were no checkboxes to tick,
+so the loop ran zero times and the step pressed a **disabled** button — and then returned
+`{"status": "ok"}` regardless of what happened.
+
+That is the same defect this codebase has now recorded three times (`create_billing_account`, the
+appointment step): **a step that reports success without reading back its own work.** The failure
+surfaced later, somewhere with no idea what had gone wrong, as an unclassified error — which is not
+terminal, so the deny-list default retried it three more times against a dialog whose answer cannot
+change without a human and a customer's phone.
+
+### Built
+
+- **`PII_VERIFICATION_REQUIRED` + rules in `oe_errors.py`.** Because every dialog reader funnels
+  through `map_error`, naming it once classifies it wherever else it surfaces.
+- **`_answer_pii_and_proceed` reads the screen instead of assuming it.** If no question checkbox is
+  visible it activates the **Questions tab** first — the portal renders that form only for the active
+  tab, and where questions exist this is what makes the order go through rather than fail politely.
+  Only when there are still no questions does it refuse, and it refuses **without pressing the dead
+  Proceed**, returning the dialog's own text.
+- **It verifies the Proceed took.** A PII dialog still on screen afterwards is reported, not called
+  ok — the rule the two earlier incidents paid for.
+- **The duplicate-IC picker's call site is unchanged** and still discards the result: that detour
+  exists to READ the registered name, and it has already got it by then. What changes there is that a
+  disabled Proceed no longer raises an 8-second timeout.
+- **BizzFlow copy + `TERMINAL_ERROR_CODES`.** `action: check_portal`, which degrades to
+  `contact_admin` by the existing rule when no order number was minted.
+- **An admin-gated capture route + thumbnails on the admin timeline**, so the next failure is one
+  click rather than an S3 script.
+
+### Decisions
+
+- **The refusal is terminal.** The dialog asks for a code that goes to the customer's phone. Three
+  more runs cannot produce it, and each one costs a browser slot.
+- **`check_portal`, not `contact_admin`.** `attach_customer` runs after the Order click, so a real
+  order number may already be minted — and the existing degrade rule turns the button into
+  `contact_admin` exactly when there is nothing to check.
+- **The admin route does not scope by namespace, and that is the point** — admin oversight is
+  cross-agent by design, the same asymmetry the admin order queries already have. It keeps every other
+  guard the agent route has: the `order-screenshots/` prefix, no `..`, and the extension allowlist
+  that decides the Content-Type (never the stored object).
+- **Documents stay listed-but-not-viewable.** Only captures move. Documents are the customer's own
+  files under a different prefix and a different retention rule; widening that was not asked for.
+
+### Verified
+
+**The admin route, against the real bucket** on the dev server, with a session token minted locally
+from the app's own `createAdminSession` secret rather than by typing the admin password into this
+transcript: **401** with no cookie and with a bad token; **200 `image/jpeg` 72,863 bytes** for a real
+frame and **200 `application/pdf` 112,680 bytes** for a real e-RF; and **404** for each guard — the
+`..` traversal, a customer-document key under `orders/`, and a `.svg` extension.
+
+**The page, read off the live DOM** (a picture would have proved less): `/admin/orders/<id>` for a
+dev order with a full capture set renders **52 thumbnails, every one of them decoding at its true
+1192×716**, plus the e-RF as a link reading *e-RF (Registration Form) (PDF)* rather than a broken
+`<img>`. The first measurement said 35 were broken and that was **my measurement, not the feature**:
+this shell scrolls an inner `main.overflow-y-auto`, not the window, so `window.scrollTo` never
+brought the lazy images into view — the same "the scroller is not the window" trap the
+pull-to-refresh work hit. Scrolling the real scroller loads all 52.
+
+**Mobile is not made worse, measured rather than assumed.** The timeline already overflowed its
+scroller at 375px — **586px on `main` before this change, 563px after**, because the raw R2 keys it
+used to print are wider than the labels that replaced them. Left as it is: it is pre-existing, it is
+the event list's fixed time/stage columns, and fixing it is a different job.
+
+**Tests:** 10 new in `scraper/tests/test_pii_verification.py` — the live OTP-only screen refused with
+its code and **Proceed provably never clicked**; a control proving that screen genuinely does not
+yield to the old tick-and-press code; questions hidden behind the inactive tab found, answered and
+the order carried on; a control proving the fixture really hides them; the ordinary
+questions-already-visible path untouched; the caller's note still riding along; a Proceed that does
+not take reported instead of returned as `ok`; no dialog at all kept distinct from the OTP refusal;
+and two in `oe_errors` (the live sentence classifying, and the blacklist and out-of-stock rules not
+swallowed by a rule sitting above them). Plus 3 vitest (the copy, the acronym label, the terminal
+verdict). **375 scraper passed + 1 skipped** (was 365), **766 vitest passing** (was 763), `npm run build`, lint **identical to baseline (9642)**,
+`tsc` unchanged (the same two pre-existing errors).
+
+**A lint trap worth recording:** a Python venv created inside `scraper/` doubled the lint count to
+19,272 — the `playwright` package ships a bundled Node driver, and eslint walks it. The venv lives
+outside the repo now.
+
+### NOT verified
+
+- **The live portal, for any of the scraper half.** The fixture reproduces the frame — and reads back
+  the dialog text *"PII ( ******: 101005413283) OTP Questions Service Number Send OTP OTP Check"*,
+  which is character-for-character what production recorded — but it is still a fixture.
+- **Whether this customer HAS answerable questions behind the OTP tab.** If they do, the tab
+  activation turns this failure into a submitted order; if they do not, the run now says so in one
+  attempt instead of eight. Only a live run can say which.
+- **A screenshot of the admin page.** Playwright's screenshot timed out on it repeatedly, waiting for
+  the element to be stable — 52 `no-store` thumbnails re-fetching keep the layout shifting. The DOM
+  read above is the evidence instead.
+- **Production**, where neither half is deployed.
+
+
 ## Blacklisted IC — the Portal's [40300805] Refusal Gets Its Own Code
 
 **Status:** CODE COMPLETE (branch `feature/blacklisted-ic-error`, not yet committed). Scraper +
