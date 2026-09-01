@@ -54,7 +54,12 @@ import {
   type IdType,
 } from "@/lib/dealer-offers";
 import { DEALER_DEVICES } from "@/lib/dealer-devices";
-import { deviceRequired, type PlanOfferSplit } from "@/lib/plan-offer";
+import {
+  deviceRequired,
+  sellableOffers,
+  type PlanOfferSplit,
+  type SellableOffer,
+} from "@/lib/plan-offer";
 import {
   DEVICE_CATEGORIES,
   DEVICE_CATEGORY_COUNTS,
@@ -204,9 +209,10 @@ export function OrderForm({
   const [pkgQuery, setPkgQuery] = useState("");
   const [speedFilter, setSpeedFilter] = useState("");
   const [pkgOpen, setPkgOpen] = useState(false);
-  // Names of plans an admin has published. null while loading — the picker then
-  // shows the static list rather than flashing an empty dropdown.
-  const [publishedNames, setPublishedNames] = useState<Set<string> | null>(null);
+  // The plans an admin has published. null while loading — `sellableOffers`
+  // then stands the static catalogue in, rather than flashing an empty dropdown.
+  const [publishedPlans, setPublishedPlans] =
+    useState<{ name: string; category: string; bandwidth: string | null }[] | null>(null);
   const pkgRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -214,7 +220,11 @@ export function OrderForm({
     getPublishedPlans()
       .then((r) => {
         if (!active) return;
-        if (r.success) setPublishedNames(new Set(r.plans.map((p) => p.name)));
+        if (r.success) {
+          setPublishedPlans(
+            r.plans.map((p) => ({ name: p.name, category: p.category, bandwidth: p.bandwidth })),
+          );
+        }
       })
       .catch(() => {});
     return () => {
@@ -437,20 +447,18 @@ export function OrderForm({
     // Published plans only. An unpublished plan is one whose portal offer groups
     // no admin has confirmed, and selling it is what produced the "can't be
     // subscribed through Contactless Journey" rejections.
-    const sellable = publishedNames === null
-      ? DEALER_OFFERS
-      : DEALER_OFFERS.filter((o) => publishedNames.has(o.name));
+    const sellable = sellableOffers(publishedPlans, DEALER_OFFERS);
     return sellable.filter((o) => {
       if (q && !o.name.toLowerCase().includes(q)) return false;
       if (!speedFilter) return true;
       if (speedFilter === "BIZ" || speedFilter === "VOF") return o.category === OFFER_CATEGORIES[speedFilter];
       return o.category === OFFER_CATEGORIES.HOME && o.bandwidth === speedFilter;
     });
-  }, [pkgQuery, speedFilter, publishedNames]);
+  }, [pkgQuery, speedFilter, publishedPlans]);
 
   // Group the visible offers under their add-on flavour, keeping FLAVOURS order.
   const groupedOffers = useMemo(() => {
-    const groups = new Map<string, typeof DEALER_OFFERS>();
+    const groups = new Map<string, SellableOffer[]>();
     for (const o of filteredOffers) {
       const key = offerFlavour(o.name);
       const list = groups.get(key);
@@ -460,25 +468,21 @@ export function OrderForm({
     return FLAVOURS.filter((f) => groups.has(f)).map((f) => [f, groups.get(f)!] as const);
   }, [filteredOffers]);
 
-  const sellableCount = publishedNames === null
-    ? DEALER_OFFERS.length
-    : DEALER_OFFERS.filter((o) => publishedNames.has(o.name)).length;
+  const sellableCount = sellableOffers(publishedPlans, DEALER_OFFERS).length;
 
   // Counts per speed chip, so the agent sees where the packages actually are.
   // Counted over the SELLABLE plans, not the whole catalogue — a chip promising
   // 13 packages that then shows none is worse than no chip at all.
   const speedCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    const sellable = publishedNames === null
-      ? DEALER_OFFERS
-      : DEALER_OFFERS.filter((o) => publishedNames.has(o.name));
+    const sellable = sellableOffers(publishedPlans, DEALER_OFFERS);
     for (const o of sellable) {
       const key =
         o.category === OFFER_CATEGORIES.BIZ ? "BIZ" : o.category === OFFER_CATEGORIES.VOF ? "VOF" : o.bandwidth;
       counts[key] = (counts[key] ?? 0) + 1;
     }
     return counts;
-  }, [publishedNames]);
+  }, [publishedPlans]);
 
   // Device picker only applies to "with device" bundles (the portal shows the
   // device/add-on tree after such a package). Clearing the package clears it.

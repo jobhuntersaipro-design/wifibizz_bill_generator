@@ -1,5 +1,83 @@
 # Current Feature
 
+## Admin Can Create a Plan — and a Created Plan Actually Reaches the Picker
+
+**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/admin-create-plan`, not yet
+committed). Vercel-only — no scraper change, **no migration** (`Plan` already holds everything a
+created row needs).
+
+Ask (2026-09-01): on `/admin/plans`, let admin create a plan.
+
+### The half that was not asked for but without which the feature is dead
+
+The plan list is seeded from `DEALER_OFFERS` — a hand transcription of the portal's Subscription
+Plan List — and the **agent's package picker never read the plan rows at all**: `OrderForm` built
+its list from `DEALER_OFFERS` and used the published plans only as a *name filter*. So a plan an
+admin created could be recorded, given offer groups and published, and then **never appear in the
+picker**, because its name is not in the static catalogue. The picker now builds from the published
+plan rows themselves (`sellableOffers`), with the catalogue standing in only while the lookup is in
+flight — which is also the behaviour that shipped, so a failed lookup degrades to what it did before.
+
+### Built
+
+- **`adminCreatePlan(name, category, bandwidth)`** — admin-gated, created **unpublished**: the
+  existing publish gate already refuses a plan with no mandatory offer group, so nothing becomes
+  sellable without an admin recording its groups first.
+- **A name belonging to a REMOVED plan restores that plan** rather than failing. Removal is a
+  `hidden` flag with **no restore button anywhere**, so a bare "already exists" would be an error the
+  admin has no way to act on — and the offer groups recorded against it are still there, which is the
+  whole reason removal was built as a flag. It comes back unpublished: its groups have not been
+  re-checked.
+- **The name is whitespace-collapsed and nothing else.** It is matched VERBATIM against the portal's
+  plan list, so a pasted double space would never match the row it was copied from — and that
+  mismatch only surfaces mid-submit.
+- **The speed is normalised to the portal's shorthand** (`500 Mbps` → `500M`). The speed sections
+  group on the RAW value, so two spellings of one speed would otherwise open two headings for it,
+  each with a count that disagrees with the other. An unrecognised speed is kept verbatim rather than
+  refused — a new portal spelling must not block a plan — and files under "Other speeds".
+- **Category and speed are datalists of what is already recorded**, not fixed selects: the three
+  portal categories cover today, and a category nobody has seen yet must not need a deploy. The
+  category starts **blank**, because the list sorts alphabetically and pre-filling would quietly
+  propose *VOF Sales Catg* for a Home plan.
+
+### Verified in the browser
+
+On the real admin page against the dev database, with a session token minted locally from the app's
+own `createAdminSession` secret rather than by typing the admin password into this transcript.
+
+Created *Unifi Home 800Mbps Test Plan (36M)* typed as `"  Unifi Home 800Mbps  Test Plan (36M) "` /
+`"800 Mbps"`: the list went **60 → 61**, the row read **`800M · no offer groups yet` / Needs groups**
+with the double space collapsed, and it filed under an **800 Mbps** section rather than "Other
+speeds". Added a mandatory offer group and published it — **2 of 61 published**. Re-adding the same
+name was refused with *"That plan is already on this page."* and the dialog stayed open with the
+values. Removing it took the list to **1 of 60**; re-adding the same name toasted **"Plan
+restored — its offer groups are still recorded"** and the row came back carrying **1 offer group**,
+**Unpublished**. **Zero console errors.** At 375px there is no horizontal overflow with the dialog
+open or closed (dialog 16→359 of 375). **The dev database is exactly as it was** — 60 plans, 1
+published; the test plan was hard-deleted, which is safe precisely because it is not in
+`DEALER_OFFERS` and so cannot be re-seeded.
+
+**Tests:** 11 new in `plan-offer.test.ts` — the speed normalisation including a typed spelling landing
+in the SAME group as the catalogue's, an unrecognised speed surviving, blank read as none; the name
+collapse and its length refusal; and four on `sellableOffers`, the load-bearing one being that a
+published plan the catalogue has never carried IS listed. **777 vitest passing** (was 766),
+`npm run build`, lint **identical to baseline (9642)**, `tsc` unchanged (the same two pre-existing
+errors).
+
+### NOT verified
+
+- **The picker on screen.** The agent side needs a signed-in dealer session, and signing in would put
+  a real credential in this transcript — the same line held in earlier sessions. The rule it rests on
+  is `sellableOffers`, which is pure and unit-tested; what was verified live is the admin half and
+  that the plan reaches `published: true`.
+- **A submit against the live portal for a created plan.** The portal is the authority on the name,
+  and a name that does not match its grid row fails at the plan step — which is why the dialog says
+  to copy it exactly rather than tidying it for the admin.
+- **Production**, where nothing is deployed.
+- **The speed chips for a plan in a NEW category.** The chips match the three portal category
+  constants, so a plan recorded under a category nobody has seen shows only when no chip is selected.
+  Pre-existing shape of the chips, not made worse; noted rather than fixed.
+
 ## Two Concurrent Runs Could Break stdout for the Whole Process — and Admin Can Now Open a Capture
 
 **Status:** MERGED TO MAIN AND DEPLOYED 2026-09-01 (`f094ade` + `2f246a5`, merge `5baf185`; branch

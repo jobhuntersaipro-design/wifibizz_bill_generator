@@ -6,6 +6,8 @@ import { verifyAdminSession } from "@/lib/admin-auth";
 import { DEALER_OFFERS } from "@/lib/dealer-offers";
 import {
   nestOfferItems,
+  normalizeBandwidth,
+  normalizePlanName,
   splitPlanOffer,
   toOfferGroupKind,
   OFFER_GROUP_KINDS,
@@ -101,6 +103,54 @@ export async function adminListPlans(): Promise<{
     },
   });
   return { success: true, plans: plans.map(toView) };
+}
+
+/**
+ * Record a plan the static catalogue does not carry.
+ *
+ * `DEALER_OFFERS` is a transcription of the portal's Subscription Plan List, so
+ * it goes stale the moment the portal adds a package — until now that meant a
+ * deploy before an agent could sell it. The row is created UNPUBLISHED: nothing
+ * is sellable until its offer groups are recorded, which the publish gate
+ * already enforces.
+ *
+ * A name that belongs to a plan an admin REMOVED restores that plan instead of
+ * failing. Removal is a `hidden` flag with no restore button, so a bare
+ * "already exists" would be an error the admin has no way to act on — and the
+ * offer groups recorded against it are still there, which is the whole reason
+ * removal was built as a flag.
+ */
+export async function adminCreatePlan(rawName: string, rawCategory: string, rawBandwidth: string) {
+  if (!(await verifyAdminSession())) return { success: false as const, error: "Unauthorized" };
+
+  const { name, error } = normalizePlanName(rawName);
+  if (error) return { success: false as const, error };
+
+  const category = rawCategory.replace(/\s+/g, " ").trim();
+  if (category.length < 3) {
+    return { success: false as const, error: "Choose the portal offer category this plan sits in." };
+  }
+  const bandwidth = normalizeBandwidth(rawBandwidth);
+
+  const existing = await prisma.plan.findUnique({
+    where: { name },
+    select: { id: true, hidden: true },
+  });
+  if (existing) {
+    if (!existing.hidden) {
+      return { success: false as const, error: "That plan is already on this page." };
+    }
+    // Restore it as typed — the category or speed may be what the admin is
+    // correcting — but never as published: its groups have not been re-checked.
+    await prisma.plan.update({
+      where: { id: existing.id },
+      data: { hidden: false, published: false, category, bandwidth },
+    });
+    return { success: true as const, restored: true, name };
+  }
+
+  await prisma.plan.create({ data: { name, category, bandwidth } });
+  return { success: true as const, restored: false, name };
 }
 
 export async function adminSetPlanPublished(id: string, published: boolean) {

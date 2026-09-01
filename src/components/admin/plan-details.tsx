@@ -4,6 +4,7 @@ import { useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 import {
   adminListPlans,
+  adminCreatePlan,
   adminSetPlanPublished,
   adminDeletePlan,
   adminAddOfferGroup,
@@ -16,6 +17,7 @@ import {
 import {
   OFFER_GROUP_KINDS,
   OFFER_GROUP_KIND_LABEL,
+  bandwidthMbps,
   groupPlansByBandwidth,
   type BandwidthGroup,
   type OfferGroupKind,
@@ -788,11 +790,149 @@ function StateSection({
   );
 }
 
+
+/**
+ * Record a plan the static catalogue does not carry.
+ *
+ * The portal adds packages without telling anyone, and until now a new one
+ * needed a code change to `dealer-offers.ts`. The category and speed are
+ * offered as a datalist of what is already recorded rather than a fixed select:
+ * the three portal categories cover today, and a category nobody has seen yet
+ * must not be a reason to wait for a deploy.
+ */
+function NewPlanModal({
+  categories,
+  bandwidths,
+  onClose,
+  onCreated,
+}: {
+  categories: string[];
+  bandwidths: string[];
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [name, setName] = useState("");
+  // Deliberately blank: the categories sort alphabetically, so pre-filling the
+  // first would quietly propose "VOF Sales Catg" for a Home plan, and a
+  // wrong-but-prefilled category reads as a choice somebody made.
+  const [category, setCategory] = useState("");
+  const [bandwidth, setBandwidth] = useState("");
+  const [busy, setBusy] = useState(false);
+  const categoryListId = useId();
+  const bandwidthListId = useId();
+
+  async function create() {
+    setBusy(true);
+    const res = await adminCreatePlan(name, category, bandwidth);
+    setBusy(false);
+    if (!res.success) {
+      toast.error(res.error ?? "Couldn't add that plan.");
+      return;
+    }
+    toast.success(res.restored ? "Plan restored" : "Plan added", {
+      description: res.restored
+        ? `${res.name} was removed earlier — its offer groups are still recorded.`
+        : `${res.name} — record its offer groups, then publish it.`,
+    });
+    onCreated();
+    onClose();
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#0A2540]/40 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Add a plan"
+    >
+      <div className="w-full max-w-md bg-white rounded-lg border border-[#E3E8EF] shadow-xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-[#E3E8EF]">
+          <h2 className="text-sm font-semibold text-[#0A2540]">Add a plan</h2>
+        </div>
+        <div className="p-6 space-y-4">
+          <p className="text-[12px] leading-relaxed text-[#697386]">
+            For a package the portal offers but this page does not list yet. Copy the name{" "}
+            <strong className="text-[#0A2540]">exactly</strong> as the portal&apos;s Subscription
+            Plan List writes it — the submit matches on it verbatim.
+          </p>
+          <label className="block">
+            <span className="block text-[11px] font-medium text-[#425466] mb-1">Plan name</span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus
+              placeholder="Unifi Home 500Mbps Premium Value (36M)"
+              className="h-9 w-full rounded-lg border border-[#E3E8EF] px-3 text-[12px] text-[#0A2540] hover:border-[#635BFF]/60 focus:border-[#635BFF] focus:outline-none transition-colors"
+            />
+          </label>
+          <div className="flex flex-wrap gap-3">
+            <label className="block min-w-48 flex-1">
+              <span className="block text-[11px] font-medium text-[#425466] mb-1">
+                Portal offer category
+              </span>
+              <input
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                list={categoryListId}
+                placeholder="unifi Home Bundle Sale Catg"
+                className="h-9 w-full rounded-lg border border-[#E3E8EF] px-3 text-[12px] text-[#0A2540] hover:border-[#635BFF]/60 focus:border-[#635BFF] focus:outline-none transition-colors"
+              />
+              <datalist id={categoryListId}>
+                {categories.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+            </label>
+            <label className="block w-32">
+              <span className="block text-[11px] font-medium text-[#425466] mb-1">Speed</span>
+              <input
+                value={bandwidth}
+                onChange={(e) => setBandwidth(e.target.value)}
+                list={bandwidthListId}
+                placeholder="500M"
+                className="h-9 w-full rounded-lg border border-[#E3E8EF] px-3 text-[12px] text-[#0A2540] hover:border-[#635BFF]/60 focus:border-[#635BFF] focus:outline-none transition-colors"
+              />
+              <datalist id={bandwidthListId}>
+                {bandwidths.map((b) => (
+                  <option key={b} value={b} />
+                ))}
+              </datalist>
+            </label>
+          </div>
+          <p className="text-[11px] leading-relaxed text-[#697386]">
+            It is added <strong className="text-[#0A2540]">unpublished</strong>: record its
+            mandatory offer groups first, then publish it. Leave the speed blank if the package has
+            none — it files under &ldquo;Other speeds&rdquo;.
+          </p>
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-[#E3E8EF] px-3 py-2 text-[12px] font-medium text-[#425466] hover:border-[#635BFF] transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={create}
+              disabled={busy || !name.trim() || !category.trim()}
+              className="rounded-lg bg-[#635BFF] px-3 py-2 text-[12px] font-semibold text-white hover:bg-[#635BFF]/90 disabled:opacity-50 transition-colors cursor-pointer"
+            >
+              {busy ? "Adding…" : "Add plan"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function PlanDetails() {
   const [plans, setPlans] = useState<PlanView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [onlyUnpublished, setOnlyUnpublished] = useState(false);
+  const [addingPlan, setAddingPlan] = useState(false);
 
   async function reload() {
     const res = await adminListPlans();
@@ -867,7 +1007,25 @@ export function PlanDetails() {
         <span className="text-[12px] font-medium text-[#0A2540] tabular-nums">
           {publishedCount} of {plans.length} published
         </span>
+        <button
+          type="button"
+          onClick={() => setAddingPlan(true)}
+          className="h-10 shrink-0 rounded-lg bg-[#635BFF] px-3 text-[12px] font-semibold text-white hover:bg-[#635BFF]/90 transition-colors cursor-pointer"
+        >
+          + New plan
+        </button>
       </div>
+
+      {addingPlan && (
+        <NewPlanModal
+          categories={[...new Set(plans.map((p) => p.category))].sort()}
+          bandwidths={[...new Set(plans.map((p) => p.bandwidth).filter((b): b is string => !!b))].sort(
+            (a, b) => bandwidthMbps(a) - bandwidthMbps(b),
+          )}
+          onClose={() => setAddingPlan(false)}
+          onCreated={reload}
+        />
+      )}
 
       <StateSection
         title="Published"

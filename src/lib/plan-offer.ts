@@ -207,3 +207,69 @@ export function groupPlansByBandwidth<T extends { bandwidth: string | null }>(
     .map(([key, list]) => ({ key, label: bandwidthLabel(key), plans: list }))
     .sort((a, b) => bandwidthMbps(a.key) - bandwidthMbps(b.key) || a.key.localeCompare(b.key));
 }
+
+/**
+ * The bandwidth an admin typed, in the shorthand `dealer-offers.ts` records.
+ *
+ * Grouping keys on the RAW value, so "100 Mbps" and "100M" typed on two
+ * different days would otherwise open two speed sections for one speed, each
+ * with a count that disagrees with the other. Anything unrecognised is kept
+ * verbatim (uppercased) rather than rejected — a new portal speed spelling must
+ * not stop a plan being recorded; it lands under "Other speeds".
+ */
+export function normalizeBandwidth(bandwidth: string | null | undefined): string | null {
+  const raw = (bandwidth ?? "").trim().toUpperCase();
+  if (!raw) return null;
+  const m = /^(\d+(?:\.\d+)?)\s*([MG])B?P?S?$/.exec(raw);
+  return m ? `${m[1]}${m[2]}` : raw;
+}
+
+export interface PlanNameCheck {
+  name: string;
+  error?: string;
+}
+
+/**
+ * The plan name as it will be stored.
+ *
+ * It is matched VERBATIM against the portal's Subscription Plan List, so the
+ * only tidying done is collapsing whitespace — a name pasted with a double
+ * space would never match the grid row it was copied from, and the mismatch
+ * only surfaces mid-submit.
+ */
+export function normalizePlanName(rawName: string): PlanNameCheck {
+  const name = rawName.replace(/\s+/g, " ").trim();
+  if (name.length < 5) {
+    return { name, error: "Enter the plan name exactly as the portal's plan list writes it." };
+  }
+  return { name };
+}
+
+export interface SellableOffer {
+  category: string;
+  name: string;
+  bandwidth: string;
+}
+
+/**
+ * The packages the agent's picker may list.
+ *
+ * Built from the PUBLISHED PLAN ROWS, not by filtering the static catalogue by
+ * name: `DEALER_OFFERS` is a transcription of the portal's list, and an admin
+ * can record a package it does not carry. Filtering would let such a plan be
+ * published into a picker that could never show it.
+ *
+ * `published` is null while the lookup is in flight — the catalogue stands in,
+ * so the dropdown is never briefly empty.
+ */
+export function sellableOffers(
+  published: { name: string; category: string; bandwidth: string | null }[] | null,
+  catalogue: SellableOffer[],
+): SellableOffer[] {
+  if (published === null) return catalogue;
+  return published.map((p) => ({
+    category: p.category,
+    name: p.name,
+    bandwidth: p.bandwidth ?? "",
+  }));
+}
