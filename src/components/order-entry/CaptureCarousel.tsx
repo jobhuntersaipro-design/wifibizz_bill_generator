@@ -49,10 +49,21 @@ export function CaptureCarousel({
   captures,
   startIndex,
   onClose,
+  srcFor = captureSrc,
 }: {
   captures: CaptureFrame[];
   startIndex: number;
   onClose: () => void;
+  /**
+   * Which proxy serves the bytes. Defaults to the agent's own route.
+   *
+   * Admin needs a different one: `/api/orders/screenshot` resolves keys against
+   * the CALLER's R2 namespace, and admin is not a NextAuth user and has none.
+   * A prop rather than a second carousel — the viewer, its keyboard handling
+   * and its expiry rules are the same job either way, and two copies would
+   * drift.
+   */
+  srcFor?: (key: string) => string;
 }) {
   // Clamp on the way in: a caller that hands us an index for a frame that has
   // since dropped out of the list should show frame 1, not a blank stage.
@@ -103,14 +114,14 @@ export function CaptureCarousel({
       // fetches it when the slide mounts.
       if (isPdfCapture(c.key)) continue;
       const img = new Image();
-      img.src = captureSrc(c.key);
+      img.src = srcFor(c.key);
     }
-  }, [i, captures]);
+  }, [i, captures, srcFor]);
 
   if (!current) return null;
 
   const expiry = captureExpiry(current.at);
-  const src = captureSrc(current.key);
+  const src = srcFor(current.key);
 
   return (
     <Dialog open onOpenChange={(next) => !next && onClose()}>
@@ -249,7 +260,7 @@ export function CaptureCarousel({
                         /* eslint-disable-next-line @next/next/no-img-element --
                            auth-gated private stream */
                         <img
-                          src={captureSrc(c.key)}
+                          src={srcFor(c.key)}
                           alt=""
                           loading="lazy"
                           className="h-full w-full object-cover object-top"
