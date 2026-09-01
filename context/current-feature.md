@@ -2,10 +2,15 @@
 
 ## The PII Dialog Wanted an OTP, and Admin Could Not See the Frame That Said So
 
-**Status:** CODE COMPLETE, NOT YET COMMITTED (branch `feature/pii-verification-and-admin-captures`).
-Scraper + Vercel, no migration. The scraper half **needs a droplet deploy AND an `api_server`
-restart** — a deploy alone keeps the old imports, so until then production still walks past the
-dialog and retries it three times.
+**Status:** MERGED TO MAIN AND DEPLOYED 2026-09-01 (`b4767d6` + `97e3dc0`, merge `1b37072`; branch
+deleted). Scraper + Vercel, no migration. The droplet runs **`scraper-v2026.09.01-1`** — the
+container was RECREATED, so `api_server` restarted with it, and the new code was confirmed *inside
+the running container*: `map_error("OTP Questions Service Number Send OTP OTP Check")` returns
+`pii_verification_required` there. Vercel build Ready in 1m; the admin capture route answers **401**
+on `bizzflow.top` (a 404 would mean the old build), which is what proves it shipped.
+
+**Noted in passing:** production `/health` now reports **`capacity: 4`**, not the `1` these docs
+record — the concurrency ramp has been raised on the droplet since.
 
 Reported 2026-09-01 against production order `cmtha9j3o000004l8ak0q0wcm` (admin
 `/admin/orders/<id>`), which failed 8 times. Two asks, one from each half of that hour:
