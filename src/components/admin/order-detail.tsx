@@ -1,12 +1,6 @@
 import type { AttemptView } from "@/lib/order-history";
 import { isFailureStatus } from "@/lib/admin-order-stats";
-import {
-  captureLabel,
-  captureSlot,
-  isCaptureStage,
-  isPdfCapture,
-  isScreenshotKey,
-} from "@/lib/order-types";
+import { AdminAttemptEvents } from "@/components/admin/admin-attempt-events";
 
 export interface AdminOrderView {
   id: string;
@@ -152,86 +146,13 @@ export function AdminOrderDetail({
                     {a.outcome} · {a.startedAt.slice(0, 16).replace("T", " ")}
                   </span>
                 </div>
-                <ul className="mt-3 space-y-1.5">
-                  {a.events.map((e) => (
-                    <li key={e.id} className="flex gap-3 text-xs">
-                      <span className="w-32 shrink-0 tabular-nums text-[#697386]">
-                        {e.createdAt.slice(11, 19)}
-                      </span>
-                      <span className="w-40 shrink-0 text-[#425466]">{e.stage ?? e.status}</span>
-                      <span className="min-w-0 text-[#0A2540]">
-                        {e.errorCode && (
-                          <span className="mr-1 rounded bg-[#FEF3F2] px-1 py-0.5 text-[#B42318]">
-                            {e.errorCode}
-                          </span>
-                        )}
-                        {isCaptureStage(e.stage) && isScreenshotKey(e.message) ? (
-                          <Capture stage={e.stage} objectKey={e.message!} />
-                        ) : (
-                          e.message ?? ""
-                        )}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                <AdminAttemptEvents events={a.events} />
               </li>
             ))}
           </ol>
         )}
       </Section>
     </div>
-  );
-}
-
-/**
- * One capture on the admin timeline: what it shows, and the frame itself.
- *
- * The R2 key used to render as raw text here, which is how a failure whose
- * whole explanation was in a screenshot stayed unread through eight attempts —
- * seeing it took a hand-written S3 script against the bucket.
- *
- * The thumbnail is served by `/api/admin/orders/screenshot`, which is
- * admin-gated and NOT scoped to a namespace; the agent-facing route resolves
- * keys against the caller's own, and admin has none, so an <img> at that route
- * would reliably 404 here.
- *
- * The e-RF comes down the same capture path but is a PDF, so it gets a link
- * rather than an <img> that would silently fail to decode.
- */
-function Capture({ stage, objectKey }: { stage: string | null; objectKey: string }) {
-  const href = `/api/admin/orders/screenshot?key=${encodeURIComponent(objectKey)}`;
-  const label = captureLabel(captureSlot(stage) ?? "");
-
-  if (isPdfCapture(objectKey)) {
-    return (
-      <a href={href} target="_blank" rel="noreferrer" className="text-[#635BFF] underline">
-        {label} (PDF)
-      </a>
-    );
-  }
-
-  return (
-    <span className="block">
-      <a
-        href={href}
-        target="_blank"
-        rel="noreferrer"
-        className="text-[#635BFF] underline"
-        title={objectKey}
-      >
-        {label}
-      </a>
-      {/* Deliberately an ordinary <img>, not next/image: these are private,
-          no-store objects behind an admin cookie, and the image optimiser would
-          try to fetch and cache them server-side without one. */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={href}
-        alt={label}
-        loading="lazy"
-        className="mt-1 max-h-40 w-full max-w-xs rounded border border-[#E3E8EF] bg-[#F6F9FC] object-contain"
-      />
-    </span>
   );
 }
 

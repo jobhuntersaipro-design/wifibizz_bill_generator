@@ -1,5 +1,88 @@
 # Current Feature
 
+## Two Concurrent Runs Could Break stdout for the Whole Process — and Admin Can Now Open a Capture
+
+**Status:** CODE COMPLETE, NOT YET COMMITTED (branch `fix/concurrent-job-logging`). Scraper + Vercel,
+no migration. The scraper half **needs a droplet deploy AND an `api_server` restart**.
+
+Two asks off the 2026-09-01 session: let admin click a capture to preview it, and explain
+`ValueError('I/O operation on closed file.')`, which a run had reported as *"The run stopped without
+reporting"*.
+
+### The error is a real bug, and concurrency is what switched it on
+
+`_run_order_job_inner` wrapped each run in `redirect_stdout(log_file)`. That swaps the
+**process-global** `sys.stdout`, which is exactly right for one job at a time and silently wrong for
+two — and `OE_MAX_CONCURRENT_JOBS` has since been raised on the droplet, so `/health` now reports
+**`capacity: 4`**. With two overlapping runs the save/restore interleaves:
+
+```
+A enters   sys.stdout = A.log      (saved: the real stdout)
+B enters   sys.stdout = B.log      (saved: A.log)
+A exits    sys.stdout = real       A.log CLOSED
+           → B's remaining output now goes to the container log, and B's own log
+             file ends after the one line it wrote before A exited
+B exits    sys.stdout = A.log      ← already closed
+           → every print in the WHOLE PROCESS from here on raises
+             ValueError('I/O operation on closed file.')
+```
+
+**Reproduced before anything was changed**, in 30 lines with three overlapping threads: the
+ValueError, `sys.stdout` left pointing at a closed file, and one job's output leaking to the real
+stream. And **both halves are visible on the droplet right now**: **sixteen job logs contain nothing
+but their own `Order job … started` line**, clustered in the same minutes as the failing order —
+15:15:34, 15:17:36, 15:22:42 and 15:24:44 on 2026-08-31. The corruption is **sticky**: once
+`sys.stdout` is a closed file, every later run dies the same way until the container restarts, which
+is why one bad interleave shows up as a run that "stopped without reporting" having done nothing at
+all.
+
+**Worth re-reading in that light:** job `8bfa1c8ef9d3…`, the 2026-08-29 stuck lock these docs
+attribute to the blocking R2 download, also has a log containing nothing but its own started line —
+the same fingerprint. That diagnosis may have been half the story.
+
+### Built
+
+- **`scraper/job_logging.py`** — `sys.stdout`/`sys.stderr` are replaced **once**, at import, with a
+  stream that routes each write to the **calling thread's** log file. Nothing is swapped per job, so
+  nothing can be restored out of order. Every `print()` call site in the scraper is untouched: there
+  are hundreds, and rewriting them through a logger is not the change to make while the submit flow
+  is the thing under test.
+- **A closed file falls back to the real stream instead of raising.** A late writer — a task
+  outliving its run, a webhook retry — must not be able to kill the run it belongs to, let alone the
+  process. Re-introducing the same failure one level down would be a poor joke.
+- **A stack per thread, not a slot**, because a batch runs its members inline on the batch's own
+  thread. That nesting is LIFO within one thread and always safe, unlike the cross-thread version it
+  replaces.
+- **`install()` re-asserts the assignment** if something else has taken `sys.stdout` since. An
+  orphaned router looks exactly like a working one until a job's output silently goes elsewhere.
+- **Threads with nothing bound** — the reaper, the dealer-login loop, Flask's request threads — now
+  reach the real stream. They used to land in whichever job held the global redirect.
+- **Admin capture previews:** clicking a thumbnail opens the SAME viewer the agent gets, scoped to
+  that attempt, with arrow keys, the thumbnail rail and Escape. `CaptureCarousel` gained one optional
+  `srcFor` prop rather than growing a second copy — admin needs a different proxy, everything else
+  about the viewer is the same job. Rows stay chronological, so a frame still sits beside the step it
+  documents.
+
+### Verified
+
+**Tests:** 6 new in `test_job_logging.py`, one of which **reproduces the old failure** (asserting
+`sys.stdout` ends up closed and the next print raises) so the fix cannot be quietly reverted; the
+rest pin overlapping runs keeping their own logs with no cross-contamination, stdout surviving,
+a late write falling back rather than raising, batch nesting, and an unbound thread reaching the
+fallback. **381 scraper passed + 1 skipped** (was 375). `npm run build`, lint **identical to baseline
+(9642)**, `tsc` unchanged.
+
+**In the browser**, on the real admin page against the dev database: clicking *Offer grid* opens the
+viewer at **1 of 17** with the full frame loaded **from the admin route** (naturalWidth 1192);
+ArrowRight steps to *New Connection page 1* then *Broadband tab*, ArrowLeft comes back, **Escape**
+closes it and the 52 thumbnails are still there. **Zero console errors** — only the React DevTools
+notice and HMR.
+
+**NOT verified:** the fix against real concurrent portal runs on the droplet — the repro and the
+tests use threads and files, not Chromium; and whether the sixteen truncated logs each correspond to
+an order that reported the ValueError, which needs the production database.
+
+
 ## The PII Dialog Wanted an OTP, and Admin Could Not See the Frame That Said So
 
 **Status:** MERGED TO MAIN AND DEPLOYED 2026-09-01 (`b4767d6` + `97e3dc0`, merge `1b37072`; branch

@@ -17,12 +17,18 @@ unauthenticated route here.
 
 import os
 import uuid
-from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime
 from threading import Lock, Thread
 
 from dotenv import find_dotenv, load_dotenv
 from flask import Flask, jsonify, request
+
+from job_logging import install as _install_job_logging, job_log
+
+# Route stdout/stderr per THREAD before anything can print. Every job used to
+# swap the global sys.stdout for its own log file, which two concurrent runs
+# corrupt for the whole process — see job_logging.
+_install_job_logging()
 
 # Load the project root .env (walks up from scraper/) so ORDER_ENTRY_API_TOKEN
 # and the rest are available without exporting them by hand.
@@ -769,7 +775,12 @@ def _run_order_job_inner(job_id: str, payload: dict, dry_run: bool, user_key: st
         )
 
     log_path = os.path.join(_logs_dir(), f"{job_id}.log")
-    with open(log_path, "w", buffering=1) as lf, redirect_stdout(lf), redirect_stderr(lf):
+    # NOT redirect_stdout: that swaps the process-global sys.stdout, and two
+    # overlapping runs restore each other's file — leaving sys.stdout pointing at
+    # a CLOSED one, after which every print in the process raises
+    # ValueError('I/O operation on closed file.'). See job_logging for the full
+    # sequence and the sixteen truncated job logs it produced.
+    with job_log(log_path) as lf:
         print(f"[{datetime.utcnow().isoformat()}] Order job {job_id} started (dry_run={dry_run})")
         with JOBS_LOCK:
             job = JOBS.get(job_id, {})
