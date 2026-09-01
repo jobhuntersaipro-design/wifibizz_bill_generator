@@ -302,9 +302,12 @@ outside the repo now.
 
 ## Blacklisted IC — the Portal's [40300805] Refusal Gets Its Own Code
 
-**Status:** CODE COMPLETE (branch `feature/blacklisted-ic-error`, not yet committed). Scraper +
-Vercel, no migration. **Needs a droplet deploy AND an `api_server` restart** — a deploy alone keeps
-the old imports, so until then production still walks past the warn.
+**Status:** MERGED TO MAIN AND DEPLOYED 2026-08-31 (`e4f2195`, merge `af02d50`; the corrected
+detection `69527a2`, merge `47284a9`; the table labels `64eb316` — all three branches deleted
+2026-09-01). Scraper + Vercel, no migration. The scraper half ships in every droplet build from
+**`scraper-v2026.08.31-2`** onward, so the containers recreated for `scraper-v2026.09.01-1` and
+`-2` carry it — established from the tags containing the merges, not by reading the code inside the
+running container.
 
 Reported 2026-08-31 with a screenshot of the Feasibility Check: the offer row chosen, and a **Warn**
 dialog over it reading *"[40300805]: You're on our blacklist. Visit our nearest Unifi Store for
