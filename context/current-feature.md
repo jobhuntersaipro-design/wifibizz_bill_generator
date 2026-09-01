@@ -2,8 +2,12 @@
 
 ## Two Concurrent Runs Could Break stdout for the Whole Process — and Admin Can Now Open a Capture
 
-**Status:** CODE COMPLETE, NOT YET COMMITTED (branch `fix/concurrent-job-logging`). Scraper + Vercel,
-no migration. The scraper half **needs a droplet deploy AND an `api_server` restart**.
+**Status:** MERGED TO MAIN AND DEPLOYED 2026-09-01 (`f094ade` + `2f246a5`, merge `5baf185`; branch
+deleted). Scraper + Vercel, no migration. Droplet tag **`scraper-v2026.09.01-2`**.
+
+**The droplet was idle (`active_jobs: 0`) when the deploy ran** — checked first, because a deploy
+recreates the container and a real submit in flight would be killed with a portal order possibly
+already minted.
 
 Two asks off the 2026-09-01 session: let admin click a capture to preview it, and explain
 `ValueError('I/O operation on closed file.')`, which a run had reported as *"The run stopped without
