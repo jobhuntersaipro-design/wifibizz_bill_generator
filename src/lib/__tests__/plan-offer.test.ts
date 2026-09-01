@@ -4,6 +4,9 @@ import {
   deviceRequired,
   groupPlansByBandwidth,
   nestOfferItems,
+  normalizeBandwidth,
+  normalizePlanName,
+  sellableOffers,
   splitPlanOffer,
   toOfferGroupKind,
   type OfferGroupView,
@@ -151,5 +154,82 @@ describe("bandwidth grouping", () => {
     const groups = groupPlansByBandwidth(plans);
     expect(groups).toHaveLength(2);
     expect(groups.reduce((n, g) => n + g.plans.length, 0)).toBe(plans.length);
+  });
+});
+
+describe("normalizeBandwidth", () => {
+  it("stores the portal's own shorthand, however the admin typed it", () => {
+    expect(normalizeBandwidth("500 Mbps")).toBe("500M");
+    expect(normalizeBandwidth(" 1gbps ")).toBe("1G");
+    expect(normalizeBandwidth("300m")).toBe("300M");
+  });
+
+  it("puts a typed speed in the SAME group as the catalogue's", () => {
+    // The grouping keys on the raw value, so two spellings of one speed would
+    // otherwise open two sections for it.
+    const plans = [{ bandwidth: "100M" }, { bandwidth: normalizeBandwidth("100 Mbps") }];
+    expect(groupPlansByBandwidth(plans)).toHaveLength(1);
+  });
+
+  it("keeps an unrecognised speed rather than refusing the plan", () => {
+    expect(normalizeBandwidth("10G bonded")).toBe("10G BONDED");
+    expect(bandwidthLabel(normalizeBandwidth("10G bonded"))).toBe("10G BONDED");
+  });
+
+  it("reads a blank speed as none, not as an empty group key", () => {
+    expect(normalizeBandwidth("")).toBeNull();
+    expect(normalizeBandwidth("   ")).toBeNull();
+    expect(normalizeBandwidth(null)).toBeNull();
+  });
+});
+
+describe("normalizePlanName", () => {
+  it("collapses whitespace, which a pasted name never matches the grid with", () => {
+    expect(normalizePlanName("  Unifi Home  500Mbps  Premium Value ").name).toBe(
+      "Unifi Home 500Mbps Premium Value",
+    );
+  });
+
+  it("refuses a name too short to be a portal package", () => {
+    expect(normalizePlanName("  ").error).toBeTruthy();
+    expect(normalizePlanName("Home").error).toBeTruthy();
+  });
+
+  it("accepts a real package name unchanged", () => {
+    const res = normalizePlanName("Unifi Home 1Gbps Premium Value (30M)");
+    expect(res.error).toBeUndefined();
+    expect(res.name).toBe("Unifi Home 1Gbps Premium Value (30M)");
+  });
+});
+
+describe("sellableOffers", () => {
+  const catalogue = [
+    { category: "unifi Home Bundle Sale Catg", name: "Unifi Home 1Gbps Broadband", bandwidth: "1G" },
+  ];
+
+  it("lists a published plan the static catalogue has never carried", () => {
+    // The whole point of letting an admin create a plan: filtering the
+    // catalogue by name would publish it into a picker that can never show it.
+    const offers = sellableOffers(
+      [{ name: "Unifi Home 800Mbps Test Plan (36M)", category: "unifi Home Bundle Sale Catg", bandwidth: "800M" }],
+      catalogue,
+    );
+    expect(offers.map((o) => o.name)).toEqual(["Unifi Home 800Mbps Test Plan (36M)"]);
+  });
+
+  it("shows the catalogue while the lookup is still in flight", () => {
+    expect(sellableOffers(null, catalogue)).toEqual(catalogue);
+  });
+
+  it("shows nothing when nothing is published — not the whole catalogue", () => {
+    expect(sellableOffers([], catalogue)).toEqual([]);
+  });
+
+  it("gives a plan with no speed an empty string, so the speed chips still group it", () => {
+    const [offer] = sellableOffers(
+      [{ name: "Some VOF package", category: "VOF Sales Catg", bandwidth: null }],
+      catalogue,
+    );
+    expect(offer.bandwidth).toBe("");
   });
 });
