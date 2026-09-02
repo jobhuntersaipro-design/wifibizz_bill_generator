@@ -2,9 +2,11 @@
 
 ## Fix — Auto-Read OTP Hung Forever Because the Gmail Token Was Revoked and the Reader Said Nothing
 
-**Status:** CODE COMPLETE (branch `fix/gmail-otp-auto-read-failure`, not yet committed). Scraper +
-one UI file, no migration. **The droplet's Gmail token still has to be replaced** — that half is
-operational, not code.
+**Status:** MERGED TO MAIN AND DEPLOYED 2026-09-02 (`6d67fae`, merge `a3a3220`). Scraper + one UI
+file, no migration. Droplet tag **`scraper-v2026.09.02-1`** — container recreated (checked idle,
+`active_jobs: 0`, first), and the new behaviour confirmed *inside the running container*. **The
+Gmail token has been regenerated and is live**; no restart was needed for it, because the reader
+builds a fresh service per login and `config/` is bind-mounted.
 
 Reported live 2026-09-02: the Connect card sat on *"Reading the OTP from email automatically"*
 counting down, with the OTP already in the agent's hand and nowhere to type it.
@@ -13,10 +15,19 @@ counting down, with the OTP already in the agent's hand and nowhere to type it.
 
 The droplet's `config/gmail_token.json` (last refreshed 2026-08-31 07:55) is rejected by Google:
 `invalid_grant: Token has been expired or revoked`. The **local** copy carries the same refresh
-token and is refused identically, so this is revoked at Google's end, not a droplet-only state —
-consistent with the OAuth consent screen still being in *Testing*, where refresh tokens expire
-after 7 days. Regenerating it needs a browser sign-in to the shared inbox; publishing the consent
-screen is what stops it recurring weekly.
+token and is refused identically, so this is revoked at Google's end, not a droplet-only state.
+
+**Why it was revoked is still unknown, and that is worth recording rather than guessing at.** The
+first explanation offered here was the OAuth consent screen sitting in *Testing*, where refresh
+tokens die after 7 days — **wrong, the app is In production** (checked in the console). The two
+next-likeliest causes were both ruled out by the user: the shared inbox's password has not been
+changed, and BizzFlow is still listed under the account's linked apps, so access was not withdrawn
+by hand. So the trigger is unaccounted for; what IS established is that a published app's fresh
+token should not expire on a clock, so this is not expected to recur weekly. If it does, that
+absence of a cause is the thing to chase.
+
+Regenerating needs a browser sign-in to the shared inbox — the user's to do, since typing that
+credential here would put it in the transcript.
 
 ### Why the agent saw a countdown instead of the reason
 
@@ -52,9 +63,18 @@ fails with Google's own `invalid_grant` sentence). **Proven to fail without the 
 fail on the old code, and the fourth — the module-level caller — does not fail but **hangs**, which
 is the reported bug itself reproduced (a `None` service spinning out the full window).
 
-**NOT verified: the live login.** The droplet still runs the old code and still holds the revoked
-token, so nothing here has been exercised against the real portal or a real OTP; and the UI escape
-has not been clicked in a browser.
+**The credential, end to end.** The new token reads the shared inbox from inside the running
+container, and **the reader's own query** — `from:@unifi.com.my ... to:nexion.eform@gmail.com` —
+returns 5 messages from the last 2 days, which is the pipeline proven at the exact point it was
+broken rather than at a health check beside it.
+
+**A recovery worth remembering:** the OAuth flow's local listener had already exited when the user
+finished signing in, so the callback hit `ERR_CONNECTION_REFUSED`. The authorization code is in
+that dead URL, and exchanging it by hand against the same `redirect_uri` works — no need to
+restart the flow and sign in twice.
+
+**NOT verified: a real dealer login.** No OTP has been auto-read through the fixed path against
+the live portal, and the UI's "Enter it myself" escape has not been clicked in a browser.
 
 ## Admin Can Create a Plan — and a Created Plan Actually Reaches the Picker
 
