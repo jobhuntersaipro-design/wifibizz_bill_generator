@@ -1,5 +1,45 @@
 # Current Feature
 
+## Fix — a Route Named `job_log` Shadowed the Log Context Manager, Killing Every Submit
+
+**Status:** MERGED TO MAIN AND DEPLOYED 2026-09-03 (`5ce0a98`, merge `197fcb3`). Scraper-only, no
+migration. Droplet tag **`scraper-v2026.09.03-1`** — checked idle first (`active_jobs: 0`), container
+recreated, and the fix confirmed *inside the running container* (`api_server.job_log is
+job_logging.job_log`, and it opens a log file off any Flask context).
+
+Reported live 2026-09-02 (ORD-0075, both attempts): every submit died in seconds with *"The run
+stopped without reporting: RuntimeError('Working outside of application context.')"*.
+
+### Every submit had been dead since `scraper-v2026.09.01-2`, and the OTP deploy was innocent
+
+The container stderr traceback settled it in one read. The 2026-09-01 concurrent-logging fix imports
+`job_log` — the per-thread log context manager — at the top of `api_server.py`, but the module's own
+`GET /jobs/<id>/log` route was ALSO defined as `def job_log(job_id)` further down, so the later `def`
+silently rebound the module-level name. `with job_log(log_path)` in the runner then called the HTTP
+ROUTE with a file path as a job id: `JOBS.get(<path>)` is None, the route answers
+`jsonify({"error": "unknown_job"})`, and `jsonify` off any Flask context raises the RuntimeError.
+The BaseException wrapper filed it as `runner_died` **before the job log ever opened** — which is why
+the newest job `.log` on the droplet predated the 09-01 deploy: the corroborating absence.
+
+`test_job_logging.py` could not see it: it imports `job_log` from `job_logging` directly, and only
+the shadowed name inside `api_server` was broken.
+
+### Built
+
+The route is renamed `get_job_log` (path unchanged; nothing referenced the function name), with a
+comment saying why it must not be called `job_log`.
+
+### Verified
+
+3 new tests in `test_job_log_not_shadowed.py` — the name identity, opening a log off any Flask
+context exactly the way the runner does, and the route still registered. **The first two provably
+fail on the shadowed code.** 391 scraper passed + 1 skipped (was 388).
+
+**NOT verified: a real submit through the fixed path.** The next live order is the end-to-end proof.
+ORD-0075 burned 2 of its 3 retries on this; any order submitted between the Sep 1 evening deploy and
+this one failed the same way and can simply be resubmitted.
+
+
 ## Fix — Auto-Read OTP Hung Forever Because the Gmail Token Was Revoked and the Reader Said Nothing
 
 **Status:** MERGED TO MAIN AND DEPLOYED 2026-09-02 (`6d67fae`, merge `a3a3220`). Scraper + one UI
