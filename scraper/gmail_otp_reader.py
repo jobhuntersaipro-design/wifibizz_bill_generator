@@ -39,6 +39,14 @@ class OtpNeverSent(Exception):
     code by hand", this means "nothing is coming — try again later"."""
 
 
+_REGENERATE_HINT = (
+    "Regenerate it where a browser and config/gmail_credentials.json are "
+    "available with `GMAIL_ALLOW_BROWSER=1 python -c \"from gmail_otp_reader "
+    "import GmailOTPReader; GmailOTPReader()\"`, copy config/gmail_token.json "
+    "across, then restart api_server."
+)
+
+
 class GmailOTPReader:
     def __init__(self):
         self.service = self._get_gmail_service()
@@ -76,24 +84,35 @@ class GmailOTPReader:
                     creds = None
 
             if not creds or not creds.valid:
-                # Need fresh authentication
+                # No usable credential. Every branch from here RAISES, and none
+                # may return None.
+                #
+                # Returning None is what made a revoked token invisible (live,
+                # 2026-09-02): a None service turns every poll in
+                # get_latest_otp() into `'NoneType' object has no attribute
+                # 'users'`, which that loop's generic handler swallows — so the
+                # login sat out its whole window and reported a plain timeout
+                # while the real cause stayed in the container log. The caller
+                # can only say what it is told.
+                why = (
+                    f"refreshing the saved token failed ({refresh_error}). "
+                    if refresh_error
+                    else "config/gmail_token.json is missing or invalid. "
+                )
+
                 if not os.path.exists("config/gmail_credentials.json"):
-                    print("ERROR: config/gmail_credentials.json not found!")
-                    print("Please set up Gmail API credentials first.")
-                    return None
+                    raise RuntimeError(
+                        "Gmail auto-read is unavailable: " + why
+                        + "config/gmail_credentials.json is not on this machine "
+                        "either, so no token can be created here at all. "
+                        + _REGENERATE_HINT
+                    )
 
                 if not ALLOW_BROWSER_AUTH:
                     raise RuntimeError(
-                        "Gmail auto-read is unavailable: "
-                        + (f"refreshing the saved token failed ({refresh_error}). "
-                           if refresh_error else
-                           "config/gmail_token.json is missing or invalid. ")
+                        "Gmail auto-read is unavailable: " + why
                         + "Browser sign-in is disabled here, so a token cannot be "
-                        "created on this machine. Regenerate it where a browser is "
-                        "available with `GMAIL_ALLOW_BROWSER=1 python -c \"from "
-                        "gmail_otp_reader import GmailOTPReader; GmailOTPReader()\"` "
-                        "and copy config/gmail_token.json across, then restart "
-                        "api_server."
+                        "created on this machine. " + _REGENERATE_HINT
                     )
 
                 print("🔐 Opening browser for Gmail authentication...")

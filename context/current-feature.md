@@ -1,5 +1,61 @@
 # Current Feature
 
+## Fix — Auto-Read OTP Hung Forever Because the Gmail Token Was Revoked and the Reader Said Nothing
+
+**Status:** CODE COMPLETE (branch `fix/gmail-otp-auto-read-failure`, not yet committed). Scraper +
+one UI file, no migration. **The droplet's Gmail token still has to be replaced** — that half is
+operational, not code.
+
+Reported live 2026-09-02: the Connect card sat on *"Reading the OTP from email automatically"*
+counting down, with the OTP already in the agent's hand and nowhere to type it.
+
+### The token is revoked, and that is the operational half
+
+The droplet's `config/gmail_token.json` (last refreshed 2026-08-31 07:55) is rejected by Google:
+`invalid_grant: Token has been expired or revoked`. The **local** copy carries the same refresh
+token and is refused identically, so this is revoked at Google's end, not a droplet-only state —
+consistent with the OAuth consent screen still being in *Testing*, where refresh tokens expire
+after 7 days. Regenerating it needs a browser sign-in to the shared inbox; publishing the consent
+screen is what stops it recurring weekly.
+
+### Why the agent saw a countdown instead of the reason
+
+`_get_gmail_service()` has a branch that **returned `None`** when
+`config/gmail_credentials.json` is absent — and it is absent on the droplet, only
+`gmail_token.json` and `secret.key` are there. That branch sits ABOVE the informative
+`RuntimeError` one, so the revoked token never produced a message at all.
+
+A `None` service is indistinguishable from a working one until the first poll, where
+`self.service.users()` raises `AttributeError` **inside `get_latest_otp`'s generic
+`except Exception`** — which swallows it and sleeps. The container log shows the shape exactly:
+75 consecutive `Error reading email: 'NoneType' object has no attribute 'users'` lines, then
+`✗ OTP not found after 300 seconds`. The login reported a plain timeout; the real cause never left
+the droplet.
+
+### Built
+
+- **Every failure path in `_get_gmail_service` now raises**, and none may return `None`. The
+  missing-credentials branch raises too, and **carries the refresh error as the leading cause** —
+  the absent client-secrets file is a second problem, not the reason today's login failed. The
+  regeneration instructions moved into one `_REGENERATE_HINT` so the two messages cannot drift.
+  `_auto_otp_task`'s existing `except Exception` then puts the sentence on screen and drops the
+  agent to manual entry, which is what the whole auto path was already built to do.
+- **An "Enter it myself" escape on the auto step.** It had none — the only exit was waiting out
+  the window. Switching is purely client-side; the background read keeps going and the pending
+  record's `in_progress` flag already stops the two racing (`submit_otp` refuses with
+  `otp_in_progress`).
+
+### Verified
+
+**Tests:** 6 new in `test_gmail_service_unavailable.py`, driven by the live shape (a refresh that
+fails with Google's own `invalid_grant` sentence). **Proven to fail without the fix:** 3 of them
+fail on the old code, and the fourth — the module-level caller — does not fail but **hangs**, which
+is the reported bug itself reproduced (a `None` service spinning out the full window).
+
+**NOT verified: the live login.** The droplet still runs the old code and still holds the revoked
+token, so nothing here has been exercised against the real portal or a real OTP; and the UI escape
+has not been clicked in a browser.
+
 ## Admin Can Create a Plan — and a Created Plan Actually Reaches the Picker
 
 **Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/admin-create-plan`, not yet

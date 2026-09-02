@@ -718,6 +718,23 @@ export default function OrderEntryShell({
                     </span>
                   </span>
                 </div>
+
+                {/* An escape hatch, because the auto step had none: when the
+                    read is broken the login just counted down, and the agent
+                    holding the code in their hand had nowhere to type it.
+                    Switching is purely client-side — the background read keeps
+                    running and whichever finds the code first wins (the
+                    in_progress flag on the pending record stops them racing). */}
+                <div className="flex items-center gap-2 text-xs bg-[#F6F9FC] text-[#425466] rounded-lg px-4 py-2.5">
+                  <span>Already have the code?</span>
+                  <button
+                    type="button"
+                    onClick={() => setStep("otp")}
+                    className="text-[#635BFF] font-medium hover:underline"
+                  >
+                    Enter it myself
+                  </button>
+                </div>
               </div>
             ) : (
               /* ---------- Step 2 (manual): OTP ---------- */
