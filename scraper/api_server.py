@@ -582,7 +582,12 @@ def job_cancel(job_id):
 
 
 @app.get("/jobs/<job_id>/log")
-def job_log(job_id):
+# NOT named job_log: this module imports the job_log context manager from
+# job_logging at the top, and a route def with the same name silently
+# rebinds it — every order run then called this ROUTE with a file path,
+# and jsonify off-request raised "Working outside of application context",
+# killing the submit before its log even opened.
+def get_job_log(job_id):
     with JOBS_LOCK:
         job = JOBS.get(job_id)
     if not job:
