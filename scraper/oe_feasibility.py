@@ -260,6 +260,34 @@ def _step_detail(result: dict, key: str, fallback: str = "") -> dict:
     return _detail(result.get("message") or result.get("error") or "Failed", "failed")
 
 
+def _norm_addr(value: str) -> str:
+    """Whitespace-collapsed, uppercased address text for grid matching.
+
+    The portal's concatAddress joins its segments with spaces, and a BLANK
+    segment (a landed lot with no building) leaves a DOUBLE space: the live
+    row for order cmtky82by000604l76cdw59aq read "TAIB -  KAMPUNG" while the
+    stored street — pasted from rendered HTML, which collapses runs — read
+    "TAIB - KAMPUNG". Exact equality can therefore never match that whole
+    class of address, so runs of whitespace compare equal to one space here,
+    the same rule OFFER_ROW_INDEX_JS already applies to offer names.
+    """
+    return re.sub(r"\s+", " ", value or "").strip().upper()
+
+
+def match_address_row(title_rows, want: str):
+    """Index of the grid row whose concatAddress equals the stored address.
+
+    `title_rows` is a list of td-title lists (one per row); `want` must already
+    be `_norm_addr`-ed. The len > 20 guard keeps short cells (state, city,
+    house type) from ever standing in for the address column. None when no
+    row matches — the caller reports what the grid actually held.
+    """
+    for i, titles in enumerate(title_rows):
+        if any(len(t) > 20 and _norm_addr(t) == want for t in titles):
+            return i
+    return None
+
+
 def _longest_title(titles) -> str:
     """The address column out of a result row's td titles.
 
@@ -324,16 +352,19 @@ async def select_address(frame, addr: dict) -> dict:
         # when we just need to reach the New Connection page). NEVER set in prod.
         target, target_titles = rows[0]
     else:
-        want = (addr.get("address_full") or addr.get("keywords") or "").strip().upper()
-        target, target_titles = None, []
-        for loc, titles in rows:
-            if any(t.strip().upper() == want and len(t) > 20 for t in titles):
-                target, target_titles = loc, titles
-                break
-        if target is None:
+        want = _norm_addr(addr.get("address_full") or addr.get("keywords") or "")
+        idx = match_address_row([titles for _, titles in rows], want)
+        if idx is None:
+            # Name what the grid actually held — the live incident's log said
+            # only "no match", and answering WHY took pulling the failure frame
+            # out of R2 and re-running the query by hand.
+            seen = " | ".join(
+                _longest_title(titles)[:150] for _, titles in rows[:3]) or "(no titles)"
             return {"status": "error", "error": "address_not_matched",
                     "stage": "select_address",
-                    "message": f"None of {len(rows)} rows' Address == stored address."}
+                    "message": (f"None of {len(rows)} rows' Address == stored "
+                                f"address. Grid showed: {seen}")}
+        target, target_titles = rows[idx]
 
     await target.click()
     await frame.locator(
