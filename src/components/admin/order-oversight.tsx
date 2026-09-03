@@ -16,6 +16,7 @@ import { errorShortLabel } from "@/lib/order-types";
 import { matchesOrderSearch, toCsv } from "@/lib/admin-search";
 import { formatDuration } from "@/lib/order-types";
 import LottieSpot from "@/components/order-entry/LottieSpot";
+import { PAGE_SIZES, DEFAULT_PAGE_SIZE, clampPage, pageSlice, pageCount, pageRangeLabel } from "@/lib/paginate";
 import { useAnimatedCounter } from "@/components/dashboard/shared";
 import { useFlashOnChange } from "@/lib/use-flash";
 import type { ConnectionView } from "@/lib/agent-connection";
@@ -44,6 +45,8 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
   const [granularity, setGranularity] = useState<Granularity | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState<number>(DEFAULT_PAGE_SIZE);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [purgeTarget, setPurgeTarget] = useState<AdminOrderRow | null>(null);
 
@@ -79,6 +82,15 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
       (!statusFilter || (statusFilter === "deleted" ? o.deletedAt : o.status === statusFilter)) &&
       matchesOrderSearch(o, search)),
     [orders, agentFilter, statusFilter, search],
+  );
+
+  // Clamped at render rather than reset in an effect (the repo's
+  // set-state-in-effect rule): a filter that shrinks the set below the
+  // current page lands on the last real page, never a blank one.
+  const shownPage = clampPage(page, filtered.length, perPage);
+  const paged = useMemo(
+    () => pageSlice(filtered, shownPage, perPage),
+    [filtered, shownPage, perPage],
   );
 
   const agentOptions = useMemo(() => {
@@ -134,12 +146,18 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
         </p>
       )}
 
+      {loading && !stats ? (
+        // First load / hard refresh: nothing to show yet, so say so with
+        // motion instead of a page of empty cards.
+        <LoadingState />
+      ) : (<>
+
       <Totals stats={stats} />
 
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#E3E8EF] bg-white p-3">
         <span className="text-xs text-[#697386]">Charts:</span>
         {!pinnedAgent && (
-          <Select value={agentFilter} onChange={setAgentFilter} label="All agents"
+          <Select value={agentFilter} onChange={(v) => { setAgentFilter(v); setPage(1); }} label="All agents"
             options={agentOptions.map(([id, email]) => ({ value: id, label: email }))} />
         )}
         <div className="flex overflow-hidden rounded-md border border-[#E3E8EF]">
@@ -189,11 +207,11 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
           <input
             type="search"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             placeholder="Search name, IC, ORD-…, portal no."
             className="w-56 rounded-md border border-[#E3E8EF] px-2 py-1.5 text-xs text-[#425466] placeholder:text-[#B4BCCA]"
           />
-          <Select value={statusFilter} onChange={setStatusFilter} label="All statuses"
+          <Select value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} label="All statuses"
             options={[...statusOptions.map((s) => ({ value: s, label: s })), { value: "deleted", label: "deleted" }]} />
           <button type="button" onClick={exportCsv} disabled={filtered.length === 0}
             className="rounded-md border border-[#E3E8EF] px-2.5 py-1.5 text-xs text-[#425466] transition-colors hover:border-[#635BFF] disabled:opacity-40">
@@ -204,8 +222,17 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
             Purge old deleted…
           </button>
         </div>
-        <OrderTable rows={filtered} onRestore={restore} onPurge={setPurgeTarget} />
+        <OrderTable rows={paged} onRestore={restore} onPurge={setPurgeTarget} />
+        <PageFooter
+          page={shownPage}
+          total={filtered.length}
+          perPage={perPage}
+          onPage={setPage}
+          onPerPage={(n) => { setPerPage(n); setPage(1); }}
+        />
       </Card>
+
+      </>)}
 
       {bulkOpen && (
         <BulkPurgeDialog onClose={() => setBulkOpen(false)} onDone={() => { setBulkOpen(false); void load(); }} />
@@ -391,7 +418,12 @@ function RangeBar({ from, to, onFrom, onTo, loading }: {
           {d}d
         </button>
       ))}
-      {loading && <span className="text-xs text-[#697386]">Loading…</span>}
+      {loading && (
+        <span className="flex items-center gap-1.5 text-xs text-[#697386]">
+          <span aria-hidden className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />
+          Loading…
+        </span>
+      )}
     </div>
   );
 }
@@ -650,6 +682,47 @@ function Select({ value, onChange, label, options }: {
       <option value="">{label}</option>
       {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
+  );
+}
+
+function LoadingState() {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-[#E3E8EF] bg-white py-16">
+      <LottieSpot name="processing" size={44} fallback={null} />
+      <p className="text-sm text-[#697386]">Loading orders…</p>
+    </div>
+  );
+}
+
+function PageFooter({ page, total, perPage, onPage, onPerPage }: {
+  page: number; total: number; perPage: number;
+  onPage: (p: number) => void; onPerPage: (n: number) => void;
+}) {
+  const pages = pageCount(total, perPage);
+  if (total === 0) return null;
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#F0F3F8] pt-3">
+      <span className="text-xs tabular-nums text-[#697386]">{pageRangeLabel(page, total, perPage)}</span>
+      <select
+        value={String(perPage)}
+        onChange={(e) => onPerPage(Number(e.target.value))}
+        aria-label="Rows per page"
+        className="rounded-md border border-[#E3E8EF] px-2 py-1.5 text-xs text-[#425466]"
+      >
+        {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}/page</option>)}
+      </select>
+      <div className="ml-auto flex items-center gap-1">
+        <button type="button" onClick={() => onPage(page - 1)} disabled={page <= 1}
+          className="rounded-md border border-[#E3E8EF] px-2.5 py-1.5 text-xs text-[#425466] transition-colors hover:border-[#635BFF] disabled:opacity-40">
+          ‹ Prev
+        </button>
+        <span className="px-2 text-xs tabular-nums text-[#697386]">Page {page} of {pages}</span>
+        <button type="button" onClick={() => onPage(page + 1)} disabled={page >= pages}
+          className="rounded-md border border-[#E3E8EF] px-2.5 py-1.5 text-xs text-[#425466] transition-colors hover:border-[#635BFF] disabled:opacity-40">
+          Next ›
+        </button>
+      </div>
+    </div>
   );
 }
 

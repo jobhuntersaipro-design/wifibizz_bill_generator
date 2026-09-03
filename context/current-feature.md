@@ -1,5 +1,51 @@
 # Current Feature
 
+## Admin Orders — Pagination (10/25/50) and a Loading Animation
+
+**Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/admin-orders-pagination`, not yet
+committed). Vercel-only — no scraper change, no migration.
+
+Ask (2026-09-03): paginate the admin All-orders table with 10/25/50-per-page options, and show a
+loading animation on page load/refresh.
+
+### Built
+
+- **`src/lib/paginate.ts`** — pure `pageCount` / `clampPage` / `pageSlice` / `pageRangeLabel`,
+  `PAGE_SIZES = [10, 25, 50]`, default 25. **The page is clamped at render, never reset in an
+  effect** (the repo's `set-state-in-effect` rule): a filter that shrinks the set below the current
+  page lands on the last real page, not a blank one. Filter/search/agent changes explicitly reset
+  to page 1 in their own handlers.
+- **Footer under the table**: "1–25 of 32", a Rows-per-page select (10/25/50), and Prev / "Page X
+  of Y" / Next with both ends disabling at the bounds. Hidden when the set is empty (the Empty
+  message already covers that).
+- **CSV export still covers ALL filtered rows**, not just the visible page — the filter defines the
+  export set, and the button's own count says so.
+- **Loading:** first load / hard refresh swaps the page body for a centered `LottieSpot
+  "processing"` block reading "Loading orders…"; a refresh with data already on screen keeps the
+  table and upgrades the RangeBar's bare "Loading…" text to a small spinner + text.
+
+### Verified
+
+**In the browser** on the real dev server, with an admin session token minted locally from the
+app's own `createAdminSession` secret (the standing practice — no password in the transcript):
+footer renders "1–4 of 4 · Page 1 of 1" with Prev AND Next disabled at the single-page bounds;
+switching to 10/page updates and holds; a hard reload shows the "Loading orders…" block with the
+animation before the table returns; **zero console errors**.
+
+**Tests:** 8 new in `paginate.test.ts` — every page size reassembling the full set with no drop or
+duplicate across pages, the remainder page, out-of-range clamping (including the shrunk-filter
+strand case), the "of 0" guard, and the 10/25/50 + default-25 contract. **785 vitest passing**
+(was 777), `npm run build` clean, lint clean on every touched file.
+
+### NOT verified
+
+- **Prev/Next across a real multi-page set on screen** — the dev database holds 4 orders, one page.
+  The slice math is unit-tested at every boundary; the buttons are one `setPage(page ± 1)` each.
+  Production's 32 rows will exercise it on first use.
+- The refresh-spinner variant beside the date range (the initial-load block was the one caught
+  live; the refresh path shares the same `loading` flag).
+
+
 ## Fix — the Address Grid's Double Space Made an Exact-Match Refuse the Right Unit
 
 **Status:** CODE COMPLETE (branch `fix/address-match-whitespace`, not yet committed). Scraper-only,
