@@ -1,5 +1,58 @@
 # Current Feature
 
+## Fix — the Address Grid's Double Space Made an Exact-Match Refuse the Right Unit
+
+**Status:** CODE COMPLETE (branch `fix/address-match-whitespace`, not yet committed). Scraper-only,
+no migration. **Needs a droplet deploy with the container recreated** so `api_server` picks up the
+new `oe_feasibility`.
+
+Reported live 2026-09-03 (order `cmtky82by000604l76cdw59aq`, production, 4 attempts): every submit
+died at `select_address` with *"None of 1 rows' Address == stored address."* — for an address the
+user could search on the portal by hand. A second customer at the same kampung
+(`cmtkknidj000i04lgkfi8ut2t`) failed identically the evening before.
+
+### Root cause — proven byte-for-byte, not inferred
+
+The failure frame (pulled from R2) shows the By-keyword search returning **exactly the right unit**
+— SELANGOR / PULAU INDAH / TAN SRI M… / LOT 5558- / Address Id 28059227 — and the run refusing to
+click it. A read-only probe run on the droplet against the live portal (reusing the agent's stored
+dealer session, droplet checked idle first) dumped the grid row's td titles byte-level:
+
+- Portal concatAddress title: `…TAIB -␣␣KAMPUNG…` — **a double space** (`0x20 0x20`) where a blank
+  address segment (landed lot, no building) is joined with spaces on both sides.
+- Stored street (production DB, byte-checked): `…TAIB - KAMPUNG…` — single spaces throughout,
+  because pasting from rendered HTML collapses whitespace runs.
+
+The matcher in `select_address` compared `t.strip().upper() == want` — raw exact equality, no
+whitespace collapsing on either side — so **every address with a blank portal segment could never
+match**, however correctly the agent pasted it. The codebase had already met this exact artifact
+(`normalize_address_line`, 2026-08-17: "a blank upstream segment leaves `3 -  TAMAN`") and
+`OFFER_ROW_INDEX_JS` in the same file already normalizes `\s+` before comparing offer names — the
+address matcher just never got the same rule.
+
+### Built
+
+- **`_norm_addr()`** — collapse whitespace runs, trim, uppercase — applied to BOTH sides of the
+  comparison, and pure **`match_address_row(title_rows, want)`** extracted so the rule is testable
+  without a browser. The `len > 20` guard keeps short cells (state, city) from standing in for the
+  address column, unchanged.
+- **The refusal now names what the grid held** (`Grid showed: <longest title per row>`). The live
+  incident's log said only "no match"; answering WHY took pulling the failure frame out of R2 and
+  re-running the query by hand on the droplet. Next time the log answers itself.
+
+### Verified
+
+7 new tests in `test_address_match.py`, the load-bearing ones built from the REAL grid row the
+droplet probe read back (byte-for-byte, double space included): the live row matching the stored
+street; **a control proving the old exact-equality comparison genuinely misses that row**; the
+wrong unit still refused; the right row found among wrong ones; short cells never matching; tab/
+NBSP runs collapsing. **398 scraper passed + 1 skipped** (was 391).
+
+**NOT verified: a live resubmit.** The two failed orders (cmtky82by…, cmtkknidj…) died before the
+Order click — no portal order was minted, nothing to void — and can simply be resubmitted once the
+droplet is deployed. That resubmit is the end-to-end proof.
+
+
 ## Fix — a Route Named `job_log` Shadowed the Log Context Manager, Killing Every Submit
 
 **Status:** MERGED TO MAIN AND DEPLOYED 2026-09-03 (`5ce0a98`, merge `197fcb3`). Scraper-only, no
