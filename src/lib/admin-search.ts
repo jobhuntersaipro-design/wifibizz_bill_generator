@@ -40,6 +40,31 @@ export function matchesOrderSearch(row: SearchableOrder, query: string): boolean
  * unconditionally costs bytes and buys never having to decide — names with
  * commas are a certainty at fifty agents.
  */
+/**
+ * Inclusive whole-day Created-at range, the same rule the agent drafts table
+ * applies: a To of the 18th keeps an order created 17:47 on the 18th, and an
+ * unparseable timestamp is KEPT — hiding a real order to satisfy a filter
+ * about time is the worse failure.
+ */
+export function withinCreatedRange(
+  createdAt: Date | string,
+  dateFrom: string,
+  dateTo: string,
+): boolean {
+  if (!dateFrom && !dateTo) return true;
+  const t = new Date(createdAt).getTime();
+  if (!Number.isFinite(t)) return true;
+  if (dateFrom) {
+    const from = new Date(`${dateFrom}T00:00:00`).getTime();
+    if (Number.isFinite(from) && t < from) return false;
+  }
+  if (dateTo) {
+    const to = new Date(`${dateTo}T00:00:00`).getTime() + 24 * 60 * 60 * 1000 - 1;
+    if (Number.isFinite(to) && t > to) return false;
+  }
+  return true;
+}
+
 export function toCsv(header: string[], rows: (string | number | null)[][]): string {
   const cell = (v: string | number | null) => `"${String(v ?? "").replace(/"/g, '""')}"`;
   return [header, ...rows].map((r) => r.map(cell).join(",")).join("\r\n");

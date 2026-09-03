@@ -13,7 +13,7 @@ import {
 } from "@/actions/admin-orders";
 import { purgePhrase, bucketLabel, orderErrorLabel, type Granularity } from "@/lib/admin-order-stats";
 import { errorShortLabel } from "@/lib/order-types";
-import { matchesOrderSearch, toCsv } from "@/lib/admin-search";
+import { matchesOrderSearch, toCsv, withinCreatedRange } from "@/lib/admin-search";
 import { formatDuration } from "@/lib/order-types";
 import LottieSpot from "@/components/order-entry/LottieSpot";
 import { PAGE_SIZES, DEFAULT_PAGE_SIZE, clampPage, pageSlice, pageCount, pageRangeLabel } from "@/lib/paginate";
@@ -45,6 +45,8 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
   const [granularity, setGranularity] = useState<Granularity | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
+  const [createdFrom, setCreatedFrom] = useState("");
+  const [createdTo, setCreatedTo] = useState("");
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState<number>(DEFAULT_PAGE_SIZE);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -80,8 +82,9 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
     () => orders.filter((o) =>
       (!agentFilter || o.agentId === agentFilter) &&
       (!statusFilter || (statusFilter === "deleted" ? o.deletedAt : o.status === statusFilter)) &&
+      withinCreatedRange(o.createdAt, createdFrom, createdTo) &&
       matchesOrderSearch(o, search)),
-    [orders, agentFilter, statusFilter, search],
+    [orders, agentFilter, statusFilter, search, createdFrom, createdTo],
   );
 
   // Clamped at render rather than reset in an effect (the repo's
@@ -156,10 +159,6 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
 
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#E3E8EF] bg-white p-3">
         <span className="text-xs text-[#697386]">Charts:</span>
-        {!pinnedAgent && (
-          <Select value={agentFilter} onChange={(v) => { setAgentFilter(v); setPage(1); }} label="All agents"
-            options={agentOptions.map(([id, email]) => ({ value: id, label: email }))} />
-        )}
         <div className="flex overflow-hidden rounded-md border border-[#E3E8EF]">
           {(["day", "week", "month"] as Granularity[]).map((g) => (
             <button key={g} type="button" onClick={() => setGranularity(g)}
@@ -211,8 +210,35 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
             placeholder="Search name, IC, ORD-…, portal no."
             className="w-56 rounded-md border border-[#E3E8EF] px-2 py-1.5 text-xs text-[#425466] placeholder:text-[#B4BCCA]"
           />
+          {/* ONE agent select for the whole page — it narrows this table AND
+              the charts above, so the tiles, the trend and the rows can never
+              describe different agents. It lives here because the table is
+              where people look for it. */}
+          {!pinnedAgent && (
+            <Select value={agentFilter} onChange={(v) => { setAgentFilter(v); setPage(1); }} label="All agents"
+              options={agentOptions.map(([id, email]) => ({ value: id, label: email }))} />
+          )}
           <Select value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} label="All statuses"
             options={[...statusOptions.map((s) => ({ value: s, label: s })), { value: "deleted", label: "deleted" }]} />
+          <label className="flex items-center gap-1 text-xs text-[#697386]">
+            Created
+            <input type="date" value={createdFrom} max={createdTo || undefined}
+              onChange={(e) => { setCreatedFrom(e.target.value); setPage(1); }}
+              aria-label="Created from"
+              className="rounded-md border border-[#E3E8EF] px-2 py-1 text-xs text-[#425466]" />
+            –
+            <input type="date" value={createdTo} min={createdFrom || undefined}
+              onChange={(e) => { setCreatedTo(e.target.value); setPage(1); }}
+              aria-label="Created to"
+              className="rounded-md border border-[#E3E8EF] px-2 py-1 text-xs text-[#425466]" />
+          </label>
+          {(createdFrom || createdTo) && (
+            <button type="button"
+              onClick={() => { setCreatedFrom(""); setCreatedTo(""); setPage(1); }}
+              className="text-xs text-[#635BFF] hover:underline">
+              Clear dates
+            </button>
+          )}
           <button type="button" onClick={exportCsv} disabled={filtered.length === 0}
             className="rounded-md border border-[#E3E8EF] px-2.5 py-1.5 text-xs text-[#425466] transition-colors hover:border-[#635BFF] disabled:opacity-40">
             Export CSV · {filtered.length}

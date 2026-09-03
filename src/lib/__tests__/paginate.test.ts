@@ -65,3 +65,24 @@ describe("page sizes", () => {
     expect(DEFAULT_PAGE_SIZE).toBe(25);
   });
 });
+
+// Created-at range on the admin table — shares the drafts table's rules.
+import { withinCreatedRange } from "../admin-search";
+
+describe("withinCreatedRange", () => {
+  const created = new Date("2026-09-02T17:47:00");
+  it("keeps everything when no range is set", () => {
+    expect(withinCreatedRange(created, "", "")).toBe(true);
+  });
+  it("both ends are inclusive of the whole day", () => {
+    expect(withinCreatedRange(created, "2026-09-02", "2026-09-02")).toBe(true);
+    expect(withinCreatedRange(new Date("2026-09-02T00:00:01"), "2026-09-02", "")).toBe(true);
+  });
+  it("drops rows outside the range", () => {
+    expect(withinCreatedRange(created, "2026-09-03", "")).toBe(false);
+    expect(withinCreatedRange(created, "", "2026-09-01")).toBe(false);
+  });
+  it("keeps an unparseable timestamp rather than hiding the row", () => {
+    expect(withinCreatedRange("not a date", "2026-09-01", "2026-09-30")).toBe(true);
+  });
+});

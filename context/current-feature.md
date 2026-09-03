@@ -37,6 +37,17 @@ duplicate across pages, the remainder page, out-of-range clamping (including the
 strand case), the "of 0" guard, and the 10/25/50 + default-25 contract. **785 vitest passing**
 (was 777), `npm run build` clean, lint clean on every touched file.
 
+### Also (same-day follow-up ask): Agent + Created-at filters on the table
+
+- **The agent select moved from the "Charts:" bar into the table's filter row** — same single
+  state, so it still narrows the charts AND the table together (the recorded one-select rule
+  holds; only its home changed to where people look for it).
+- **Created date range** (from/to, both ends inclusive of the whole day, unparseable timestamps
+  KEPT — the drafts table's own rules, in pure `withinCreatedRange` in `admin-search.ts`) with a
+  Clear-dates affordance. Every filter change resets to page 1.
+- Verified live: agent narrows 4 → 1, a 2020 range narrows to 0 with the empty message, Clear
+  restores 4; 4 more vitest cases (789 passing).
+
 ### NOT verified
 
 - **Prev/Next across a real multi-page set on screen** — the dev database holds 4 orders, one page.
