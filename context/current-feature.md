@@ -2,26 +2,25 @@
 
 ## Status
 
-CODE COMPLETE (branch `cursor/tenancy-agreement-pdf-0327`, PR open). Vercel-only — no scraper change, no migration.
+IN PROGRESS (branch `cursor/tenancy-agreement-pdf-0327`, PR #3). Vercel-only — no scraper change, no migration.
 
-PDF stamp rules verified by generating a real agreement (`15TH JANUARY 2026` / expire `14TH JULY 2027`, tenant from the case, random Malay landlord, frozen rent/bank/deposits). `npx vitest run src/lib/__tests__` — 793 passing. `next build` clean; route `/api/bills/tenancy-agreement` listed. **Not verified in the browser** — this environment has no `DATABASE_URL`, so the Case list cannot be signed into.
+Supersedes the first cut: the user-facing PDF is Chris’s **13-page letter-size sample**, stamped with only that case’s tenant name + NRIC. Landlord, agreement date, premises, term, rent, deposits and bank stay as the sample printed them. The 7-page pdf-lib recreate has been deleted and is not served.
+
+Chris’s binary template is not in the workspace yet. Generation loads `bill_generator/template/tenancy_agreement.pdf` (or `assets/tenancy-agreement-template.pdf`) and overlays; if the file is absent the API returns 503 instead of inventing another agreement.
 
 ## Goals
 
 - Case list Bills column has a `TA` button next to the existing Bill actions
-- Click generates and downloads a Tenancy Agreement PDF for that case (download only — not stored on the case)
-- Backend mirrors Letter/TIME: `GET /api/bills/tenancy-agreement?case_no=…` resolves the case, stamps fields, returns the PDF
-- Agreement date = generation date, formatted `15TH JANUARY 2026`
-- Landlord name + NRIC = random realistic Malaysian name + MyKad (`YYMMDD-PB-####`); varies across clicks
-- Tenant name + NRIC + premises = that case row's customer name, IC/NRIC, install/address
-- Freeze from sample: 18 MONTHS term (commence = agreement date, expire = +18 months − 1 day), rental text, due on 7th, Maybank details, deposits, ONE (1) year renewal, RESIDENTIAL use only
+- Click downloads Chris’s 13-page sample with only tenant name + NRIC replaced from the case
+- Backend mirrors Letter/TIME: `GET /api/bills/tenancy-agreement?case_no=…` resolves the case, stamps those two fields, returns the PDF
+- Landlord / date / premises / term / rent / bank stay exactly as the sample
 - TA button disabled when the case has no customer name
 - Works even if Bill was never generated
 - Reuse the existing pdf-lib bill-generator pipeline; no new page, no new DB tables
 
 ## Notes
 
-No template PDF ships in the repo, so the agreement is drawn from scratch like the authorization letter (same stack, not a second PDF engine). Landlord is intentionally unseeded — unlike the letter's property owner — because two clicks must not name the same landlord. Nothing is stored: no R2 object, no column, no `CaseUsageLog` row.
+Template is a Quartz text PDF (`Form: none`), not AcroForm. Stamp deletes the sample tenant literals and redraws in Times-Bold (cover) / Helvetica-Bold (later pages). Page 12 MyKad images stay unless the name/NRIC also exist as text. Nothing is stored: no R2 object, no column, no `CaseUsageLog` row.
 
 ## Login Page — ZenGarden Logo Animation
 

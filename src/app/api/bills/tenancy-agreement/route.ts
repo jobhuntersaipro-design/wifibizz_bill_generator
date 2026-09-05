@@ -2,16 +2,14 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { neon } from "@neondatabase/serverless";
-import { generateTenancyAgreement } from "@/lib/bill-generator/tenancy-agreement";
-import { fillMissingAddresses } from "@/lib/crawler/lazy-address";
+import { generateTenancyAgreement, TEMPLATE_MISSING } from "@/lib/bill-generator/tenancy-agreement";
 
 /**
  * GET /api/bills/tenancy-agreement?case_no=…
  *
- * Streams the tenancy agreement straight to the browser. Like the authorization
- * letter and the TIME invoice — and unlike the two bills — there is nothing to
- * store and nothing to charge: no R2 object, no column on `wifibizz_cases`, and
- * no `CaseUsageLog` row. A case that has never had a bill generated still works.
+ * Stamps the case tenant name + NRIC onto Chris’s 13-page sample and streams
+ * the PDF. Nothing is stored: no R2 object, no column, no CaseUsageLog row.
+ * Landlord, dates, premises and commercial terms stay as the template printed.
  */
 export async function GET(request: Request) {
   try {
@@ -27,13 +25,7 @@ export async function GET(request: Request) {
 
     const wifibizzUser = await prisma.wifibizzUser.findUnique({
       where: { userId: session.user.id },
-      select: {
-        id: true,
-        wifibizzEmail: true,
-        wifibizzPasswordEnc: true,
-        lastCrawlAt: true,
-        googleSheetId: true,
-      },
+      select: { id: true },
     });
     if (!wifibizzUser) {
       return NextResponse.json(
@@ -44,7 +36,7 @@ export async function GET(request: Request) {
 
     const sql = neon(process.env.DATABASE_URL!);
     const rows = await sql`
-      SELECT case_no, full_name, full_address, mobile, id_no, case_url
+      SELECT case_no, full_name, id_no
       FROM wifibizz_cases
       WHERE case_no = ${caseNo} AND user_id = ${wifibizzUser.id}
       LIMIT 1
@@ -66,20 +58,9 @@ export async function GET(request: Request) {
       );
     }
 
-    const caseData = {
+    const pdf = await generateTenancyAgreement({
       case_no: row.case_no as string,
       full_name: fullName,
-      full_address: (row.full_address as string) || "",
-      mobile: (row.mobile as string) || "",
-      case_url: (row.case_url as string) || "",
-    };
-    const resolved = await fillMissingAddresses(wifibizzUser, [caseData]);
-    const fullAddress = resolved[caseData.case_no] ?? caseData.full_address;
-
-    const pdf = await generateTenancyAgreement({
-      case_no: caseData.case_no,
-      full_name: fullName,
-      full_address: fullAddress,
       id_no: ((row.id_no as string) || "").trim(),
     });
 
@@ -94,6 +75,10 @@ export async function GET(request: Request) {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Generation failed";
     console.error("Tenancy agreement generation failed:", message);
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    const missing = message === TEMPLATE_MISSING;
+    return NextResponse.json(
+      { success: false, error: message },
+      { status: missing ? 503 : 500 },
+    );
   }
 }
