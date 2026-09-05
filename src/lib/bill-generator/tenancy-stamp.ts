@@ -26,6 +26,14 @@ import {
   SAMPLE_TENANT_NAME_LINE1,
   SAMPLE_TENANT_NAME_LINE2,
   SAMPLE_TENANT_NRIC,
+  SAMPLE_COVER_DAY,
+  SAMPLE_COVER_MONTH,
+  SAMPLE_COVER_YEAR,
+  SAMPLE_SCHEDULE_DATE,
+  coverDayLabel,
+  coverMonthLabel,
+  scheduleDateLabel,
+  agreementDateFrom,
   type TenantStamp,
 } from './tenancy-fields';
 
@@ -294,8 +302,11 @@ export function extractTextRuns(
   return runs;
 }
 
+export type StampKind = 'name' | 'nric' | 'cover-day' | 'cover-month' | 'cover-year' | 'schedule-date';
+
 export interface StampHit {
   needle: string;
+  kind?: StampKind;
   x: number;
   y: number;
   size: number;
@@ -456,13 +467,41 @@ export function needlesForTemplate(): string[] {
   ];
 }
 
+interface DateNeedle {
+  needle: string;
+  kind: StampKind;
+  yMin?: number;
+  yMax?: number;
+  /** When the same token also appears as commence, keep the higher (Section 1) hit. */
+  topmost?: boolean;
+}
+
+function dateNeedlesForPage(pageIndex: number): DateNeedle[] {
+  if (pageIndex === 0) {
+    return [
+      { needle: SAMPLE_COVER_DAY, kind: 'cover-day', yMin: 700, yMax: 730 },
+      { needle: SAMPLE_COVER_MONTH, kind: 'cover-month', yMin: 700, yMax: 730 },
+      { needle: SAMPLE_COVER_YEAR, kind: 'cover-year', yMin: 700, yMax: 730 },
+    ];
+  }
+  return [{ needle: SAMPLE_SCHEDULE_DATE, kind: 'schedule-date', topmost: true }];
+}
+
 function isNricNeedle(needle: string): boolean {
   return needle.replace(/\D/g, '') === SAMPLE_TENANT_NRIC.replace(/\D/g, '');
 }
 
-export function blankSampleTenant(pdfDoc: PDFDocument, page: PDFPage): StampHit[] {
+export function blankSampleTenant(
+  pdfDoc: PDFDocument,
+  page: PDFPage,
+  pageIndex = 0,
+): StampHit[] {
   const hits: StampHit[] = [];
-  const needles = needlesForTemplate();
+  const tenantNeedles = needlesForTemplate().map((needle) => ({
+    needle,
+    kind: (isNricNeedle(needle) ? 'nric' : 'name') as StampKind,
+  }));
+  const specs = [...tenantNeedles, ...dateNeedlesForPage(pageIndex)];
   const cmaps = loadPageCmaps(pdfDoc, page);
 
   for (const entry of getPageStreamRefs(pdfDoc, page)) {
@@ -471,12 +510,20 @@ export function blankSampleTenant(pdfDoc: PDFDocument, page: PDFPage): StampHit[
       const runs = extractTextRuns(content, cmaps);
       const pageHits: StampHit[] = [];
       const seen = new Set<string>();
-      for (const needle of needles) {
-        for (const hit of findNeedleHits(runs, needle)) {
-          const key = `${hit.x}:${hit.y}:${needle}`;
+      for (const spec of specs) {
+        let found = findNeedleHits(runs, spec.needle).map((h) => ({ ...h, needle: spec.needle, kind: spec.kind }));
+        if (spec.yMin != null) {
+          found = found.filter((h) => h.y >= spec.yMin! && h.y <= (spec.yMax ?? 1e9));
+        }
+        if (spec.topmost && found.length > 1) {
+          const maxY = Math.max(...found.map((h) => h.y));
+          found = found.filter((h) => h.y >= maxY - 2);
+        }
+        for (const hit of found) {
+          const key = `${hit.x}:${hit.y}:${spec.needle}`;
           if (seen.has(key)) continue;
           seen.add(key);
-          pageHits.push({ ...hit, needle });
+          pageHits.push(hit);
         }
       }
       if (pageHits.length === 0) return { data: buf, count: 0 };
@@ -494,6 +541,7 @@ function pickFont(fonts: { serif: PDFFont; sans: PDFFont }, pageIndex: number): 
 }
 
 function shouldRedraw(hit: StampHit, pageHits: StampHit[]): boolean {
+  if (hit.kind && hit.kind !== 'name' && hit.kind !== 'nric') return true;
   const hasFullName = pageHits.some((h) => h.needle === SAMPLE_TENANT_NAME);
   const hasLine1 = pageHits.some((h) => h.needle === SAMPLE_TENANT_NAME_LINE1);
   if (hasFullName && (hit.needle === SAMPLE_TENANT_NAME_LINE1 || hit.needle === SAMPLE_TENANT_NAME_LINE2)) {
@@ -505,6 +553,21 @@ function shouldRedraw(hit: StampHit, pageHits: StampHit[]): boolean {
   return true;
 }
 
+function drawCoverDay(page: PDFPage, font: PDFFont, hit: StampHit, stamp: TenantStamp): void {
+  const size = hit.size >= 6 && hit.size <= 36 ? hit.size : 10;
+  const day = String(stamp.date.day);
+  const suffix = coverDayLabel(stamp.date).slice(day.length);
+  page.drawText(day, { x: hit.x, y: hit.y, size, font, color: INK });
+  const suffixSize = Math.max(6, size * 0.78);
+  page.drawText(suffix, {
+    x: hit.x + font.widthOfTextAtSize(day, size),
+    y: hit.y + size * 0.5,
+    size: suffixSize,
+    font,
+    color: INK,
+  });
+}
+
 function drawReplacement(
   page: PDFPage,
   font: PDFFont,
@@ -512,9 +575,27 @@ function drawReplacement(
   stamp: TenantStamp,
   pageIndex: number,
 ): void {
+  const size = hit.size >= 6 && hit.size <= 36 ? hit.size : 11;
+
+  if (hit.kind === 'cover-day') {
+    drawCoverDay(page, font, hit, stamp);
+    return;
+  }
+  if (hit.kind === 'cover-month') {
+    page.drawText(coverMonthLabel(stamp.date), { x: hit.x, y: hit.y, size, font, color: INK });
+    return;
+  }
+  if (hit.kind === 'cover-year') {
+    page.drawText(String(stamp.date.year), { x: hit.x, y: hit.y, size, font, color: INK });
+    return;
+  }
+  if (hit.kind === 'schedule-date') {
+    page.drawText(scheduleDateLabel(stamp.date), { x: hit.x, y: hit.y, size, font, color: INK });
+    return;
+  }
+
   const replacement = isNricNeedle(hit.needle) ? stamp.nric : stamp.name;
   const label = hit.prefix;
-  const size = hit.size >= 6 && hit.size <= 36 ? hit.size : 11;
   const pageW = page.getWidth();
 
   if (isNricNeedle(hit.needle)) {
@@ -558,6 +639,7 @@ export async function stampTenancyAgreement(
   templateBytes: Uint8Array,
   stamp: TenantStamp,
 ): Promise<Uint8Array> {
+  const resolved: TenantStamp = { ...stamp, date: stamp.date ?? agreementDateFrom() };
   const pdfDoc = await PDFDocument.load(templateBytes);
   const fonts = {
     serif: await pdfDoc.embedFont(StandardFonts.TimesRomanBold),
@@ -567,17 +649,17 @@ export async function stampTenancyAgreement(
   const pages = pdfDoc.getPages();
   let hits = 0;
   for (let i = 0; i < pages.length; i++) {
-    const pageHits = blankSampleTenant(pdfDoc, pages[i]);
+    const pageHits = blankSampleTenant(pdfDoc, pages[i], i);
     hits += pageHits.length;
     const font = pickFont(fonts, i);
     const drawn = new Set<string>();
     for (const hit of pageHits) {
       if (!shouldRedraw(hit, pageHits)) continue;
-      const kind = isNricNeedle(hit.needle) ? 'nric' : 'name';
+      const kind = hit.kind ?? (isNricNeedle(hit.needle) ? 'nric' : 'name');
       const key = `${Math.round(hit.x)}:${Math.round(hit.y)}:${kind}`;
       if (drawn.has(key)) continue;
       drawn.add(key);
-      drawReplacement(pages[i], font, hit, stamp, i);
+      drawReplacement(pages[i], font, hit, resolved, i);
     }
   }
 

@@ -4,18 +4,18 @@
 
 CODE COMPLETE (branch `cursor/tenancy-agreement-pdf-0327`, PR #3). Vercel-only — no scraper change, no migration.
 
-Supersedes the first cut: the user-facing PDF is Chris’s **13-page letter-size sample**, stamped with only that case’s tenant name + NRIC. Landlord, agreement date, premises, term, rent, deposits and bank stay as the sample printed them. The 7-page pdf-lib recreate has been deleted and is not served.
+Supersedes the first cut: the user-facing PDF is Chris’s **13-page letter-size sample**, stamped with that case’s tenant name + NRIC and **today’s agreement date** (cover + First Schedule §1, Malaysia UTC+8). Landlord, premises, term commence/expire, rent, deposits and bank stay as the sample printed them. The 7-page pdf-lib recreate has been deleted and is not served.
 
-Template is at `assets/tenancy-agreement-template.pdf` (commit `908305d`). Generation decodes Quartz ToUnicode + CTM, blanks only the sample tenant name/NRIC, and redraws the case tenant.
+Template is at `assets/tenancy-agreement-template.pdf` (commit `908305d`). Generation decodes Quartz ToUnicode + CTM, blanks the sample tenant and the sample 15 Jan 2026 agreement-date tokens, and redraws the case tenant plus the generation day.
 
 `npx vitest run src/lib/__tests__` — 788 passing, 6 skipped, including a pdftotext check on the real 13-page file. ESLint clean on the changed files.
 
 ## Goals
 
 - Case list Bills column has a `TA` button next to the existing Bill actions
-- Click downloads Chris’s 13-page sample with only tenant name + NRIC replaced from the case
-- Backend mirrors Letter/TIME: `GET /api/bills/tenancy-agreement?case_no=…` resolves the case, stamps those two fields, returns the PDF
-- Landlord / date / premises / term / rent / bank stay exactly as the sample
+- Click downloads Chris’s 13-page sample with tenant name + NRIC from the case and the agreement date = generation day
+- Backend mirrors Letter/TIME: `GET /api/bills/tenancy-agreement?case_no=…` resolves the case, stamps those fields, returns the PDF
+- Landlord / premises / term commence-expire / rent / bank stay exactly as the sample
 - TA button disabled when the case has no customer name
 - Works even if Bill was never generated
 - Reuse the existing pdf-lib bill-generator pipeline; no new page, no new DB tables

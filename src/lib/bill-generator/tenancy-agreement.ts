@@ -1,9 +1,10 @@
 /**
  * Tenancy Agreement: stamp Chris’s 13-page sample.
  *
- * Only the tenant name and NRIC change. Landlord, dates, premises, term, rent,
- * deposits and bank stay as the template printed them. The 7-page from-scratch
- * recreate is not the product PDF.
+ * Tenant name, tenant NRIC, and the agreement date (cover + First Schedule §1)
+ * change. Landlord, premises, term commence/expire, rent, deposits and bank stay
+ * as the template printed them. The 7-page from-scratch recreate is not the
+ * product PDF.
  *
  * Template path (first file that exists wins):
  *   TENANCY_TEMPLATE_PATH (env, optional)
@@ -56,7 +57,8 @@ export async function loadTenancyTemplate(templatePath?: string): Promise<Uint8A
 export async function generateTenancyAgreement(
   caseData: TenancyCaseData,
   templatePath?: string,
+  now?: Date,
 ): Promise<Uint8Array> {
   const template = await loadTenancyTemplate(templatePath);
-  return stampTenancyAgreement(template, tenantStampFrom(caseData));
+  return stampTenancyAgreement(template, tenantStampFrom(caseData, now));
 }

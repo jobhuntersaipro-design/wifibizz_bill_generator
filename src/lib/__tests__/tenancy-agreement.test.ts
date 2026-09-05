@@ -7,6 +7,9 @@ import {
   SAMPLE_TENANT_NAME_LINE1,
   SAMPLE_TENANT_NAME_LINE2,
   SAMPLE_TENANT_NRIC,
+  SAMPLE_SCHEDULE_DATE,
+  agreementDateFrom,
+  scheduleDateLabel,
   tenantStampFrom,
 } from "@/lib/bill-generator/tenancy-fields";
 import {
@@ -41,7 +44,11 @@ async function syntheticTemplate(): Promise<Uint8Array> {
   const sans = await doc.embedFont(StandardFonts.HelveticaBold);
 
   const cover = doc.addPage([612, 792]);
-  cover.drawText("DATED THIS 15th DAY OF JANUARY 2026", { x: 140, y: 720, size: 12, font });
+  cover.drawText("DATED THIS", { x: 140, y: 720, size: 12, font });
+  cover.drawText("15th", { x: 230, y: 720, size: 12, font });
+  cover.drawText("DAY OF", { x: 287, y: 720, size: 12, font });
+  cover.drawText("JANUARY", { x: 362, y: 720, size: 12, font });
+  cover.drawText("2026", { x: 441, y: 720, size: 12, font });
   cover.drawText("TENANCY AGREEMENT", { x: 200, y: 680, size: 16, font });
   cover.drawText("BETWEEN", { x: 270, y: 640, size: 12, font });
   cover.drawText(SAMPLE_LANDLORD_NAME, { x: 180, y: 600, size: 12, font });
@@ -66,11 +73,24 @@ async function syntheticTemplate(): Promise<Uint8Array> {
   sched.drawText(`NAME: ${SAMPLE_TENANT_NAME}`, { x: 300, y: 600, size: 10, font: sans });
   sched.drawText(`NRIC: ${SAMPLE_TENANT_NRIC}`, { x: 300, y: 584, size: 10, font: sans });
   sched.drawText("18 MONTHS", { x: 300, y: 540, size: 10, font: sans });
+  sched.drawText(`15TH JANUARY 2026`, { x: 300, y: 520, size: 10, font: sans });
   sched.drawText("MAYBANK BERHAD", { x: 300, y: 500, size: 10, font: sans });
   sched.drawText(SAMPLE_LANDLORD_NAME, { x: 300, y: 484, size: 10, font: sans });
 
   return doc.save();
 }
+
+const FROZEN = new Date("2026-09-05T12:00:00+08:00");
+
+describe("agreementDateFrom", () => {
+  it("uses the Malaysia calendar date (UTC+8), not UTC", () => {
+    expect(agreementDateFrom(new Date("2026-09-04T20:00:00Z"))).toEqual({
+      day: 5,
+      monthIndex: 8,
+      year: 2026,
+    });
+  });
+});
 
 describe("tenantStampFrom", () => {
   it("uppercases the case name and dashes a 12-digit IC", () => {
@@ -79,10 +99,11 @@ describe("tenantStampFrom", () => {
         case_no: "202666996",
         full_name: "Nor Azzawani Fizatulazira Binti Zulkepeli",
         id_no: "960517065498",
-      }),
+      }, FROZEN),
     ).toEqual({
       name: "NOR AZZAWANI FIZATULAZIRA BINTI ZULKEPELI",
       nric: "960517-06-5498",
+      date: { day: 5, monthIndex: 8, year: 2026 },
     });
   });
 
@@ -128,9 +149,10 @@ describe("stampTenancyAgreement", () => {
   const stamp = {
     name: "NOR AZZAWANI FIZATULAZIRA BINTI ZULKEPELI",
     nric: formatIcDashed("011023120384"),
+    date: agreementDateFrom(FROZEN),
   };
 
-  it("replaces the sample tenant on every text page and leaves the landlord", async () => {
+  it("replaces the sample tenant and agreement date, and leaves the landlord", async () => {
     const bytes = await stampTenancyAgreement(await syntheticTemplate(), stamp);
     const text = pdfVisibleText(bytes);
     expect(text).not.toContain("NUR SYAFIQAH");
@@ -141,16 +163,18 @@ describe("stampTenancyAgreement", () => {
     expect(text).toContain(stamp.nric);
     expect(text).toContain(SAMPLE_LANDLORD_NAME);
     expect(text).toContain(SAMPLE_LANDLORD_NRIC);
-    expect(text).toContain("15TH JANUARY 2026");
+    expect(text).toContain("5TH SEPTEMBER 2026");
+    expect(text).toContain("SEPTEMBER");
+    expect(text).toContain(SAMPLE_SCHEDULE_DATE);
     expect(text).toContain("MAYBANK BERHAD");
     expect(text).toContain("18 MONTHS");
     expect((await PDFDocument.load(bytes)).getPageCount()).toBe(3);
   });
 
-  it("does not invent a landlord or a generation date", async () => {
+  it("does not invent a landlord", async () => {
     const bytes = await stampTenancyAgreement(await syntheticTemplate(), stamp);
     const text = pdfVisibleText(bytes);
-    expect(text).not.toMatch(/HAFIZ|DIYANA|5TH SEPTEMBER 2026/);
+    expect(text).not.toMatch(/HAFIZ|DIYANA/);
   });
 });
 
@@ -170,6 +194,7 @@ describe("generateTenancyAgreement", () => {
           id_no: "011023120384",
         },
         fixture,
+        FROZEN,
       );
       const doc = await PDFDocument.load(bytes);
       expect(doc.getPageCount()).toBe(3);
@@ -199,7 +224,7 @@ describe("generateTenancyAgreement", () => {
       case_no: "202666996",
       full_name: "NOR AZZAWANI FIZATULAZIRA BINTI ZULKEPELI",
       id_no: "011023120384",
-    });
+    }, undefined, FROZEN);
     expect((await PDFDocument.load(bytes)).getPageCount()).toBe(13);
 
     const { writeFileSync, unlinkSync } = await import("node:fs");
@@ -222,8 +247,12 @@ describe("generateTenancyAgreement", () => {
     expect(text).not.toContain("960517-06-5498");
     expect(text).toContain(SAMPLE_LANDLORD_NAME);
     expect(text).toContain(SAMPLE_LANDLORD_NRIC);
-    expect(text).toContain("15th");
-    expect(text).toContain("JANUARY");
+    expect(text).toContain("5th");
+    expect(text).toContain("SEPTEMBER");
+    expect(text).toContain(scheduleDateLabel(agreementDateFrom(FROZEN)));
+    expect(text).not.toContain("15th");
+    expect(text).toContain("15TH JANUARY 2026");
+    expect(text).toContain("14TH JULY 2027");
     expect(text).toContain("PELANGI UTAMA");
     expect(text).toContain("MAYBANK");
     expect(text).toContain("18");
