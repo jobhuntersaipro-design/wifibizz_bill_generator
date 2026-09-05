@@ -182,27 +182,52 @@ describe("generateTenancyAgreement", () => {
     }
   });
 
-  it("refuses to ship the old 7-page recreate when the template file is absent", async () => {
+  it("stamps Chris’s 13-page Quartz sample and only changes tenant name + NRIC", async () => {
     const found = await resolveTenancyTemplatePath();
-    if (found) {
-      const bytes = await generateTenancyAgreement({
-        case_no: "202666996",
-        full_name: "NOR AZZAWANI FIZATULAZIRA BINTI ZULKEPELI",
-        id_no: "011023120384",
-      });
-      const doc = await PDFDocument.load(bytes);
-      expect(doc.getPageCount()).toBe(13);
-      const text = pdfVisibleText(bytes);
-      expect(text).toContain("NOR AZZAWANI FIZATULAZIRA BINTI ZULKEPELI");
-      expect(text).not.toContain("NUR SYAFIQAH");
+    if (!found) {
+      await expect(
+        generateTenancyAgreement({
+          case_no: "202666996",
+          full_name: "NOR AZZAWANI FIZATULAZIRA BINTI ZULKEPELI",
+          id_no: "011023120384",
+        }),
+      ).rejects.toThrow(TEMPLATE_MISSING);
       return;
     }
-    await expect(
-      generateTenancyAgreement({
-        case_no: "202666996",
-        full_name: "NOR AZZAWANI FIZATULAZIRA BINTI ZULKEPELI",
-        id_no: "011023120384",
-      }),
-    ).rejects.toThrow(TEMPLATE_MISSING);
+
+    const bytes = await generateTenancyAgreement({
+      case_no: "202666996",
+      full_name: "NOR AZZAWANI FIZATULAZIRA BINTI ZULKEPELI",
+      id_no: "011023120384",
+    });
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(13);
+
+    const { writeFileSync, unlinkSync } = await import("node:fs");
+    const { execFileSync } = await import("node:child_process");
+    const tmp = `/tmp/ta-stamped-${process.pid}.pdf`;
+    writeFileSync(tmp, bytes);
+    let text = "";
+    try {
+      text = execFileSync("pdftotext", ["-layout", tmp, "-"], { encoding: "utf8" });
+    } finally {
+      unlinkSync(tmp);
+    }
+
+    expect(text).toContain("NOR AZZAWANI");
+    expect(text).toContain("ZULKEPELI");
+    expect(text).toContain("011023-12-0384");
+    expect(text).not.toMatch(/NRIC[A-Z]{3,}/);
+    expect(text).not.toContain("NUR SYAFIQAH");
+    expect(text).not.toContain("ISMAIL NASRUDDIN");
+    expect(text).not.toContain("960517-06-5498");
+    expect(text).toContain(SAMPLE_LANDLORD_NAME);
+    expect(text).toContain(SAMPLE_LANDLORD_NRIC);
+    expect(text).toContain("15th");
+    expect(text).toContain("JANUARY");
+    expect(text).toContain("PELANGI UTAMA");
+    expect(text).toContain("MAYBANK");
+    expect(text).toContain("18");
+    expect(text).toContain("MONTHS");
+    expect(text).toContain("TENANT IDENTIFICATION");
   });
 });

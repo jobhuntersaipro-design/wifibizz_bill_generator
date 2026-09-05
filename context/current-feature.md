@@ -2,13 +2,13 @@
 
 ## Status
 
-IN PROGRESS (branch `cursor/tenancy-agreement-pdf-0327`, PR #3). Vercel-only — no scraper change, no migration.
+CODE COMPLETE (branch `cursor/tenancy-agreement-pdf-0327`, PR #3). Vercel-only — no scraper change, no migration.
 
 Supersedes the first cut: the user-facing PDF is Chris’s **13-page letter-size sample**, stamped with only that case’s tenant name + NRIC. Landlord, agreement date, premises, term, rent, deposits and bank stay as the sample printed them. The 7-page pdf-lib recreate has been deleted and is not served.
 
-Chris’s binary template is not in the workspace yet. Generation loads `bill_generator/template/tenancy_agreement.pdf` (or `assets/tenancy-agreement-template.pdf`) and overlays; if the file is absent the API returns 503 instead of inventing another agreement.
+Template is at `assets/tenancy-agreement-template.pdf` (commit `908305d`). Generation decodes Quartz ToUnicode + CTM, blanks only the sample tenant name/NRIC, and redraws the case tenant.
 
-`npx vitest run src/lib/__tests__` — 788 passing, 6 skipped. ESLint clean on the changed files. Vercel checks on this commit are green. **Download cannot look like the sample until the 13-page PDF is committed.**
+`npx vitest run src/lib/__tests__` — 788 passing, 6 skipped, including a pdftotext check on the real 13-page file. ESLint clean on the changed files.
 
 ## Goals
 

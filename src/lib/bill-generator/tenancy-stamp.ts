@@ -1,13 +1,24 @@
 /**
  * Stamp a tenant name + NRIC onto Chris's tenancy-agreement template.
  *
- * The sample is a Quartz text PDF, not an AcroForm. The TIME invoice's lesson
- * applies: delete the original literals and redraw in a font we control, so a
- * longer name cannot sit on un-erased sample letters and a subsetted template
- * font cannot drop glyphs.
+ * The sample is an iOS Quartz text PDF (Form: none), not an AcroForm. Literals
+ * are custom-encoded subset fonts; ToUnicode maps turn them back into
+ * "NUR SYAFIQAH…". A 0.24 cm also means Tm e,f are not page coordinates — we
+ * multiply by the CTM before drawing.
  */
 
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
+import {
+  PDFDocument,
+  PDFName,
+  PDFRawStream,
+  PDFRef,
+  PDFDict,
+  StandardFonts,
+  rgb,
+  type PDFFont,
+  type PDFPage,
+} from 'pdf-lib';
+import { inflateSync } from 'zlib';
 import { getPageStreamRefs, transformStream } from './pdf-utils';
 import { wrapToWidth } from './authorization-letter';
 import {
@@ -25,7 +36,6 @@ export interface TextRun {
   x: number;
   y: number;
   size: number;
-  /** Byte offset of the show token in the stream. */
   start: number;
   end: number;
 }
@@ -58,63 +68,223 @@ function utf16Be(buf: Buffer): string {
   return swapped.toString('utf16le');
 }
 
-/**
- * Walk a decompressed content stream and collect every text show, with the Tm
- * translation in effect. Quartz writes an explicit Tm per run; Td/T* / `'` are
- * honoured so a different producer still maps.
- */
-export function extractTextRuns(content: string): TextRun[] {
-  const runs: TextRun[] = [];
-  let x = 0;
-  let y = 0;
-  let size = 12;
-  let i = 0;
+function inflateMaybe(stream: PDFRawStream): Buffer {
+  const contents = Buffer.from(stream.getContents());
+  const filter = stream.dict.get(PDFName.of('Filter'));
+  const filterStr = filter ? filter.toString() : '';
+  if (filterStr.includes('FlateDecode')) {
+    try {
+      return inflateSync(contents);
+    } catch {
+      return contents;
+    }
+  }
+  return contents;
+}
 
-  while (i < content.length) {
-    const tm = matchAt(content, i, /(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+Tm/);
-    if (tm) {
-      x = Number(tm[5]);
-      y = Number(tm[6]);
-      i += tm[0].length;
+export function parseToUnicode(cmap: string): Map<number, string> {
+  const map = new Map<number, string>();
+  const hexToStr = (h: string) => {
+    const buf = Buffer.from(h.replace(/\s+/g, ''), 'hex');
+    if (buf.length === 1) return String.fromCharCode(buf[0]);
+    let s = '';
+    for (let i = 0; i + 1 < buf.length; i += 2) s += String.fromCharCode((buf[i] << 8) | buf[i + 1]);
+    return s || buf.toString('latin1');
+  };
+  for (const chunk of cmap.split(/beginbfchar/).slice(1)) {
+    const body = chunk.split(/endbfchar/)[0];
+    for (const m of body.matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g)) {
+      map.set(parseInt(m[1], 16), hexToStr(m[2]));
+    }
+  }
+  for (const chunk of cmap.split(/beginbfrange/).slice(1)) {
+    const body = chunk.split(/endbfrange/)[0];
+    for (const m of body.matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g)) {
+      const start = parseInt(m[1], 16);
+      const end = parseInt(m[2], 16);
+      let dest = parseInt(m[3], 16);
+      for (let c = start; c <= end; c++) map.set(c, String.fromCharCode(dest++));
+    }
+    for (const m of body.matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*\[([^\]]+)\]/g)) {
+      const start = parseInt(m[1], 16);
+      [...m[3].matchAll(/<([0-9A-Fa-f]+)>/g)].forEach((x, idx) => {
+        map.set(start + idx, hexToStr(x[1]));
+      });
+    }
+  }
+  return map;
+}
+
+export function loadPageCmaps(pdfDoc: PDFDocument, page: PDFPage): Map<string, Map<number, string>> {
+  const cmaps = new Map<string, Map<number, string>>();
+  const fonts = page.node.Resources()?.lookup(PDFName.of('Font'), PDFDict);
+  if (!fonts) return cmaps;
+  for (const key of fonts.keys()) {
+    const font = fonts.lookup(key, PDFDict);
+    const tu = font.get(PDFName.of('ToUnicode'));
+    const tuObj = tu instanceof PDFRef ? pdfDoc.context.lookup(tu) : tu;
+    if (tuObj instanceof PDFRawStream) {
+      cmaps.set(key.toString().replace(/^\//, ''), parseToUnicode(inflateMaybe(tuObj).toString('latin1')));
+    }
+  }
+  return cmaps;
+}
+
+function decodeLiteralWithCmap(raw: string, cmap?: Map<number, string>): string {
+  if (!cmap || cmap.size === 0) return decodePdfLiteral(raw);
+  let out = '';
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] === '\\' && i + 1 < raw.length) {
+      const n = raw[i + 1];
+      if (n === '(' || n === ')' || n === '\\') {
+        out += cmap.get(n.charCodeAt(0)) ?? n;
+        i += 1;
+        continue;
+      }
+      if (/[0-7]/.test(n)) {
+        let oct = n;
+        let j = i + 2;
+        while (oct.length < 3 && j < raw.length && /[0-7]/.test(raw[j])) oct += raw[j++];
+        const code = parseInt(oct, 8);
+        out += cmap.get(code) ?? String.fromCharCode(code);
+        i = j - 1;
+        continue;
+      }
+      i += 1;
       continue;
     }
-    const td = matchAt(content, i, /(-?[\d.]+)\s+(-?[\d.]+)\s+T[dD]/);
+    out += cmap.get(raw.charCodeAt(i)) ?? raw[i];
+  }
+  return out;
+}
+
+function decodeHexWithCmap(hex: string, cmap?: Map<number, string>): string {
+  if (!cmap || cmap.size === 0) return decodePdfHex(hex);
+  const clean = hex.replace(/\s+/g, '');
+  if (clean.length % 2 !== 0) return '';
+  const buf = Buffer.from(clean, 'hex');
+  let out = '';
+  for (const b of buf) out += cmap.get(b) ?? String.fromCharCode(b);
+  return out;
+}
+
+type M = [number, number, number, number, number, number];
+const IDENTITY: M = [1, 0, 0, 1, 0, 0];
+
+function mul(m: M, n: M): M {
+  return [
+    m[0] * n[0] + m[2] * n[1],
+    m[1] * n[0] + m[3] * n[1],
+    m[0] * n[2] + m[2] * n[3],
+    m[1] * n[2] + m[3] * n[3],
+    m[0] * n[4] + m[2] * n[5] + m[4],
+    m[1] * n[4] + m[3] * n[5] + m[5],
+  ];
+}
+
+function apply(m: M, x: number, y: number): [number, number] {
+  return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+}
+
+/**
+ * Walk a decompressed content stream. Honours q/Q/cm so Quartz's 0.24 scale
+ * yields page-space x/y. Optional ToUnicode maps decode subset fonts.
+ */
+export function extractTextRuns(
+  content: string,
+  cmaps?: Map<string, Map<number, string>>,
+): TextRun[] {
+  const runs: TextRun[] = [];
+  let ctm: M = IDENTITY;
+  const stack: M[] = [];
+  let tm: M = IDENTITY;
+  let font = '';
+  let tf = 1;
+  let i = 0;
+
+  const next = (re: RegExp): RegExpExecArray | null => {
+    const m = new RegExp('^' + re.source).exec(content.slice(i));
+    return m;
+  };
+
+  while (i < content.length) {
+    const cm = next(/(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+cm/);
+    if (cm) {
+      ctm = mul(ctm, [+cm[1], +cm[2], +cm[3], +cm[4], +cm[5], +cm[6]]);
+      i += cm[0].length;
+      continue;
+    }
+    const tmm = next(/(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+Tm/);
+    if (tmm) {
+      tm = [+tmm[1], +tmm[2], +tmm[3], +tmm[4], +tmm[5], +tmm[6]];
+      i += tmm[0].length;
+      continue;
+    }
+    const td = next(/(-?[\d.]+)\s+(-?[\d.]+)\s+T[dD]/);
     if (td) {
-      x += Number(td[1]);
-      y += Number(td[2]);
+      tm = mul(tm, [1, 0, 0, 1, +td[1], +td[2]]);
       i += td[0].length;
       continue;
     }
-    const tf = matchAt(content, i, /\/[^\s[/<>()]+?\s+([\d.]+)\s+Tf/);
-    if (tf) {
-      size = Number(tf[1]) || size;
-      i += tf[0].length;
+    const tfm = next(/\/([^\s[/<>()]+)\s+([\d.]+)\s+Tf/);
+    if (tfm) {
+      font = tfm[1];
+      tf = Number(tfm[2]) || tf;
+      i += tfm[0].length;
       continue;
     }
     if (content.startsWith('T*', i)) {
-      y -= size;
+      tm = mul(tm, [1, 0, 0, 1, 0, -(tf || 1)]);
       i += 2;
       continue;
     }
-    const lit = matchAt(content, i, /\(((?:\\.|[^\\()])*)\)\s*(Tj|')/);
+    if ((content[i] === 'q' || content[i] === 'Q') && /\s/.test(content[i + 1] ?? ' ')) {
+      if (content[i] === 'q') stack.push(ctm);
+      else ctm = stack.pop() ?? IDENTITY;
+      i += 1;
+      continue;
+    }
+
+    const cmap = cmaps?.get(font);
+    const lit = next(/\(((?:\\.|[^\\()])*)\)\s*(Tj|')/);
     if (lit) {
-      if (lit[2] === "'") y -= size;
-      runs.push({ text: decodePdfLiteral(lit[1]), x, y, size, start: i, end: i + lit[0].length });
+      if (lit[2] === "'") tm = mul(tm, [1, 0, 0, 1, 0, -(tf || 1)]);
+      const [x, y] = apply(mul(ctm, tm), 0, 0);
+      const size = Math.abs(tm[0] * ctm[0] * tf) || 12;
+      runs.push({
+        text: decodeLiteralWithCmap(lit[1], cmap),
+        x,
+        y,
+        size,
+        start: i,
+        end: i + lit[0].length,
+      });
       i += lit[0].length;
       continue;
     }
-    const hex = matchAt(content, i, /<([0-9A-Fa-f\s]+)>\s*(Tj|')/);
+    const hex = next(/<([0-9A-Fa-f\s]+)>\s*(Tj|')/);
     if (hex) {
-      if (hex[2] === "'") y -= size;
-      runs.push({ text: decodePdfHex(hex[1]), x, y, size, start: i, end: i + hex[0].length });
+      if (hex[2] === "'") tm = mul(tm, [1, 0, 0, 1, 0, -(tf || 1)]);
+      const [x, y] = apply(mul(ctm, tm), 0, 0);
+      const size = Math.abs(tm[0] * ctm[0] * tf) || 12;
+      runs.push({
+        text: decodeHexWithCmap(hex[1], cmap),
+        x,
+        y,
+        size,
+        start: i,
+        end: i + hex[0].length,
+      });
       i += hex[0].length;
       continue;
     }
-    const arr = matchAt(content, i, /\[((?:[^\[\]]|\[[^\]]*\])*)\]\s*TJ/);
+    const arr = next(/\[((?:[^\[\]]|\[[^\]]*\])*)\]\s*TJ/);
     if (arr) {
       const text = Array.from(arr[1].matchAll(/\(((?:\\.|[^\\()])*)\)|<([0-9A-Fa-f\s]+)>/g))
-        .map((m) => (m[1] !== undefined ? decodePdfLiteral(m[1]) : decodePdfHex(m[2])))
+        .map((m) => (m[1] !== undefined ? decodeLiteralWithCmap(m[1], cmap) : decodeHexWithCmap(m[2], cmap)))
         .join('');
+      const [x, y] = apply(mul(ctm, tm), 0, 0);
+      const size = Math.abs(tm[0] * ctm[0] * tf) || 12;
       runs.push({ text, x, y, size, start: i, end: i + arr[0].length });
       i += arr[0].length;
       continue;
@@ -122,12 +292,6 @@ export function extractTextRuns(content: string): TextRun[] {
     i += 1;
   }
   return runs;
-}
-
-function matchAt(content: string, i: number, re: RegExp): RegExpExecArray | null {
-  const sliced = content.slice(i);
-  const m = new RegExp('^' + re.source).exec(sliced);
-  return m;
 }
 
 export interface StampHit {
@@ -146,14 +310,54 @@ const NRIC_PREFIX = /^(NRIC\s*:\s*)/i;
 
 export function findNeedleHits(runs: TextRun[], needle: string): StampHit[] {
   if (!needle) return [];
+  const compact = findCompactHits(runs, needle);
+  if (compact.length) return compact;
   const hits: StampHit[] = [];
   const joined = runs.map((r) => r.text);
-  const compact = joined.join('');
-  // Search both the raw concatenation (no separator) and a space-joined form so
-  // a name split across two Tj runs still matches.
-  const spaceJoined = joined.join(' ');
-  collectHits(runs, needle, compact, 0, hits);
-  if (!hits.length) collectHits(runs, needle, spaceJoined, 1, hits);
+  collectHits(runs, needle, joined.join(''), 0, hits);
+  if (!hits.length) collectHits(runs, needle, joined.join(' '), 1, hits);
+  return hits;
+}
+
+/** Quartz splits "NUR SYAFIQAH" across many Tj runs, sometimes without spaces. */
+function findCompactHits(runs: TextRun[], needle: string): StampHit[] {
+  const compactNeedle = needle.replace(/\s+/g, '');
+  if (!compactNeedle) return [];
+  const map: { runIndex: number; local: number }[] = [];
+  let hay = '';
+  for (let i = 0; i < runs.length; i++) {
+    const t = runs[i].text;
+    for (let j = 0; j < t.length; j++) {
+      if (/\s/.test(t[j])) continue;
+      map.push({ runIndex: i, local: j });
+      hay += t[j];
+    }
+  }
+  const hits: StampHit[] = [];
+  let from = 0;
+  while (from <= hay.length) {
+    const at = hay.indexOf(compactNeedle, from);
+    if (at < 0) break;
+    const used = new Set<number>();
+    for (let k = at; k < at + compactNeedle.length; k++) used.add(map[k].runIndex);
+    const first = runs[map[at].runIndex];
+    const before = first.text.slice(0, map[at].local);
+    const named = NAME_PREFIX.exec(before) || NRIC_PREFIX.exec(before);
+    const lineYs = [...new Set([...used].map((idx) => runs[idx].y))].sort((a, b) => b - a);
+    hits.push({
+      needle,
+      x: first.x,
+      y: first.y,
+      size: first.size || 12,
+      prefix: named ? named[1] : before,
+      firstLineWidth: 0,
+      lineYs,
+      ranges: [...used]
+        .sort((a, b) => a - b)
+        .map((idx) => ({ start: runs[idx].start, end: runs[idx].end })),
+    });
+    from = at + compactNeedle.length;
+  }
   return hits;
 }
 
@@ -256,90 +460,19 @@ function isNricNeedle(needle: string): boolean {
   return needle.replace(/\D/g, '') === SAMPLE_TENANT_NRIC.replace(/\D/g, '');
 }
 
-function lastTmBefore(content: string, before: number): { x: number; y: number; size: number } {
-  const window = content.slice(Math.max(0, before - 500), before);
-  let x = 72;
-  let y = 400;
-  let size = 12;
-  const tmRe = /(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+Tm/g;
-  let m: RegExpExecArray | null;
-  while ((m = tmRe.exec(window))) {
-    x = Number(m[5]);
-    y = Number(m[6]);
-  }
-  const tfRe = /\/[^\s[/<>()]+?\s+([\d.]+)\s+Tf/g;
-  while ((m = tfRe.exec(window))) {
-    size = Number(m[1]) || size;
-  }
-  return { x, y, size };
-}
-
-function enclosingShowToken(content: string, needleAt: number): { start: number; end: number } | null {
-  let start = -1;
-  for (let i = needleAt; i >= 0 && needleAt - i < 4000; i--) {
-    const ch = content[i];
-    if (ch === '(' || ch === '<' || ch === '[') {
-      if (ch === '(' && i > 0 && content[i - 1] === '\\') continue;
-      start = i;
-      break;
-    }
-  }
-  if (start < 0) return null;
-  const rest = content.slice(start);
-  const m =
-    /^(\((?:\\.|[^\\()])*\)\s*(?:Tj|'|")|<([0-9A-Fa-f\s]+)>\s*(?:Tj|')|\[(?:[^\[\]]|\[[^\]]*\])*\]\s*TJ)/.exec(
-      rest,
-    );
-  if (!m) return null;
-  return { start, end: start + m[0].length };
-}
-
-/** Last-resort scan when the operator parser missed a producer-specific show. */
-export function findRawNeedleHits(content: string, needle: string): StampHit[] {
-  if (!needle || needle.length < 4) return [];
-  const hits: StampHit[] = [];
-  let from = 0;
-  while (from < content.length) {
-    const at = content.indexOf(needle, from);
-    if (at < 0) break;
-    const token = enclosingShowToken(content, at);
-    if (token) {
-      const tm = lastTmBefore(content, at);
-      hits.push({
-        needle,
-        x: tm.x,
-        y: tm.y,
-        size: tm.size,
-        prefix: '',
-        firstLineWidth: 0,
-        lineYs: [tm.y],
-        ranges: [{ start: token.start, end: token.end }],
-      });
-    }
-    from = at + needle.length;
-  }
-  return hits;
-}
-
-/**
- * Blank every sample tenant name / NRIC run on one page and return the hits so
- * the caller can redraw. A page with no sample text (the ID-card scan, the
- * static clauses) is left byte-identical.
- */
 export function blankSampleTenant(pdfDoc: PDFDocument, page: PDFPage): StampHit[] {
   const hits: StampHit[] = [];
   const needles = needlesForTemplate();
+  const cmaps = loadPageCmaps(pdfDoc, page);
 
   for (const entry of getPageStreamRefs(pdfDoc, page)) {
     transformStream(pdfDoc, entry, (buf) => {
       const content = buf.toString('latin1');
-      const runs = extractTextRuns(content);
+      const runs = extractTextRuns(content, cmaps);
       const pageHits: StampHit[] = [];
       const seen = new Set<string>();
       for (const needle of needles) {
-        let found = findNeedleHits(runs, needle);
-        if (!found.length) found = findRawNeedleHits(content, needle);
-        for (const hit of found) {
+        for (const hit of findNeedleHits(runs, needle)) {
           const key = `${hit.x}:${hit.y}:${needle}`;
           if (seen.has(key)) continue;
           seen.add(key);
@@ -355,8 +488,9 @@ export function blankSampleTenant(pdfDoc: PDFDocument, page: PDFPage): StampHit[
   return hits;
 }
 
+/** Cover + First Schedule are Times Bold; the execution page is Arial Bold. */
 function pickFont(fonts: { serif: PDFFont; sans: PDFFont }, pageIndex: number): PDFFont {
-  return pageIndex === 0 ? fonts.serif : fonts.sans;
+  return pageIndex === 8 ? fonts.sans : fonts.serif;
 }
 
 function shouldRedraw(hit: StampHit, pageHits: StampHit[]): boolean {
@@ -365,7 +499,6 @@ function shouldRedraw(hit: StampHit, pageHits: StampHit[]): boolean {
   if (hasFullName && (hit.needle === SAMPLE_TENANT_NAME_LINE1 || hit.needle === SAMPLE_TENANT_NAME_LINE2)) {
     return false;
   }
-  // Cover wrap: the two name lines are separate runs. Redraw once at line 1.
   if (!hasFullName && hasLine1 && hit.needle === SAMPLE_TENANT_NAME_LINE2) {
     return false;
   }
@@ -377,28 +510,35 @@ function drawReplacement(
   font: PDFFont,
   hit: StampHit,
   stamp: TenantStamp,
+  pageIndex: number,
 ): void {
   const replacement = isNricNeedle(hit.needle) ? stamp.nric : stamp.name;
   const label = hit.prefix;
   const size = hit.size >= 6 && hit.size <= 36 ? hit.size : 11;
   const pageW = page.getWidth();
-  const original = hit.needle;
-  const origW = font.widthOfTextAtSize(original, size);
-  const centered = Math.abs(hit.x - (pageW - origW) / 2) < 18 && !label;
 
   if (isNricNeedle(hit.needle)) {
     page.drawText(`${label}${replacement}`, { x: hit.x, y: hit.y, size, font, color: INK });
     return;
   }
 
-  const firstLineBudget =
+  const maxLines = pageIndex === 0 ? Math.max(hit.lineYs.length, 2) : 3;
+  let nameBudget =
     hit.lineYs.length > 1
-      ? font.widthOfTextAtSize(SAMPLE_TENANT_NAME_LINE1, size)
-      : Math.max(origW, pageW - hit.x - 36);
-  const nameBudget = Math.min(Math.max(firstLineBudget, 80), pageW - 48);
+      ? Math.max(font.widthOfTextAtSize(SAMPLE_TENANT_NAME_LINE1, size), pageIndex === 0 ? 240 : 80)
+      : Math.max(font.widthOfTextAtSize(SAMPLE_TENANT_NAME, size) * 0.55, pageW - hit.x - 36);
+  nameBudget = Math.min(Math.max(nameBudget, 80), pageW - 48);
   const prefixW = label ? font.widthOfTextAtSize(label, size) : 0;
-  const lines = wrapToWidth(replacement, font, size, Math.max(nameBudget - prefixW, 80));
+  let lines = wrapToWidth(replacement, font, size, Math.max(nameBudget - prefixW, 80));
+  while (lines.length > maxLines && nameBudget < pageW - 72) {
+    nameBudget += 24;
+    lines = wrapToWidth(replacement, font, size, Math.max(nameBudget - prefixW, 80));
+  }
+  if (lines.length > maxLines) {
+    lines = [...lines.slice(0, maxLines - 1), lines.slice(maxLines - 1).join(' ')];
+  }
   const gap = hit.lineYs.length > 1 ? hit.lineYs[0] - hit.lineYs[1] : size * 1.15;
+  const centered = pageIndex === 0 && !label;
 
   for (let i = 0; i < lines.length; i++) {
     const text = i === 0 ? `${label}${lines[i]}` : lines[i];
@@ -437,7 +577,7 @@ export async function stampTenancyAgreement(
       const key = `${Math.round(hit.x)}:${Math.round(hit.y)}:${kind}`;
       if (drawn.has(key)) continue;
       drawn.add(key);
-      drawReplacement(pages[i], font, hit, stamp);
+      drawReplacement(pages[i], font, hit, stamp, i);
     }
   }
 

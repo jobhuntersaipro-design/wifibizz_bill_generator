@@ -7,8 +7,8 @@
  *
  * Template path (first file that exists wins):
  *   TENANCY_TEMPLATE_PATH (env, optional)
- *   bill_generator/template/tenancy_agreement.pdf
  *   assets/tenancy-agreement-template.pdf
+ *   bill_generator/template/tenancy_agreement.pdf
  *   src/lib/bill-generator/templates/tenancy-agreement.pdf
  */
 
@@ -25,7 +25,6 @@ export type { TenancyCaseData };
 
 export const TEMPLATE_MISSING =
   'Tenancy agreement template is missing. Add Chris’s 13-page sample PDF at ' +
-  'bill_generator/template/tenancy_agreement.pdf (preferred) or ' +
   'assets/tenancy-agreement-template.pdf.';
 
 export async function resolveTenancyTemplatePath(

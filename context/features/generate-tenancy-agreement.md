@@ -28,13 +28,13 @@ Sample tenant text that is wiped: `NUR SYAFIQAH BINTI ISMAIL NASRUDDIN` (may wra
 
 ## How the stamp works
 
-1. Load `bill_generator/template/tenancy_agreement.pdf` (or `assets/tenancy-agreement-template.pdf`).
-2. Parse each page content stream (`Tm` / `Td` / `Tf` / `Tj` / `TJ` / `'`).
-3. Blank every show operator that carries the sample tenant name or NRIC (`()Tj`).
-4. Draw the case tenant in Times-Bold on the cover (page 1) and Helvetica-Bold on later text pages.
+1. Load `assets/tenancy-agreement-template.pdf` (Chris’s 13-page Quartz sample).
+2. Decode each page via ToUnicode (subset fonts) and the 0.24 CTM so positions are page-space.
+3. Blank every show operator that carries the sample tenant name or NRIC (`()Tj`), matching with spaces ignored so Quartz’s split runs still hit.
+4. Draw the case tenant in Times-Bold (cover + First Schedule) and Helvetica-Bold (execution page).
 5. Stream the PDF. No DB persist.
 
-Pages typically patched: **1** (parties), **9** (execution), **10** (First Schedule §3). Other pages are left byte-identical unless the sample name/NRIC also appear there as text.
+Pages patched: **1** (parties), **9** (execution), **10** (First Schedule §3). Page **12** MyKad images stay — name/NRIC are not text there.
 
 ## Not in scope
 

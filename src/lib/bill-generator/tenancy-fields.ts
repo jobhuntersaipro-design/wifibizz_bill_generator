@@ -42,7 +42,7 @@ export function tenantStampFrom(caseData: TenancyCaseData): TenantStamp {
 }
 
 export const TEMPLATE_CANDIDATES = [
-  'bill_generator/template/tenancy_agreement.pdf',
   'assets/tenancy-agreement-template.pdf',
+  'bill_generator/template/tenancy_agreement.pdf',
   'src/lib/bill-generator/templates/tenancy-agreement.pdf',
 ] as const;
