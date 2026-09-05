@@ -467,7 +467,7 @@ export function needlesForTemplate(): string[] {
   ];
 }
 
-interface DateNeedle {
+interface FieldNeedle {
   needle: string;
   kind: StampKind;
   yMin?: number;
@@ -476,7 +476,7 @@ interface DateNeedle {
   topmost?: boolean;
 }
 
-function dateNeedlesForPage(pageIndex: number): DateNeedle[] {
+function dateNeedlesForPage(pageIndex: number): FieldNeedle[] {
   if (pageIndex === 0) {
     return [
       { needle: SAMPLE_COVER_DAY, kind: 'cover-day', yMin: 700, yMax: 730 },
@@ -497,11 +497,11 @@ export function blankSampleTenant(
   pageIndex = 0,
 ): StampHit[] {
   const hits: StampHit[] = [];
-  const tenantNeedles = needlesForTemplate().map((needle) => ({
+  const tenantNeedles: FieldNeedle[] = needlesForTemplate().map((needle) => ({
     needle,
-    kind: (isNricNeedle(needle) ? 'nric' : 'name') as StampKind,
+    kind: isNricNeedle(needle) ? 'nric' : 'name',
   }));
-  const specs = [...tenantNeedles, ...dateNeedlesForPage(pageIndex)];
+  const specs: FieldNeedle[] = [...tenantNeedles, ...dateNeedlesForPage(pageIndex)];
   const cmaps = loadPageCmaps(pdfDoc, page);
 
   for (const entry of getPageStreamRefs(pdfDoc, page)) {
