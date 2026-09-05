@@ -737,6 +737,36 @@
 }
 .animate-pill-flash { animation: pill-flash 0.7s ease-out 1; }
 
+/* ZenGarden sign-in mark — the enso circle draws, the sand ripples rake
+   across, the stone settles. The BASE state is the finished mark and the
+   animation runs FROM the undrawn offset with `backwards` fill, so
+   reduced-motion's near-zero duration lands on the drawn logo, never an
+   empty panel. */
+.zen-draw {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 0;
+  animation: zen-draw 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+}
+@keyframes zen-draw {
+  from { stroke-dashoffset: 100; }
+  to { stroke-dashoffset: 0; }
+}
+.zen-stone {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: zen-settle 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+}
+@keyframes zen-settle {
+  0% { opacity: 0; transform: scale(0); }
+  60% { opacity: 1; transform: scale(1.3); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.zen-breathe { animation: zen-breathe 6s ease-in-out 2.4s infinite; }
+@keyframes zen-breathe {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

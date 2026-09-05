@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { login } from "@/actions/auth";
+import { ZenLogoMark } from "@/components/auth/zen-logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,13 +51,14 @@ export function SignInForm() {
           <div className="absolute top-20 left-10 w-72 h-72 bg-[#635BFF]/15 rounded-full blur-3xl animate-float" />
           <div className="absolute bottom-20 right-10 w-96 h-96 bg-[#635BFF]/10 rounded-full blur-3xl animate-float" style={{ animationDelay: "1.5s", animationDuration: "4s" }} />
           <div className="absolute top-1/2 left-1/3 w-48 h-48 bg-[#635BFF]/8 rounded-full blur-3xl animate-float" style={{ animationDelay: "0.8s", animationDuration: "5s" }} />
+          <div className="absolute -bottom-16 -right-12 text-white/10 zen-breathe">
+            <ZenLogoMark size={340} stone="rgba(139, 133, 255, 0.35)" />
+          </div>
         </div>
         <div className="relative z-10 flex flex-col justify-center px-16 text-white">
           <div className="flex items-center gap-3 mb-10 animate-fade-in" style={{ animationDelay: "200ms" }}>
-            <div className="w-10 h-10 bg-[#635BFF] rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z" />
-              </svg>
+            <div className="zen-breathe text-white">
+              <ZenLogoMark size={44} stone="#8B85FF" />
             </div>
             <span className="text-xl font-semibold tracking-tight">BizzFlow</span>
           </div>
@@ -77,10 +79,8 @@ export function SignInForm() {
         <div className="w-full max-w-sm">
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-2.5 mb-10 animate-fade-in">
-            <div className="w-9 h-9 bg-[#635BFF] rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z" />
-              </svg>
+            <div className="text-[#0A2540]">
+              <ZenLogoMark size={36} />
             </div>
             <span className="text-lg font-semibold tracking-tight text-[#0A2540]">BizzFlow</span>
           </div>
