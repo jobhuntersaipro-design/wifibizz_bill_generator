@@ -1,4 +1,25 @@
-# Current Feature
+# Current Feature: Tenancy Agreement (TA) PDF Download
+
+## Status
+
+In Progress
+
+## Goals
+
+- Case list Bills column has a `TA` button next to the existing Bill actions
+- Click generates and downloads a Tenancy Agreement PDF for that case (download only — not stored on the case)
+- Backend mirrors Letter/TIME: `GET /api/bills/tenancy-agreement?case_no=…` resolves the case, stamps fields, returns the PDF
+- Agreement date = generation date, formatted `15TH JANUARY 2026`
+- Landlord name + NRIC = random realistic Malaysian name + MyKad (`YYMMDD-PB-####`); varies across clicks
+- Tenant name + NRIC + premises = that case row's customer name, IC/NRIC, install/address
+- Freeze from sample: 18 MONTHS term (commence = agreement date, expire = +18 months − 1 day), rental text, due on 7th, Maybank details, deposits, ONE (1) year renewal, RESIDENTIAL use only
+- TA button disabled when the case has no customer name
+- Works even if Bill was never generated
+- Reuse the existing pdf-lib bill-generator pipeline; no new page, no new DB tables
+
+## Notes
+
+No template PDF ships in the repo, so the agreement is drawn from scratch like the authorization letter (same stack, not a second PDF engine). Landlord is intentionally unseeded — unlike the letter's property owner — because two clicks must not name the same landlord. Nothing is stored: no R2 object, no column, no `CaseUsageLog` row.
 
 ## Login Page — ZenGarden Logo Animation
 

@@ -15,7 +15,7 @@ import {
 import {
   SearchIcon, EmptyIcon, CloseIcon, ExternalLinkIcon, SortIcon,
   InternetBillIcon, UtilityBillIcon, DownloadIcon, CheckCircleIcon,
-  MessageSquareIcon, AuthLetterIcon, SyncSheetIcon, TimeBillIcon, MergeIcon,
+  MessageSquareIcon, AuthLetterIcon, SyncSheetIcon, TimeBillIcon, TenancyAgreementIcon, MergeIcon,
 } from "./icons";
 import ChatImageGenerator from "./ChatImageGenerator";
 import MergePdfDialog from "./MergePdfDialog";
@@ -256,6 +256,7 @@ export default function CaseManagementSection() {
   // Case whose authorization letter is being generated.
   const [letterCase, setLetterCase] = useState<string | null>(null);
   const [timeCase, setTimeCase] = useState<string | null>(null);
+  const [taCase, setTaCase] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<"success" | "error" | null>(null);
   const [syncCount, setSyncCount] = useState(0);
@@ -562,6 +563,17 @@ export default function CaseManagementSection() {
       failureMessage: "Couldn't generate the TIME invoice.",
       setBusy: setTimeCase,
       busy: timeCase,
+    });
+  }
+
+  function handleTenancyAgreement(caseNo: string) {
+    return downloadDocument({
+      caseNo,
+      endpoint: "/api/bills/tenancy-agreement",
+      filePrefix: "tenancy_agreement",
+      failureMessage: "Couldn't generate the tenancy agreement.",
+      setBusy: setTaCase,
+      busy: taCase,
     });
   }
 
@@ -946,6 +958,18 @@ export default function CaseManagementSection() {
                               ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#FF6B35] border-t-transparent animate-spin" />
                               : <UtilityBillIcon className="w-4 h-4" />}
                             <span className="text-[10px] leading-none font-medium text-[#697386]">Utility</span>
+                          </button>
+                          <button
+                            title={c.full_name?.trim() ? "Download Tenancy Agreement" : "Tenancy Agreement needs a customer name"}
+                            aria-label={c.full_name?.trim() ? `Download tenancy agreement for ${c.case_no}` : `Tenancy agreement unavailable for ${c.case_no}: no customer name`}
+                            disabled={!c.full_name?.trim() || taCase === c.case_no}
+                            onClick={() => handleTenancyAgreement(c.case_no)}
+                            className="w-14 flex flex-col items-center gap-0.5 rounded-md py-1 transition-colors text-[#7C3AED] hover:bg-[#F3E8FF] disabled:cursor-not-allowed disabled:text-[#9CA3AF] disabled:hover:bg-transparent"
+                          >
+                            {taCase === c.case_no
+                              ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#7C3AED] border-t-transparent animate-spin" />
+                              : <TenancyAgreementIcon className="w-4 h-4" />}
+                            <span className="text-[10px] leading-none font-medium text-[#697386]">TA</span>
                           </button>
                           <button
                             title="Generate Authorization Letter"

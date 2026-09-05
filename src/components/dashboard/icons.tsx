@@ -47,6 +47,11 @@ export function AuthLetterIcon({ className }: { className?: string }) {
 export function TimeBillIcon({ className }: { className?: string }) {
   return (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><path d="M9 12h6" /><path d="M9 16h6" /><path d="M12 10.5v7" /></svg>);
 }
+// A keyed document — the tenancy agreement, distinct from the bill and letter
+// icons in the Bills cell so the TA control is tellable at a glance.
+export function TenancyAgreementIcon({ className }: { className?: string }) {
+  return (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><circle cx="9" cy="15.5" r="1.6" /><path d="M10.4 15.5h5.1" /><path d="M14.2 15.5v1.6" /></svg>);
+}
 export function MessageSquareIcon({ className }: { className?: string }) {
   return (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>);
 }
