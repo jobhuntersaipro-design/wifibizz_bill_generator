@@ -1,5 +1,44 @@
 # Current Feature
 
+## Login Page — ZenGarden Logo Animation
+
+**Status:** MERGED AND DEPLOYING (branch `feature/login-zen-animation-google`). Vercel-only — no
+scraper change, no migration.
+
+Ask (2026-09-05): use the shared ZenGarden Logo Animation design on the login page. **Google
+sign-in was built, then removed at the user's request before shipping** — the auth changes were
+reverted to main, the button/error wiring stripped, and `auth-errors.ts` + its tests deleted; only
+the animation ships. If Gmail login is wanted later, the removed version is one commit back on the
+branch and needs a Google OAuth client (redirect URIs
+`https://bizzflow.top/api/auth/callback/google` + localhost) plus `GOOGLE_CLIENT_ID`/`SECRET` env.
+
+### The design link could not be opened — the animation was REBUILT from the mark
+
+The claude.ai/design share link sits behind a Claude login this session has no credentials for
+(WebFetch 403, Playwright bounced to the sign-in page, the design is not in the artifact list). The
+ZenGarden mark itself IS in the user's own ZenGarden Portal artifact, so the animation was rebuilt
+from it: the enso circle draws itself, the two sand-ripple lines rake across, the stone settles with
+a small overshoot, then the whole mark breathes. If the rebuilt timing differs from the design, the
+artboard's HTML pasted into the chat is enough to match it exactly.
+
+### Built
+
+**`ZenLogoMark`** (`src/components/auth/zen-logo.tsx`) — pure CSS/SVG, `pathLength=100` dash draws,
+keyframes in `globals.css`. **The base state is the finished mark and the animation runs FROM the
+undrawn offset with `backwards` fill**, so the global reduced-motion block (near-zero duration)
+lands on the drawn logo, never an empty panel. Used three ways on the sign-in page: the brand row
+(44px, replacing the static purple wifi square), a large ghost mark among the left panel's orbs
+(340px at white/10), and the mobile logo row.
+
+### Verified in the browser (dev server)
+
+After the Google removal: all 9 draw strokes render with the circle's dash-offset landing at 0, the
+word "Google" appears nowhere on the page, the credentials form works as before, no overflow at
+375px, zero console errors. `npm run build` clean, lint clean, 789 vitest passing.
+
+### NOT verified
+
+The animation against the ORIGINAL design's timing (link unreadable, see above).
 ## Admin Orders — Pagination (10/25/50) and a Loading Animation
 
 **Status:** CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/admin-orders-pagination`, not yet
