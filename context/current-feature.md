@@ -2,7 +2,9 @@
 
 ## Status
 
-In Progress
+CODE COMPLETE (branch `cursor/tenancy-agreement-pdf-0327`, PR open). Vercel-only — no scraper change, no migration.
+
+PDF stamp rules verified by generating a real agreement (`15TH JANUARY 2026` / expire `14TH JULY 2027`, tenant from the case, random Malay landlord, frozen rent/bank/deposits). `npx vitest run src/lib/__tests__` — 793 passing. `next build` clean; route `/api/bills/tenancy-agreement` listed. **Not verified in the browser** — this environment has no `DATABASE_URL`, so the Case list cannot be signed into.
 
 ## Goals
 

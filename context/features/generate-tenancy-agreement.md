@@ -2,7 +2,7 @@
 
 ## Status
 
-In Progress — Case list Bills column, download-only.
+Implemented on `cursor/tenancy-agreement-pdf-0327`. The agreement is a complete Malaysian residential TA with a First Schedule; it paginates to **7 A4 pages** of 10.5pt type rather than being padded with blank pages to 13.
 
 ## Goal
 
