@@ -8,6 +8,8 @@ Supersedes the first cut: the user-facing PDF is Chris’s **13-page letter-size
 
 Chris’s binary template is not in the workspace yet. Generation loads `bill_generator/template/tenancy_agreement.pdf` (or `assets/tenancy-agreement-template.pdf`) and overlays; if the file is absent the API returns 503 instead of inventing another agreement.
 
+`npx vitest run src/lib/__tests__` — 788 passing, 6 skipped. ESLint clean on the changed files. Vercel checks on this commit are green. **Download cannot look like the sample until the 13-page PDF is committed.**
+
 ## Goals
 
 - Case list Bills column has a `TA` button next to the existing Bill actions
