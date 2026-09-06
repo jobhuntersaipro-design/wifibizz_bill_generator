@@ -14,13 +14,14 @@ export type GeneratedDocType =
   | "chat"
   | "internet_bill"
   | "utility_bill"
+  | "tenancy_agreement"
   | "authorization_letter"
   | "time_invoice";
 
-/** The four the server renders. The chat is a client-side DOM capture. */
 export const SERVER_DOC_TYPES = [
   "internet_bill",
   "utility_bill",
+  "tenancy_agreement",
   "authorization_letter",
   "time_invoice",
 ] as const;
@@ -96,6 +97,15 @@ export const GENERATED_DOCS: GeneratedDocSpec[] = [
     requires: [NAME, ID, ADDR, MOBILE],
     attachAs: "utility_bill",
     slug: "utilitybill",
+    ext: "pdf",
+  },
+  {
+    type: "tenancy_agreement",
+    label: "TA",
+    requires: [NAME, ID, ADDR],
+    attachAs: "other",
+    attachLabel: "tenancyagreement",
+    slug: "tenancyagreement",
     ext: "pdf",
   },
   {

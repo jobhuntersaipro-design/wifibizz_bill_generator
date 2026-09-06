@@ -1,23 +1,25 @@
-# Current Feature: Tenancy Agreement (TA) PDF Download
+# Current Feature: Order Entry Generate TA card
 
 ## Status
 
-CODE COMPLETE (branch `cursor/tenancy-agreement-pdf-0327`, PR #3). Vercel-only — no scraper change, no migration.
-
-Stamp rules **v3** supersede the freeze-heavy lock. The user-facing PDF is Chris’s sample (`assets/tenancy-agreement-template.pdf`) with: tenant name + NRIC from the case; **Sec 4 premises = the full order/case detail address** (not the truncated Case List string); a **random Malay landlord** on every appearance including the bank account name (account number is a fresh `XXXX XXXX XX` each download); agreement + commence = random day in **[generation day − 6 months, generation day − 3 months]** (MYT, before today); expire = +18 months − 1 day; rent RM800–2000 step 50; deposit = 2× rent; **TENANT IDENTIFICATION / MyKad pages removed**. TA stays on the case-row Bills column.
+CODE COMPLETE (branch `cursor/order-entry-ta-generate-7313`, PR #5). ClickUp BUILD `86eyuq1xg`. Vercel-only. No scraper change. No migration. No new stamp logic. Vitest 70/70. Order-shaped stamp proof passed. Browser attach not run in this VM (no DATABASE_URL / AUTH_SECRET).
 
 ## Goals
 
-- Case list Bills column has a `TA` button next to the existing Bill actions
-- Click downloads the stamped sample (tenant, address, random landlord, term dates, rent/deposit)
-- Backend mirrors Letter/TIME: `GET /api/bills/tenancy-agreement?case_no=…` — download only, no persist
-- TA button disabled when the case has no customer name
-- Works even if Bill was never generated
-- Reuse the existing pdf-lib bill-generator pipeline; no new page, no new DB tables
+- Supporting Documents → Generate from order shows a **TA** card next to the existing five
+- Click generates the same stamped PDF Case List → Bills → TA uses (`generateTenancyAgreement`)
+- The PDF attaches to the order and is downloadable, same UX as the peer Generate cards
+- Field gating matches Case List TA plus peer cards: disable without Full Name; also require ID Number and Installation Address because the stamp prints those
+- Case List TA, the other five Generate cards, and Upload a file stay unchanged
+- Tests cover the sixth registry row and the generate-document switch case
 
 ## Notes
 
-Template is a Quartz text PDF (`Form: none`). Stamp blanks sample literals via ToUnicode + CTM and redraws in Times-Bold / Helvetica-Bold. Landlord is `generateRandomLandlord` (not case-seeded). Nothing is stored: no R2 object, no column, no `CaseUsageLog` row.
+Atlas locked cut. Reuse the existing stamp pipeline. Do not call `GET /api/bills/tenancy-agreement` from Order Entry: that route needs a crawled `case_no` and a linked WifiBizz account. Order Entry already routes Letter / TIME / bills through `POST /api/orders/generate-document` + the same generator functions, so TA is one more `GENERATED_DOCS` row and one switch case.
+
+Label is **TA** to match the Case List Bills button. `attachAs: "other"` with slug `tenancyagreement`, same bucket as Letter and TIME.
+
+Case List TA (`cursor/tenancy-agreement-pdf-0327`, PR #3) stays as-is. Stamp rules v3 are unchanged.
 
 ## Login Page — ZenGarden Logo Animation
 
