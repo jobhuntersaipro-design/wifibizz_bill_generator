@@ -5,8 +5,6 @@ import { neon } from "@neondatabase/serverless";
 import { r2KeyFromPublicUrl } from "@/lib/bill-object";
 import { getBytesFromR2 } from "@/lib/r2";
 
-export const dynamic = "force-dynamic";
-
 export async function GET(request: Request) {
   try {
     const session = await auth();

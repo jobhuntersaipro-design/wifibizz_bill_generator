@@ -7,16 +7,17 @@
  */
 
 export function nextBillObjectKey(
-  userId: string,
+  userId: string | number,
   caseNo: string,
   type: "internet" | "utility",
   revision: string,
 ): string {
-  if (!userId || !caseNo || userId.includes("..") || caseNo.includes("..") || caseNo.includes("/")) {
+  const owner = String(userId);
+  if (!owner || !caseNo || owner.includes("..") || caseNo.includes("..") || caseNo.includes("/")) {
     throw new Error("invalid bill object key");
   }
   const prefix = type === "utility" ? "utility_bill" : "internet_bill";
-  return `bills/${userId}/${caseNo}/${prefix}-${revision}.pdf`;
+  return `bills/${owner}/${caseNo}/${prefix}-${revision}.pdf`;
 }
 
 export function r2KeyFromPublicUrl(
