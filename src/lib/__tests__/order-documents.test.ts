@@ -121,6 +121,23 @@ describe("missingFieldsFor", () => {
     expect(missingFieldsFor("time_invoice", { ...FULL, mobile: "" })).toEqual([]);
   });
 
+  it("enables TA when the form is complete", () => {
+    expect(missingFieldsFor("tenancy_agreement", FULL)).toEqual([]);
+  });
+
+  it("blocks TA on Full Name, ID Number, and Installation Address", () => {
+    expect(missingFieldsFor("tenancy_agreement", { ...FULL, fullName: "" })).toEqual(["Full Name"]);
+    expect(missingFieldsFor("tenancy_agreement", { ...FULL, idNumber: "" })).toEqual(["ID Number"]);
+    expect(missingFieldsFor("tenancy_agreement", { ...FULL, fullAddress: "" })).toEqual([
+      "Installation Address",
+    ]);
+  });
+
+  it("does not block TA on empty mobile or package", () => {
+    expect(missingFieldsFor("tenancy_agreement", { ...FULL, mobile: "" })).toEqual([]);
+    expect(missingFieldsFor("tenancy_agreement", { ...FULL, offerName: "" })).toEqual([]);
+  });
+
   it("treats whitespace as missing", () => {
     expect(missingFieldsFor("time_invoice", { ...FULL, fullName: "   " })).toEqual(["Full Name"]);
   });
@@ -174,8 +191,8 @@ describe("attach mapping", () => {
 });
 
 describe("server vs client documents", () => {
-  it("routes the four PDFs to the server and the chat to the client", () => {
-    expect(SERVER_DOC_TYPES).toHaveLength(4);
+  it("routes the five PDFs to the server and the chat to the client", () => {
+    expect(SERVER_DOC_TYPES).toHaveLength(5);
     expect(isServerDocType("chat")).toBe(false);
     for (const t of SERVER_DOC_TYPES) expect(isServerDocType(t)).toBe(true);
   });
@@ -188,6 +205,9 @@ describe("server vs client documents", () => {
   it("names the chat .png and the rest .pdf", () => {
     expect(generatedFilename("chat", "920505034434")).toBe("chat_920505034434.png");
     expect(generatedFilename("time_invoice", "920505034434")).toBe("time_invoice_920505034434.pdf");
+    expect(generatedFilename("tenancy_agreement", "920505034434")).toBe(
+      "tenancy_agreement_920505034434.pdf",
+    );
   });
 });
 
@@ -237,7 +257,29 @@ describe("isDocTypeAttached", () => {
     expect(isDocTypeAttached("utility_bill", docs)).toBe(false);
     expect(isDocTypeAttached("time_invoice", docs)).toBe(false);
     expect(isDocTypeAttached("authorization_letter", docs)).toBe(false);
+    expect(isDocTypeAttached("tenancy_agreement", docs)).toBe(false);
     expect(isDocTypeAttached("chat", docs)).toBe(false);
+  });
+
+  it("matches only *_tenancyagreement_* filenames for TA", () => {
+    expect(
+      isDocTypeAttached("tenancy_agreement", attached("920505034434_tenancyagreement_1.pdf")),
+    ).toBe(true);
+    expect(
+      isDocTypeAttached("tenancy_agreement", attached("920505034434_authorizationletter_1.pdf")),
+    ).toBe(false);
+    expect(
+      isDocTypeAttached("tenancy_agreement", attached("920505034434_timeinvoice_1.pdf")),
+    ).toBe(false);
+    expect(
+      isDocTypeAttached("tenancy_agreement", attached("920505034434_internetbill_1.pdf")),
+    ).toBe(false);
+    expect(
+      isDocTypeAttached("tenancy_agreement", attached("920505034434_utilitybill_1.pdf")),
+    ).toBe(false);
+    expect(
+      isDocTypeAttached("tenancy_agreement", attached("920505034434_imconversation_1.png")),
+    ).toBe(false);
   });
 
   // "However it arrived" — the order should not carry two utility bills that
@@ -292,11 +334,12 @@ describe("spec slugs match what the uploader stores", () => {
 describe("generatableDocTypes", () => {
   const attached = (...names: string[]) => names.map((filename) => ({ filename }));
 
-  it("returns all five, in card order, for a filled form with nothing attached", () => {
+  it("returns all six, in card order, for a filled form with nothing attached", () => {
     expect(generatableDocTypes(FULL, [], 10)).toEqual([
       "chat",
       "internet_bill",
       "utility_bill",
+      "tenancy_agreement",
       "authorization_letter",
       "time_invoice",
     ]);
@@ -310,16 +353,18 @@ describe("generatableDocTypes", () => {
     expect(generatableDocTypes(FULL, docs, 10)).toEqual([
       "internet_bill",
       "utility_bill",
+      "tenancy_agreement",
       "authorization_letter",
     ]);
   });
 
   it("skips kinds whose required fields are missing", () => {
-    // No package: the chat needs it, the four PDFs that don't stay eligible.
+    // No package: the chat needs it, the five PDFs that don't stay eligible.
     const source = { ...FULL, offerName: "" };
     expect(generatableDocTypes(source, [], 10)).toEqual([
       "internet_bill",
       "utility_bill",
+      "tenancy_agreement",
       "authorization_letter",
       "time_invoice",
     ]);
@@ -334,5 +379,14 @@ describe("generatableDocTypes", () => {
 
   it("returns empty when nothing can run at all", () => {
     expect(generatableDocTypes({}, [], 10)).toEqual([]);
+  });
+});
+
+describe("generate-document route TA", () => {
+  it("wires generateTenancyAgreement for tenancy_agreement", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const src = await readFile("src/app/api/orders/generate-document/route.ts", "utf8");
+    expect(src).toContain("generateTenancyAgreement");
+    expect(src).toContain('"tenancy_agreement"');
   });
 });

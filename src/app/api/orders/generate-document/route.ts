@@ -4,6 +4,7 @@ import { generateInternetBill } from "@/lib/bill-generator/internet-bill";
 import { generateUtilityBill } from "@/lib/bill-generator/utility-bill";
 import { generateAuthorizationLetter } from "@/lib/bill-generator/authorization-letter";
 import { generateTimeInvoice } from "@/lib/bill-generator/time-invoice";
+import { generateTenancyAgreement } from "@/lib/bill-generator/tenancy-agreement";
 import {
   documentSeed,
   generatedFilename,
@@ -84,6 +85,9 @@ export async function POST(request: Request) {
         break;
       case "utility_bill":
         pdf = await generateUtilityBill(caseData);
+        break;
+      case "tenancy_agreement":
+        pdf = await generateTenancyAgreement(caseData);
         break;
       case "authorization_letter":
         pdf = await generateAuthorizationLetter(caseData);
