@@ -25,6 +25,7 @@ import {
   formatRm,
   ringgitAmountLabel,
   pickRentRinggit,
+  pickBankAccount,
   RENT_MIN,
   RENT_MAX,
   RENT_STEP,
@@ -208,7 +209,10 @@ describe("tenantStampFrom", () => {
       date: { day: 5, monthIndex: 8, year: 2026 },
       expire: { day: 4, monthIndex: 2, year: 2028 },
       premises: CASE.full_address,
+      bankAccount: STAMP.bankAccount,
     }));
+    expect(STAMP.bankAccount).toMatch(/^\d{4} \d{4} \d{2}$/);
+    expect(STAMP.bankAccount).not.toBe(SAMPLE_BANK_ACCOUNT);
   });
 
   it("keeps a non-12-digit IC as typed rather than inventing dashes", () => {
@@ -278,7 +282,8 @@ describe("stampTenancyAgreement", () => {
     expect(text).toContain(SAMPLE_CAR_PARK);
     expect(text).toContain("ONE THOUSAND ONLY (RM1000.00)");
     expect(text).toContain("MAYBANK BERHAD");
-    expect(text).toContain(SAMPLE_BANK_ACCOUNT);
+    expect(text).toContain(STAMP.bankAccount);
+    expect(text).not.toContain(SAMPLE_BANK_ACCOUNT);
     expect(text).toContain("18 MONTHS");
     expect(text).not.toContain("TENANT IDENTIFICATION");
     expect((await PDFDocument.load(bytes)).getPageCount()).toBe(3);
@@ -301,6 +306,8 @@ describe("generateTenancyAgreement", () => {
       expect(text).toContain("NOR AZZAWANI");
       expect(text).not.toContain("NUR SYAFIQAH");
       expect(text).not.toContain(SAMPLE_LANDLORD_NAME);
+      expect(text).toContain(STAMP.bankAccount);
+      expect(text).not.toContain(SAMPLE_BANK_ACCOUNT);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -352,7 +359,8 @@ describe("generateTenancyAgreement", () => {
     expect(text).not.toContain("15TH JANUARY 2026");
     expect(text).not.toContain("14TH JULY 2027");
     expect(text).toContain("MAYBANK");
-    expect(text).toMatch(/7015\s*8357\s*68/);
+    expect(text).toMatch(new RegExp(STAMP.bankAccount.split(" ").join("\\s*")));
+    expect(text).not.toMatch(/7015\s*8357\s*68/);
     expect(text).toContain("18");
     expect(text).toContain("MONTHS");
     expect(text).toContain(ringgitAmountLabel(STAMP.rentRinggit));
@@ -369,5 +377,32 @@ describe("generateTenancyAgreement", () => {
     const b = tenancyStampFrom(CASE, FROZEN, makeRng(99));
     expect(a.landlordName).not.toBe(b.landlordName);
     expect(a.landlordNric).not.toBe(b.landlordNric);
+  });
+});
+
+describe("pickBankAccount", () => {
+  it("formats ten digits like the template and never returns the sample", () => {
+    const rng = makeRng(11);
+    const seen = new Set<string>();
+    for (let i = 0; i < 40; i++) {
+      const n = pickBankAccount(rng);
+      expect(n).toMatch(/^\d{4} \d{4} \d{2}$/);
+      expect(n).not.toBe(SAMPLE_BANK_ACCOUNT);
+      expect(n.length).toBeGreaterThan(0);
+      seen.add(n);
+    }
+    expect(seen.size).toBeGreaterThan(1);
+  });
+
+  it("differs across two generations of the same case", () => {
+    const a = tenancyStampFrom(CASE, FROZEN, makeRng(1));
+    const b = tenancyStampFrom(CASE, FROZEN, makeRng(99));
+    expect(a.bankAccount).toMatch(/^\d{4} \d{4} \d{2}$/);
+    expect(b.bankAccount).toMatch(/^\d{4} \d{4} \d{2}$/);
+    expect(a.bankAccount).not.toBe("");
+    expect(b.bankAccount).not.toBe("");
+    expect(a.bankAccount).not.toBe(SAMPLE_BANK_ACCOUNT);
+    expect(b.bankAccount).not.toBe(SAMPLE_BANK_ACCOUNT);
+    expect(a.bankAccount).not.toBe(b.bankAccount);
   });
 });

@@ -6,8 +6,9 @@
  * case address; a fresh random landlord (every appearance, including the bank
  * account name); agreement / commence dates = generation day (Malaysia UTC+8);
  * expire = commence + 18 months − 1 day; monthly rent in RM800–2000 step 50;
- * security deposit = 2 × rent. Bank account number, term length, utility /
- * access-card / renew / use stay as the sample printed them.
+ * security deposit = 2 × rent; bank account number is a fresh 10-digit
+ * Malaysian-style grouping (`XXXX XXXX XX`) each download. Term length,
+ * utility / access-card / renew / use stay as the sample printed them.
  */
 
 import {
@@ -97,6 +98,7 @@ export interface TenantStamp {
   landlordName: string;
   landlordNric: string;
   rentRinggit: number;
+  bankAccount: string;
 }
 
 /**
@@ -151,6 +153,17 @@ export function coverMonthLabel(date: AgreementDate): string {
 export function pickRentRinggit(rng: () => number = Math.random): number {
   const steps = Math.floor((RENT_MAX - RENT_MIN) / RENT_STEP) + 1;
   return RENT_MIN + Math.floor(rng() * steps) * RENT_STEP;
+}
+
+/** 10 digits grouped like the template (`7015 8357 68`). Never the sample. */
+export function pickBankAccount(rng: () => number = Math.random): string {
+  const digit = () => String(Math.floor(rng() * 10));
+  const group = (n: number) => Array.from({ length: n }, digit).join('');
+  for (let i = 0; i < 32; i++) {
+    const formatted = `${group(4)} ${group(4)} ${group(2)}`;
+    if (formatted !== SAMPLE_BANK_ACCOUNT) return formatted;
+  }
+  return '4829 1063 75';
 }
 
 function belowHundred(n: number): string {
@@ -242,6 +255,7 @@ export function tenancyStampFrom(
     landlordName: landlord.name.toUpperCase(),
     landlordNric: formatIcDashed(landlord.ic),
     rentRinggit: pickRentRinggit(rng),
+    bankAccount: pickBankAccount(rng),
   };
 }
 

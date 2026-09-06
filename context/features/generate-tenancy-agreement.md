@@ -24,7 +24,7 @@ Mirrors `/api/bills/authorization-letter` and `/api/bills/time-invoice`. A case 
 | Tenant NRIC | Case `id_no` (`YYMMDD-PB-####` when 12 digits) |
 | Sec 4 Demised Premises | Full order/case **detail** address (`address_full` / street+postcode+city+state, or the case detail-page address). Not the truncated Case List / control-app table string. |
 | Landlord name + NRIC | Random Malay pair each click (`generateRandomLandlord`) — cover, §2, execution, **bank ACCOUNT NAME** |
-| Bank account number | Unchanged `7015 8357 68` |
+| Bank account number | Fresh 10-digit Malaysian-style grouping (`XXXX XXXX XX`) each download |
 | Agreement date | Generation day Malaysia (UTC+8): cover + §1 |
 | Sec 5a Term | Unchanged `18 MONTHS` |
 | Sec 5b Commencing | Same generation day as §1 |
@@ -40,7 +40,7 @@ Mirrors `/api/bills/authorization-letter` and `/api/bills/time-invoice`. A case 
 npx vitest run src/lib/__tests__/tenancy-agreement.test.ts
 ```
 
-Or generate a case-like PDF and `pdftotext -layout` it: tenant `NOR AZZAWANI…`, premises from `full_address`, landlord ≠ `NOR ADIYANTI`, commence = today MYT, expire = +18m−1d, rent in RM800–2000 step 50, deposit = 2×, no `TENANT IDENTIFICATION`, bank account still `7015 8357 68`.
+Or generate a case-like PDF and `pdftotext -layout` it: tenant `NOR AZZAWANI…`, premises from `full_address`, landlord ≠ `NOR ADIYANTI`, commence = today MYT, expire = +18m−1d, rent in RM800–2000 step 50, deposit = 2×, no `TENANT IDENTIFICATION`, bank account ≠ `7015 8357 68`.
 
 ## Not in scope
 

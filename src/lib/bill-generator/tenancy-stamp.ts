@@ -36,6 +36,7 @@ import {
   SAMPLE_PREMISES_FRAGMENTS,
   SAMPLE_RENT_AMOUNT,
   SAMPLE_DEPOSIT_AMOUNT,
+  SAMPLE_BANK_ACCOUNT,
   coverDayLabel,
   coverMonthLabel,
   scheduleDateLabel,
@@ -325,7 +326,8 @@ export type StampKind =
   | 'expire-date'
   | 'rent'
   | 'rent-tail'
-  | 'deposit';
+  | 'deposit'
+  | 'bank-account';
 
 export interface StampHit {
   needle: string;
@@ -528,6 +530,8 @@ function fieldNeedlesForPage(pageIndex: number): FieldNeedle[] {
     { needle: SAMPLE_RENT_AMOUNT, kind: 'rent' },
     { needle: '. EXTRA', kind: 'rent-tail' },
     { needle: SAMPLE_DEPOSIT_AMOUNT, kind: 'deposit' },
+    { needle: SAMPLE_BANK_ACCOUNT, kind: 'bank-account' },
+    { needle: SAMPLE_BANK_ACCOUNT.replace(/\s/g, ''), kind: 'bank-account' },
   ];
   return [...tenant, ...landlord, ...premises, ...dates, ...money];
 }
@@ -660,6 +664,16 @@ function drawReplacement(
   }
   if (hit.kind === 'deposit') {
     drawFitted(page, font, hit, ringgitAmountLabel(stamp.rentRinggit * 2), SAMPLE_DEPOSIT_AMOUNT);
+    return;
+  }
+  if (hit.kind === 'bank-account') {
+    page.drawText(`${hit.prefix}${stamp.bankAccount}`, {
+      x: hit.x,
+      y: hit.y,
+      size,
+      font,
+      color: INK,
+    });
     return;
   }
   if (hit.kind === 'premises') {
@@ -808,6 +822,7 @@ export async function stampTenancyAgreement(
     landlordName: stamp.landlordName ?? '',
     landlordNric: stamp.landlordNric ?? '',
     rentRinggit: stamp.rentRinggit ?? 2000,
+    bankAccount: stamp.bankAccount ?? SAMPLE_BANK_ACCOUNT,
   };
   const pdfDoc = await PDFDocument.load(templateBytes);
   const fonts = {
