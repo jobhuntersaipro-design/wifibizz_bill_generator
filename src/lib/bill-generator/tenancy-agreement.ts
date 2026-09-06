@@ -3,10 +3,11 @@
  *
  * Stamp set (v3): tenant from the case; premises from the case address; a
  * random landlord on every appearance (including the bank account name);
- * agreement + commence = generation day (Malaysia UTC+8); expire = +18 months
- * − 1 day; rent RM800–2000 step 50; deposit = 2 × rent; bank account number
- * is a fresh 10-digit Malaysian-style grouping each download. Drops the
- * TENANT IDENTIFICATION / MyKad pages.
+ * agreement + commence = random day in [generation day + 3 months,
+ * generation day + 6 months] (Malaysia UTC+8); expire = +18 months − 1 day;
+ * rent RM800–2000 step 50; deposit = 2 × rent; bank account number is a
+ * fresh 10-digit Malaysian-style grouping each download. Drops the TENANT
+ * IDENTIFICATION / MyKad pages.
  *
  * Template path (first file that exists wins):
  *   TENANCY_TEMPLATE_PATH (env, optional)

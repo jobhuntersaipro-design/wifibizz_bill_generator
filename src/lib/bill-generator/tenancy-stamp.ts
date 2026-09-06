@@ -637,7 +637,8 @@ function drawReplacement(
     return;
   }
   if (hit.kind === 'cover-month') {
-    page.drawText(coverMonthLabel(stamp.date), { x: hit.x, y: hit.y, size, font, color: INK });
+    // JANUARY→2026 gap on Chris’s cover is ~79pt; shrink only if a longer month would collide.
+    drawFittedTo(page, font, hit, coverMonthLabel(stamp.date), 75);
     return;
   }
   if (hit.kind === 'cover-year') {
@@ -645,11 +646,12 @@ function drawReplacement(
     return;
   }
   if (hit.kind === 'schedule-date') {
-    page.drawText(scheduleDateLabel(stamp.date), { x: hit.x, y: hit.y, size, font, color: INK });
+    // Value column starts at ~235; longest ordinal date is ~112pt. Cap so §1/§5b stay in-box.
+    drawFittedTo(page, font, hit, scheduleDateLabel(stamp.date), 130);
     return;
   }
   if (hit.kind === 'expire-date') {
-    page.drawText(scheduleDateLabel(stamp.expire), { x: hit.x, y: hit.y, size, font, color: INK });
+    drawFittedTo(page, font, hit, scheduleDateLabel(stamp.expire), 130);
     return;
   }
   if (hit.kind === 'rent') {
@@ -737,6 +739,17 @@ function drawFitted(
 ): number {
   const size = hit.size >= 6 && hit.size <= 36 ? hit.size : 10;
   const maxW = font.widthOfTextAtSize(sample, size) + 12;
+  return drawFittedTo(page, font, hit, text, maxW);
+}
+
+function drawFittedTo(
+  page: PDFPage,
+  font: PDFFont,
+  hit: StampHit,
+  text: string,
+  maxW: number,
+): number {
+  const size = hit.size >= 6 && hit.size <= 36 ? hit.size : 10;
   let drawSize = size;
   while (drawSize > 7 && font.widthOfTextAtSize(text, drawSize) > maxW) drawSize -= 0.25;
   page.drawText(text, { x: hit.x, y: hit.y, size: drawSize, font, color: INK });

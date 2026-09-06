@@ -18,7 +18,12 @@ import {
   pickFullestAddress,
   agreementDateFrom,
   expireDateFrom,
+  addCalendarMonths,
+  pickAgreementDate,
+  isAgreementDateInWindow,
   scheduleDateLabel,
+  coverDayLabel,
+  coverMonthLabel,
   tenancyStampFrom,
   tenantStampFrom,
   ringgitWords,
@@ -134,6 +139,35 @@ describe("agreementDateFrom", () => {
   });
 });
 
+describe("pickAgreementDate", () => {
+  it("is inclusive of today+3 months and today+6 months", () => {
+    const today = agreementDateFrom(FROZEN);
+    expect(addCalendarMonths(today, 3)).toEqual({ day: 5, monthIndex: 11, year: 2026 });
+    expect(addCalendarMonths(today, 6)).toEqual({ day: 5, monthIndex: 2, year: 2027 });
+    expect(pickAgreementDate(FROZEN, () => 0)).toEqual(addCalendarMonths(today, 3));
+    expect(pickAgreementDate(FROZEN, () => 0.999999)).toEqual(addCalendarMonths(today, 6));
+  });
+
+  it("stays in the window, matches §5b, and drives §5c", () => {
+    const seen = new Set<string>();
+    for (let seed = 1; seed <= 40; seed++) {
+      const s = tenancyStampFrom(CASE, FROZEN, makeRng(seed));
+      expect(isAgreementDateInWindow(s.date, FROZEN)).toBe(true);
+      expect(s.expire).toEqual(expireDateFrom(s.date));
+      seen.add(scheduleDateLabel(s.date));
+    }
+    expect(seen.size).toBeGreaterThan(1);
+  });
+
+  it("differs across two generations of the same case", () => {
+    const a = tenancyStampFrom(CASE, FROZEN, makeRng(1));
+    const b = tenancyStampFrom(CASE, FROZEN, makeRng(99));
+    expect(a.date).not.toEqual(b.date);
+    expect(isAgreementDateInWindow(a.date, FROZEN)).toBe(true);
+    expect(isAgreementDateInWindow(b.date, FROZEN)).toBe(true);
+  });
+});
+
 describe("expireDateFrom", () => {
   it("is commence + 18 months − 1 day (sample 15 Jan 2026 → 14 Jul 2027)", () => {
     expect(expireDateFrom({ day: 15, monthIndex: 0, year: 2026 })).toEqual({
@@ -206,11 +240,12 @@ describe("tenantStampFrom", () => {
     expect(tenantStampFrom(CASE, FROZEN, makeRng(42))).toEqual(expect.objectContaining({
       name: "NOR AZZAWANI FIZATULAZIRA BINTI ZULKEPELI",
       nric: formatIcDashed("011023120384"),
-      date: { day: 5, monthIndex: 8, year: 2026 },
-      expire: { day: 4, monthIndex: 2, year: 2028 },
+      date: STAMP.date,
+      expire: expireDateFrom(STAMP.date),
       premises: CASE.full_address,
       bankAccount: STAMP.bankAccount,
     }));
+    expect(isAgreementDateInWindow(STAMP.date, FROZEN)).toBe(true);
     expect(STAMP.bankAccount).toMatch(/^\d{4} \d{4} \d{2}$/);
     expect(STAMP.bankAccount).not.toBe(SAMPLE_BANK_ACCOUNT);
   });
@@ -273,8 +308,9 @@ describe("stampTenancyAgreement", () => {
     expect(text).toContain("MALAYSIA");
     expect(text).toContain("SUNGAI BULOH");
     expect(text).not.toContain("PELANGI UTAMA");
-    expect(text).toContain("5TH SEPTEMBER 2026");
-    expect(text).toContain("4TH MARCH 2028");
+    expect(text).toContain(scheduleDateLabel(STAMP.date));
+    expect(text).toContain(scheduleDateLabel(STAMP.expire));
+    expect(text.split(scheduleDateLabel(STAMP.date)).length - 1).toBeGreaterThanOrEqual(2);
     expect(text).not.toContain(SAMPLE_SCHEDULE_DATE);
     expect(text).not.toContain(SAMPLE_EXPIRE_DATE);
     expect(text).toContain(ringgitAmountLabel(STAMP.rentRinggit));
@@ -351,11 +387,12 @@ describe("generateTenancyAgreement", () => {
     expect(text).toContain("MALAYSIA");
     expect(text).toContain("SUNGAI BULOH");
     expect(text).not.toContain("PELANGI");
-    expect(text).toContain("5th");
-    expect(text).toContain("SEPTEMBER");
-    expect(text).toContain(scheduleDateLabel(agreementDateFrom(FROZEN)));
-    expect(text).toContain("4TH MARCH 2028");
-    expect(text).not.toContain("15th");
+    expect(text).toContain(coverDayLabel(STAMP.date));
+    expect(text).toContain(coverMonthLabel(STAMP.date));
+    expect(text).toContain(String(STAMP.date.year));
+    expect(text).toContain(scheduleDateLabel(STAMP.date));
+    expect(text).toContain(scheduleDateLabel(STAMP.expire));
+    expect(text.split(scheduleDateLabel(STAMP.date)).length - 1).toBeGreaterThanOrEqual(2);
     expect(text).not.toContain("15TH JANUARY 2026");
     expect(text).not.toContain("14TH JULY 2027");
     expect(text).toContain("MAYBANK");
@@ -377,6 +414,7 @@ describe("generateTenancyAgreement", () => {
     const b = tenancyStampFrom(CASE, FROZEN, makeRng(99));
     expect(a.landlordName).not.toBe(b.landlordName);
     expect(a.landlordNric).not.toBe(b.landlordNric);
+    expect(a.date).not.toEqual(b.date);
   });
 });
 

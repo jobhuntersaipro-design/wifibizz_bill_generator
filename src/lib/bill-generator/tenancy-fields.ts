@@ -4,7 +4,8 @@
  *
  * Stamp set (v3): tenant name + NRIC from the case; demised premises from the
  * case address; a fresh random landlord (every appearance, including the bank
- * account name); agreement / commence dates = generation day (Malaysia UTC+8);
+ * account name); agreement / commence dates = a random day in
+ * [generation day + 3 months, generation day + 6 months] (Malaysia UTC+8);
  * expire = commence + 18 months − 1 day; monthly rent in RM800–2000 step 50;
  * security deposit = 2 × rent; bank account number is a fresh 10-digit
  * Malaysian-style grouping (`XXXX XXXX XX`) each download. Term length,
@@ -57,6 +58,8 @@ export const RENT_MIN = 800;
 export const RENT_MAX = 2000;
 export const RENT_STEP = 50;
 export const TERM_MONTHS = 18;
+export const AGREEMENT_LEAD_MIN_MONTHS = 3;
+export const AGREEMENT_LEAD_MAX_MONTHS = 6;
 
 const MONTHS = [
   'JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE',
@@ -113,6 +116,49 @@ export function agreementDateFrom(now = new Date()): AgreementDate {
     monthIndex: myt.getUTCMonth(),
     year: myt.getUTCFullYear(),
   };
+}
+
+/** Same overflow-to-next-month rule `expireDateFrom` uses (`Date.UTC` day). */
+export function addCalendarMonths(start: AgreementDate, months: number): AgreementDate {
+  const d = new Date(Date.UTC(start.year, start.monthIndex + months, start.day));
+  return {
+    day: d.getUTCDate(),
+    monthIndex: d.getUTCMonth(),
+    year: d.getUTCFullYear(),
+  };
+}
+
+export function agreementDateUtc(date: AgreementDate): number {
+  return Date.UTC(date.year, date.monthIndex, date.day);
+}
+
+/** Uniform calendar day in [today+3 months, today+6 months] inclusive, MYT. */
+export function pickAgreementDate(
+  now = new Date(),
+  rng: () => number = Math.random,
+): AgreementDate {
+  const today = agreementDateFrom(now);
+  const start = addCalendarMonths(today, AGREEMENT_LEAD_MIN_MONTHS);
+  const end = addCalendarMonths(today, AGREEMENT_LEAD_MAX_MONTHS);
+  const startMs = agreementDateUtc(start);
+  const endMs = agreementDateUtc(end);
+  const days = Math.round((endMs - startMs) / 86_400_000) + 1;
+  const offset = Math.min(days - 1, Math.max(0, Math.floor(rng() * days)));
+  const picked = new Date(startMs + offset * 86_400_000);
+  return {
+    day: picked.getUTCDate(),
+    monthIndex: picked.getUTCMonth(),
+    year: picked.getUTCFullYear(),
+  };
+}
+
+export function isAgreementDateInWindow(date: AgreementDate, now = new Date()): boolean {
+  const today = agreementDateFrom(now);
+  const t = agreementDateUtc(date);
+  return (
+    t >= agreementDateUtc(addCalendarMonths(today, AGREEMENT_LEAD_MIN_MONTHS)) &&
+    t <= agreementDateUtc(addCalendarMonths(today, AGREEMENT_LEAD_MAX_MONTHS))
+  );
 }
 
 /** Commence + 18 months − 1 day. Sample: 15 Jan 2026 → 14 Jul 2027. */
@@ -246,11 +292,12 @@ export function tenancyStampFrom(
   const digits = icDigits(caseData.id_no);
   const name = sanitize(caseData.full_name || '').toUpperCase();
   const landlord = generateRandomLandlord(now, rng, name);
+  const date = pickAgreementDate(now, rng);
   return {
     name,
     nric: digits.length === 12 ? formatIcDashed(digits) : sanitize(caseData.id_no || ''),
-    date: agreementDateFrom(now),
-    expire: expireDateFrom(agreementDateFrom(now)),
+    date,
+    expire: expireDateFrom(date),
     premises: sanitize(caseData.full_address || '').toUpperCase(),
     landlordName: landlord.name.toUpperCase(),
     landlordNric: formatIcDashed(landlord.ic),
