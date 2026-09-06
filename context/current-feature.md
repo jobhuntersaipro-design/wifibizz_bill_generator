@@ -15,7 +15,7 @@ In Progress
 
 ## Notes
 
-ClickUp 86eyuq7mk, spec corrected. `generateInternetBill` is bill-only again. `buildInternetBillPdf` is the only Case List / Order Entry combine: bill + `appendUmobileImagePage`. OE preview is `GET /api/umobile-images/random` plus Re-roll. No Confirm/Skip. Case List Internet row always POSTs generate (never downloads a stored slot-stamped R2 object). Empty pool stays 3 pages. Each generate writes a new R2 key and updates `internet_bill_url`; download reads that key (not a reused `internet_bill.pdf`).
+ClickUp 86eyuq7mk, spec corrected. `generateInternetBill` is bill-only again. `buildInternetBillPdf` is the only Case List / Order Entry combine: bill + `appendUmobileImagePage`. OE preview is `GET /api/umobile-images/random` plus Re-roll. No Confirm/Skip. Case List Internet row always POSTs generate. Empty pool stays 3 pages. `persistBillPdf` writes a new R2 key and updates `internet_bill_url`. Internet **download** rebuilds via the same helper so a Probe GET cannot re-serve the previous combine. b492594 never reached preview (Vercel typecheck) and still only read R2 on GET.
 
 # Previous Feature: Order Entry Generate TA card
 

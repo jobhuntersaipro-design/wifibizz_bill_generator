@@ -451,8 +451,8 @@ export default function CaseManagementSection() {
         return;
       }
       const result = body.results?.[0];
-      if (result && result.status === "error") {
-        toast.error(result.error || "Bill generation failed.");
+      if (!result || result.status !== "success" || typeof result.url !== "string") {
+        toast.error(result?.error || "Bill generation failed.");
         return;
       }
       const bust = billCacheBuster + 1;

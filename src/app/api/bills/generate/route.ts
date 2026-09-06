@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { neon } from "@neondatabase/serverless";
-import { deleteFromR2, uploadToR2 } from "@/lib/r2";
-import { nextBillObjectKey, r2KeyFromPublicUrl } from "@/lib/bill-object";
+import { persistBillPdf } from "@/lib/persist-bill";
 import { buildInternetBillPdf } from "@/lib/bill-generator/umobile-modem";
 import { generateUtilityBill } from "@/lib/bill-generator/utility-bill";
 import { getUserCaseUsage } from "@/lib/case-limit";
@@ -152,42 +151,16 @@ export async function POST(request: Request) {
           ? await generateUtilityBill(caseData)
           : await buildInternetBillPdf(caseData);
 
-        const r2Key = nextBillObjectKey(
-          wifibizzUserId,
-          caseNo,
-          billType,
-          crypto.randomUUID(),
-        );
-        const publicUrl = await uploadToR2(r2Key, pdfBuffer, "application/pdf");
-
-        if (billType === "utility") {
-          await sql`
-            UPDATE wifibizz_cases
-            SET utility_bill_url = ${publicUrl}
-            WHERE case_no = ${caseNo} AND user_id = ${wifibizzUserId}
-          `;
-        } else {
-          await sql`
-            UPDATE wifibizz_cases
-            SET internet_bill_url = ${publicUrl}
-            WHERE case_no = ${caseNo} AND user_id = ${wifibizzUserId}
-          `;
-        }
-
         const previousUrl = billType === "utility"
           ? caseStatusMap.get(caseNo)?.utilityUrl
           : caseStatusMap.get(caseNo)?.internetUrl;
-        const previousKey = previousUrl
-          ? r2KeyFromPublicUrl(previousUrl, process.env.R2_PUBLIC_URL ?? "")
-          : null;
-        if (previousKey && previousKey !== r2Key) {
-          await deleteFromR2(previousKey).catch((err) => {
-            console.error(
-              `Previous ${billType} bill delete skipped for ${caseNo}:`,
-              err instanceof Error ? err.message : err,
-            );
-          });
-        }
+        const { publicUrl } = await persistBillPdf({
+          userId: wifibizzUserId,
+          caseNo,
+          type: billType,
+          previousUrl: previousUrl ?? null,
+          pdf: pdfBuffer,
+        });
 
         // Log usage if this is a newly charged case (first bill for this case)
         if (newCaseSet.has(caseNo)) {

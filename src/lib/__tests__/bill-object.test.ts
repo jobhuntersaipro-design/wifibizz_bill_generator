@@ -1,11 +1,15 @@
 import { readFile } from "node:fs/promises";
 import { describe, it, expect } from "vitest";
+import { PDFDocument } from "pdf-lib";
 import {
   billDownloadPath,
   nextBillObjectKey,
   r2KeyFromPublicUrl,
   revisionFromPublicUrl,
 } from "@/lib/bill-object";
+import { generateInternetBill } from "@/lib/bill-generator/internet-bill";
+import { appendUmobileImagePage, type ModemImage } from "@/lib/bill-generator/umobile-modem";
+import { storedBillReplaced } from "@/lib/persist-bill";
 
 const BASE = "https://files.example.com";
 
@@ -53,16 +57,55 @@ describe("Case List generate overwrites the stored bill object", () => {
   it("uploads a revisioned key, updates internet_bill_url, and deletes the previous object", async () => {
     const generate = await readFile("src/app/api/bills/generate/route.ts", "utf8");
     const download = await readFile("src/app/api/bills/download/route.ts", "utf8");
+    const persist = await readFile("src/lib/persist-bill.ts", "utf8");
+    const caseList = await readFile("src/components/dashboard/CaseManagementSection.tsx", "utf8");
+    const nextConfig = await readFile("next.config.ts", "utf8");
 
-    expect(generate).toContain("nextBillObjectKey");
-    expect(generate).toContain("crypto.randomUUID()");
-    expect(generate).toContain("SET internet_bill_url = ${publicUrl}");
-    expect(generate).toContain("deleteFromR2(previousKey)");
+    expect(persist).toContain("nextBillObjectKey");
+    expect(persist).toContain("SET internet_bill_url = ${publicUrl}");
+    expect(persist).toContain("deleteFromR2(previousKey)");
+    expect(generate).toContain("persistBillPdf");
+    expect(generate).toContain("buildInternetBillPdf");
     expect(generate).not.toMatch(/bills\/\$\{wifibizzUserId\}\/\$\{caseNo\}\/\$\{r2Prefix\}\.pdf/);
 
-    expect(download).toContain("r2KeyFromPublicUrl");
-    expect(download).toContain("getBytesFromR2");
+    expect(download).toContain("buildInternetBillPdf");
+    expect(download).toContain("persistBillPdf");
     expect(download).toContain("Vercel-CDN-Cache-Control");
-    expect(download).toContain("ETag:");
+    expect(nextConfig).toContain("'/api/bills/download'");
+
+    expect(caseList).toContain('handleGenerateSingle(c.case_no, "internet")');
+    expect(caseList).toContain('result.status !== "success"');
+  });
+
+  it("empty-pool bytes are 3 pages and not the previous 4-page combine", async () => {
+    const CASE = {
+      case_no: "202666996",
+      full_name: "PROBE AC5",
+      full_address: "NO 1 JALAN TEST 50000 KUALA LUMPUR WILAYAH PERSEKUTUAN",
+      mobile: "+60123456789",
+    };
+    const PIXEL_PNG = Uint8Array.from(
+      Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        "base64",
+      ),
+    );
+    const image: ModemImage = { bytes: PIXEL_PNG, mime: "image/png" };
+    const bill = await generateInternetBill(CASE);
+    const previousCombine = await appendUmobileImagePage(bill, image);
+    const emptyPool = await appendUmobileImagePage(bill, null);
+
+    expect((await PDFDocument.load(emptyPool)).getPageCount()).toBe(3);
+    expect((await PDFDocument.load(previousCombine)).getPageCount()).toBe(4);
+    expect(emptyPool.byteLength).not.toBe(previousCombine.byteLength);
+    expect(Buffer.from(emptyPool).equals(Buffer.from(previousCombine))).toBe(false);
+
+    const previousUrl = `${BASE}/bills/42/202666996/internet_bill.pdf`;
+    const nextUrl = `${BASE}/${nextBillObjectKey(42, "202666996", "internet", "rev-empty")}`;
+    expect(storedBillReplaced(previousUrl, nextUrl)).toBe(true);
+    expect(storedBillReplaced(previousUrl, previousUrl)).toBe(false);
+    expect(r2KeyFromPublicUrl(nextUrl, BASE)).not.toBe(
+      r2KeyFromPublicUrl(previousUrl, BASE),
+    );
   });
 });
