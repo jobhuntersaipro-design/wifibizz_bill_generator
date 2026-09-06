@@ -12,6 +12,14 @@ const nextConfig: NextConfig = {
       './assets/**/*',
       './src/lib/bill-generator/templates/**/*',
     ],
+    // Same TA template set as Case List. generateTenancyAgreement resolves the
+    // path at runtime, so NFT cannot see the read and the order-entry function
+    // would 500 TEMPLATE_MISSING without this include.
+    '/api/orders/generate-document': [
+      './bill_generator/template/**/*',
+      './assets/**/*',
+      './src/lib/bill-generator/templates/**/*',
+    ],
   },
   experimental: {
     // Document uploads go through the `uploadOrderDocument` Server Action, and
