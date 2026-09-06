@@ -1,4 +1,23 @@
-# Current Feature: Order Entry Generate TA card
+# Current Feature: UMobile internet bill extra image page
+
+## Status
+
+In Progress
+
+## Goals
+
+- Admin tab `umobile image` still uploads, lists, and deletes the Prisma+R2 pool
+- Internet bill generate appends one random pool image as an extra PDF page
+- Order Entry shows that image with Re-roll and auto-sends the current id
+- Case List appends a server-picked image with no preview UI
+- Empty pool produces the bill only
+- Slot-stamp path is gone
+
+## Notes
+
+ClickUp 86eyuq7mk, spec corrected. `generateInternetBill` is bill-only again. `buildInternetBillPdf` is the only Case List / Order Entry combine. Empty pool stays 3 pages. Internet GET download rebuilds and returns an **attachment** with a stamped filename. The Case List row fetches that blob (45s abort) and saves it — it does not POST generate then `window.open` (that hung and recycled Downloads). `preview=1` is iframe-only.
+
+# Previous Feature: Order Entry Generate TA card
 
 ## Status
 

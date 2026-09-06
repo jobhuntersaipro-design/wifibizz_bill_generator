@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { neon } from "@neondatabase/serverless";
-import { getFromR2 } from "@/lib/r2";
+import { r2KeyFromPublicUrl } from "@/lib/bill-object";
+import { persistBillPdf } from "@/lib/persist-bill";
+import { buildInternetBillPdf } from "@/lib/bill-generator/umobile-modem";
+import { getBytesFromR2 } from "@/lib/r2";
 
 export async function GET(request: Request) {
   try {
@@ -50,7 +53,7 @@ export async function GET(request: Request) {
     const billColumn = type === "internet" ? "internet_bill_url" : "utility_bill_url";
 
     const rows = await sql`
-      SELECT internet_bill_url, utility_bill_url, order_no
+      SELECT internet_bill_url, utility_bill_url, order_no, full_name, full_address, mobile
       FROM wifibizz_cases
       WHERE case_no = ${caseNo} AND user_id = ${wifibizzUser.id}
     `;
@@ -70,30 +73,50 @@ export async function GET(request: Request) {
       );
     }
 
-    // Extract R2 key from public URL
-    const publicUrlBase = process.env.R2_PUBLIC_URL!;
-    const r2Key = billUrl.replace(`${publicUrlBase}/`, "");
+    const orderNo = rows[0].order_no as string | null;
+    const orderSuffix = orderNo ? `_${orderNo}` : "";
+    const prefix = type === "utility" ? "utilityBill" : "internetBill";
+    const filename = `${prefix}_${caseNo}${orderSuffix}.pdf`;
 
-    const stream = await getFromR2(r2Key);
-    if (!stream) {
+    // Default internet GET rebuilds from the live pool and returns those bytes
+    // as an attachment. `preview=1` (case-detail iframe) only reads the stored
+    // object so opening a row does not start a second generate.
+    const previewOnly = url.searchParams.get("preview") === "1";
+    if (type === "internet" && !previewOnly) {
+      const pdf = await buildInternetBillPdf({
+        case_no: caseNo,
+        full_name: String(rows[0].full_name ?? ""),
+        full_address: String(rows[0].full_address ?? ""),
+        mobile: String(rows[0].mobile ?? ""),
+      });
+      const stored = await persistBillPdf({
+        userId: wifibizzUser.id,
+        caseNo,
+        type: "internet",
+        previousUrl: billUrl,
+        pdf,
+      });
+      const stamped = `${prefix}_${caseNo}${orderSuffix}_${Date.now()}.pdf`;
+      return pdfResponse(pdf, stamped, stored.key, "attachment");
+    }
+
+    const r2Key = r2KeyFromPublicUrl(billUrl, process.env.R2_PUBLIC_URL ?? "");
+    if (!r2Key) {
       return NextResponse.json(
         { success: false, error: "File not found in storage" },
         { status: 404 }
       );
     }
 
-    const orderNo = rows[0].order_no as string | null;
-    const orderSuffix = orderNo ? `_${orderNo}` : "";
-    const prefix = type === "utility" ? "utilityBill" : "internetBill";
-    const filename = `${prefix}_${caseNo}${orderSuffix}.pdf`;
+    const bytes = await getBytesFromR2(r2Key);
+    if (!bytes) {
+      return NextResponse.json(
+        { success: false, error: "File not found in storage" },
+        { status: 404 }
+      );
+    }
 
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="${filename}"`,
-        "Cache-Control": "no-cache",
-      },
-    });
+    return pdfResponse(bytes, filename, r2Key, previewOnly ? "inline" : "attachment");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("Bill download error:", message);
@@ -102,4 +125,23 @@ export async function GET(request: Request) {
       { status: 500 }
     );
   }
+}
+
+function pdfResponse(
+  bytes: Uint8Array,
+  filename: string,
+  r2Key: string,
+  disposition: "inline" | "attachment",
+) {
+  return new Response(Buffer.from(bytes), {
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Length": String(bytes.byteLength),
+      "Content-Disposition": `${disposition}; filename="${filename}"`,
+      "Cache-Control": "private, no-store, no-cache, must-revalidate",
+      "CDN-Cache-Control": "no-store",
+      "Vercel-CDN-Cache-Control": "no-store",
+      ETag: `"${r2Key.replace(/"/g, "")}"`,
+    },
+  });
 }

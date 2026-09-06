@@ -20,6 +20,7 @@ import {
 import ChatImageGenerator from "./ChatImageGenerator";
 import MergePdfDialog from "./MergePdfDialog";
 import { syncCasesToSheet } from "@/actions/settings";
+import { billDownloadPath, revisionFromPublicUrl } from "@/lib/bill-object";
 
 // ── Case Detail Panel ──
 
@@ -123,9 +124,9 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
             {caseData.internet_bill_url ? (
               <div className="space-y-3">
                 <div className="rounded-lg border border-[#E3E8EF] overflow-hidden bg-[#F6F9FC]">
-                  <iframe src={`/api/bills/download?case_no=${caseData.case_no}&type=internet&t=${cacheBuster}`} className="w-full h-100" title="Internet Bill Preview" />
+                  <iframe src={billDownloadPath(caseData.case_no, "internet", `${revisionFromPublicUrl(caseData.internet_bill_url)}-${cacheBuster}`, { preview: true })} className="w-full h-100" title="Internet Bill Preview" />
                 </div>
-                <a href={`/api/bills/download?case_no=${caseData.case_no}&type=internet&t=${cacheBuster}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-[#635BFF] hover:text-[#0A2540] transition-colors duration-200">
+                <a href={billDownloadPath(caseData.case_no, "internet", `${revisionFromPublicUrl(caseData.internet_bill_url)}-${cacheBuster}`)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-[#635BFF] hover:text-[#0A2540] transition-colors duration-200">
                   <DownloadIcon className="w-3.5 h-3.5" />Download Internet Bill
                 </a>
               </div>
@@ -141,9 +142,9 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
             {caseData.utility_bill_url ? (
               <div className="space-y-3">
                 <div className="rounded-lg border border-[#E3E8EF] overflow-hidden bg-[#F6F9FC]">
-                  <iframe src={`/api/bills/download?case_no=${caseData.case_no}&type=utility&t=${cacheBuster}`} className="w-full h-100" title="Utility Bill Preview" />
+                  <iframe src={billDownloadPath(caseData.case_no, "utility", `${revisionFromPublicUrl(caseData.utility_bill_url)}-${cacheBuster}`)} className="w-full h-100" title="Utility Bill Preview" />
                 </div>
-                <a href={`/api/bills/download?case_no=${caseData.case_no}&type=utility&t=${cacheBuster}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-[#FF6B35] hover:text-[#0A2540] transition-colors duration-200">
+                <a href={billDownloadPath(caseData.case_no, "utility", `${revisionFromPublicUrl(caseData.utility_bill_url)}-${cacheBuster}`)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-[#FF6B35] hover:text-[#0A2540] transition-colors duration-200">
                   <DownloadIcon className="w-3.5 h-3.5" />Download Utility Bill
                 </a>
               </div>
@@ -427,42 +428,89 @@ export default function CaseManagementSection() {
 
   // Generate a single bill straight from its row icon (no need to select first),
   // then open it right away. Address is lazily fetched server-side during generation.
+  // Internet always regenerates: a stored URL can still be the old slot-stamped
+  // 3-page PDF, and POST /api/bills/generate is free when the case already has a bill.
   async function handleGenerateSingle(caseNo: string, type: "internet" | "utility") {
     const key = `${caseNo}:${type}`;
     if (generatingCell || generating) return;
     setGeneratingCell(key);
+    const toastId = toast.loading(
+      type === "internet" ? "Building internet bill…" : "Building utility bill…",
+    );
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 45_000);
     try {
-      const res = await fetch("/api/bills/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ caseNos: [caseNo], type }),
+      const row = cases.find((c) => c.case_no === caseNo);
+      const alreadyStored = type === "internet" ? !!row?.internet_bill_url : !!row?.utility_bill_url;
+
+      // Internet with a stored URL: one rebuild via GET download. Do not POST
+      // generate first — that crawls the portal (can hang) and then opened a
+      // second rebuild in a tab (inline, so nothing new landed in Downloads).
+      if (!(type === "internet" && alreadyStored)) {
+        const res = await fetch("/api/bills/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ caseNos: [caseNo], type }),
+          signal: ctrl.signal,
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok || body.success === false) {
+          toast.error(
+            body.error === "case_limit_reached"
+              ? "Case limit reached. Please top up your usage to generate more bills."
+              : body.error || "Bill generation failed.",
+            { id: toastId, duration: 5000 },
+          );
+          return;
+        }
+        const result = body.results?.[0];
+        if (!result || result.status !== "success" || typeof result.url !== "string") {
+          toast.error(result?.error || "Bill generation failed.", { id: toastId });
+          return;
+        }
+      }
+
+      const stamp = Date.now();
+      const dl = await fetch(billDownloadPath(caseNo, type, String(stamp)), {
+        signal: ctrl.signal,
+        cache: "no-store",
       });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok || body.success === false) {
+      if (!dl.ok) {
+        const errBody = await dl.json().catch(() => ({}));
         toast.error(
-          body.error === "case_limit_reached"
-            ? "Case limit reached. Please top up your usage to generate more bills."
-            : body.error || "Bill generation failed.",
-          { duration: 5000 }
+          typeof errBody.error === "string" ? errBody.error : "Bill download failed.",
+          { id: toastId, duration: 5000 },
         );
         return;
       }
-      const result = body.results?.[0];
-      if (result && result.status === "error") {
-        toast.error(result.error || "Bill generation failed.");
+      const blob = await dl.blob();
+      if (blob.size < 500) {
+        toast.error("Bill download failed.", { id: toastId });
         return;
       }
-      const bust = billCacheBuster + 1;
-      setBillCacheBuster(bust);
-      await fetchCases();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = `${type === "internet" ? "internetBill" : "utilityBill"}_${caseNo}_${stamp}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+
+      setBillCacheBuster((prev) => prev + 1);
       window.dispatchEvent(new Event("usage-updated"));
-      toast.success(`${type === "internet" ? "Internet" : "Utility"} bill generated`);
-      // Open the freshly generated bill right away.
-      window.open(`/api/bills/download?case_no=${caseNo}&type=${type}&t=${bust}`, "_blank");
+      toast.success(`${type === "internet" ? "Internet" : "Utility"} bill ready`, { id: toastId });
+      void fetchCases();
     } catch (err) {
       console.error("Bill generation failed:", err);
-      toast.error("Bill generation failed. Please try again.");
+      toast.error(
+        err instanceof DOMException && err.name === "AbortError"
+          ? "Bill timed out. Try again."
+          : "Bill generation failed. Please try again.",
+        { id: toastId },
+      );
     } finally {
+      clearTimeout(timer);
       setGeneratingCell(null);
     }
   }
@@ -938,9 +986,7 @@ export default function CaseManagementSection() {
                             title={c.internet_bill_url ? "Download Internet Bill" : "Generate Internet Bill"}
                             aria-label={c.internet_bill_url ? `Download internet bill for ${c.case_no}` : `Generate internet bill for ${c.case_no}`}
                             disabled={generatingCell === `${c.case_no}:internet`}
-                            onClick={() => c.internet_bill_url
-                              ? window.open(`/api/bills/download?case_no=${c.case_no}&type=internet&t=${billCacheBuster}`, "_blank")
-                              : handleGenerateSingle(c.case_no, "internet")}
+                            onClick={() => handleGenerateSingle(c.case_no, "internet")}
                             className={`w-14 flex flex-col items-center gap-0.5 rounded-md py-1 transition-colors disabled:cursor-not-allowed ${c.internet_bill_url ? "text-[#635BFF] hover:bg-[#F0EEFF]" : "text-[#9CA3AF] hover:text-[#635BFF] hover:bg-[#F0EEFF]"}`}
                           >
                             {generatingCell === `${c.case_no}:internet`

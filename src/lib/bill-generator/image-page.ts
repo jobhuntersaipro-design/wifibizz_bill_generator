@@ -56,10 +56,14 @@ export function fitWithin(
  * Returns bytes so the result is just another source to `mergePdfs`, which keeps
  * the merge itself unaware that one of its inputs was a screenshot.
  */
-export async function pngToPdfPage(png: Uint8Array): Promise<Uint8Array> {
+export async function imageToPdfPage(
+  bytes: Uint8Array,
+  mime: "image/png" | "image/jpeg",
+): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const page = doc.addPage([A4_WIDTH, A4_HEIGHT]);
-  const image = await doc.embedPng(png);
+  const image =
+    mime === "image/png" ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
   const placement = fitWithin(
     image.width,
     image.height,
@@ -70,4 +74,8 @@ export async function pngToPdfPage(png: Uint8Array): Promise<Uint8Array> {
   );
   page.drawImage(image, placement);
   return doc.save();
+}
+
+export async function pngToPdfPage(png: Uint8Array): Promise<Uint8Array> {
+  return imageToPdfPage(png, "image/png");
 }

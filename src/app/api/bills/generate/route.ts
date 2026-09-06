@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { neon } from "@neondatabase/serverless";
-import { uploadToR2 } from "@/lib/r2";
-import { generateInternetBill } from "@/lib/bill-generator/internet-bill";
+import { persistBillPdf } from "@/lib/persist-bill";
+import { buildInternetBillPdf } from "@/lib/bill-generator/umobile-modem";
 import { generateUtilityBill } from "@/lib/bill-generator/utility-bill";
 import { getUserCaseUsage } from "@/lib/case-limit";
 import { fillMissingAddresses } from "@/lib/crawler/lazy-address";
@@ -67,6 +67,8 @@ export async function POST(request: Request) {
       caseBillStatus.map((c) => [c.case_no as string, {
         hasAnyBill: c.internet_bill_url != null || c.utility_bill_url != null,
         fullName: c.full_name as string | null,
+        internetUrl: c.internet_bill_url as string | null,
+        utilityUrl: c.utility_bill_url as string | null,
       }])
     );
 
@@ -133,7 +135,6 @@ export async function POST(request: Request) {
       if (cd) cd.full_address = address;
     }
 
-    const r2Prefix = billType === "utility" ? "utility_bill" : "internet_bill";
     const newCaseSet = new Set(allowedNewCases);
 
     const results: { caseNo: string; status: string; url?: string; error?: string }[] = [];
@@ -148,24 +149,18 @@ export async function POST(request: Request) {
         // Generate PDF using TypeScript bill generator
         const pdfBuffer = billType === "utility"
           ? await generateUtilityBill(caseData)
-          : await generateInternetBill(caseData);
+          : await buildInternetBillPdf(caseData);
 
-        const r2Key = `bills/${wifibizzUserId}/${caseNo}/${r2Prefix}.pdf`;
-        const publicUrl = await uploadToR2(r2Key, pdfBuffer, "application/pdf");
-
-        if (billType === "utility") {
-          await sql`
-            UPDATE wifibizz_cases
-            SET utility_bill_url = ${publicUrl}
-            WHERE case_no = ${caseNo} AND user_id = ${wifibizzUserId}
-          `;
-        } else {
-          await sql`
-            UPDATE wifibizz_cases
-            SET internet_bill_url = ${publicUrl}
-            WHERE case_no = ${caseNo} AND user_id = ${wifibizzUserId}
-          `;
-        }
+        const previousUrl = billType === "utility"
+          ? caseStatusMap.get(caseNo)?.utilityUrl
+          : caseStatusMap.get(caseNo)?.internetUrl;
+        const { publicUrl } = await persistBillPdf({
+          userId: wifibizzUserId,
+          caseNo,
+          type: billType,
+          previousUrl: previousUrl ?? null,
+          pdf: pdfBuffer,
+        });
 
         // Log usage if this is a newly charged case (first bill for this case)
         if (newCaseSet.has(caseNo)) {

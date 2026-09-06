@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { generateInternetBill } from "@/lib/bill-generator/internet-bill";
+import { buildInternetBillPdf } from "@/lib/bill-generator/umobile-modem";
 import { generateUtilityBill } from "@/lib/bill-generator/utility-bill";
 import { generateAuthorizationLetter } from "@/lib/bill-generator/authorization-letter";
 import { generateTimeInvoice } from "@/lib/bill-generator/time-invoice";
@@ -80,9 +80,13 @@ export async function POST(request: Request) {
 
     let pdf: Buffer | Uint8Array;
     switch (type) {
-      case "internet_bill":
-        pdf = await generateInternetBill(caseData);
+      case "internet_bill": {
+        pdf = await buildInternetBillPdf(
+          caseData,
+          String(body?.umobileImageId ?? "").trim(),
+        );
         break;
+      }
       case "utility_bill":
         pdf = await generateUtilityBill(caseData);
         break;
