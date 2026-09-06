@@ -427,6 +427,8 @@ export default function CaseManagementSection() {
 
   // Generate a single bill straight from its row icon (no need to select first),
   // then open it right away. Address is lazily fetched server-side during generation.
+  // Internet always regenerates: a stored URL can still be the old slot-stamped
+  // 3-page PDF, and POST /api/bills/generate is free when the case already has a bill.
   async function handleGenerateSingle(caseNo: string, type: "internet" | "utility") {
     const key = `${caseNo}:${type}`;
     if (generatingCell || generating) return;
@@ -938,9 +940,7 @@ export default function CaseManagementSection() {
                             title={c.internet_bill_url ? "Download Internet Bill" : "Generate Internet Bill"}
                             aria-label={c.internet_bill_url ? `Download internet bill for ${c.case_no}` : `Generate internet bill for ${c.case_no}`}
                             disabled={generatingCell === `${c.case_no}:internet`}
-                            onClick={() => c.internet_bill_url
-                              ? window.open(`/api/bills/download?case_no=${c.case_no}&type=internet&t=${billCacheBuster}`, "_blank")
-                              : handleGenerateSingle(c.case_no, "internet")}
+                            onClick={() => handleGenerateSingle(c.case_no, "internet")}
                             className={`w-14 flex flex-col items-center gap-0.5 rounded-md py-1 transition-colors disabled:cursor-not-allowed ${c.internet_bill_url ? "text-[#635BFF] hover:bg-[#F0EEFF]" : "text-[#9CA3AF] hover:text-[#635BFF] hover:bg-[#F0EEFF]"}`}
                           >
                             {generatingCell === `${c.case_no}:internet`

@@ -15,7 +15,7 @@ In Progress
 
 ## Notes
 
-ClickUp 86eyuq7mk, spec corrected. `generateInternetBill` is bill-only again. `appendUmobileImagePage` concatenates an A4 image page via `mergePdfs`. OE preview is `GET /api/umobile-images/random` plus Re-roll. No Confirm/Skip.
+ClickUp 86eyuq7mk, spec corrected. `generateInternetBill` is bill-only again. `buildInternetBillPdf` is the only Case List / Order Entry combine: bill + `appendUmobileImagePage`. OE preview is `GET /api/umobile-images/random` plus Re-roll. No Confirm/Skip. Case List Internet row always POSTs generate (never downloads a stored slot-stamped R2 object). Empty pool stays 3 pages.
 
 # Previous Feature: Order Entry Generate TA card
 

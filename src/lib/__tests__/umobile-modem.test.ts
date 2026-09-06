@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { describe, it, expect } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { generateInternetBill } from "@/lib/bill-generator/internet-bill";
@@ -70,5 +71,42 @@ describe("generateInternetBill stays bill-only", () => {
     const b = await PDFDocument.load(await generateInternetBill(CASE));
     expect(a.getPageCount()).toBe(b.getPageCount());
     expect(a.getPageCount()).toBe(3);
+  });
+});
+
+describe("Case List uses the Order Entry combine path", () => {
+  it("both generate routes call buildInternetBillPdf and never stamp a slot", async () => {
+    const [helper, bills, orders, caseList] = await Promise.all([
+      readFile("src/lib/bill-generator/umobile-modem.ts", "utf8"),
+      readFile("src/app/api/bills/generate/route.ts", "utf8"),
+      readFile("src/app/api/orders/generate-document/route.ts", "utf8"),
+      readFile("src/components/dashboard/CaseManagementSection.tsx", "utf8"),
+    ]);
+
+    for (const src of [helper, bills, orders, caseList]) {
+      expect(src).not.toMatch(/UMOBILE_MODEM_SLOT|stampModemInSlot|stamp-into-slot/);
+    }
+
+    expect(helper).toContain("export async function buildInternetBillPdf");
+    expect(helper).toContain("appendUmobileImagePage");
+    expect(bills).toContain("buildInternetBillPdf");
+    expect(bills).not.toContain("generateInternetBill(");
+    expect(orders).toContain("buildInternetBillPdf");
+    expect(orders).not.toContain("generateInternetBill(");
+
+    // Per-row Internet always POSTs generate. Downloading a stored URL would
+    // re-serve a pre-combine (slot-stamped) R2 object for already-billed cases.
+    const internetClick = caseList.slice(
+      caseList.indexOf('aria-label={c.internet_bill_url ? `Download internet bill'),
+      caseList.indexOf('aria-label={c.utility_bill_url'),
+    );
+    expect(internetClick).toContain('handleGenerateSingle(c.case_no, "internet")');
+    expect(internetClick).not.toContain("/api/bills/download");
+  });
+
+  it("empty-pool combine stays bill-only (Case List 3 pages)", async () => {
+    const bill = await generateInternetBill(CASE);
+    const combined = await appendUmobileImagePage(bill, null);
+    expect((await PDFDocument.load(combined)).getPageCount()).toBe(3);
   });
 });

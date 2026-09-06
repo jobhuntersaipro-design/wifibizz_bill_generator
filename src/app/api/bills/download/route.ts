@@ -91,7 +91,7 @@ export async function GET(request: Request) {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `inline; filename="${filename}"`,
-        "Cache-Control": "no-cache",
+        "Cache-Control": "no-store",
       },
     });
   } catch (error) {

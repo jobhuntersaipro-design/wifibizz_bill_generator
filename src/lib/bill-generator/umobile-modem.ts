@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getBytesFromR2 } from "@/lib/r2";
+import { generateInternetBill, type CaseData } from "./internet-bill";
 import { imageToPdfPage } from "./image-page";
 import { mergePdfs } from "./merge-pdfs";
 
@@ -81,6 +82,26 @@ async function bytesFromRow(row: {
   const bytes = await getBytesFromR2(row.r2Key);
   if (!bytes) return null;
   return { bytes, mime };
+}
+
+/**
+ * The only internet-bill combine used by Case List and Order Entry.
+ *
+ * Builds the 3-page bill, then appends one pool image as an extra A4 page.
+ * `imageId` (Order Entry preview pick) loads that row; anything else — Case
+ * List, a missing id, or a failed load — falls back to a random pool row.
+ * An empty pool returns the bill unchanged (3 pages).
+ */
+export async function buildInternetBillPdf(
+  caseData: CaseData,
+  imageId?: string | null,
+): Promise<Buffer> {
+  const bill = await generateInternetBill(caseData);
+  const trimmed = imageId?.trim() ?? "";
+  const image = trimmed
+    ? (await loadModemImageById(trimmed)) ?? (await loadRandomModemImage())
+    : await loadRandomModemImage();
+  return appendUmobileImagePage(bill, image);
 }
 
 /**
