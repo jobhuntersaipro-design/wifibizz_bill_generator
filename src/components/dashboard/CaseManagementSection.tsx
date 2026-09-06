@@ -917,8 +917,11 @@ export default function CaseManagementSection() {
                       <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-40 text-[13px] text-[#697386]">{c.agent_remark || "—"}</span></td>
                       <td className="px-4 py-3 text-[13px] text-[#697386] tabular-nums whitespace-nowrap">{formatDateTime(c.case_created_at)}</td>
                       <td className="px-4 py-3 text-[13px] text-[#697386] tabular-nums whitespace-nowrap hidden lg:table-cell">{formatDateTime(c.updated_at)}</td>
-                      <td className="px-3 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-start gap-1 border-l border-[#E3E8EF] pl-2">
+                      <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                        {/* Four w-14 buttons + 3 gaps = 236px. Wrap so TA (4th) stays
+                            on the first row; a nowrap 480px strip hid it in the
+                            last-column clip when the table is scrolled to Bills. */}
+                        <div className="flex flex-wrap items-start gap-1 border-l border-[#E3E8EF] pl-2 w-[236px]">
                           <button
                             title="Generate Chat"
                             aria-label={`Generate closing script chat for ${c.case_no}`}
@@ -960,6 +963,7 @@ export default function CaseManagementSection() {
                             <span className="text-[10px] leading-none font-medium text-[#697386]">Utility</span>
                           </button>
                           <button
+                            data-action="tenancy-agreement"
                             title={c.full_name?.trim() ? "Download Tenancy Agreement" : "Tenancy Agreement needs a customer name"}
                             aria-label={c.full_name?.trim() ? `Download tenancy agreement for ${c.case_no}` : `Tenancy agreement unavailable for ${c.case_no}: no customer name`}
                             disabled={!c.full_name?.trim() || taCase === c.case_no}

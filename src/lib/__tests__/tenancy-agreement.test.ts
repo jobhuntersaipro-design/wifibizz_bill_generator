@@ -31,6 +31,7 @@ import {
   ringgitAmountLabel,
   pickRentRinggit,
   pickBankAccount,
+  agreementDateUtc,
   RENT_MIN,
   RENT_MAX,
   RENT_STEP,
@@ -140,12 +141,12 @@ describe("agreementDateFrom", () => {
 });
 
 describe("pickAgreementDate", () => {
-  it("is inclusive of today+3 months and today+6 months", () => {
+  it("is inclusive of today−6 months and today−3 months", () => {
     const today = agreementDateFrom(FROZEN);
-    expect(addCalendarMonths(today, 3)).toEqual({ day: 5, monthIndex: 11, year: 2026 });
-    expect(addCalendarMonths(today, 6)).toEqual({ day: 5, monthIndex: 2, year: 2027 });
-    expect(pickAgreementDate(FROZEN, () => 0)).toEqual(addCalendarMonths(today, 3));
-    expect(pickAgreementDate(FROZEN, () => 0.999999)).toEqual(addCalendarMonths(today, 6));
+    expect(addCalendarMonths(today, -6)).toEqual({ day: 5, monthIndex: 2, year: 2026 });
+    expect(addCalendarMonths(today, -3)).toEqual({ day: 5, monthIndex: 5, year: 2026 });
+    expect(pickAgreementDate(FROZEN, () => 0)).toEqual(addCalendarMonths(today, -6));
+    expect(pickAgreementDate(FROZEN, () => 0.999999)).toEqual(addCalendarMonths(today, -3));
   });
 
   it("stays in the window, matches §5b, and drives §5c", () => {
@@ -153,6 +154,7 @@ describe("pickAgreementDate", () => {
     for (let seed = 1; seed <= 40; seed++) {
       const s = tenancyStampFrom(CASE, FROZEN, makeRng(seed));
       expect(isAgreementDateInWindow(s.date, FROZEN)).toBe(true);
+      expect(agreementDateUtc(s.date)).toBeLessThan(agreementDateUtc(agreementDateFrom(FROZEN)));
       expect(s.expire).toEqual(expireDateFrom(s.date));
       seen.add(scheduleDateLabel(s.date));
     }
@@ -442,5 +444,16 @@ describe("pickBankAccount", () => {
     expect(a.bankAccount).not.toBe(SAMPLE_BANK_ACCOUNT);
     expect(b.bankAccount).not.toBe(SAMPLE_BANK_ACCOUNT);
     expect(a.bankAccount).not.toBe(b.bankAccount);
+  });
+});
+
+describe("Bills column TA", () => {
+  it("keeps TA on the first wrapped row of the case-row Bills cell", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const src = await readFile("src/components/dashboard/CaseManagementSection.tsx", "utf8");
+    expect(src).toContain('data-action="tenancy-agreement"');
+    expect(src).toContain("flex-wrap");
+    expect(src).toContain("w-[236px]");
+    expect(src.indexOf("tenancy-agreement")).toBeLessThan(src.indexOf("Generate Authorization Letter"));
   });
 });
