@@ -5,7 +5,7 @@
  * Stamp set (v3): tenant name + NRIC from the case; demised premises from the
  * case address; a fresh random landlord (every appearance, including the bank
  * account name); agreement / commence dates = a random day in
- * [generation day + 3 months, generation day + 6 months] (Malaysia UTC+8);
+ * [generation day − 6 months, generation day − 3 months] (Malaysia UTC+8);
  * expire = commence + 18 months − 1 day; monthly rent in RM800–2000 step 50;
  * security deposit = 2 × rent; bank account number is a fresh 10-digit
  * Malaysian-style grouping (`XXXX XXXX XX`) each download. Term length,
@@ -58,8 +58,9 @@ export const RENT_MIN = 800;
 export const RENT_MAX = 2000;
 export const RENT_STEP = 50;
 export const TERM_MONTHS = 18;
-export const AGREEMENT_LEAD_MIN_MONTHS = 3;
-export const AGREEMENT_LEAD_MAX_MONTHS = 6;
+/** Agreement date is this many months *before* generation day (inclusive window). */
+export const AGREEMENT_LAG_MIN_MONTHS = 3;
+export const AGREEMENT_LAG_MAX_MONTHS = 6;
 
 const MONTHS = [
   'JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE',
@@ -132,14 +133,14 @@ export function agreementDateUtc(date: AgreementDate): number {
   return Date.UTC(date.year, date.monthIndex, date.day);
 }
 
-/** Uniform calendar day in [today+3 months, today+6 months] inclusive, MYT. */
+/** Uniform calendar day in [today−6 months, today−3 months] inclusive, MYT. */
 export function pickAgreementDate(
   now = new Date(),
   rng: () => number = Math.random,
 ): AgreementDate {
   const today = agreementDateFrom(now);
-  const start = addCalendarMonths(today, AGREEMENT_LEAD_MIN_MONTHS);
-  const end = addCalendarMonths(today, AGREEMENT_LEAD_MAX_MONTHS);
+  const start = addCalendarMonths(today, -AGREEMENT_LAG_MAX_MONTHS);
+  const end = addCalendarMonths(today, -AGREEMENT_LAG_MIN_MONTHS);
   const startMs = agreementDateUtc(start);
   const endMs = agreementDateUtc(end);
   const days = Math.round((endMs - startMs) / 86_400_000) + 1;
@@ -156,8 +157,8 @@ export function isAgreementDateInWindow(date: AgreementDate, now = new Date()): 
   const today = agreementDateFrom(now);
   const t = agreementDateUtc(date);
   return (
-    t >= agreementDateUtc(addCalendarMonths(today, AGREEMENT_LEAD_MIN_MONTHS)) &&
-    t <= agreementDateUtc(addCalendarMonths(today, AGREEMENT_LEAD_MAX_MONTHS))
+    t >= agreementDateUtc(addCalendarMonths(today, -AGREEMENT_LAG_MAX_MONTHS)) &&
+    t <= agreementDateUtc(addCalendarMonths(today, -AGREEMENT_LAG_MIN_MONTHS))
   );
 }
 
