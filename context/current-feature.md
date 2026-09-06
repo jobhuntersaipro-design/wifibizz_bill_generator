@@ -1,4 +1,23 @@
-# Current Feature
+# Current Feature: Tenancy Agreement (TA) PDF Download
+
+## Status
+
+CODE COMPLETE (branch `cursor/tenancy-agreement-pdf-0327`, PR #3). Vercel-only — no scraper change, no migration.
+
+Stamp rules **v3** supersede the freeze-heavy lock. The user-facing PDF is Chris’s sample (`assets/tenancy-agreement-template.pdf`) with: tenant name + NRIC from the case; **Sec 4 premises = the full order/case detail address** (not the truncated Case List string); a **random Malay landlord** on every appearance including the bank account name (account number is a fresh `XXXX XXXX XX` each download); agreement + commence = random day in **[generation day + 3 months, generation day + 6 months]** (MYT); expire = +18 months − 1 day; rent RM800–2000 step 50; deposit = 2× rent; **TENANT IDENTIFICATION / MyKad pages removed**. TA stays on the case-row Bills column.
+
+## Goals
+
+- Case list Bills column has a `TA` button next to the existing Bill actions
+- Click downloads the stamped sample (tenant, address, random landlord, term dates, rent/deposit)
+- Backend mirrors Letter/TIME: `GET /api/bills/tenancy-agreement?case_no=…` — download only, no persist
+- TA button disabled when the case has no customer name
+- Works even if Bill was never generated
+- Reuse the existing pdf-lib bill-generator pipeline; no new page, no new DB tables
+
+## Notes
+
+Template is a Quartz text PDF (`Form: none`). Stamp blanks sample literals via ToUnicode + CTM and redraws in Times-Bold / Helvetica-Bold. Landlord is `generateRandomLandlord` (not case-seeded). Nothing is stored: no R2 object, no column, no `CaseUsageLog` row.
 
 ## Login Page — ZenGarden Logo Animation
 

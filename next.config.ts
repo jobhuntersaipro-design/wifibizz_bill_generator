@@ -6,6 +6,12 @@ const nextConfig: NextConfig = {
   devIndicators: false,
   outputFileTracingIncludes: {
     '/api/bills/generate': ['./bill_generator/template/**/*'],
+    '/api/bills/time-invoice': ['./bill_generator/template/**/*'],
+    '/api/bills/tenancy-agreement': [
+      './bill_generator/template/**/*',
+      './assets/**/*',
+      './src/lib/bill-generator/templates/**/*',
+    ],
   },
   experimental: {
     // Document uploads go through the `uploadOrderDocument` Server Action, and

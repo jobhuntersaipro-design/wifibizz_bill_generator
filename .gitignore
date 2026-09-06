@@ -78,5 +78,12 @@ next-env.d.ts
 !bill_generator/template/
 !bill_generator/template/*.pdf
 
+# Chris’s 13-page TA sample if it lands under assets/ instead of the bill
+# generator template folder. The blanket *.pdf above would otherwise drop it.
+!assets/
+!assets/*.pdf
+!src/lib/bill-generator/templates/
+!src/lib/bill-generator/templates/*.pdf
+
 # Seeding input for scripts/seed-orders.ts — holds real customer addresses.
 addresses.txt

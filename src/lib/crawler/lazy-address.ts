@@ -30,10 +30,11 @@ export interface CaseAddressInput {
  */
 export async function fillMissingAddresses(
   user: WifibizzUserForAddress,
-  cases: CaseAddressInput[]
+  cases: CaseAddressInput[],
+  opts?: { force?: boolean },
 ): Promise<Record<string, string>> {
   const missing = cases.filter(
-    (c) => (!c.full_address || !c.full_address.trim()) && c.case_url
+    (c) => (opts?.force || !c.full_address || !c.full_address.trim()) && c.case_url
   );
   if (missing.length === 0) return {};
 
