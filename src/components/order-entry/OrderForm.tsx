@@ -23,18 +23,13 @@ import {
 } from "@/lib/order-types";
 import { GENERATED_DOCS, docSpec, generatableDocTypes, isDocTypeAttached, missingFieldsFor, type GeneratedDocType } from "@/lib/order-documents";
 import {
-  COMBINED_DOC_LABEL,
   COMBINED_DOC_TYPE,
   MIN_COMBINE,
   applyCombine,
   canCombine,
-  isImageDocument,
   mergeLabel,
   moveDoc,
 } from "@/lib/order-merge";
-import { mergePdfs } from "@/lib/bill-generator/merge-pdfs";
-import { pngToPdfPage } from "@/lib/bill-generator/image-page";
-import { contentTypeFor, imageBytesToPng } from "@/lib/browser-image";
 import GenerateDocRunner from "./GenerateDocRunner";
 import { UmobileImagePreview } from "./UmobileImagePreview";
 import { getPublishedPlans, getPlanOffer } from "@/actions/plans";
@@ -779,74 +774,68 @@ export function OrderForm({
    * Merge EVERY supporting document into one PDF, attach it, and drop the files
    * it replaced so exactly one is left.
    *
-   * The order in which those happen is the whole safety of this: the sources are
-   * removed only AFTER the combined file has uploaded, so a failed merge or a
-   * failed upload leaves the order exactly as it was. Nothing here deletes from
-   * R2 — the originals remain, they simply stop being attached.
+   * Merge + store run on the server from the files already in R2. The old path
+   * built the PDF in the browser and POSTed it through `uploadOrderDocument`;
+   * a PDF+JPG pair re-encoded the JPEG as PNG and the Server Action then
+   * returned HTML instead of a flight response — "An unexpected response was
+   * received from the server." The tray still only updates AFTER a successful
+   * store, so a failed combine leaves the order as it was. Nothing here deletes
+   * from R2 — the originals remain, they simply stop being attached.
    */
   async function handleCombine() {
     const chosen = [...supportingDocs];
     if (!canCombine(chosen) || combining) return;
+    if (!idNumber.trim()) {
+      toast.error("Enter the ID number before combining documents.");
+      return;
+    }
 
     setCombining(true);
     try {
-      const sources: { label: string; bytes: Uint8Array }[] = [];
-      const unreadable: string[] = [];
-
-      for (const doc of chosen) {
-        try {
-          const res = await fetch(doc.url);
-          if (!res.ok) throw new Error(String(res.status));
-          const bytes = new Uint8Array(await res.arrayBuffer());
-          if (isImageDocument(doc.filename)) {
-            // Images become a page of their own. Normalizing through the canvas
-            // first is what lets a BMP or WEBP take part at all — pdf-lib embeds
-            // only PNG and JPEG, and an unembeddable source would be dropped.
-            const png = await imageBytesToPng(bytes, contentTypeFor(doc.filename));
-            sources.push({ label: mergeLabel(doc), bytes: await pngToPdfPage(png) });
-          } else {
-            sources.push({ label: mergeLabel(doc), bytes });
-          }
-        } catch {
-          unreadable.push(mergeLabel(doc));
-        }
-      }
-
-      if (sources.length === 0) {
-        toast.error("None of the documents could be read — nothing was changed.");
-        return;
-      }
-
-      const merged = await mergePdfs(sources);
-      // mergePdfs reports what it could not parse; the fetch loop reports what it
-      // could not read. Both are named, because a combined file quietly missing a
-      // page looks exactly like a combine that worked.
-      const skipped = [...unreadable, ...merged.failed];
-
       const seq = documents.filter((d) => d.type === COMBINED_DOC_TYPE).length + 1;
-      const file = new File([merged.bytes as unknown as BlobPart], `combined_${seq}.pdf`, {
-        type: "application/pdf",
+      const res = await fetch("/api/orders/combine-documents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          keys: chosen.map((d) => d.key),
+          idNumber,
+          idType,
+          seq,
+        }),
       });
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("idNumber", idNumber);
-      fd.append("idType", idType);
-      fd.append("docType", COMBINED_DOC_TYPE);
-      fd.append("otherLabel", COMBINED_DOC_LABEL);
-      fd.append("seq", String(seq));
 
-      const res = await uploadOrderDocument(fd);
-      if (!res.success) {
-        toast.error(res.error ?? "The combined PDF could not be attached — nothing was changed.");
+      const contentType = res.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        throw new Error(
+          res.status === 413
+            ? "The combined file is too large to attach."
+            : `Server returned ${res.status} instead of JSON.`,
+        );
+      }
+
+      const data = (await res.json()) as {
+        success: boolean;
+        error?: string;
+        url?: string;
+        key?: string;
+        filename?: string;
+        type?: string;
+        pageCount?: number;
+        failed?: string[];
+      };
+
+      if (!data.success || !data.url || !data.key || !data.filename || !data.type) {
+        toast.error(data.error ?? "The combined PDF could not be attached — nothing was changed.");
         return;
       }
 
       // Only the documents that actually made it into the PDF are replaced. One
       // that could not be read is still on the order, because its pages are not
       // in the combined file and removing it would lose it for nothing.
+      const skipped = data.failed ?? [];
       const skippedSet = new Set(skipped);
       const replaced = chosen.filter((d) => !skippedSet.has(mergeLabel(d))).map((d) => d.key);
-      const combined = { type: res.type, url: res.url, key: res.key, filename: res.filename };
+      const combined = { type: data.type, url: data.url, key: data.key, filename: data.filename };
 
       setCollapsingKeys(replaced);
       // Let the collapse play before the rows leave the tree — removing them in
@@ -854,15 +843,16 @@ export function OrderForm({
       await new Promise((r) => setTimeout(r, 260));
       setDocuments((docs) => applyCombine(docs, replaced, combined));
       setCollapsingKeys([]);
-      setArrivedKey(res.key);
-      setTimeout(() => setArrivedKey((k) => (k === res.key ? null : k)), 900);
+      setArrivedKey(data.key);
+      setTimeout(() => setArrivedKey((k) => (k === data.key ? null : k)), 900);
 
+      const pageCount = data.pageCount ?? 0;
       if (skipped.length > 0) {
         toast.warning(
-          `Combined ${merged.pageCount} pages. Could not read ${skipped.join(", ")} — left attached.`,
+          `Combined ${pageCount} pages. Could not read ${skipped.join(", ")} — left attached.`,
         );
       } else {
-        toast.success(`Combined ${replaced.length} documents into one ${merged.pageCount}-page PDF.`);
+        toast.success(`Combined ${replaced.length} documents into one ${pageCount}-page PDF.`);
       }
     } catch (e) {
       toast.error(e instanceof Error ? `Combine failed: ${e.message}` : "Combine failed. Try again.");
