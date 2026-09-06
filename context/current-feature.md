@@ -2,7 +2,7 @@
 
 ## Status
 
-In Progress (branch `cursor/order-entry-ta-generate-7313`). ClickUp BUILD `86eyuq1xg`. Vercel-only. No scraper change. No migration. No new stamp logic.
+CODE COMPLETE (branch `cursor/order-entry-ta-generate-7313`, PR #5). ClickUp BUILD `86eyuq1xg`. Vercel-only. No scraper change. No migration. No new stamp logic. Vitest 70/70. Order-shaped stamp proof passed. Browser attach not run in this VM (no DATABASE_URL / AUTH_SECRET).
 
 ## Goals
 
