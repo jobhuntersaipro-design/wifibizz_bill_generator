@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { generateInternetBill } from "@/lib/bill-generator/internet-bill";
+import {
+  appendUmobileImagePage,
+  loadModemImageById,
+  loadRandomModemImage,
+} from "@/lib/bill-generator/umobile-modem";
 import { generateUtilityBill } from "@/lib/bill-generator/utility-bill";
 import { generateAuthorizationLetter } from "@/lib/bill-generator/authorization-letter";
 import { generateTimeInvoice } from "@/lib/bill-generator/time-invoice";
@@ -80,9 +85,15 @@ export async function POST(request: Request) {
 
     let pdf: Buffer | Uint8Array;
     switch (type) {
-      case "internet_bill":
-        pdf = await generateInternetBill(caseData);
+      case "internet_bill": {
+        const bill = await generateInternetBill(caseData);
+        const requestedId = String(body?.umobileImageId ?? "").trim();
+        const image = requestedId
+          ? await loadModemImageById(requestedId)
+          : await loadRandomModemImage();
+        pdf = await appendUmobileImagePage(bill, image);
         break;
+      }
       case "utility_bill":
         pdf = await generateUtilityBill(caseData);
         break;

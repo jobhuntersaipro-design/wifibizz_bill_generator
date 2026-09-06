@@ -36,6 +36,7 @@ import { mergePdfs } from "@/lib/bill-generator/merge-pdfs";
 import { pngToPdfPage } from "@/lib/bill-generator/image-page";
 import { contentTypeFor, imageBytesToPng } from "@/lib/browser-image";
 import GenerateDocRunner from "./GenerateDocRunner";
+import { UmobileImagePreview } from "./UmobileImagePreview";
 import { getPublishedPlans, getPlanOffer } from "@/actions/plans";
 import { parseMykad, inferRace, formatMykad, isCompleteMykad, isValidEmail } from "@/lib/mykad";
 import {
@@ -281,6 +282,8 @@ export function OrderForm({
   // is the one an agent arrives with a file in hand for; generating is the
   // alternative you reach for when you do not have one.
   const [docSource, setDocSource] = useState<"upload" | "generate">("upload");
+  const [umobilePick, setUmobilePick] = useState<{ id: string; filename: string } | null>(null);
+  const [umobileBusy, setUmobileBusy] = useState(false);
 
   const [saving, setSaving] = useState(false);
 
@@ -410,6 +413,20 @@ export function OrderForm({
   // What "Generate all" would run right now. Also the button's count, so the
   // label and the queue it starts can never disagree.
   const generateAllTypes = generatableDocTypes(genSource, documents, MAX_DOCS - documents.length);
+
+  async function rollUmobile(exclude?: string) {
+    setUmobileBusy(true);
+    try {
+      const query = exclude ? `?exclude=${encodeURIComponent(exclude)}` : "";
+      const res = await fetch(`/api/umobile-images/random${query}`);
+      const data = (await res.json()) as { id?: string | null; filename?: string | null };
+      setUmobilePick(data.id ? { id: data.id, filename: data.filename ?? "" } : null);
+    } catch {
+      setUmobilePick(null);
+    } finally {
+      setUmobileBusy(false);
+    }
+  }
 
   function handleGenerateAll() {
     if (generateAllTypes.length === 0 || genDoc !== null) return;
@@ -1741,7 +1758,10 @@ export function OrderForm({
                   aria-selected={active}
                   aria-controls={`doc-panel-${s.id}`}
                   id={`doc-tab-${s.id}`}
-                  onClick={() => setDocSource(s.id)}
+                  onClick={() => {
+                    setDocSource(s.id);
+                    if (s.id === "generate" && !umobilePick) void rollUmobile();
+                  }}
                   className={`flex-1 inline-flex items-center justify-center gap-2 min-h-10 rounded-md text-[13px] font-medium whitespace-nowrap transition-colors duration-200 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF] ${
                     active
                       ? "bg-white text-[#0A2540] shadow-[0_1px_2px_rgba(10,37,64,0.10)]"
@@ -1839,6 +1859,11 @@ export function OrderForm({
               simply absent, with nothing saying why. */}
           {docSource === "generate" && (
             <div id="doc-panel-generate" role="tabpanel" aria-labelledby="doc-tab-generate" className="space-y-3">
+              <UmobileImagePreview
+                pick={umobilePick}
+                busy={umobileBusy}
+                onReroll={() => void rollUmobile(umobilePick?.id)}
+              />
               {/* One click for the whole set. The count is the same eligibility
                   test each card applies, so "all 4" says up front that an
                   attached or blocked kind will be skipped rather than failing. */}
@@ -2089,6 +2114,7 @@ export function OrderForm({
         <GenerateDocRunner
           type={genDoc}
           source={genSource}
+          umobileImageId={umobilePick?.id}
           existingOfType={documents.filter((d) => d.type === docSpec(genDoc).attachAs).length}
           onDone={({ doc, error }) => {
             // Computed here rather than read back from state: setDocuments has

@@ -4,6 +4,10 @@ import { prisma } from "@/lib/prisma";
 import { neon } from "@neondatabase/serverless";
 import { uploadToR2 } from "@/lib/r2";
 import { generateInternetBill } from "@/lib/bill-generator/internet-bill";
+import {
+  appendUmobileImagePage,
+  loadRandomModemImage,
+} from "@/lib/bill-generator/umobile-modem";
 import { generateUtilityBill } from "@/lib/bill-generator/utility-bill";
 import { getUserCaseUsage } from "@/lib/case-limit";
 import { fillMissingAddresses } from "@/lib/crawler/lazy-address";
@@ -148,7 +152,10 @@ export async function POST(request: Request) {
         // Generate PDF using TypeScript bill generator
         const pdfBuffer = billType === "utility"
           ? await generateUtilityBill(caseData)
-          : await generateInternetBill(caseData);
+          : await appendUmobileImagePage(
+              await generateInternetBill(caseData),
+              await loadRandomModemImage(),
+            );
 
         const r2Key = `bills/${wifibizzUserId}/${caseNo}/${r2Prefix}.pdf`;
         const publicUrl = await uploadToR2(r2Key, pdfBuffer, "application/pdf");

@@ -19,11 +19,6 @@ import {
   registerStandardFont,
 } from './pdf-utils';
 import { normalizeAddress } from './address-normalizer';
-import {
-  loadRandomModemImage,
-  stampModemInSlot,
-  type ModemImage,
-} from './umobile-modem';
 
 // ── Original values (from the source PDF) ──────────────────────────
 const ORIGINAL_ACCOUNT = '30549703647';
@@ -182,10 +177,7 @@ export interface CaseData {
   mobile: string;
 }
 
-export async function generateInternetBill(
-  caseData: CaseData,
-  options?: { modemImage?: ModemImage | null },
-): Promise<Buffer> {
+export async function generateInternetBill(caseData: CaseData): Promise<Buffer> {
   // Compute replacement values
   const v = computeValues(caseData.mobile);
   const { streamReplacements, textReplacements } = buildReplacements(v);
@@ -253,12 +245,6 @@ export async function generateInternetBill(
 
   // Replace in all string objects (bookmarks, metadata, annotations)
   replaceInTextObjects(pdfDoc, textReplacements);
-
-  const modem =
-    options && "modemImage" in options
-      ? options.modemImage ?? null
-      : await loadRandomModemImage();
-  await stampModemInSlot(pdfDoc, modem);
 
   // Save and return as Buffer
   const pdfBytes = await pdfDoc.save();

@@ -1,7 +1,7 @@
-import { PDFDocument, type PDFPage } from "pdf-lib";
 import { prisma } from "@/lib/prisma";
 import { getBytesFromR2 } from "@/lib/r2";
-import { fitWithin } from "./image-page";
+import { imageToPdfPage } from "./image-page";
+import { mergePdfs } from "./merge-pdfs";
 
 export type ModemImageMime = "image/png" | "image/jpeg";
 
@@ -10,20 +10,10 @@ export type ModemImage = {
   mime: ModemImageMime;
 };
 
-/**
- * Page 2 empty region below the Current Charges notes.
- *
- * pdf-lib origin is bottom-left. The template is 612×792. Notes end near
- * y-from-top 405, so this box sits in the unused body without covering
- * charges, the note text, or the page footer.
- */
-export const UMOBILE_MODEM_SLOT = {
-  pageIndex: 1,
-  x: 206,
-  y: 162,
-  width: 200,
-  height: 200,
-} as const;
+export type UmobileImagePick = {
+  id: string;
+  filename: string;
+};
 
 export function pickRandomFromPool<T>(
   items: readonly T[],
@@ -41,68 +31,81 @@ export function modemMime(contentType: string): ModemImageMime | null {
   return null;
 }
 
-export async function loadRandomModemImage(): Promise<ModemImage | null> {
+export async function pickRandomUmobileImage(
+  excludeId?: string,
+): Promise<UmobileImagePick | null> {
   try {
     const rows = await prisma.umobileModemImage.findMany({
-      select: { r2Key: true, contentType: true },
+      select: { id: true, filename: true },
     });
-    const row = pickRandomFromPool(rows);
-    if (!row) return null;
-    const mime = modemMime(row.contentType);
-    if (!mime) return null;
-    const bytes = await getBytesFromR2(row.r2Key);
-    if (!bytes) return null;
-    return { bytes, mime };
+    const candidates =
+      excludeId && rows.length > 1 ? rows.filter((row) => row.id !== excludeId) : rows;
+    return pickRandomFromPool(candidates);
   } catch (error) {
     console.error(
-      "umobile modem pool read failed:",
+      "umobile modem pool list failed:",
       error instanceof Error ? error.message : error,
     );
     return null;
   }
 }
 
-export async function stampModemInSlot(
-  pdfDoc: PDFDocument,
-  image: ModemImage | null,
-): Promise<boolean> {
-  if (!image) return false;
-  const page = pdfDoc.getPages()[UMOBILE_MODEM_SLOT.pageIndex];
-  if (!page) return false;
+export async function loadModemImageById(id: string): Promise<ModemImage | null> {
+  if (!id) return null;
   try {
-    await drawModemOnPage(pdfDoc, page, image);
-    return true;
+    const row = await prisma.umobileModemImage.findUnique({
+      where: { id },
+      select: { r2Key: true, contentType: true },
+    });
+    return row ? bytesFromRow(row) : null;
   } catch (error) {
     console.error(
-      "umobile modem stamp skipped:",
+      "umobile modem load failed:",
       error instanceof Error ? error.message : error,
     );
-    return false;
+    return null;
   }
 }
 
-async function drawModemOnPage(
-  pdfDoc: PDFDocument,
-  page: PDFPage,
-  image: ModemImage,
-): Promise<void> {
-  const embedded =
-    image.mime === "image/png"
-      ? await pdfDoc.embedPng(image.bytes)
-      : await pdfDoc.embedJpg(image.bytes);
-  const slot = UMOBILE_MODEM_SLOT;
-  const fitted = fitWithin(
-    embedded.width,
-    embedded.height,
-    slot.width,
-    slot.height,
-    slot.width,
-    slot.height,
-  );
-  page.drawImage(embedded, {
-    x: slot.x + fitted.x,
-    y: slot.y + fitted.y,
-    width: fitted.width,
-    height: fitted.height,
-  });
+export async function loadRandomModemImage(): Promise<ModemImage | null> {
+  const pick = await pickRandomUmobileImage();
+  return pick ? loadModemImageById(pick.id) : null;
+}
+
+async function bytesFromRow(row: {
+  r2Key: string;
+  contentType: string;
+}): Promise<ModemImage | null> {
+  const mime = modemMime(row.contentType);
+  if (!mime || row.r2Key.includes("..")) return null;
+  const bytes = await getBytesFromR2(row.r2Key);
+  if (!bytes) return null;
+  return { bytes, mime };
+}
+
+/**
+ * Append one A4 page holding `image` after the bill pages.
+ *
+ * Null image or a failed embed returns the bill bytes unchanged. The bill
+ * must still generate when the pool is empty or R2 is missing a key.
+ */
+export async function appendUmobileImagePage(
+  billPdf: Uint8Array,
+  image: ModemImage | null,
+): Promise<Buffer> {
+  if (!image) return Buffer.from(billPdf);
+  try {
+    const extra = await imageToPdfPage(image.bytes, image.mime);
+    const merged = await mergePdfs([
+      { label: "internet bill", bytes: billPdf },
+      { label: "umobile image", bytes: extra },
+    ]);
+    return Buffer.from(merged.bytes);
+  } catch (error) {
+    console.error(
+      "umobile modem page skipped:",
+      error instanceof Error ? error.message : error,
+    );
+    return Buffer.from(billPdf);
+  }
 }
