@@ -8,9 +8,23 @@ import {
   SAMPLE_TENANT_NAME_LINE2,
   SAMPLE_TENANT_NRIC,
   SAMPLE_SCHEDULE_DATE,
+  SAMPLE_EXPIRE_DATE,
+  SAMPLE_RENT_AMOUNT,
+  SAMPLE_DEPOSIT_AMOUNT,
+  SAMPLE_BANK_ACCOUNT,
+  SAMPLE_CAR_PARK,
   agreementDateFrom,
+  expireDateFrom,
   scheduleDateLabel,
+  tenancyStampFrom,
   tenantStampFrom,
+  ringgitWords,
+  formatRm,
+  ringgitAmountLabel,
+  pickRentRinggit,
+  RENT_MIN,
+  RENT_MAX,
+  RENT_STEP,
 } from "@/lib/bill-generator/tenancy-fields";
 import {
   decodePdfHex,
@@ -23,7 +37,7 @@ import {
   resolveTenancyTemplatePath,
   TEMPLATE_MISSING,
 } from "@/lib/bill-generator/tenancy-agreement";
-import { formatIcDashed } from "@/lib/bill-generator/owner-identity";
+import { formatIcDashed, generateRandomLandlord, makeRng } from "@/lib/bill-generator/owner-identity";
 import { pdfContentText } from "@/lib/erf-appointment";
 
 function pdfVisibleText(bytes: Uint8Array): string {
@@ -37,6 +51,13 @@ function pdfVisibleText(bytes: Uint8Array): string {
   }
   return parts.join("\n");
 }
+
+const CASE = {
+  case_no: "202666996",
+  full_name: "Nor Azzawani Fizatulazira Binti Zulkepeli",
+  id_no: "011023120384",
+  full_address: "LOT 978, JALAN KAMPUNG BARU, 47000 SUNGAI BULOH, SELANGOR",
+};
 
 async function syntheticTemplate(): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
@@ -57,6 +78,9 @@ async function syntheticTemplate(): Promise<Uint8Array> {
   cover.drawText(SAMPLE_TENANT_NAME_LINE1, { x: 200, y: 500, size: 12, font });
   cover.drawText(SAMPLE_TENANT_NAME_LINE2, { x: 210, y: 482, size: 12, font });
   cover.drawText(`NRIC: ${SAMPLE_TENANT_NRIC}`, { x: 220, y: 460, size: 12, font });
+  cover.drawText("Demised Premises:", { x: 220, y: 140, size: 12, font });
+  cover.drawText("F-3A-3A, PELANGI UTAMA BLOCK F, JLN MASJID, BANDAR UTAMA", { x: 80, y: 120, size: 11, font });
+  cover.drawText("47800 PETALING JAYA, SELANGOR.", { x: 180, y: 104, size: 11, font });
 
   const exec = doc.addPage([612, 792]);
   exec.drawText("SIGNED by the LANDLORD", { x: 72, y: 700, size: 11, font: sans });
@@ -72,15 +96,29 @@ async function syntheticTemplate(): Promise<Uint8Array> {
   sched.drawText(`NAME: ${SAMPLE_LANDLORD_NAME}`, { x: 300, y: 660, size: 10, font: sans });
   sched.drawText(`NAME: ${SAMPLE_TENANT_NAME}`, { x: 300, y: 600, size: 10, font: sans });
   sched.drawText(`NRIC: ${SAMPLE_TENANT_NRIC}`, { x: 300, y: 584, size: 10, font: sans });
-  sched.drawText("18 MONTHS", { x: 300, y: 540, size: 10, font: sans });
-  sched.drawText(`15TH JANUARY 2026`, { x: 300, y: 520, size: 10, font: sans });
-  sched.drawText("MAYBANK BERHAD", { x: 300, y: 500, size: 10, font: sans });
-  sched.drawText(SAMPLE_LANDLORD_NAME, { x: 300, y: 484, size: 10, font: sans });
+  sched.drawText("F-3A-3A, PELANGI UTAMA BLOCK F", { x: 300, y: 560, size: 10, font: sans });
+  sched.drawText("JLN MASJID, BANDAR UTAMA, 47800 PETALING JAYA,", { x: 300, y: 546, size: 10, font: sans });
+  sched.drawText("SELANGOR.", { x: 300, y: 532, size: 10, font: sans });
+  sched.drawText("18 MONTHS", { x: 300, y: 520, size: 10, font: sans });
+  sched.drawText(`15TH JANUARY 2026`, { x: 300, y: 500, size: 10, font: sans });
+  sched.drawText("14TH JULY 2027", { x: 300, y: 484, size: 10, font: sans });
+  sched.drawText(`Ringgit Malaysia: ${SAMPLE_RENT_AMOUNT}. EXTRA`, { x: 200, y: 460, size: 9, font: sans });
+  sched.drawText(`CAR PARK PER MONTH ${SAMPLE_CAR_PARK}`, { x: 200, y: 448, size: 9, font: sans });
+  sched.drawText("MAYBANK BERHAD", { x: 300, y: 430, size: 10, font: sans });
+  sched.drawText(`ACCOUNT NAME: ${SAMPLE_LANDLORD_NAME}`, { x: 200, y: 416, size: 10, font: sans });
+  sched.drawText(`ACCOUNT NO: ${SAMPLE_BANK_ACCOUNT}`, { x: 200, y: 402, size: 10, font: sans });
+  sched.drawText(`Ringgit Malaysia: ${SAMPLE_DEPOSIT_AMOUNT} only`, { x: 200, y: 380, size: 9, font: sans });
+  sched.drawText("Ringgit Malaysia: ONE THOUSAND ONLY (RM1000.00)", { x: 200, y: 360, size: 9, font: sans });
+
+  const id = doc.addPage([612, 792]);
+  id.drawText("TENANT IDENTIFICATION", { x: 84, y: 740, size: 12, font: sans });
+  id.drawText(SAMPLE_TENANT_NRIC, { x: 84, y: 700, size: 11, font: sans });
 
   return doc.save();
 }
 
 const FROZEN = new Date("2026-09-05T12:00:00+08:00");
+const STAMP = tenancyStampFrom(CASE, FROZEN, makeRng(42));
 
 describe("agreementDateFrom", () => {
   it("uses the Malaysia calendar date (UTC+8), not UTC", () => {
@@ -92,19 +130,65 @@ describe("agreementDateFrom", () => {
   });
 });
 
+describe("expireDateFrom", () => {
+  it("is commence + 18 months − 1 day (sample 15 Jan 2026 → 14 Jul 2027)", () => {
+    expect(expireDateFrom({ day: 15, monthIndex: 0, year: 2026 })).toEqual({
+      day: 14,
+      monthIndex: 6,
+      year: 2027,
+    });
+    expect(expireDateFrom({ day: 5, monthIndex: 8, year: 2026 })).toEqual({
+      day: 4,
+      monthIndex: 2,
+      year: 2028,
+    });
+  });
+});
+
+describe("ringgit words", () => {
+  it("matches the sample TWO / FOUR THOUSAND style", () => {
+    expect(ringgitWords(800)).toBe("EIGHT HUNDRED");
+    expect(ringgitWords(850)).toBe("EIGHT HUNDRED AND FIFTY");
+    expect(ringgitWords(1000)).toBe("ONE THOUSAND");
+    expect(ringgitWords(1550)).toBe("ONE THOUSAND FIVE HUNDRED AND FIFTY");
+    expect(ringgitWords(2000)).toBe("TWO THOUSAND");
+    expect(ringgitWords(4000)).toBe("FOUR THOUSAND");
+    expect(formatRm(800)).toBe("RM800.00");
+    expect(formatRm(2000)).toBe("RM2,000.00");
+    expect(ringgitAmountLabel(2000)).toBe(SAMPLE_RENT_AMOUNT);
+    expect(ringgitAmountLabel(4000)).toBe(SAMPLE_DEPOSIT_AMOUNT);
+  });
+
+  it("picks rent on the RM50 step inside 800–2000", () => {
+    const rng = makeRng(7);
+    for (let i = 0; i < 40; i++) {
+      const n = pickRentRinggit(rng);
+      expect(n).toBeGreaterThanOrEqual(RENT_MIN);
+      expect(n).toBeLessThanOrEqual(RENT_MAX);
+      expect((n - RENT_MIN) % RENT_STEP).toBe(0);
+    }
+  });
+});
+
+describe("generateRandomLandlord", () => {
+  it("prints a Malay BIN/BINTI pair and differs across rngs", () => {
+    const a = generateRandomLandlord(FROZEN, makeRng(1), CASE.full_name);
+    const b = generateRandomLandlord(FROZEN, makeRng(2), CASE.full_name);
+    expect(a.name).toMatch(/\b(BIN|BINTI)\b/);
+    expect(a.ic).toHaveLength(12);
+    expect(a.name).not.toBe(b.name);
+  });
+});
+
 describe("tenantStampFrom", () => {
   it("uppercases the case name and dashes a 12-digit IC", () => {
-    expect(
-      tenantStampFrom({
-        case_no: "202666996",
-        full_name: "Nor Azzawani Fizatulazira Binti Zulkepeli",
-        id_no: "960517065498",
-      }, FROZEN),
-    ).toEqual({
+    expect(tenantStampFrom(CASE, FROZEN, makeRng(42))).toEqual(expect.objectContaining({
       name: "NOR AZZAWANI FIZATULAZIRA BINTI ZULKEPELI",
-      nric: "960517-06-5498",
+      nric: formatIcDashed("011023120384"),
       date: { day: 5, monthIndex: 8, year: 2026 },
-    });
+      expire: { day: 4, monthIndex: 2, year: 2028 },
+      premises: CASE.full_address,
+    }));
   });
 
   it("keeps a non-12-digit IC as typed rather than inventing dashes", () => {
@@ -146,35 +230,35 @@ describe("findNeedleHits", () => {
 });
 
 describe("stampTenancyAgreement", () => {
-  const stamp = {
-    name: "NOR AZZAWANI FIZATULAZIRA BINTI ZULKEPELI",
-    nric: formatIcDashed("011023120384"),
-    date: agreementDateFrom(FROZEN),
-  };
-
-  it("replaces the sample tenant and agreement date, and leaves the landlord", async () => {
-    const bytes = await stampTenancyAgreement(await syntheticTemplate(), stamp);
+  it("replaces tenant, landlord, premises, dates, rent and drops the ID page", async () => {
+    const bytes = await stampTenancyAgreement(await syntheticTemplate(), STAMP);
     const text = pdfVisibleText(bytes);
     expect(text).not.toContain("NUR SYAFIQAH");
     expect(text).not.toContain("ISMAIL NASRUDDIN");
     expect(text).not.toContain(SAMPLE_TENANT_NRIC);
     expect(text).toContain("NOR AZZAWANI");
     expect(text).toContain("ZULKEPELI");
-    expect(text).toContain(stamp.nric);
-    expect(text).toContain(SAMPLE_LANDLORD_NAME);
-    expect(text).toContain(SAMPLE_LANDLORD_NRIC);
+    expect(text).toContain(STAMP.nric);
+    expect(text).not.toContain(SAMPLE_LANDLORD_NAME);
+    expect(text).not.toContain(SAMPLE_LANDLORD_NRIC);
+    expect(text).toContain(STAMP.landlordName);
+    expect(text).toContain(STAMP.landlordNric);
+    expect(text).toContain("LOT 978");
+    expect(text).toContain("SUNGAI BULOH");
+    expect(text).not.toContain("PELANGI UTAMA");
     expect(text).toContain("5TH SEPTEMBER 2026");
-    expect(text).toContain("SEPTEMBER");
-    expect(text).toContain(SAMPLE_SCHEDULE_DATE);
+    expect(text).toContain("4TH MARCH 2028");
+    expect(text).not.toContain(SAMPLE_SCHEDULE_DATE);
+    expect(text).not.toContain(SAMPLE_EXPIRE_DATE);
+    expect(text).toContain(ringgitAmountLabel(STAMP.rentRinggit));
+    expect(text).toContain(ringgitAmountLabel(STAMP.rentRinggit * 2));
+    expect(text).toContain(SAMPLE_CAR_PARK);
+    expect(text).toContain("ONE THOUSAND ONLY (RM1000.00)");
     expect(text).toContain("MAYBANK BERHAD");
+    expect(text).toContain(SAMPLE_BANK_ACCOUNT);
     expect(text).toContain("18 MONTHS");
+    expect(text).not.toContain("TENANT IDENTIFICATION");
     expect((await PDFDocument.load(bytes)).getPageCount()).toBe(3);
-  });
-
-  it("does not invent a landlord", async () => {
-    const bytes = await stampTenancyAgreement(await syntheticTemplate(), stamp);
-    const text = pdfVisibleText(bytes);
-    expect(text).not.toMatch(/HAFIZ|DIYANA/);
   });
 });
 
@@ -187,45 +271,27 @@ describe("generateTenancyAgreement", () => {
     const fixture = join(dir, "tenancy_agreement.pdf");
     try {
       await writeFile(fixture, await syntheticTemplate());
-      const bytes = await generateTenancyAgreement(
-        {
-          case_no: "202666996",
-          full_name: "NOR AZZAWANI FIZATULAZIRA BINTI ZULKEPELI",
-          id_no: "011023120384",
-        },
-        fixture,
-        FROZEN,
-      );
+      const bytes = await generateTenancyAgreement(CASE, fixture, FROZEN, makeRng(42));
       const doc = await PDFDocument.load(bytes);
       expect(doc.getPageCount()).toBe(3);
       const text = pdfVisibleText(bytes);
       expect(text).toContain("NOR AZZAWANI");
       expect(text).not.toContain("NUR SYAFIQAH");
-      expect(text).toContain(SAMPLE_LANDLORD_NAME);
+      expect(text).not.toContain(SAMPLE_LANDLORD_NAME);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  it("stamps Chris’s 13-page Quartz sample and only changes tenant name + NRIC", async () => {
+  it("stamps Chris’s Quartz sample with the v3 field set", async () => {
     const found = await resolveTenancyTemplatePath();
     if (!found) {
-      await expect(
-        generateTenancyAgreement({
-          case_no: "202666996",
-          full_name: "NOR AZZAWANI FIZATULAZIRA BINTI ZULKEPELI",
-          id_no: "011023120384",
-        }),
-      ).rejects.toThrow(TEMPLATE_MISSING);
+      await expect(generateTenancyAgreement(CASE)).rejects.toThrow(TEMPLATE_MISSING);
       return;
     }
 
-    const bytes = await generateTenancyAgreement({
-      case_no: "202666996",
-      full_name: "NOR AZZAWANI FIZATULAZIRA BINTI ZULKEPELI",
-      id_no: "011023120384",
-    }, undefined, FROZEN);
-    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(13);
+    const bytes = await generateTenancyAgreement(CASE, undefined, FROZEN, makeRng(42));
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(10);
 
     const { writeFileSync, unlinkSync } = await import("node:fs");
     const { execFileSync } = await import("node:child_process");
@@ -245,18 +311,37 @@ describe("generateTenancyAgreement", () => {
     expect(text).not.toContain("NUR SYAFIQAH");
     expect(text).not.toContain("ISMAIL NASRUDDIN");
     expect(text).not.toContain("960517-06-5498");
-    expect(text).toContain(SAMPLE_LANDLORD_NAME);
-    expect(text).toContain(SAMPLE_LANDLORD_NRIC);
+    expect(text).not.toContain(SAMPLE_LANDLORD_NAME);
+    expect(text).not.toContain(SAMPLE_LANDLORD_NRIC);
+    expect(text).toContain(STAMP.landlordName);
+    expect(text).toContain(STAMP.landlordNric);
+    expect(text).toContain("LOT 978");
+    expect(text).toContain("SUNGAI BULOH");
+    expect(text).not.toContain("PELANGI");
     expect(text).toContain("5th");
     expect(text).toContain("SEPTEMBER");
     expect(text).toContain(scheduleDateLabel(agreementDateFrom(FROZEN)));
+    expect(text).toContain("4TH MARCH 2028");
     expect(text).not.toContain("15th");
-    expect(text).toContain("15TH JANUARY 2026");
-    expect(text).toContain("14TH JULY 2027");
-    expect(text).toContain("PELANGI UTAMA");
+    expect(text).not.toContain("15TH JANUARY 2026");
+    expect(text).not.toContain("14TH JULY 2027");
     expect(text).toContain("MAYBANK");
+    expect(text).toMatch(/7015\s*8357\s*68/);
     expect(text).toContain("18");
     expect(text).toContain("MONTHS");
-    expect(text).toContain("TENANT IDENTIFICATION");
+    expect(text).toContain(ringgitAmountLabel(STAMP.rentRinggit));
+    expect(text).toContain(ringgitAmountLabel(STAMP.rentRinggit * 2));
+    expect(text).toContain("RM100.00");
+    expect(text).toContain("ONE THOUSAND");
+    expect(text).not.toContain("TENANT IDENTIFICATION");
+  });
+
+  it("draws a different landlord on a second click", async () => {
+    const found = await resolveTenancyTemplatePath();
+    if (!found) return;
+    const a = tenancyStampFrom(CASE, FROZEN, makeRng(1));
+    const b = tenancyStampFrom(CASE, FROZEN, makeRng(99));
+    expect(a.landlordName).not.toBe(b.landlordName);
+    expect(a.landlordNric).not.toBe(b.landlordNric);
   });
 });

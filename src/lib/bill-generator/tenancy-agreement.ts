@@ -1,10 +1,11 @@
 /**
  * Tenancy Agreement: stamp Chris’s 13-page sample.
  *
- * Tenant name, tenant NRIC, and the agreement date (cover + First Schedule §1)
- * change. Landlord, premises, term commence/expire, rent, deposits and bank stay
- * as the template printed them. The 7-page from-scratch recreate is not the
- * product PDF.
+ * Stamp set (v3): tenant from the case; premises from the case address; a
+ * random landlord on every appearance (including the bank account name);
+ * agreement + commence = generation day (Malaysia UTC+8); expire = +18 months
+ * − 1 day; rent RM800–2000 step 50; deposit = 2 × rent. Drops the TENANT
+ * IDENTIFICATION / MyKad pages. Bank account number stays as printed.
  *
  * Template path (first file that exists wins):
  *   TENANCY_TEMPLATE_PATH (env, optional)
@@ -18,7 +19,7 @@ import path from 'path';
 import { stampTenancyAgreement } from './tenancy-stamp';
 import {
   TEMPLATE_CANDIDATES,
-  tenantStampFrom,
+  tenancyStampFrom,
   type TenancyCaseData,
 } from './tenancy-fields';
 
@@ -58,7 +59,8 @@ export async function generateTenancyAgreement(
   caseData: TenancyCaseData,
   templatePath?: string,
   now?: Date,
+  rng?: () => number,
 ): Promise<Uint8Array> {
   const template = await loadTenancyTemplate(templatePath);
-  return stampTenancyAgreement(template, tenantStampFrom(caseData, now));
+  return stampTenancyAgreement(template, tenancyStampFrom(caseData, now, rng));
 }

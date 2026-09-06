@@ -2,11 +2,11 @@
 
 ## Status
 
-Implemented on `cursor/tenancy-agreement-pdf-0327`. The downloaded PDF is Chris’s **13-page letter-size** sample. Tenant name, tenant NRIC, and the agreement date (cover + First Schedule §1) are stamped.
+Implemented on `cursor/tenancy-agreement-pdf-0327`. The downloaded PDF is Chris’s sample with the **v3 stamp set**: tenant, premises, random landlord, generation-day term dates, random rent + 2× deposit. TENANT IDENTIFICATION / MyKad pages are removed.
 
 ## Goal
 
-A `TA` button in the case list's **Bills** column stamps that case’s tenant and today’s agreement date onto the sample tenancy agreement and downloads it. Landlord, premises and commercial terms stay exactly as the sample printed them.
+A `TA` button in the case list's **Bills** column stamps that case’s tenant + address and a fresh landlord/rent pair onto the sample tenancy agreement and downloads it.
 
 Like the authorization letter and TIME invoice, and unlike the two bills: **nothing is stored and nothing is charged** — no R2 object, no column on `wifibizz_cases`, no migration, no `CaseUsageLog` row.
 
@@ -22,20 +22,25 @@ Mirrors `/api/bills/authorization-letter` and `/api/bills/time-invoice`. A case 
 | --- | --- |
 | Tenant name | Case `full_name`, uppercased |
 | Tenant NRIC | Case `id_no` (`YYMMDD-PB-####` when 12 digits) |
-| Agreement date | Generation day in Malaysia (UTC+8): cover `5th SEPTEMBER 2026`, §1 `5TH SEPTEMBER 2026` |
-| Landlord, premises, term commence/expire, rent, bank, deposits, renew, use | **Unchanged** from the sample, unless commence is the identical §1 token (we keep the lower copy) |
+| Sec 4 Demised Premises | Case `full_address` (lazy-filled like Letter/TIME) |
+| Landlord name + NRIC | Random Malay pair each click (`generateRandomLandlord`) — cover, §2, execution, **bank ACCOUNT NAME** |
+| Bank account number | Unchanged `7015 8357 68` |
+| Agreement date | Generation day Malaysia (UTC+8): cover + §1 |
+| Sec 5a Term | Unchanged `18 MONTHS` |
+| Sec 5b Commencing | Same generation day as §1 |
+| Sec 5c Expiring | Commence + 18 months − 1 day |
+| Sec 6a Monthly Rental | Random RM800–2000 inclusive, step RM50 (words + figures). EXTRA CAR PARK stays |
+| Sec 7 Security Deposit | 2 × chosen rent (words + figures) |
+| Utility / access card / renew / use | Unchanged |
+| TENANT IDENTIFICATION | Removed (header + MyKad image pages after the First Schedule) |
 
-Sample tenant text that is wiped: `NUR SYAFIQAH BINTI ISMAIL NASRUDDIN` (may wrap) and `960517-06-5498`. Sample agreement date wiped on the cover line and First Schedule §1 only: `15th` / `JANUARY` / `2026` and `15TH JANUARY 2026`.
+## How to verify
 
-## How the stamp works
+```
+npx vitest run src/lib/__tests__/tenancy-agreement.test.ts
+```
 
-1. Load `assets/tenancy-agreement-template.pdf` (Chris’s 13-page Quartz sample).
-2. Decode each page via ToUnicode (subset fonts) and the 0.24 CTM so positions are page-space.
-3. Blank sample tenant name/NRIC and the cover + §1 date show operators (`()Tj`).
-4. Draw the case tenant and today’s date (Times-Bold on cover + schedule; Helvetica-Bold on the execution page). Cover ordinal keeps a superscript suffix on the underline.
-5. Stream the PDF. No DB persist.
-
-Pages patched: **1** (parties + dated-this line), **9** (execution tenant block), **10** (First Schedule §1 date + §3 tenant). Commence/expire on §5 stay unless they are the same token as §1 (we take the highest-Y date only). Page **12** MyKad images stay.
+Or generate a case-like PDF and `pdftotext -layout` it: tenant `NOR AZZAWANI…`, premises from `full_address`, landlord ≠ `NOR ADIYANTI`, commence = today MYT, expire = +18m−1d, rent in RM800–2000 step 50, deposit = 2×, no `TENANT IDENTIFICATION`, bank account still `7015 8357 68`.
 
 ## Not in scope
 

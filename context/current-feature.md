@@ -4,25 +4,20 @@
 
 CODE COMPLETE (branch `cursor/tenancy-agreement-pdf-0327`, PR #3). Vercel-only — no scraper change, no migration.
 
-Supersedes the first cut: the user-facing PDF is Chris’s **13-page letter-size sample**, stamped with that case’s tenant name + NRIC and **today’s agreement date** (cover + First Schedule §1, Malaysia UTC+8). Landlord, premises, term commence/expire, rent, deposits and bank stay as the sample printed them. The 7-page pdf-lib recreate has been deleted and is not served.
-
-Template is at `assets/tenancy-agreement-template.pdf` (commit `908305d`). Generation decodes Quartz ToUnicode + CTM, blanks the sample tenant and the sample 15 Jan 2026 agreement-date tokens, and redraws the case tenant plus the generation day.
-
-`npx vitest run src/lib/__tests__` — 788 passing, 6 skipped, including a pdftotext check on the real 13-page file. ESLint clean on the changed files.
+Stamp rules **v3** supersede the freeze-heavy lock. The user-facing PDF is Chris’s sample (`assets/tenancy-agreement-template.pdf`) with: tenant name + NRIC from the case; **Sec 4 premises = `full_address`**; a **random Malay landlord** on every appearance including the bank account name (account number stays); agreement + commence = generation day (Malaysia UTC+8); expire = +18 months − 1 day; rent RM800–2000 step 50; deposit = 2× rent; **TENANT IDENTIFICATION / MyKad pages removed**.
 
 ## Goals
 
 - Case list Bills column has a `TA` button next to the existing Bill actions
-- Click downloads Chris’s 13-page sample with tenant name + NRIC from the case and the agreement date = generation day
-- Backend mirrors Letter/TIME: `GET /api/bills/tenancy-agreement?case_no=…` resolves the case, stamps those fields, returns the PDF
-- Landlord / premises / term commence-expire / rent / bank stay exactly as the sample
+- Click downloads the stamped sample (tenant, address, random landlord, term dates, rent/deposit)
+- Backend mirrors Letter/TIME: `GET /api/bills/tenancy-agreement?case_no=…` — download only, no persist
 - TA button disabled when the case has no customer name
 - Works even if Bill was never generated
 - Reuse the existing pdf-lib bill-generator pipeline; no new page, no new DB tables
 
 ## Notes
 
-Template is a Quartz text PDF (`Form: none`), not AcroForm. Stamp deletes the sample tenant literals and redraws in Times-Bold (cover) / Helvetica-Bold (later pages). Page 12 MyKad images stay unless the name/NRIC also exist as text. Nothing is stored: no R2 object, no column, no `CaseUsageLog` row.
+Template is a Quartz text PDF (`Form: none`). Stamp blanks sample literals via ToUnicode + CTM and redraws in Times-Bold / Helvetica-Bold. Landlord is `generateRandomLandlord` (not case-seeded). Nothing is stored: no R2 object, no column, no `CaseUsageLog` row.
 
 ## Login Page — ZenGarden Logo Animation
 

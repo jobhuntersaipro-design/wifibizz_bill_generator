@@ -133,3 +133,57 @@ export function icDigits(ic: string): string {
   return (ic || '').replace(/\D/g, '');
 }
 
+// Malay given + father's name — the shape a Malaysian tenancy agreement prints.
+const MALAY_MALE_FIRST = [
+  'AHMAD', 'MUHAMMAD', 'HAFIZ', 'FARID', 'IZWAN', 'RIZAL', 'AMIR', 'FAISAL',
+  'HAKIM', 'KAMAL', 'AZLAN', 'SYAFIQ', 'IRFAN', 'DANIAL', 'HAZIQ', 'KHAIRUL',
+] as const;
+
+const MALAY_FEMALE_FIRST = [
+  'SITI', 'NUR', 'AIN', 'FARAH', 'NADIA', 'AINA', 'AMIRA', 'LINA', 'HANA',
+  'INTAN', 'DIYANA', 'AFIQAH', 'BALQIS', 'NOR', 'FATIMAH', 'AISYAH',
+] as const;
+
+const MALAY_MALE_MIDDLE = [
+  'HAIKAL', 'IMRAN', 'LUQMAN', 'HARITH', 'RAFIQ', 'ZAKWAN', 'IRSYAD', 'AKMAL',
+] as const;
+
+const MALAY_FEMALE_MIDDLE = [
+  'ADIYANTI', 'AZIZAH', 'HANI', 'SYAFIQA', 'AMIRAH', 'IZZATI', 'FARHANA', 'SYAHIRA',
+] as const;
+
+const MALAY_FATHER = [
+  'ABDULLAH', 'HASSAN', 'IBRAHIM', 'ISMAIL', 'RAHMAN', 'YUSOF', 'OMAR', 'AZIZ',
+  'LATIF', 'HAMID', 'RAZAK', 'SALLEH', 'MAHMUD', 'ZAINAL', 'ADNAN', 'OTHMAN',
+] as const;
+
+/**
+ * A landlord invented for a tenancy agreement.
+ *
+ * Unlike `generateOwner`, this is NOT seeded on the case number. The TA is
+ * downloaded and discarded (never stored), and the product rule is that two
+ * clicks must not print the same landlord. Callers that need a fixed person
+ * for a test pass their own `rng`.
+ */
+export function generateRandomLandlord(
+  now = new Date(),
+  rng: () => number = Math.random,
+  tenantName = '',
+): OwnerIdentity {
+  const gender: 'male' | 'female' = rng() < 0.5 ? 'female' : 'male';
+  const first = pick(rng, gender === 'female' ? MALAY_FEMALE_FIRST : MALAY_MALE_FIRST);
+  const middle = pick(rng, gender === 'female' ? MALAY_FEMALE_MIDDLE : MALAY_MALE_MIDDLE);
+  const particle = gender === 'female' ? 'BINTI' : 'BIN';
+
+  let father = pick(rng, MALAY_FATHER);
+  for (let i = 0; i < 8 && nameContainsToken(tenantName, father); i++) {
+    father = pick(rng, MALAY_FATHER);
+  }
+
+  return {
+    name: `${first} ${middle} ${particle} ${father}`,
+    ic: generateOwnerIc(rng, gender, now),
+    gender,
+  };
+}
+

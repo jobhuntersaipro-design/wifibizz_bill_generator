@@ -1,10 +1,10 @@
 /**
- * Stamp a tenant name + NRIC onto Chris's tenancy-agreement template.
+ * Stamp Chris's tenancy-agreement template (iOS Quartz, Form: none).
  *
- * The sample is an iOS Quartz text PDF (Form: none), not an AcroForm. Literals
- * are custom-encoded subset fonts; ToUnicode maps turn them back into
- * "NUR SYAFIQAH…". A 0.24 cm also means Tm e,f are not page coordinates — we
- * multiply by the CTM before drawing.
+ * Literals are custom-encoded subset fonts; ToUnicode maps turn them back into
+ * readable text. A 0.24 cm means Tm e,f are not page coordinates — we multiply
+ * by the CTM before drawing. Sample show operators are blanked with ()Tj and
+ * replacements are drawn in standard fonts.
  */
 
 import {
@@ -26,14 +26,22 @@ import {
   SAMPLE_TENANT_NAME_LINE1,
   SAMPLE_TENANT_NAME_LINE2,
   SAMPLE_TENANT_NRIC,
+  SAMPLE_LANDLORD_NAME,
+  SAMPLE_LANDLORD_NRIC,
   SAMPLE_COVER_DAY,
   SAMPLE_COVER_MONTH,
   SAMPLE_COVER_YEAR,
   SAMPLE_SCHEDULE_DATE,
+  SAMPLE_EXPIRE_DATE,
+  SAMPLE_PREMISES_FRAGMENTS,
+  SAMPLE_RENT_AMOUNT,
+  SAMPLE_DEPOSIT_AMOUNT,
   coverDayLabel,
   coverMonthLabel,
   scheduleDateLabel,
   agreementDateFrom,
+  expireDateFrom,
+  ringgitAmountLabel,
   type TenantStamp,
 } from './tenancy-fields';
 
@@ -128,7 +136,9 @@ export function loadPageCmaps(pdfDoc: PDFDocument, page: PDFPage): Map<string, M
   const fonts = page.node.Resources()?.lookup(PDFName.of('Font'), PDFDict);
   if (!fonts) return cmaps;
   for (const key of fonts.keys()) {
-    const font = fonts.lookup(key, PDFDict);
+    const raw = fonts.get(key);
+    const font = raw instanceof PDFRef ? pdfDoc.context.lookup(raw) : raw;
+    if (!(font instanceof PDFDict)) continue;
     const tu = font.get(PDFName.of('ToUnicode'));
     const tuObj = tu instanceof PDFRef ? pdfDoc.context.lookup(tu) : tu;
     if (tuObj instanceof PDFRawStream) {
@@ -302,7 +312,20 @@ export function extractTextRuns(
   return runs;
 }
 
-export type StampKind = 'name' | 'nric' | 'cover-day' | 'cover-month' | 'cover-year' | 'schedule-date';
+export type StampKind =
+  | 'name'
+  | 'nric'
+  | 'landlord-name'
+  | 'landlord-nric'
+  | 'premises'
+  | 'cover-day'
+  | 'cover-month'
+  | 'cover-year'
+  | 'schedule-date'
+  | 'expire-date'
+  | 'rent'
+  | 'rent-tail'
+  | 'deposit';
 
 export interface StampHit {
   needle: string;
@@ -472,23 +495,49 @@ interface FieldNeedle {
   kind: StampKind;
   yMin?: number;
   yMax?: number;
-  /** When the same token also appears as commence, keep the higher (Section 1) hit. */
+  /** When several hits share a needle, keep only the highest-Y one. */
   topmost?: boolean;
 }
 
-function dateNeedlesForPage(pageIndex: number): FieldNeedle[] {
-  if (pageIndex === 0) {
-    return [
-      { needle: SAMPLE_COVER_DAY, kind: 'cover-day', yMin: 700, yMax: 730 },
-      { needle: SAMPLE_COVER_MONTH, kind: 'cover-month', yMin: 700, yMax: 730 },
-      { needle: SAMPLE_COVER_YEAR, kind: 'cover-year', yMin: 700, yMax: 730 },
-    ];
-  }
-  return [{ needle: SAMPLE_SCHEDULE_DATE, kind: 'schedule-date', topmost: true }];
+function fieldNeedlesForPage(pageIndex: number): FieldNeedle[] {
+  const tenant: FieldNeedle[] = needlesForTemplate().map((needle) => ({
+    needle,
+    kind: isTenantNric(needle) ? 'nric' : 'name',
+  }));
+  const landlord: FieldNeedle[] = [
+    { needle: SAMPLE_LANDLORD_NAME, kind: 'landlord-name' },
+    { needle: SAMPLE_LANDLORD_NRIC, kind: 'landlord-nric' },
+    { needle: SAMPLE_LANDLORD_NRIC.replace(/-/g, ''), kind: 'landlord-nric' },
+  ];
+  const premises: FieldNeedle[] = SAMPLE_PREMISES_FRAGMENTS.map((needle) => ({
+    needle,
+    kind: 'premises' as const,
+  }));
+  const dates: FieldNeedle[] = [
+    ...(pageIndex === 0
+      ? [
+          { needle: SAMPLE_COVER_DAY, kind: 'cover-day' as const, yMin: 700, yMax: 730 },
+          { needle: SAMPLE_COVER_MONTH, kind: 'cover-month' as const, yMin: 700, yMax: 730 },
+          { needle: SAMPLE_COVER_YEAR, kind: 'cover-year' as const, yMin: 700, yMax: 730 },
+        ]
+      : []),
+    { needle: SAMPLE_SCHEDULE_DATE, kind: 'schedule-date' },
+    { needle: SAMPLE_EXPIRE_DATE, kind: 'expire-date' },
+  ];
+  const money: FieldNeedle[] = [
+    { needle: SAMPLE_RENT_AMOUNT, kind: 'rent' },
+    { needle: '. EXTRA', kind: 'rent-tail' },
+    { needle: SAMPLE_DEPOSIT_AMOUNT, kind: 'deposit' },
+  ];
+  return [...tenant, ...landlord, ...premises, ...dates, ...money];
+}
+
+function isTenantNric(needle: string): boolean {
+  return needle.replace(/\D/g, '') === SAMPLE_TENANT_NRIC.replace(/\D/g, '');
 }
 
 function isNricNeedle(needle: string): boolean {
-  return needle.replace(/\D/g, '') === SAMPLE_TENANT_NRIC.replace(/\D/g, '');
+  return isTenantNric(needle);
 }
 
 export function blankSampleTenant(
@@ -497,11 +546,7 @@ export function blankSampleTenant(
   pageIndex = 0,
 ): StampHit[] {
   const hits: StampHit[] = [];
-  const tenantNeedles: FieldNeedle[] = needlesForTemplate().map((needle) => ({
-    needle,
-    kind: isNricNeedle(needle) ? 'nric' : 'name',
-  }));
-  const specs: FieldNeedle[] = [...tenantNeedles, ...dateNeedlesForPage(pageIndex)];
+  const specs: FieldNeedle[] = fieldNeedlesForPage(pageIndex);
   const cmaps = loadPageCmaps(pdfDoc, page);
 
   for (const entry of getPageStreamRefs(pdfDoc, page)) {
@@ -541,6 +586,12 @@ function pickFont(fonts: { serif: PDFFont; sans: PDFFont }, pageIndex: number): 
 }
 
 function shouldRedraw(hit: StampHit, pageHits: StampHit[]): boolean {
+  if (hit.kind === 'premises') {
+    const premises = pageHits.filter((h) => h.kind === 'premises');
+    const maxY = Math.max(...premises.map((h) => h.y));
+    return hit.y >= maxY - 2;
+  }
+  if (hit.kind === 'rent-tail') return false;
   if (hit.kind && hit.kind !== 'name' && hit.kind !== 'nric') return true;
   const hasFullName = pageHits.some((h) => h.needle === SAMPLE_TENANT_NAME);
   const hasLine1 = pageHits.some((h) => h.needle === SAMPLE_TENANT_NAME_LINE1);
@@ -593,21 +644,49 @@ function drawReplacement(
     page.drawText(scheduleDateLabel(stamp.date), { x: hit.x, y: hit.y, size, font, color: INK });
     return;
   }
+  if (hit.kind === 'expire-date') {
+    page.drawText(scheduleDateLabel(stamp.expire), { x: hit.x, y: hit.y, size, font, color: INK });
+    return;
+  }
+  if (hit.kind === 'rent') {
+    const label = ringgitAmountLabel(stamp.rentRinggit);
+    const drawnSize = drawFitted(page, font, hit, label, SAMPLE_RENT_AMOUNT);
+    const extra = '. EXTRA';
+    const extraX = hit.x + font.widthOfTextAtSize(label, drawnSize) + 4;
+    if (extraX + font.widthOfTextAtSize(extra, drawnSize) < page.getWidth() - 24) {
+      page.drawText(extra, { x: extraX, y: hit.y, size: drawnSize, font, color: INK });
+    }
+    return;
+  }
+  if (hit.kind === 'deposit') {
+    drawFitted(page, font, hit, ringgitAmountLabel(stamp.rentRinggit * 2), SAMPLE_DEPOSIT_AMOUNT);
+    return;
+  }
+  if (hit.kind === 'premises') {
+    drawWrappedBlock(page, font, hit, stamp.premises, pageIndex, pageIndex === 0 ? 3 : 4, pageIndex === 0);
+    return;
+  }
 
-  const replacement = isNricNeedle(hit.needle) ? stamp.nric : stamp.name;
+  const isLandlord = hit.kind === 'landlord-name' || hit.kind === 'landlord-nric';
+  const replacement = hit.kind === 'landlord-nric'
+    ? stamp.landlordNric
+    : hit.kind === 'landlord-name'
+      ? stamp.landlordName
+      : isNricNeedle(hit.needle) ? stamp.nric : stamp.name;
   const label = hit.prefix;
   const pageW = page.getWidth();
 
-  if (isNricNeedle(hit.needle)) {
+  if (hit.kind === 'nric' || hit.kind === 'landlord-nric' || isNricNeedle(hit.needle)) {
     page.drawText(`${label}${replacement}`, { x: hit.x, y: hit.y, size, font, color: INK });
     return;
   }
 
+  const sampleName = isLandlord ? SAMPLE_LANDLORD_NAME : SAMPLE_TENANT_NAME;
   const maxLines = pageIndex === 0 ? Math.max(hit.lineYs.length, 2) : 3;
   let nameBudget =
     hit.lineYs.length > 1
       ? Math.max(font.widthOfTextAtSize(SAMPLE_TENANT_NAME_LINE1, size), pageIndex === 0 ? 240 : 80)
-      : Math.max(font.widthOfTextAtSize(SAMPLE_TENANT_NAME, size) * 0.55, pageW - hit.x - 36);
+      : Math.max(font.widthOfTextAtSize(sampleName, size) * 0.55, pageW - hit.x - 36);
   nameBudget = Math.min(Math.max(nameBudget, 80), pageW - 48);
   const prefixW = label ? font.widthOfTextAtSize(label, size) : 0;
   let lines = wrapToWidth(replacement, font, size, Math.max(nameBudget - prefixW, 80));
@@ -635,11 +714,103 @@ function drawReplacement(
   }
 }
 
+function drawFitted(
+  page: PDFPage,
+  font: PDFFont,
+  hit: StampHit,
+  text: string,
+  sample: string,
+): number {
+  const size = hit.size >= 6 && hit.size <= 36 ? hit.size : 10;
+  const maxW = font.widthOfTextAtSize(sample, size) + 12;
+  let drawSize = size;
+  while (drawSize > 7 && font.widthOfTextAtSize(text, drawSize) > maxW) drawSize -= 0.25;
+  page.drawText(text, { x: hit.x, y: hit.y, size: drawSize, font, color: INK });
+  return drawSize;
+}
+
+function drawWrappedBlock(
+  page: PDFPage,
+  font: PDFFont,
+  hit: StampHit,
+  text: string,
+  pageIndex: number,
+  maxLines: number,
+  centered: boolean,
+): void {
+  const size = hit.size >= 6 && hit.size <= 36 ? hit.size : 11;
+  const pageW = page.getWidth();
+  let budget = pageIndex === 0 ? Math.min(pageW - 96, 480) : Math.min(pageW - hit.x - 36, 360);
+  budget = Math.max(budget, 160);
+  let lines = wrapToWidth(text || ' ', font, size, budget);
+  while (lines.length > maxLines && budget < pageW - 48) {
+    budget += 20;
+    lines = wrapToWidth(text || ' ', font, size, budget);
+  }
+  if (lines.length > maxLines) {
+    lines = [...lines.slice(0, maxLines - 1), lines.slice(maxLines - 1).join(' ')];
+  }
+  const gap = size * 1.2;
+  for (let i = 0; i < lines.length; i++) {
+    const w = font.widthOfTextAtSize(lines[i], size);
+    const x = centered ? (pageW - w) / 2 : hit.x;
+    page.drawText(lines[i], { x, y: hit.y - i * gap, size, font, color: INK });
+  }
+}
+
+function pagePlainText(pdfDoc: PDFDocument, page: PDFPage): string {
+  const cmaps = loadPageCmaps(pdfDoc, page);
+  const parts: string[] = [];
+  for (const entry of getPageStreamRefs(pdfDoc, page)) {
+    transformStream(pdfDoc, entry, (buf) => {
+      for (const run of extractTextRuns(buf.toString('latin1'), cmaps)) {
+        if (run.text.trim()) parts.push(run.text);
+      }
+      return { data: buf, count: 0 };
+    });
+  }
+  return parts.join('');
+}
+
+export function pagesToDropAfterSchedule(pdfDoc: PDFDocument): number[] {
+  const pages = pdfDoc.getPages();
+  const drop = new Set<number>();
+  let scheduleIdx = -1;
+  for (let i = 0; i < pages.length; i++) {
+    const text = pagePlainText(pdfDoc, pages[i]);
+    if (/THE FIRST SCHEDULE/i.test(text)) scheduleIdx = i;
+    if (/TENANT IDENTIFICATION/i.test(text)) drop.add(i);
+  }
+  if (scheduleIdx >= 0) {
+    for (let i = scheduleIdx + 1; i < pages.length; i++) drop.add(i);
+  }
+  return [...drop].sort((a, b) => b - a);
+}
+
+export async function copyWithoutPages(pdfDoc: PDFDocument, drop: number[]): Promise<PDFDocument> {
+  if (drop.length === 0) return pdfDoc;
+  const dropSet = new Set(drop);
+  const keep = Array.from({ length: pdfDoc.getPageCount() }, (_, i) => i).filter((i) => !dropSet.has(i));
+  const out = await PDFDocument.create();
+  const copied = await out.copyPages(pdfDoc, keep);
+  for (const page of copied) out.addPage(page);
+  return out;
+}
+
 export async function stampTenancyAgreement(
   templateBytes: Uint8Array,
   stamp: TenantStamp,
 ): Promise<Uint8Array> {
-  const resolved: TenantStamp = { ...stamp, date: stamp.date ?? agreementDateFrom() };
+  const date = stamp.date ?? agreementDateFrom();
+  const resolved: TenantStamp = {
+    ...stamp,
+    date,
+    expire: stamp.expire ?? expireDateFrom(date),
+    premises: stamp.premises ?? '',
+    landlordName: stamp.landlordName ?? '',
+    landlordNric: stamp.landlordNric ?? '',
+    rentRinggit: stamp.rentRinggit ?? 2000,
+  };
   const pdfDoc = await PDFDocument.load(templateBytes);
   const fonts = {
     serif: await pdfDoc.embedFont(StandardFonts.TimesRomanBold),
@@ -647,10 +818,11 @@ export async function stampTenancyAgreement(
   };
 
   const pages = pdfDoc.getPages();
-  let hits = 0;
+  const dropPages = pagesToDropAfterSchedule(pdfDoc);
+  let tenantHits = 0;
   for (let i = 0; i < pages.length; i++) {
     const pageHits = blankSampleTenant(pdfDoc, pages[i], i);
-    hits += pageHits.length;
+    tenantHits += pageHits.filter((h) => h.kind === 'name' || h.kind === 'nric').length;
     const font = pickFont(fonts, i);
     const drawn = new Set<string>();
     for (const hit of pageHits) {
@@ -663,12 +835,13 @@ export async function stampTenancyAgreement(
     }
   }
 
-  if (hits === 0) {
+  if (tenantHits === 0) {
     throw new Error(
       'The tenancy template has no extractable sample tenant name/NRIC. ' +
         'Chris’s PDF must carry those strings as text (not only as the page-12 image).',
     );
   }
 
-  return pdfDoc.save();
+  const out = await copyWithoutPages(pdfDoc, dropPages);
+  return out.save();
 }
