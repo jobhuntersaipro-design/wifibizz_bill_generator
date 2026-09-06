@@ -50,6 +50,9 @@ describe("billDownloadPath", () => {
     expect(billDownloadPath("202666996", "internet", revisionFromPublicUrl(url))).toBe(
       "/api/bills/download?case_no=202666996&type=internet&v=internet_bill-rev-empty",
     );
+    expect(
+      billDownloadPath("202666996", "internet", "r", { preview: true }),
+    ).toContain("preview=1");
   });
 });
 
@@ -71,10 +74,18 @@ describe("Case List generate overwrites the stored bill object", () => {
     expect(download).toContain("buildInternetBillPdf");
     expect(download).toContain("persistBillPdf");
     expect(download).toContain("Vercel-CDN-Cache-Control");
+    expect(download).toContain('"attachment"');
     expect(nextConfig).toContain("'/api/bills/download'");
 
     expect(caseList).toContain('handleGenerateSingle(c.case_no, "internet")');
-    expect(caseList).toContain('result.status !== "success"');
+    expect(caseList).toContain("Building internet bill");
+    expect(caseList).toContain("a.download");
+    const internetHandler = caseList.slice(
+      caseList.indexOf("async function handleGenerateSingle"),
+      caseList.indexOf("async function handleGenerateChat"),
+    );
+    expect(internetHandler).not.toContain("window.open(");
+    expect(internetHandler).toContain("45_000");
   });
 
   it("empty-pool bytes are 3 pages and not the previous 4-page combine", async () => {

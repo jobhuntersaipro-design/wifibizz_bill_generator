@@ -124,7 +124,7 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
             {caseData.internet_bill_url ? (
               <div className="space-y-3">
                 <div className="rounded-lg border border-[#E3E8EF] overflow-hidden bg-[#F6F9FC]">
-                  <iframe src={billDownloadPath(caseData.case_no, "internet", `${revisionFromPublicUrl(caseData.internet_bill_url)}-${cacheBuster}`)} className="w-full h-100" title="Internet Bill Preview" />
+                  <iframe src={billDownloadPath(caseData.case_no, "internet", `${revisionFromPublicUrl(caseData.internet_bill_url)}-${cacheBuster}`, { preview: true })} className="w-full h-100" title="Internet Bill Preview" />
                 </div>
                 <a href={billDownloadPath(caseData.case_no, "internet", `${revisionFromPublicUrl(caseData.internet_bill_url)}-${cacheBuster}`)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-[#635BFF] hover:text-[#0A2540] transition-colors duration-200">
                   <DownloadIcon className="w-3.5 h-3.5" />Download Internet Bill
@@ -434,46 +434,83 @@ export default function CaseManagementSection() {
     const key = `${caseNo}:${type}`;
     if (generatingCell || generating) return;
     setGeneratingCell(key);
+    const toastId = toast.loading(
+      type === "internet" ? "Building internet bill…" : "Building utility bill…",
+    );
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 45_000);
     try {
-      const res = await fetch("/api/bills/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ caseNos: [caseNo], type }),
+      const row = cases.find((c) => c.case_no === caseNo);
+      const alreadyStored = type === "internet" ? !!row?.internet_bill_url : !!row?.utility_bill_url;
+
+      // Internet with a stored URL: one rebuild via GET download. Do not POST
+      // generate first — that crawls the portal (can hang) and then opened a
+      // second rebuild in a tab (inline, so nothing new landed in Downloads).
+      if (!(type === "internet" && alreadyStored)) {
+        const res = await fetch("/api/bills/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ caseNos: [caseNo], type }),
+          signal: ctrl.signal,
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok || body.success === false) {
+          toast.error(
+            body.error === "case_limit_reached"
+              ? "Case limit reached. Please top up your usage to generate more bills."
+              : body.error || "Bill generation failed.",
+            { id: toastId, duration: 5000 },
+          );
+          return;
+        }
+        const result = body.results?.[0];
+        if (!result || result.status !== "success" || typeof result.url !== "string") {
+          toast.error(result?.error || "Bill generation failed.", { id: toastId });
+          return;
+        }
+      }
+
+      const stamp = Date.now();
+      const dl = await fetch(billDownloadPath(caseNo, type, String(stamp)), {
+        signal: ctrl.signal,
+        cache: "no-store",
       });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok || body.success === false) {
+      if (!dl.ok) {
+        const errBody = await dl.json().catch(() => ({}));
         toast.error(
-          body.error === "case_limit_reached"
-            ? "Case limit reached. Please top up your usage to generate more bills."
-            : body.error || "Bill generation failed.",
-          { duration: 5000 }
+          typeof errBody.error === "string" ? errBody.error : "Bill download failed.",
+          { id: toastId, duration: 5000 },
         );
         return;
       }
-      const result = body.results?.[0];
-      if (!result || result.status !== "success" || typeof result.url !== "string") {
-        toast.error(result?.error || "Bill generation failed.");
+      const blob = await dl.blob();
+      if (blob.size < 500) {
+        toast.error("Bill download failed.", { id: toastId });
         return;
       }
-      const bust = billCacheBuster + 1;
-      setBillCacheBuster(bust);
-      await fetchCases();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = `${type === "internet" ? "internetBill" : "utilityBill"}_${caseNo}_${stamp}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+
+      setBillCacheBuster((prev) => prev + 1);
       window.dispatchEvent(new Event("usage-updated"));
-      toast.success(`${type === "internet" ? "Internet" : "Utility"} bill generated`);
-      // Open the freshly generated bill right away.
-      const generatedUrl = typeof result?.url === "string" ? result.url : "";
-      window.open(
-        billDownloadPath(
-          caseNo,
-          type,
-          generatedUrl ? revisionFromPublicUrl(generatedUrl) : String(bust),
-        ),
-        "_blank",
-      );
+      toast.success(`${type === "internet" ? "Internet" : "Utility"} bill ready`, { id: toastId });
+      void fetchCases();
     } catch (err) {
       console.error("Bill generation failed:", err);
-      toast.error("Bill generation failed. Please try again.");
+      toast.error(
+        err instanceof DOMException && err.name === "AbortError"
+          ? "Bill timed out. Try again."
+          : "Bill generation failed. Please try again.",
+        { id: toastId },
+      );
     } finally {
+      clearTimeout(timer);
       setGeneratingCell(null);
     }
   }

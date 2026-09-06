@@ -44,8 +44,10 @@ export function billDownloadPath(
   caseNo: string,
   type: "internet" | "utility",
   revision?: string | null,
+  opts?: { preview?: boolean },
 ): string {
   const qs = new URLSearchParams({ case_no: caseNo, type });
   if (revision) qs.set("v", revision);
+  if (opts?.preview) qs.set("preview", "1");
   return `/api/bills/download?${qs.toString()}`;
 }

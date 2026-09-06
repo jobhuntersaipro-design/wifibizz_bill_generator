@@ -78,10 +78,11 @@ export async function GET(request: Request) {
     const prefix = type === "utility" ? "utilityBill" : "internetBill";
     const filename = `${prefix}_${caseNo}${orderSuffix}.pdf`;
 
-    // Internet download rebuilds from the live pool. A stored combine must not
-    // survive an empty-pool regenerate — Probe AC5 hit this GET and received
-    // the previous 4-page object (md5-identical) because this route only read R2.
-    if (type === "internet") {
+    // Default internet GET rebuilds from the live pool and returns those bytes
+    // as an attachment. `preview=1` (case-detail iframe) only reads the stored
+    // object so opening a row does not start a second generate.
+    const previewOnly = url.searchParams.get("preview") === "1";
+    if (type === "internet" && !previewOnly) {
       const pdf = await buildInternetBillPdf({
         case_no: caseNo,
         full_name: String(rows[0].full_name ?? ""),
@@ -95,7 +96,8 @@ export async function GET(request: Request) {
         previousUrl: billUrl,
         pdf,
       });
-      return pdfResponse(pdf, filename, stored.key);
+      const stamped = `${prefix}_${caseNo}${orderSuffix}_${Date.now()}.pdf`;
+      return pdfResponse(pdf, stamped, stored.key, "attachment");
     }
 
     const r2Key = r2KeyFromPublicUrl(billUrl, process.env.R2_PUBLIC_URL ?? "");
@@ -114,7 +116,7 @@ export async function GET(request: Request) {
       );
     }
 
-    return pdfResponse(bytes, filename, r2Key);
+    return pdfResponse(bytes, filename, r2Key, previewOnly ? "inline" : "attachment");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("Bill download error:", message);
@@ -125,12 +127,17 @@ export async function GET(request: Request) {
   }
 }
 
-function pdfResponse(bytes: Uint8Array, filename: string, r2Key: string) {
+function pdfResponse(
+  bytes: Uint8Array,
+  filename: string,
+  r2Key: string,
+  disposition: "inline" | "attachment",
+) {
   return new Response(Buffer.from(bytes), {
     headers: {
       "Content-Type": "application/pdf",
       "Content-Length": String(bytes.byteLength),
-      "Content-Disposition": `inline; filename="${filename}"`,
+      "Content-Disposition": `${disposition}; filename="${filename}"`,
       "Cache-Control": "private, no-store, no-cache, must-revalidate",
       "CDN-Cache-Control": "no-store",
       "Vercel-CDN-Cache-Control": "no-store",
