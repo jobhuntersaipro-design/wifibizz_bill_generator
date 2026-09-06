@@ -20,6 +20,7 @@ import {
 import ChatImageGenerator from "./ChatImageGenerator";
 import MergePdfDialog from "./MergePdfDialog";
 import { syncCasesToSheet } from "@/actions/settings";
+import { billDownloadPath, revisionFromPublicUrl } from "@/lib/bill-object";
 
 // ── Case Detail Panel ──
 
@@ -123,9 +124,9 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
             {caseData.internet_bill_url ? (
               <div className="space-y-3">
                 <div className="rounded-lg border border-[#E3E8EF] overflow-hidden bg-[#F6F9FC]">
-                  <iframe src={`/api/bills/download?case_no=${caseData.case_no}&type=internet&t=${cacheBuster}`} className="w-full h-100" title="Internet Bill Preview" />
+                  <iframe src={billDownloadPath(caseData.case_no, "internet", `${revisionFromPublicUrl(caseData.internet_bill_url)}-${cacheBuster}`)} className="w-full h-100" title="Internet Bill Preview" />
                 </div>
-                <a href={`/api/bills/download?case_no=${caseData.case_no}&type=internet&t=${cacheBuster}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-[#635BFF] hover:text-[#0A2540] transition-colors duration-200">
+                <a href={billDownloadPath(caseData.case_no, "internet", `${revisionFromPublicUrl(caseData.internet_bill_url)}-${cacheBuster}`)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-[#635BFF] hover:text-[#0A2540] transition-colors duration-200">
                   <DownloadIcon className="w-3.5 h-3.5" />Download Internet Bill
                 </a>
               </div>
@@ -141,9 +142,9 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
             {caseData.utility_bill_url ? (
               <div className="space-y-3">
                 <div className="rounded-lg border border-[#E3E8EF] overflow-hidden bg-[#F6F9FC]">
-                  <iframe src={`/api/bills/download?case_no=${caseData.case_no}&type=utility&t=${cacheBuster}`} className="w-full h-100" title="Utility Bill Preview" />
+                  <iframe src={billDownloadPath(caseData.case_no, "utility", `${revisionFromPublicUrl(caseData.utility_bill_url)}-${cacheBuster}`)} className="w-full h-100" title="Utility Bill Preview" />
                 </div>
-                <a href={`/api/bills/download?case_no=${caseData.case_no}&type=utility&t=${cacheBuster}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-[#FF6B35] hover:text-[#0A2540] transition-colors duration-200">
+                <a href={billDownloadPath(caseData.case_no, "utility", `${revisionFromPublicUrl(caseData.utility_bill_url)}-${cacheBuster}`)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-[#FF6B35] hover:text-[#0A2540] transition-colors duration-200">
                   <DownloadIcon className="w-3.5 h-3.5" />Download Utility Bill
                 </a>
               </div>
@@ -460,7 +461,15 @@ export default function CaseManagementSection() {
       window.dispatchEvent(new Event("usage-updated"));
       toast.success(`${type === "internet" ? "Internet" : "Utility"} bill generated`);
       // Open the freshly generated bill right away.
-      window.open(`/api/bills/download?case_no=${caseNo}&type=${type}&t=${bust}`, "_blank");
+      const generatedUrl = typeof result?.url === "string" ? result.url : "";
+      window.open(
+        billDownloadPath(
+          caseNo,
+          type,
+          generatedUrl ? revisionFromPublicUrl(generatedUrl) : String(bust),
+        ),
+        "_blank",
+      );
     } catch (err) {
       console.error("Bill generation failed:", err);
       toast.error("Bill generation failed. Please try again.");

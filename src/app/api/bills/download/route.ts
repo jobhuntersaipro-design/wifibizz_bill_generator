@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { neon } from "@neondatabase/serverless";
-import { getFromR2 } from "@/lib/r2";
+import { r2KeyFromPublicUrl } from "@/lib/bill-object";
+import { getBytesFromR2 } from "@/lib/r2";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
@@ -70,12 +73,16 @@ export async function GET(request: Request) {
       );
     }
 
-    // Extract R2 key from public URL
-    const publicUrlBase = process.env.R2_PUBLIC_URL!;
-    const r2Key = billUrl.replace(`${publicUrlBase}/`, "");
+    const r2Key = r2KeyFromPublicUrl(billUrl, process.env.R2_PUBLIC_URL ?? "");
+    if (!r2Key) {
+      return NextResponse.json(
+        { success: false, error: "File not found in storage" },
+        { status: 404 }
+      );
+    }
 
-    const stream = await getFromR2(r2Key);
-    if (!stream) {
+    const bytes = await getBytesFromR2(r2Key);
+    if (!bytes) {
       return NextResponse.json(
         { success: false, error: "File not found in storage" },
         { status: 404 }
@@ -87,11 +94,15 @@ export async function GET(request: Request) {
     const prefix = type === "utility" ? "utilityBill" : "internetBill";
     const filename = `${prefix}_${caseNo}${orderSuffix}.pdf`;
 
-    return new Response(stream, {
+    return new Response(Buffer.from(bytes), {
       headers: {
         "Content-Type": "application/pdf",
+        "Content-Length": String(bytes.byteLength),
         "Content-Disposition": `inline; filename="${filename}"`,
-        "Cache-Control": "no-store",
+        "Cache-Control": "private, no-store, no-cache, must-revalidate",
+        "CDN-Cache-Control": "no-store",
+        "Vercel-CDN-Cache-Control": "no-store",
+        ETag: `"${r2Key.replace(/"/g, "")}"`,
       },
     });
   } catch (error) {

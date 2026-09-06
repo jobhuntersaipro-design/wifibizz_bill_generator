@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { neon } from "@neondatabase/serverless";
-import { uploadToR2 } from "@/lib/r2";
+import { deleteFromR2, uploadToR2 } from "@/lib/r2";
+import { nextBillObjectKey, r2KeyFromPublicUrl } from "@/lib/bill-object";
 import { buildInternetBillPdf } from "@/lib/bill-generator/umobile-modem";
 import { generateUtilityBill } from "@/lib/bill-generator/utility-bill";
 import { getUserCaseUsage } from "@/lib/case-limit";
@@ -67,6 +68,8 @@ export async function POST(request: Request) {
       caseBillStatus.map((c) => [c.case_no as string, {
         hasAnyBill: c.internet_bill_url != null || c.utility_bill_url != null,
         fullName: c.full_name as string | null,
+        internetUrl: c.internet_bill_url as string | null,
+        utilityUrl: c.utility_bill_url as string | null,
       }])
     );
 
@@ -133,7 +136,6 @@ export async function POST(request: Request) {
       if (cd) cd.full_address = address;
     }
 
-    const r2Prefix = billType === "utility" ? "utility_bill" : "internet_bill";
     const newCaseSet = new Set(allowedNewCases);
 
     const results: { caseNo: string; status: string; url?: string; error?: string }[] = [];
@@ -150,7 +152,12 @@ export async function POST(request: Request) {
           ? await generateUtilityBill(caseData)
           : await buildInternetBillPdf(caseData);
 
-        const r2Key = `bills/${wifibizzUserId}/${caseNo}/${r2Prefix}.pdf`;
+        const r2Key = nextBillObjectKey(
+          wifibizzUserId,
+          caseNo,
+          billType,
+          crypto.randomUUID(),
+        );
         const publicUrl = await uploadToR2(r2Key, pdfBuffer, "application/pdf");
 
         if (billType === "utility") {
@@ -165,6 +172,21 @@ export async function POST(request: Request) {
             SET internet_bill_url = ${publicUrl}
             WHERE case_no = ${caseNo} AND user_id = ${wifibizzUserId}
           `;
+        }
+
+        const previousUrl = billType === "utility"
+          ? caseStatusMap.get(caseNo)?.utilityUrl
+          : caseStatusMap.get(caseNo)?.internetUrl;
+        const previousKey = previousUrl
+          ? r2KeyFromPublicUrl(previousUrl, process.env.R2_PUBLIC_URL ?? "")
+          : null;
+        if (previousKey && previousKey !== r2Key) {
+          await deleteFromR2(previousKey).catch((err) => {
+            console.error(
+              `Previous ${billType} bill delete skipped for ${caseNo}:`,
+              err instanceof Error ? err.message : err,
+            );
+          });
         }
 
         // Log usage if this is a newly charged case (first bill for this case)
