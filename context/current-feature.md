@@ -1,4 +1,22 @@
-# Current Feature: Order Entry Generate TA card
+# Current Feature: UMobile internet bill modem image pool
+
+## Status
+
+In Progress
+
+## Goals
+
+- Admin tab labeled exactly `umobile image` can upload, list, and delete modem images stored server-side (R2 + Prisma index)
+- Order Entry and Case List internet-bill generation share one stamp path on `generateInternetBill`
+- Pool ≥1 stamps exactly one random modem image into the page-2 slot
+- Empty pool still generates a bill with no modem image
+- Other generate docs stay on their existing paths
+
+## Notes
+
+ClickUp 86eyuq7mk. Bytes live in R2 under `umobile-modems/{id}.{ext}`. The Prisma row is the list/delete index. The stamp is `UMOBILE_MODEM_SLOT` on page 2 of `internet_bill.pdf` (empty body below Current Charges notes). `generateInternetBill` loads the pool unless a test passes `modemImage`.
+
+# Previous Feature: Order Entry Generate TA card
 
 ## Status
 
