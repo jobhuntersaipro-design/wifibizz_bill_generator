@@ -13,6 +13,9 @@ import {
   SAMPLE_DEPOSIT_AMOUNT,
   SAMPLE_BANK_ACCOUNT,
   SAMPLE_CAR_PARK,
+  looksCompleteAddress,
+  orderInstallationAddress,
+  pickFullestAddress,
   agreementDateFrom,
   expireDateFrom,
   scheduleDateLabel,
@@ -56,7 +59,7 @@ const CASE = {
   case_no: "202666996",
   full_name: "Nor Azzawani Fizatulazira Binti Zulkepeli",
   id_no: "011023120384",
-  full_address: "LOT 978, JALAN KAMPUNG BARU, 47000 SUNGAI BULOH, SELANGOR",
+  full_address: "LOT 978, JALAN KAMPUNG BARU, KAMPUNG SUNGAI BULOH, 47000 SUNGAI BULOH, SELANGOR, MALAYSIA",
 };
 
 async function syntheticTemplate(): Promise<Uint8Array> {
@@ -180,6 +183,23 @@ describe("generateRandomLandlord", () => {
   });
 });
 
+describe("premises address", () => {
+  it("prefers the full order/detail address over a truncated list fragment", () => {
+    const list = "LOT 978, JALAN KAMPUNG BARU";
+    const detail = CASE.full_address;
+    expect(looksCompleteAddress(list)).toBe(false);
+    expect(looksCompleteAddress(detail)).toBe(true);
+    expect(pickFullestAddress(list, detail)).toBe(detail);
+    expect(orderInstallationAddress({
+      addressFull: detail,
+      street: list,
+      postcode: "47000",
+      city: "SUNGAI BULOH",
+      state: "SELANGOR",
+    })).toBe(detail);
+  });
+});
+
 describe("tenantStampFrom", () => {
   it("uppercases the case name and dashes a 12-digit IC", () => {
     expect(tenantStampFrom(CASE, FROZEN, makeRng(42))).toEqual(expect.objectContaining({
@@ -244,6 +264,9 @@ describe("stampTenancyAgreement", () => {
     expect(text).toContain(STAMP.landlordName);
     expect(text).toContain(STAMP.landlordNric);
     expect(text).toContain("LOT 978");
+    expect(text).toContain("KAMPUNG SUNGAI BULOH");
+    expect(text).toContain("47000");
+    expect(text).toContain("MALAYSIA");
     expect(text).toContain("SUNGAI BULOH");
     expect(text).not.toContain("PELANGI UTAMA");
     expect(text).toContain("5TH SEPTEMBER 2026");
@@ -316,6 +339,9 @@ describe("generateTenancyAgreement", () => {
     expect(text).toContain(STAMP.landlordName);
     expect(text).toContain(STAMP.landlordNric);
     expect(text).toContain("LOT 978");
+    expect(text).toContain("KAMPUNG SUNGAI BULOH");
+    expect(text).toContain("47000");
+    expect(text).toContain("MALAYSIA");
     expect(text).toContain("SUNGAI BULOH");
     expect(text).not.toContain("PELANGI");
     expect(text).toContain("5th");

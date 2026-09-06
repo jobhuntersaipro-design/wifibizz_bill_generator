@@ -194,6 +194,37 @@ export function ringgitAmountLabel(amount: number): string {
   return `${ringgitWords(amount)} ONLY (${formatRm(amount)})`;
 }
 
+/** Prefer concatAddress / a complete paste over a short list-table fragment. */
+export function orderInstallationAddress(o: {
+  addressFull?: string | null;
+  street?: string | null;
+  postcode?: string | null;
+  city?: string | null;
+  state?: string | null;
+}): string {
+  const full = (o.addressFull || '').trim();
+  if (full) return full;
+  const street = (o.street || '').trim();
+  if (o.postcode && street.includes(o.postcode)) return street;
+  return [street, [o.postcode, o.city].filter(Boolean).join(' '), o.state]
+    .map((p) => (p || '').trim())
+    .filter(Boolean)
+    .join(', ');
+}
+
+export function pickFullestAddress(...candidates: (string | undefined | null)[]): string {
+  return candidates
+    .map((c) => sanitize(c || '').trim())
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length)[0] ?? '';
+}
+
+/** A list/control-app fragment is usually missing the postcode. */
+export function looksCompleteAddress(address: string): boolean {
+  const t = (address || '').trim();
+  return t.length >= 24 && /\b\d{5}\b/.test(t);
+}
+
 export function tenancyStampFrom(
   caseData: TenancyCaseData,
   now = new Date(),

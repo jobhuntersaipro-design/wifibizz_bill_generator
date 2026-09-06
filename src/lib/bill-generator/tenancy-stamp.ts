@@ -663,7 +663,7 @@ function drawReplacement(
     return;
   }
   if (hit.kind === 'premises') {
-    drawWrappedBlock(page, font, hit, stamp.premises, pageIndex, pageIndex === 0 ? 3 : 4, pageIndex === 0);
+    drawWrappedBlock(page, font, hit, stamp.premises, pageIndex, pageIndex === 0);
     return;
   }
 
@@ -735,22 +735,20 @@ function drawWrappedBlock(
   hit: StampHit,
   text: string,
   pageIndex: number,
-  maxLines: number,
   centered: boolean,
 ): void {
-  const size = hit.size >= 6 && hit.size <= 36 ? hit.size : 11;
   const pageW = page.getWidth();
-  let budget = pageIndex === 0 ? Math.min(pageW - 96, 480) : Math.min(pageW - hit.x - 36, 360);
-  budget = Math.max(budget, 160);
+  let budget = pageIndex === 0 ? Math.min(pageW - 72, 520) : Math.min(pageW - hit.x - 28, 380);
+  budget = Math.max(budget, 180);
+  // Cover sits above the footer; the schedule premises block ends before §5.
+  const band = pageIndex === 0 ? 70 : 50;
+  let size = hit.size >= 6 && hit.size <= 36 ? hit.size : 11;
   let lines = wrapToWidth(text || ' ', font, size, budget);
-  while (lines.length > maxLines && budget < pageW - 48) {
-    budget += 20;
+  while (size > 6.5 && lines.length * size * 1.15 > band) {
+    size -= 0.25;
     lines = wrapToWidth(text || ' ', font, size, budget);
   }
-  if (lines.length > maxLines) {
-    lines = [...lines.slice(0, maxLines - 1), lines.slice(maxLines - 1).join(' ')];
-  }
-  const gap = size * 1.2;
+  const gap = size * 1.15;
   for (let i = 0; i < lines.length; i++) {
     const w = font.widthOfTextAtSize(lines[i], size);
     const x = centered ? (pageW - w) / 2 : hit.x;

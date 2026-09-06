@@ -3,6 +3,11 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { neon } from "@neondatabase/serverless";
 import { generateTenancyAgreement, TEMPLATE_MISSING } from "@/lib/bill-generator/tenancy-agreement";
+import {
+  looksCompleteAddress,
+  orderInstallationAddress,
+  pickFullestAddress,
+} from "@/lib/bill-generator/tenancy-fields";
 import { fillMissingAddresses } from "@/lib/crawler/lazy-address";
 
 /**
@@ -43,7 +48,7 @@ export async function GET(request: Request) {
 
     const sql = neon(process.env.DATABASE_URL!);
     const rows = await sql`
-      SELECT case_no, full_name, full_address, id_no, case_url
+      SELECT case_no, full_name, full_address, id_no, case_url, order_no
       FROM wifibizz_cases
       WHERE case_no = ${caseNo} AND user_id = ${wifibizzUser.id}
       LIMIT 1
@@ -72,8 +77,37 @@ export async function GET(request: Request) {
       id_no: ((row.id_no as string) || "").trim(),
       case_url: (row.case_url as string) || "",
     };
-    const resolved = await fillMissingAddresses(wifibizzUser, [caseData]);
-    const fullAddress = (resolved[caseData.case_no] ?? caseData.full_address).trim();
+    const orderNo = ((row.order_no as string) || "").trim();
+    const idDigits = caseData.id_no.replace(/\D/g, "");
+    const orderMatch = [
+      ...(orderNo ? [{ orderId: orderNo }] : []),
+      ...(idDigits ? [{ idNumber: idDigits }, { idNumber: caseData.id_no }] : []),
+    ];
+    const order = orderMatch.length === 0
+      ? null
+      : await prisma.order.findFirst({
+          where: { userId: session.user.id, OR: orderMatch },
+          orderBy: { updatedAt: "desc" },
+          select: {
+            addressFull: true,
+            street: true,
+            postcode: true,
+            city: true,
+            state: true,
+          },
+        });
+    const fromOrder = order ? orderInstallationAddress(order) : "";
+    const stored = caseData.full_address.trim();
+    const needDetail =
+      !!caseData.case_url && !looksCompleteAddress(pickFullestAddress(fromOrder, stored));
+    const resolved = await fillMissingAddresses(
+      wifibizzUser,
+      [caseData],
+      { force: needDetail },
+    );
+    const fromCase = (resolved[caseData.case_no] ?? stored).trim();
+    // Order/case detail fields win over a truncated Case List / control-app string.
+    const fullAddress = pickFullestAddress(fromOrder, fromCase);
     if (!fullAddress) {
       return NextResponse.json(
         {

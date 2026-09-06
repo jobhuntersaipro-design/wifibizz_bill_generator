@@ -22,7 +22,7 @@ Mirrors `/api/bills/authorization-letter` and `/api/bills/time-invoice`. A case 
 | --- | --- |
 | Tenant name | Case `full_name`, uppercased |
 | Tenant NRIC | Case `id_no` (`YYMMDD-PB-####` when 12 digits) |
-| Sec 4 Demised Premises | Case `full_address` (lazy-filled like Letter/TIME) |
+| Sec 4 Demised Premises | Full order/case **detail** address (`address_full` / street+postcode+city+state, or the case detail-page address). Not the truncated Case List / control-app table string. |
 | Landlord name + NRIC | Random Malay pair each click (`generateRandomLandlord`) — cover, §2, execution, **bank ACCOUNT NAME** |
 | Bank account number | Unchanged `7015 8357 68` |
 | Agreement date | Generation day Malaysia (UTC+8): cover + §1 |

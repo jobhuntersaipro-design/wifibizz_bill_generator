@@ -4,7 +4,7 @@
 
 CODE COMPLETE (branch `cursor/tenancy-agreement-pdf-0327`, PR #3). Vercel-only — no scraper change, no migration.
 
-Stamp rules **v3** supersede the freeze-heavy lock. The user-facing PDF is Chris’s sample (`assets/tenancy-agreement-template.pdf`) with: tenant name + NRIC from the case; **Sec 4 premises = `full_address`**; a **random Malay landlord** on every appearance including the bank account name (account number stays); agreement + commence = generation day (Malaysia UTC+8); expire = +18 months − 1 day; rent RM800–2000 step 50; deposit = 2× rent; **TENANT IDENTIFICATION / MyKad pages removed**.
+Stamp rules **v3** supersede the freeze-heavy lock. The user-facing PDF is Chris’s sample (`assets/tenancy-agreement-template.pdf`) with: tenant name + NRIC from the case; **Sec 4 premises = the full order/case detail address** (not the truncated Case List string); a **random Malay landlord** on every appearance including the bank account name (account number stays `7015 8357 68`); agreement + commence = generation day (Malaysia UTC+8); expire = +18 months − 1 day; rent RM800–2000 step 50; deposit = 2× rent; **TENANT IDENTIFICATION / MyKad pages removed**. TA stays on the case-row Bills column.
 
 ## Goals
 
