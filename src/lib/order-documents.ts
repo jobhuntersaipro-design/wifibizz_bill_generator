@@ -18,7 +18,6 @@ export type GeneratedDocType =
   | "authorization_letter"
   | "time_invoice";
 
-/** The five the server renders. The chat is a client-side DOM capture. */
 export const SERVER_DOC_TYPES = [
   "internet_bill",
   "utility_bill",

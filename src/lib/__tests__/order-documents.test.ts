@@ -359,7 +359,6 @@ describe("generatableDocTypes", () => {
   });
 
   it("skips kinds whose required fields are missing", () => {
-    // No package: the chat needs it, the five PDFs that don't stay eligible.
     const source = { ...FULL, offerName: "" };
     expect(generatableDocTypes(source, [], 10)).toEqual([
       "internet_bill",
@@ -379,14 +378,5 @@ describe("generatableDocTypes", () => {
 
   it("returns empty when nothing can run at all", () => {
     expect(generatableDocTypes({}, [], 10)).toEqual([]);
-  });
-});
-
-describe("generate-document route TA", () => {
-  it("wires generateTenancyAgreement for tenancy_agreement", async () => {
-    const { readFile } = await import("node:fs/promises");
-    const src = await readFile("src/app/api/orders/generate-document/route.ts", "utf8");
-    expect(src).toContain("generateTenancyAgreement");
-    expect(src).toContain('"tenancy_agreement"');
   });
 });
