@@ -1,4 +1,23 @@
-# Current Feature: UMobile internet bill extra image page
+# Current Feature: Fix Order Entry combine PDF+JPG server error
+
+## Status
+
+In Progress
+
+## Goals
+
+- PDF + JPG (≤5MB each) combine succeeds on Order Entry
+- Combined PDF replaces the input files in the tray
+- Combined PDF contains content from both inputs
+- Other allowed types (JPG, PNG, PDF, WEBP) still combine
+- Generate / upload / Save Order without combine stay unchanged
+- Case List combine is untouched
+
+## Notes
+
+ClickUp 86eyur912. Root cause: Order Entry merged in the browser (JPEG→PNG via canvas) then POSTed the result through the `uploadOrderDocument` Server Action. Next.js only accepts a flight (`text/x-component`) response; an oversized or HTML/413 body surfaces as `An unexpected response was received from the server.` PDF+PNG already worked because PNG is not re-encoded to something larger. Fix: combine from R2 keys on `POST /api/orders/combine-documents` and embed JPEG natively.
+
+# Previous Feature: UMobile internet bill extra image page
 
 ## Status
 
