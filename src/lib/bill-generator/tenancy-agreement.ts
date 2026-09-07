@@ -24,6 +24,13 @@ import {
   tenancyStampFrom,
   type TenancyCaseData,
 } from './tenancy-fields';
+import type { DocumentParties } from './document-parties';
+import type { SignatureImage } from './landlord-signature';
+
+export interface TenancyGenerateExtras {
+  parties?: DocumentParties;
+  signature?: SignatureImage | null;
+}
 
 export type { TenancyCaseData };
 
@@ -62,7 +69,12 @@ export async function generateTenancyAgreement(
   templatePath?: string,
   now?: Date,
   rng?: () => number,
+  extras?: TenancyGenerateExtras,
 ): Promise<Uint8Array> {
   const template = await loadTenancyTemplate(templatePath);
-  return stampTenancyAgreement(template, tenancyStampFrom(caseData, now, rng));
+  return stampTenancyAgreement(
+    template,
+    tenancyStampFrom(caseData, now, rng, extras?.parties),
+    extras?.signature,
+  );
 }

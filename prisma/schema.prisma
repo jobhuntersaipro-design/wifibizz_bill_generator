@@ -480,3 +480,17 @@ model UmobileModemImage {
 
   @@map("umobile_modem_images")
 }
+
+// Shared landlord signature images. Admin upload/list/delete; TA and
+// Authorization Letter generation pick one at random and pair it to the
+// invented landlord. Bytes live in R2; this row is the index. An empty
+// pool is valid — generate still succeeds with a blank signature line.
+model LandlordSignatureImage {
+  id          String   @id @default(cuid())
+  r2Key       String   @unique @map("r2_key")
+  filename    String
+  contentType String   @map("content_type")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("landlord_signature_images")
+}

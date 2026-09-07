@@ -3,6 +3,8 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { neon } from "@neondatabase/serverless";
 import { generateTenancyAgreement, TEMPLATE_MISSING } from "@/lib/bill-generator/tenancy-agreement";
+import { createTaAuthContext } from "@/lib/bill-generator/landlord-signature";
+import { parsePartiesSeed } from "@/lib/bill-generator/document-parties";
 import {
   looksCompleteAddress,
   orderInstallationAddress,
@@ -24,7 +26,9 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    const caseNo = new URL(request.url).searchParams.get("case_no");
+    const url = new URL(request.url);
+    const caseNo = url.searchParams.get("case_no");
+    const partiesSeed = parsePartiesSeed(url.searchParams.get("partiesSeed"));
     if (!caseNo) {
       return NextResponse.json({ success: false, error: "case_no is required" }, { status: 400 });
     }
@@ -118,12 +122,22 @@ export async function GET(request: Request) {
       );
     }
 
-    const pdf = await generateTenancyAgreement({
-      case_no: caseData.case_no,
-      full_name: fullName,
-      full_address: fullAddress,
-      id_no: caseData.id_no,
+    const ctx = await createTaAuthContext({
+      tenantName: fullName,
+      partiesSeed,
     });
+    const pdf = await generateTenancyAgreement(
+      {
+        case_no: caseData.case_no,
+        full_name: fullName,
+        full_address: fullAddress,
+        id_no: caseData.id_no,
+      },
+      undefined,
+      ctx.now,
+      ctx.rng,
+      { parties: ctx.parties, signature: ctx.signature },
+    );
 
     return new NextResponse(Buffer.from(pdf), {
       status: 200,

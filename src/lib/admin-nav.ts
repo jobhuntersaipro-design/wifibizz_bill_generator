@@ -33,6 +33,7 @@ const SECTIONS: { prefix: string; title: string }[] = [
   { prefix: "/admin/plans", title: "Plan Settings" },
   { prefix: "/admin/agents", title: "Agents" },
   { prefix: "/admin/umobile-image", title: "umobile image" },
+  { prefix: "/admin/landlord-signature", title: "landlord signature" },
 ];
 
 export function adminNavContext(pathname: string): AdminNavContext {
@@ -41,6 +42,7 @@ export function adminNavContext(pathname: string): AdminNavContext {
   if (path === "/admin/orders") return { title: "Orders", back: null };
   if (path === "/admin/plans") return { title: "Plan Settings", back: null };
   if (path === "/admin/umobile-image") return { title: "umobile image", back: null };
+  if (path === "/admin/landlord-signature") return { title: "landlord signature", back: null };
   if (path === "/admin") return { title: "Users", back: null };
 
   // An order's detail page belongs to the orders list.

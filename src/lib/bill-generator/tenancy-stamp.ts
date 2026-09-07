@@ -21,6 +21,7 @@ import {
 import { inflateSync } from 'zlib';
 import { getPageStreamRefs, transformStream } from './pdf-utils';
 import { wrapToWidth } from './authorization-letter';
+import type { SignatureImage } from './landlord-signature';
 import {
   SAMPLE_TENANT_NAME,
   SAMPLE_TENANT_NAME_LINE1,
@@ -327,7 +328,9 @@ export type StampKind =
   | 'rent'
   | 'rent-tail'
   | 'deposit'
-  | 'bank-account';
+  | 'bank-account'
+  | 'witness-name'
+  | 'witness-nric';
 
 export interface StampHit {
   needle: string;
@@ -533,7 +536,11 @@ function fieldNeedlesForPage(pageIndex: number): FieldNeedle[] {
     { needle: SAMPLE_BANK_ACCOUNT, kind: 'bank-account' },
     { needle: SAMPLE_BANK_ACCOUNT.replace(/\s/g, ''), kind: 'bank-account' },
   ];
-  return [...tenant, ...landlord, ...premises, ...dates, ...money];
+  const witnesses: FieldNeedle[] = [
+    { needle: 'WITNESS NAME :', kind: 'witness-name' },
+    { needle: 'NRIC NO :', kind: 'witness-nric' },
+  ];
+  return [...tenant, ...landlord, ...premises, ...dates, ...money, ...witnesses];
 }
 
 function isTenantNric(needle: string): boolean {
@@ -629,6 +636,8 @@ function drawReplacement(
   hit: StampHit,
   stamp: TenantStamp,
   pageIndex: number,
+  pageHits: StampHit[],
+  isFirstSchedule: boolean,
 ): void {
   const size = hit.size >= 6 && hit.size <= 36 ? hit.size : 11;
 
@@ -679,7 +688,21 @@ function drawReplacement(
     return;
   }
   if (hit.kind === 'premises') {
+    if (isFirstSchedule) {
+      drawSection4Premises(page, font, hit, stamp.premises);
+      return;
+    }
     drawWrappedBlock(page, font, hit, stamp.premises, pageIndex, pageIndex === 0);
+    return;
+  }
+
+  if (hit.kind === 'witness-name' || hit.kind === 'witness-nric') {
+    const isLandlord = isUpperWitnessHit(hit, pageHits, hit.kind);
+    const value = hit.kind === 'witness-name'
+      ? (isLandlord ? stamp.landlordWitnessName : stamp.tenantWitnessName)
+      : (isLandlord ? stamp.landlordWitnessNric : stamp.tenantWitnessNric);
+    const label = hit.kind === 'witness-name' ? 'WITNESS NAME : ' : 'NRIC NO : ';
+    page.drawText(`${label}${value}`, { x: hit.x, y: hit.y, size, font, color: INK });
     return;
   }
 
@@ -756,6 +779,49 @@ function drawFittedTo(
   return drawSize;
 }
 
+/** First Schedule particulars cell for Section 4 (Chris’s template). */
+export const SECTION4_CELL_RIGHT = 538;
+export const SECTION4_CELL_BOTTOM = 503;
+
+function isUpperWitnessHit(hit: StampHit, pageHits: StampHit[], kind: StampKind): boolean {
+  const same = pageHits.filter((h) => h.kind === kind).sort((a, b) => b.y - a.y);
+  return !!same[0] && Math.abs(same[0].y - hit.y) < 1;
+}
+
+/**
+ * Keep long demised-premises text inside the First Schedule Section 4
+ * particulars box (x 232–538, y 503–556). Golden overflow: case 202666996.
+ */
+function drawSection4Premises(
+  page: PDFPage,
+  font: PDFFont,
+  hit: StampHit,
+  text: string,
+): void {
+  const pad = 4;
+  const budget = Math.max(80, SECTION4_CELL_RIGHT - hit.x - pad);
+  const maxDrop = Math.max(8, hit.y - SECTION4_CELL_BOTTOM - 2);
+  let size = hit.size >= 6 && hit.size <= 36 ? hit.size : 10;
+  let lines = wrapToWidth(text || ' ', font, size, budget);
+  const gapOf = (s: number) => s * 1.12;
+  while (size > 5.5 && (lines.length - 1) * gapOf(size) > maxDrop) {
+    size -= 0.25;
+    lines = wrapToWidth(text || ' ', font, size, budget);
+  }
+  const gap = lines.length > 1
+    ? Math.min(gapOf(size), maxDrop / (lines.length - 1))
+    : gapOf(size);
+  for (let i = 0; i < lines.length; i++) {
+    page.drawText(lines[i], {
+      x: hit.x,
+      y: hit.y - i * gap,
+      size,
+      font,
+      color: INK,
+    });
+  }
+}
+
 function drawWrappedBlock(
   page: PDFPage,
   font: PDFFont,
@@ -822,9 +888,50 @@ export async function copyWithoutPages(pdfDoc: PDFDocument, drop: number[]): Pro
   return out;
 }
 
+/**
+ * Stamp a pool signature above the landlord's dotted line on the execution
+ * page. Null image or a failed embed leaves the line blank — generate must
+ * not hard-fail when the pool is empty.
+ */
+async function drawLandlordSignatureImage(
+  pdfDoc: PDFDocument,
+  page: PDFPage,
+  pageHits: StampHit[],
+  image: SignatureImage | null,
+): Promise<void> {
+  if (!image) return;
+  const nameHit = pageHits
+    .filter((h) => h.kind === 'landlord-name' && /NAME/i.test(h.prefix))
+    .sort((a, b) => b.y - a.y)[0]
+    ?? pageHits.filter((h) => h.kind === 'landlord-name').sort((a, b) => a.y - b.y)[0];
+  if (!nameHit) return;
+  try {
+    const embedded = image.mime === 'image/png'
+      ? await pdfDoc.embedPng(image.bytes)
+      : await pdfDoc.embedJpg(image.bytes);
+    const maxW = 140;
+    const maxH = 32;
+    const scale = Math.min(maxW / embedded.width, maxH / embedded.height, 1);
+    const width = embedded.width * scale;
+    const height = embedded.height * scale;
+    page.drawImage(embedded, {
+      x: Math.max(84, nameHit.x - 40),
+      y: nameHit.y + 10,
+      width,
+      height,
+    });
+  } catch (error) {
+    console.error(
+      'landlord signature embed skipped:',
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
 export async function stampTenancyAgreement(
   templateBytes: Uint8Array,
   stamp: TenantStamp,
+  signature?: SignatureImage | null,
 ): Promise<Uint8Array> {
   const date = stamp.date ?? agreementDateFrom();
   const resolved: TenantStamp = {
@@ -834,6 +941,10 @@ export async function stampTenancyAgreement(
     premises: stamp.premises ?? '',
     landlordName: stamp.landlordName ?? '',
     landlordNric: stamp.landlordNric ?? '',
+    landlordWitnessName: stamp.landlordWitnessName ?? '',
+    landlordWitnessNric: stamp.landlordWitnessNric ?? '',
+    tenantWitnessName: stamp.tenantWitnessName ?? '',
+    tenantWitnessNric: stamp.tenantWitnessNric ?? '',
     rentRinggit: stamp.rentRinggit ?? 2000,
     bankAccount: stamp.bankAccount ?? SAMPLE_BANK_ACCOUNT,
   };
@@ -850,6 +961,7 @@ export async function stampTenancyAgreement(
     const pageHits = blankSampleTenant(pdfDoc, pages[i], i);
     tenantHits += pageHits.filter((h) => h.kind === 'name' || h.kind === 'nric').length;
     const font = pickFont(fonts, i);
+    const isFirstSchedule = /THE FIRST SCHEDULE/i.test(pagePlainText(pdfDoc, pages[i]));
     const drawn = new Set<string>();
     for (const hit of pageHits) {
       if (!shouldRedraw(hit, pageHits)) continue;
@@ -857,8 +969,9 @@ export async function stampTenancyAgreement(
       const key = `${Math.round(hit.x)}:${Math.round(hit.y)}:${kind}`;
       if (drawn.has(key)) continue;
       drawn.add(key);
-      drawReplacement(pages[i], font, hit, resolved, i);
+      drawReplacement(pages[i], font, hit, resolved, i, pageHits, isFirstSchedule);
     }
+    await drawLandlordSignatureImage(pdfDoc, pages[i], pageHits, signature ?? null);
   }
 
   if (tenantHits === 0) {

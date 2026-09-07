@@ -209,6 +209,11 @@ describe("server vs client documents", () => {
       "tenancy_agreement_920505034434.pdf",
     );
   });
+
+  it("labels the cards TA and Auth Letter", () => {
+    expect(docSpec("tenancy_agreement").label).toBe("TA");
+    expect(docSpec("authorization_letter").label).toBe("Auth Letter");
+  });
 });
 
 

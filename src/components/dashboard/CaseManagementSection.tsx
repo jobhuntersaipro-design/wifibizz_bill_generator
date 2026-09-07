@@ -258,6 +258,9 @@ export default function CaseManagementSection() {
   const [letterCase, setLetterCase] = useState<string | null>(null);
   const [timeCase, setTimeCase] = useState<string | null>(null);
   const [taCase, setTaCase] = useState<string | null>(null);
+  // One seed per case so TA and Auth Letter print the same landlord NAME
+  // when both are generated in this session. Not a registry — reload redraws.
+  const taAuthSeeds = useRef<Record<string, number>>({});
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<"success" | "error" | null>(null);
   const [syncCount, setSyncCount] = useState(0);
@@ -565,11 +568,16 @@ export default function CaseManagementSection() {
     failureMessage: string;
     setBusy: (caseNo: string | null) => void;
     busy: string | null;
+    extraQuery?: Record<string, string>;
   }) {
     if (opts.busy) return;
     opts.setBusy(opts.caseNo);
     try {
-      const res = await fetch(`${opts.endpoint}?case_no=${encodeURIComponent(opts.caseNo)}`);
+      const qs = new URLSearchParams({
+        case_no: opts.caseNo,
+        ...(opts.extraQuery ?? {}),
+      });
+      const res = await fetch(`${opts.endpoint}?${qs}`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         toast.error(body?.error || opts.failureMessage);
@@ -592,6 +600,13 @@ export default function CaseManagementSection() {
     }
   }
 
+  function partiesSeedFor(caseNo: string): string {
+    if (taAuthSeeds.current[caseNo] == null) {
+      taAuthSeeds.current[caseNo] = Math.floor(Math.random() * 0xffffffff);
+    }
+    return String(taAuthSeeds.current[caseNo]);
+  }
+
   function handleAuthorizationLetter(caseNo: string) {
     return downloadDocument({
       caseNo,
@@ -600,6 +615,7 @@ export default function CaseManagementSection() {
       failureMessage: "Couldn't generate the authorization letter.",
       setBusy: setLetterCase,
       busy: letterCase,
+      extraQuery: { partiesSeed: partiesSeedFor(caseNo) },
     });
   }
 
@@ -622,6 +638,7 @@ export default function CaseManagementSection() {
       failureMessage: "Couldn't generate the tenancy agreement.",
       setBusy: setTaCase,
       busy: taCase,
+      extraQuery: { partiesSeed: partiesSeedFor(caseNo) },
     });
   }
 
@@ -1022,8 +1039,8 @@ export default function CaseManagementSection() {
                             <span className="text-[10px] leading-none font-medium text-[#697386]">TA</span>
                           </button>
                           <button
-                            title="Generate Authorization Letter"
-                            aria-label={`Generate authorization letter for ${c.case_no}`}
+                            title="Generate Auth Letter"
+                            aria-label={`Generate auth letter for ${c.case_no}`}
                             disabled={letterCase === c.case_no}
                             onClick={() => handleAuthorizationLetter(c.case_no)}
                             className="w-14 flex flex-col items-center gap-0.5 rounded-md py-1 transition-colors text-[#0E9384] hover:bg-[#E6FAF7] disabled:cursor-not-allowed"
@@ -1031,7 +1048,7 @@ export default function CaseManagementSection() {
                             {letterCase === c.case_no
                               ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#0E9384] border-t-transparent animate-spin" />
                               : <AuthLetterIcon className="w-4 h-4" />}
-                            <span className="text-[10px] leading-none font-medium text-[#697386]">Letter</span>
+                            <span className="text-[10px] leading-none font-medium text-[#697386]">Auth Letter</span>
                           </button>
                           <button
                             title="Generate TIME Invoice"

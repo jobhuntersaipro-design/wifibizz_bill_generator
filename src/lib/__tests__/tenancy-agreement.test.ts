@@ -41,7 +41,13 @@ import {
   extractTextRuns,
   findNeedleHits,
   stampTenancyAgreement,
+  loadPageCmaps,
+  SECTION4_CELL_RIGHT,
+  SECTION4_CELL_BOTTOM,
 } from "@/lib/bill-generator/tenancy-stamp";
+import { getPageStreamRefs, transformStream } from "@/lib/bill-generator/pdf-utils";
+import { createDocumentParties } from "@/lib/bill-generator/document-parties";
+import { generateAuthorizationLetter } from "@/lib/bill-generator/authorization-letter";
 import {
   generateTenancyAgreement,
   resolveTenancyTemplatePath,
@@ -49,6 +55,23 @@ import {
 } from "@/lib/bill-generator/tenancy-agreement";
 import { formatIcDashed, generateRandomLandlord, makeRng } from "@/lib/bill-generator/owner-identity";
 import { pdfContentText } from "@/lib/erf-appointment";
+
+async function quartzVisibleText(bytes: Uint8Array): Promise<string> {
+  const doc = await PDFDocument.load(bytes);
+  const parts: string[] = [];
+  for (const page of doc.getPages()) {
+    const cmaps = loadPageCmaps(doc, page);
+    for (const entry of getPageStreamRefs(doc, page)) {
+      transformStream(doc, entry, (buf) => {
+        for (const run of extractTextRuns(buf.toString("latin1"), cmaps)) {
+          if (run.text.trim()) parts.push(run.text);
+        }
+        return { data: buf, count: 0 };
+      });
+    }
+  }
+  return parts.join("\n");
+}
 
 function pdfVisibleText(bytes: Uint8Array): string {
   const raw = pdfContentText(bytes);
@@ -96,9 +119,13 @@ async function syntheticTemplate(): Promise<Uint8Array> {
   exec.drawText("SIGNED by the LANDLORD", { x: 72, y: 700, size: 11, font: sans });
   exec.drawText(`NAME : ${SAMPLE_LANDLORD_NAME}`, { x: 200, y: 640, size: 11, font: sans });
   exec.drawText(`NRIC : ${SAMPLE_LANDLORD_NRIC}`, { x: 200, y: 620, size: 11, font: sans });
+  exec.drawText("WITNESS NAME :", { x: 72, y: 580, size: 11, font: sans });
+  exec.drawText("NRIC NO :", { x: 72, y: 564, size: 11, font: sans });
   exec.drawText("SIGNED by the TENANT", { x: 72, y: 400, size: 11, font: sans });
   exec.drawText(`NAME : ${SAMPLE_TENANT_NAME}`, { x: 200, y: 340, size: 11, font: sans });
   exec.drawText(`NRIC : ${SAMPLE_TENANT_NRIC}`, { x: 200, y: 320, size: 11, font: sans });
+  exec.drawText("WITNESS NAME :", { x: 72, y: 280, size: 11, font: sans });
+  exec.drawText("NRIC NO :", { x: 72, y: 264, size: 11, font: sans });
 
   const sched = doc.addPage([612, 792]);
   sched.drawText("THE FIRST SCHEDULE ABOVE REFERRED TO", { x: 120, y: 740, size: 12, font: sans });
@@ -304,6 +331,10 @@ describe("stampTenancyAgreement", () => {
     expect(text).not.toContain(SAMPLE_LANDLORD_NRIC);
     expect(text).toContain(STAMP.landlordName);
     expect(text).toContain(STAMP.landlordNric);
+    expect(text).toContain(STAMP.landlordWitnessName);
+    expect(text).toContain(STAMP.landlordWitnessNric);
+    expect(text).toContain(STAMP.tenantWitnessName);
+    expect(text).toContain(STAMP.tenantWitnessNric);
     expect(text).toContain("LOT 978");
     expect(text).toContain("KAMPUNG SUNGAI BULOH");
     expect(text).toContain("47000");
@@ -361,16 +392,8 @@ describe("generateTenancyAgreement", () => {
     const bytes = await generateTenancyAgreement(CASE, undefined, FROZEN, makeRng(42));
     expect((await PDFDocument.load(bytes)).getPageCount()).toBe(10);
 
-    const { writeFileSync, unlinkSync } = await import("node:fs");
-    const { execFileSync } = await import("node:child_process");
-    const tmp = `/tmp/ta-stamped-${process.pid}.pdf`;
-    writeFileSync(tmp, bytes);
-    let text = "";
-    try {
-      text = execFileSync("pdftotext", ["-layout", tmp, "-"], { encoding: "utf8" });
-    } finally {
-      unlinkSync(tmp);
-    }
+    const text = await quartzVisibleText(bytes);
+    const packed = text.replace(/\n/g, "");
 
     expect(text).toContain("NOR AZZAWANI");
     expect(text).toContain("ZULKEPELI");
@@ -383,13 +406,15 @@ describe("generateTenancyAgreement", () => {
     expect(text).not.toContain(SAMPLE_LANDLORD_NRIC);
     expect(text).toContain(STAMP.landlordName);
     expect(text).toContain(STAMP.landlordNric);
+    expect(text).toContain(STAMP.landlordWitnessName);
+    expect(text).toContain(STAMP.tenantWitnessName);
     expect(text).toContain("LOT 978");
     expect(text).toContain("KAMPUNG SUNGAI BULOH");
     expect(text).toContain("47000");
     expect(text).toContain("MALAYSIA");
     expect(text).toContain("SUNGAI BULOH");
     expect(text).not.toContain("PELANGI");
-    expect(text).toContain(coverDayLabel(STAMP.date));
+    expect(packed).toContain(coverDayLabel(STAMP.date));
     expect(text).toContain(coverMonthLabel(STAMP.date));
     expect(text).toContain(String(STAMP.date.year));
     expect(text).toContain(scheduleDateLabel(STAMP.date));
@@ -397,7 +422,7 @@ describe("generateTenancyAgreement", () => {
     expect(text.split(scheduleDateLabel(STAMP.date)).length - 1).toBeGreaterThanOrEqual(2);
     expect(text).not.toContain("15TH JANUARY 2026");
     expect(text).not.toContain("14TH JULY 2027");
-    expect(text).toContain("MAYBANK");
+    expect(packed).toContain("MAYBANK");
     expect(text).toMatch(new RegExp(STAMP.bankAccount.split(" ").join("\\s*")));
     expect(text).not.toMatch(/7015\s*8357\s*68/);
     expect(text).toContain("18");
@@ -447,6 +472,68 @@ describe("pickBankAccount", () => {
   });
 });
 
+describe("shared landlord + Section 4 box", () => {
+  it("prints the same landlord NAME on TA and Auth Letter for one generate", async () => {
+    const parties = createDocumentParties(FROZEN, makeRng(7), CASE.full_name);
+    const { writeFile, mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "ta-shared-"));
+    const fixture = join(dir, "tenancy_agreement.pdf");
+    try {
+      await writeFile(fixture, await syntheticTemplate());
+      const ta = await generateTenancyAgreement(CASE, fixture, FROZEN, makeRng(7), { parties });
+      const letter = await generateAuthorizationLetter(CASE, FROZEN, { parties });
+      const taText = pdfVisibleText(ta);
+      const letterText = pdfVisibleText(letter);
+      expect(taText).toContain(parties.landlord.name);
+      expect(letterText).toContain(parties.landlord.name);
+      expect(taText).toContain(parties.landlordWitness.name);
+      expect(letterText).toContain(parties.landlordWitness.name);
+      expect(letterText).toContain(parties.tenantWitness.name);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps golden-case Section 4 premises inside the particulars cell", async () => {
+    const found = await resolveTenancyTemplatePath();
+    if (!found) return;
+
+    const bytes = await generateTenancyAgreement(CASE, undefined, FROZEN, makeRng(42));
+    const pdf = await PDFDocument.load(bytes);
+    const page = pdf.getPages()[9];
+    const font = await pdf.embedFont(StandardFonts.TimesRomanBold);
+    const cmaps = loadPageCmaps(pdf, page);
+    const runs: { text: string; x: number; y: number; size: number }[] = [];
+    for (const entry of getPageStreamRefs(pdf, page)) {
+      transformStream(pdf, entry, (buf) => {
+        for (const run of extractTextRuns(buf.toString("latin1"), cmaps)) {
+          if (run.text.trim()) runs.push(run);
+        }
+        return { data: buf, count: 0 };
+      });
+    }
+    const premises = runs.filter((r) =>
+      /LOT 978|KAMPUNG SUNGAI BULOH|SELANGOR|MALAYSIA|SUNGAI BULOH/.test(r.text)
+      && r.y >= SECTION4_CELL_BOTTOM - 1
+      && r.y <= 560
+      && r.x >= 220,
+    );
+    expect(premises.length).toBeGreaterThan(0);
+    for (const run of premises) {
+      const right = run.x + font.widthOfTextAtSize(run.text, run.size);
+      expect(right).toBeLessThanOrEqual(SECTION4_CELL_RIGHT + 0.6);
+      expect(run.y).toBeGreaterThanOrEqual(SECTION4_CELL_BOTTOM - 0.6);
+    }
+  });
+
+  it("still stamps when the signature image is missing", async () => {
+    const bytes = await stampTenancyAgreement(await syntheticTemplate(), STAMP, null);
+    expect(pdfVisibleText(bytes)).toContain(STAMP.landlordName);
+  });
+});
+
 describe("Bills column TA", () => {
   it("keeps TA on the first wrapped row of the case-row Bills cell", async () => {
     const { readFile } = await import("node:fs/promises");
@@ -454,6 +541,8 @@ describe("Bills column TA", () => {
     expect(src).toContain('data-action="tenancy-agreement"');
     expect(src).toContain("flex-wrap");
     expect(src).toContain("w-[236px]");
-    expect(src.indexOf("tenancy-agreement")).toBeLessThan(src.indexOf("Generate Authorization Letter"));
+    expect(src.indexOf("tenancy-agreement")).toBeLessThan(src.indexOf("Generate Auth Letter"));
+    expect(src).toContain(">Auth Letter<");
+    expect(src).toContain(">TA<");
   });
 });

@@ -17,6 +17,7 @@ import {
   generateRandomLandlord,
   icDigits,
 } from './owner-identity';
+import { type DocumentParties } from './document-parties';
 import { sanitize } from './address-parts';
 
 /** Cover / schedule / signature tenant as printed on the sample. */
@@ -101,6 +102,10 @@ export interface TenantStamp {
   premises: string;
   landlordName: string;
   landlordNric: string;
+  landlordWitnessName: string;
+  landlordWitnessNric: string;
+  tenantWitnessName: string;
+  tenantWitnessNric: string;
   rentRinggit: number;
   bankAccount: string;
 }
@@ -289,11 +294,29 @@ export function tenancyStampFrom(
   caseData: TenancyCaseData,
   now = new Date(),
   rng: () => number = Math.random,
+  parties?: DocumentParties,
 ): TenantStamp {
   const digits = icDigits(caseData.id_no);
   const name = sanitize(caseData.full_name || '').toUpperCase();
-  const landlord = generateRandomLandlord(now, rng, name);
+  const landlord = parties?.landlord
+    ? { name: parties.landlord.name, nric: parties.landlord.nric }
+    : (() => {
+        const drawn = generateRandomLandlord(now, rng, name);
+        return { name: drawn.name.toUpperCase(), nric: formatIcDashed(drawn.ic) };
+      })();
   const date = pickAgreementDate(now, rng);
+  const rentRinggit = pickRentRinggit(rng);
+  const bankAccount = pickBankAccount(rng);
+  // Witnesses after rent/bank so existing stamp rng sequences stay stable.
+  const used = `${name} ${landlord.name}`;
+  const landlordWitness = parties?.landlordWitness ?? (() => {
+    const drawn = generateRandomLandlord(now, rng, used);
+    return { name: drawn.name.toUpperCase(), nric: formatIcDashed(drawn.ic) };
+  })();
+  const tenantWitness = parties?.tenantWitness ?? (() => {
+    const drawn = generateRandomLandlord(now, rng, `${used} ${landlordWitness.name}`);
+    return { name: drawn.name.toUpperCase(), nric: formatIcDashed(drawn.ic) };
+  })();
   return {
     name,
     nric: digits.length === 12 ? formatIcDashed(digits) : sanitize(caseData.id_no || ''),
@@ -301,9 +324,13 @@ export function tenancyStampFrom(
     expire: expireDateFrom(date),
     premises: sanitize(caseData.full_address || '').toUpperCase(),
     landlordName: landlord.name.toUpperCase(),
-    landlordNric: formatIcDashed(landlord.ic),
-    rentRinggit: pickRentRinggit(rng),
-    bankAccount: pickBankAccount(rng),
+    landlordNric: landlord.nric,
+    landlordWitnessName: landlordWitness.name,
+    landlordWitnessNric: landlordWitness.nric,
+    tenantWitnessName: tenantWitness.name,
+    tenantWitnessNric: tenantWitness.nric,
+    rentRinggit,
+    bankAccount,
   };
 }
 

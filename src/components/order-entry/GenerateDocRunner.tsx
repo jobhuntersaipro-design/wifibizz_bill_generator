@@ -29,6 +29,8 @@ interface Props {
   onDone: (result: { doc?: OrderDocument; error?: string }) => void;
   /** Pool image to append after an internet bill. Omitted when the pool is empty. */
   umobileImageId?: string | null;
+  /** Shared TA + Auth Letter landlord/witness seed for this generate. */
+  partiesSeed?: number | null;
 }
 
 /**
@@ -42,7 +44,7 @@ interface Props {
  * The progress indicator lives on the button in the form, next to what was
  * clicked, rather than here.
  */
-export default function GenerateDocRunner({ type, source, existingOfType, onDone, umobileImageId }: Props) {
+export default function GenerateDocRunner({ type, source, existingOfType, onDone, umobileImageId, partiesSeed }: Props) {
   const spec = docSpec(type);
   const seed = documentSeed(source.idNumber);
   const chatRef = useRef<HTMLDivElement>(null);
@@ -70,6 +72,10 @@ export default function GenerateDocRunner({ type, source, existingOfType, onDone
             offerName: source.offerName,
             ...(type === "internet_bill" && umobileImageId
               ? { umobileImageId }
+              : {}),
+            ...((type === "tenancy_agreement" || type === "authorization_letter")
+              && partiesSeed != null
+              ? { partiesSeed }
               : {}),
           }),
         });
@@ -105,7 +111,7 @@ export default function GenerateDocRunner({ type, source, existingOfType, onDone
     } catch (e) {
       onDone({ error: e instanceof Error ? e.message : "Generation failed." });
     }
-  }, [type, rand.wallpaper, source, seed, spec, existingOfType, onDone, umobileImageId]);
+  }, [type, rand.wallpaper, source, seed, spec, existingOfType, onDone, umobileImageId, partiesSeed]);
 
   // `run` is held in a ref and the effect depends only on `type`, so a parent
   // re-render cannot cancel the pending generate.
