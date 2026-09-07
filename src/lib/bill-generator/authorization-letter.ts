@@ -14,9 +14,17 @@ import {
   sanitize,
   type AddressParts,
 } from './address-parts';
-import { generateOwner, formatIcDashed, icDigits } from './owner-identity';
+import { formatIcDashed, icDigits } from './owner-identity';
+import { createDocumentParties, type DocumentParties } from './document-parties';
+import type { SignatureImage } from './landlord-signature';
 import { effectiveDate, longDate, ordinalDate, slashDate } from './letter-dates';
 import { drawSignature, FLOURISH_DESCENT, SIGNATURE_ASCENT } from './signature';
+
+export interface LetterGenerateExtras {
+  parties?: DocumentParties;
+  signature?: SignatureImage | null;
+  rng?: () => number;
+}
 
 // ── Page geometry (A4) ─────────────────────────────────────────────
 const PAGE_W = 595.28;
@@ -185,11 +193,14 @@ export interface LetterCaseData {
 
 export async function generateAuthorizationLetter(
   caseData: LetterCaseData,
-  now: Date = new Date()
+  now: Date = new Date(),
+  extras?: LetterGenerateExtras,
 ): Promise<Uint8Array> {
   const customerName = sanitize(caseData.full_name || '');
   const customerIc = icDigits(caseData.id_no || '');
-  const owner = generateOwner(caseData.case_no, customerName, now);
+  const rng = extras?.rng ?? Math.random;
+  const parties = extras?.parties ?? createDocumentParties(now, rng, customerName);
+  const landlord = parties.landlord;
   const address = await buildLetterAddress(caseData.full_address || '', customerName);
   const effective = effectiveDate(caseData.case_no, now);
 
@@ -200,8 +211,8 @@ export async function generateAuthorizationLetter(
 
   const cur = new Cursor(page, font, PAGE_H - MARGIN);
 
-  // ── Letterhead: the owner, at the premise they own ───────────────
-  cur.text(owner.name.toUpperCase());
+  // ── Letterhead: the landlord, at the premise they own ────────────
+  cur.text(landlord.name.toUpperCase());
   // Wrapped, not printed as-is: a portal address with no commas is one long
   // segment, and an unwrapped letterhead line runs straight off the page.
   for (const line of address.block) {
@@ -251,18 +262,23 @@ export async function generateAuthorizationLetter(
   cur.gap(2);
 
   // ── Signature blocks ─────────────────────────────────────────────
-  drawSignatureBlock(page, cur, font, {
+  await drawSignatureBlock(page, pdfDoc, cur, font, {
     heading: 'Property Owner Signature,',
-    signer: owner.name,
-    ic: formatIcDashed(owner.ic),
+    signer: landlord.name,
+    ic: landlord.nric,
     date: slashDate(now),
+    witnessName: parties.landlordWitness.name,
+    witnessNric: parties.landlordWitness.nric,
+    landlordImage: extras?.signature ?? null,
   });
   cur.gap(1.5);
-  drawSignatureBlock(page, cur, font, {
+  await drawSignatureBlock(page, pdfDoc, cur, font, {
     heading: 'Resident Signature,',
     signer: customerName,
     ic: formatIcDashed(customerIc),
     date: slashDate(now),
+    witnessName: parties.tenantWitness.name,
+    witnessNric: parties.tenantWitness.nric,
   });
 
   cur.gap(1.5);
@@ -277,12 +293,21 @@ const SIGNATURE_W = 142;
 // gesture reaches about twice this and the flourish descends below the line.
 const SIGNATURE_H = 20;
 
-function drawSignatureBlock(
+async function drawSignatureBlock(
   page: PDFPage,
+  pdfDoc: PDFDocument,
   cur: Cursor,
   font: PDFFont,
-  block: { heading: string; signer: string; ic: string; date: string }
-): void {
+  block: {
+    heading: string;
+    signer: string;
+    ic: string;
+    date: string;
+    witnessName: string;
+    witnessNric: string;
+    landlordImage?: SignatureImage | null;
+  },
+): Promise<void> {
   cur.text(block.heading);
 
   // Clear the heading. The mark is drawn upward from the line and its opening
@@ -291,12 +316,23 @@ function drawSignatureBlock(
   cur.gap((SIGNATURE_H * SIGNATURE_ASCENT) / LINE_H + 0.2);
 
   const lineY = cur.y + LINE_H * 0.35;
-  drawSignature(page, block.signer, {
-    x: MARGIN + 6,
-    y: lineY + 2,
-    width: SIGNATURE_W,
-    height: SIGNATURE_H,
-  });
+  const isLandlordBlock = block.landlordImage !== undefined;
+  if (isLandlordBlock) {
+    // Pool image, or blank when the pool is empty / embed fails. Never hard-fail.
+    if (block.landlordImage) {
+      await drawLandlordSignatureOnLetter(pdfDoc, page, block.landlordImage, {
+        x: MARGIN + 6,
+        y: lineY + 2,
+      });
+    }
+  } else {
+    drawSignature(page, block.signer, {
+      x: MARGIN + 6,
+      y: lineY + 2,
+      width: SIGNATURE_W,
+      height: SIGNATURE_H,
+    });
+  }
 
   page.drawLine({
     start: { x: MARGIN, y: lineY },
@@ -312,4 +348,37 @@ function drawSignatureBlock(
 
   cur.text(`IC number: ${block.ic}`);
   cur.text(`Date: ${block.date}`);
+  cur.text(`Witness Name: ${block.witnessName}`);
+  cur.text(`Witness NRIC: ${block.witnessNric}`);
+}
+
+async function drawLandlordSignatureOnLetter(
+  pdfDoc: PDFDocument,
+  page: PDFPage,
+  image: SignatureImage,
+  at: { x: number; y: number },
+): Promise<boolean> {
+  try {
+    const embedded = image.mime === 'image/png'
+      ? await pdfDoc.embedPng(image.bytes)
+      : await pdfDoc.embedJpg(image.bytes);
+    const maxW = SIGNATURE_W;
+    const maxH = SIGNATURE_H * SIGNATURE_ASCENT;
+    const scale = Math.min(maxW / embedded.width, maxH / embedded.height, 1);
+    const width = embedded.width * scale;
+    const height = embedded.height * scale;
+    page.drawImage(embedded, {
+      x: at.x,
+      y: at.y,
+      width,
+      height,
+    });
+    return true;
+  } catch (error) {
+    console.error(
+      'auth letter landlord signature skipped:',
+      error instanceof Error ? error.message : error,
+    );
+    return false;
+  }
 }

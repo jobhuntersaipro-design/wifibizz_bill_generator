@@ -1,4 +1,24 @@
-# Current Feature: Fix Order Entry combine PDF+JPG server error
+# Current Feature: TA + Auth Letter landlord signature, witnesses, Section 4
+
+## Status
+
+In Progress
+
+## Goals
+
+- Admin UI uploads, lists, and deletes landlord signature images (separate R2 pool)
+- Generate stamps a random pool signature on TA and Auth Letter, paired to a randomized landlord
+- Invented witness Name+NRIC on both parties' witness lines (TA + Auth Letter)
+- First Schedule Section 4 premises stay fully inside the particulars cell (golden case 202666996)
+- Landlord NAME string is identical on TA and Auth Letter for the same generate (OE + Case List)
+- Case List Bills icon `Letter` → `Auth Letter`; Order Entry card `Authorization Letter` → `Auth Letter`; TA unchanged
+- Empty signature pool: generate still succeeds with a blank landlord signature line (no hard-fail)
+
+## Notes
+
+ClickUp 86eyuua3n. Signature model A: admin image pool randomly paired to a randomized landlord. No landlord registry. Landlord name/NRIC stay random per generate. Witnesses are invented each generate, not pooled. Overflow fix is Section 4 only. Empty pool → blank signature.
+
+# Previous Feature: Fix Order Entry combine PDF+JPG server error
 
 ## Status
 

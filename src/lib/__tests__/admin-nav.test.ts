@@ -14,6 +14,7 @@ describe("top-level sections", () => {
     expect(adminNavContext("/admin/orders")).toEqual({ title: "Orders", back: null });
     expect(adminNavContext("/admin/plans")).toEqual({ title: "Plan Settings", back: null });
     expect(adminNavContext("/admin/umobile-image")).toEqual({ title: "umobile image", back: null });
+    expect(adminNavContext("/admin/landlord-signature")).toEqual({ title: "landlord signature", back: null });
   });
 
   it("is not confused by a trailing slash", () => {
@@ -56,5 +57,6 @@ describe("routes nobody has mapped", () => {
     expect(adminNavContext("/admin/orders").title).toBe("Orders");
     expect(adminNavContext("/admin/plans").title).toBe("Plan Settings");
     expect(adminNavContext("/admin/umobile-image").title).toBe("umobile image");
+    expect(adminNavContext("/admin/landlord-signature").title).toBe("landlord signature");
   });
 });

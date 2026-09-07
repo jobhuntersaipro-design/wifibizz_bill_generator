@@ -5,6 +5,8 @@ import { generateUtilityBill } from "@/lib/bill-generator/utility-bill";
 import { generateAuthorizationLetter } from "@/lib/bill-generator/authorization-letter";
 import { generateTimeInvoice } from "@/lib/bill-generator/time-invoice";
 import { generateTenancyAgreement } from "@/lib/bill-generator/tenancy-agreement";
+import { createTaAuthContext } from "@/lib/bill-generator/landlord-signature";
+import { parsePartiesSeed } from "@/lib/bill-generator/document-parties";
 import {
   documentSeed,
   generatedFilename,
@@ -91,11 +93,26 @@ export async function POST(request: Request) {
         pdf = await generateUtilityBill(caseData);
         break;
       case "tenancy_agreement":
-        pdf = await generateTenancyAgreement(caseData);
+      case "authorization_letter": {
+        const ctx = await createTaAuthContext({
+          tenantName: source.fullName,
+          partiesSeed: parsePartiesSeed(body?.partiesSeed),
+        });
+        pdf = type === "tenancy_agreement"
+          ? await generateTenancyAgreement(
+              caseData,
+              undefined,
+              ctx.now,
+              ctx.rng,
+              { parties: ctx.parties, signature: ctx.signature },
+            )
+          : await generateAuthorizationLetter(caseData, ctx.now, {
+              parties: ctx.parties,
+              signature: ctx.signature,
+              rng: ctx.rng,
+            });
         break;
-      case "authorization_letter":
-        pdf = await generateAuthorizationLetter(caseData);
-        break;
+      }
       case "time_invoice":
         pdf = await generateTimeInvoice(caseData);
         break;
