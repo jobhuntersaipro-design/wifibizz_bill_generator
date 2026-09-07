@@ -3,6 +3,7 @@ import { makeRng } from "@/lib/bill-generator/owner-identity";
 import {
   createDocumentParties,
   parsePartiesSeed,
+  partyFilled,
   rngFromSeed,
 } from "@/lib/bill-generator/document-parties";
 
@@ -25,6 +26,13 @@ describe("createDocumentParties", () => {
     const c = createDocumentParties(NOW, makeRng(10), TENANT);
     expect(b).toEqual(a);
     expect(c.landlord.name).not.toBe(a.landlord.name);
+  });
+});
+
+describe("partyFilled", () => {
+  it("rejects a blank name so generate invents witnesses instead of stamping empty lines", () => {
+    expect(partyFilled({ name: "", nric: "900101-14-5678" })).toBe(false);
+    expect(partyFilled({ name: "AIN HANI BINTI ZAINAL", nric: "661225-14-2562" })).toBe(true);
   });
 });
 

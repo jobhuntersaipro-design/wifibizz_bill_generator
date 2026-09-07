@@ -75,7 +75,7 @@ export default function GenerateDocRunner({ type, source, existingOfType, onDone
               : {}),
             ...((type === "tenancy_agreement" || type === "authorization_letter")
               && partiesSeed != null
-              ? { partiesSeed }
+              ? { partiesSeed: Number(partiesSeed) }
               : {}),
           }),
         });
