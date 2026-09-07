@@ -17,7 +17,7 @@ import {
   generateRandomLandlord,
   icDigits,
 } from './owner-identity';
-import { type DocumentParties } from './document-parties';
+import { partyFilled, type DocumentParties } from './document-parties';
 import { sanitize } from './address-parts';
 
 /** Cover / schedule / signature tenant as printed on the sample. */
@@ -298,7 +298,7 @@ export function tenancyStampFrom(
 ): TenantStamp {
   const digits = icDigits(caseData.id_no);
   const name = sanitize(caseData.full_name || '').toUpperCase();
-  const landlord = parties?.landlord
+  const landlord = partyFilled(parties?.landlord)
     ? { name: parties.landlord.name, nric: parties.landlord.nric }
     : (() => {
         const drawn = generateRandomLandlord(now, rng, name);
@@ -309,14 +309,18 @@ export function tenancyStampFrom(
   const bankAccount = pickBankAccount(rng);
   // Witnesses after rent/bank so existing stamp rng sequences stay stable.
   const used = `${name} ${landlord.name}`;
-  const landlordWitness = parties?.landlordWitness ?? (() => {
-    const drawn = generateRandomLandlord(now, rng, used);
-    return { name: drawn.name.toUpperCase(), nric: formatIcDashed(drawn.ic) };
-  })();
-  const tenantWitness = parties?.tenantWitness ?? (() => {
-    const drawn = generateRandomLandlord(now, rng, `${used} ${landlordWitness.name}`);
-    return { name: drawn.name.toUpperCase(), nric: formatIcDashed(drawn.ic) };
-  })();
+  const landlordWitness = partyFilled(parties?.landlordWitness)
+    ? parties.landlordWitness
+    : (() => {
+        const drawn = generateRandomLandlord(now, rng, used);
+        return { name: drawn.name.toUpperCase(), nric: formatIcDashed(drawn.ic) };
+      })();
+  const tenantWitness = partyFilled(parties?.tenantWitness)
+    ? parties.tenantWitness
+    : (() => {
+        const drawn = generateRandomLandlord(now, rng, `${used} ${landlordWitness.name}`);
+        return { name: drawn.name.toUpperCase(), nric: formatIcDashed(drawn.ic) };
+      })();
   return {
     name,
     nric: digits.length === 12 ? formatIcDashed(digits) : sanitize(caseData.id_no || ''),
@@ -325,9 +329,9 @@ export function tenancyStampFrom(
     premises: sanitize(caseData.full_address || '').toUpperCase(),
     landlordName: landlord.name.toUpperCase(),
     landlordNric: landlord.nric,
-    landlordWitnessName: landlordWitness.name,
+    landlordWitnessName: landlordWitness.name.toUpperCase(),
     landlordWitnessNric: landlordWitness.nric,
-    tenantWitnessName: tenantWitness.name,
+    tenantWitnessName: tenantWitness.name.toUpperCase(),
     tenantWitnessNric: tenantWitness.nric,
     rentRinggit,
     bankAccount,

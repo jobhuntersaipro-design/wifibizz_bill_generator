@@ -269,6 +269,7 @@ export function OrderForm({
   const genBatchRef = useRef({ active: false, total: 0, ok: 0, failed: [] as string[] });
   // Shared landlord NAME for TA + Auth Letter in this form session.
   const taAuthSeedRef = useRef<number | null>(null);
+  const [taAuthSeed, setTaAuthSeed] = useState<number | null>(null);
   // `collapsingKeys` and `arrivedKey` exist only to drive the animation: a
   // combine replaces rows the agent is looking at, so the merged ones collapse
   // in place and the file that takes their position announces itself once.
@@ -429,12 +430,14 @@ export function OrderForm({
     if (taAuthSeedRef.current == null) {
       taAuthSeedRef.current = Math.floor(Math.random() * 0xffffffff);
     }
+    setTaAuthSeed(taAuthSeedRef.current);
     return taAuthSeedRef.current;
   }
 
   function handleGenerateAll() {
     if (generateAllTypes.length === 0 || genDoc !== null) return;
     taAuthSeedRef.current = Math.floor(Math.random() * 0xffffffff);
+    setTaAuthSeed(taAuthSeedRef.current);
     genBatchRef.current = { active: true, total: generateAllTypes.length, ok: 0, failed: [] };
     setGenQueue(generateAllTypes.slice(1));
     setGenDoc(generateAllTypes[0]);
@@ -2120,7 +2123,7 @@ export function OrderForm({
           type={genDoc}
           source={genSource}
           umobileImageId={umobilePick?.id}
-          partiesSeed={taAuthSeedRef.current}
+          partiesSeed={taAuthSeed ?? taAuthSeedRef.current}
           existingOfType={documents.filter((d) => d.type === docSpec(genDoc).attachAs).length}
           onDone={({ doc, error }) => {
             // Computed here rather than read back from state: setDocuments has

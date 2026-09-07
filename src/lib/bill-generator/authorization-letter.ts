@@ -15,7 +15,7 @@ import {
   type AddressParts,
 } from './address-parts';
 import { formatIcDashed, icDigits } from './owner-identity';
-import { createDocumentParties, type DocumentParties } from './document-parties';
+import { createDocumentParties, partyFilled, type DocumentParties } from './document-parties';
 import type { SignatureImage } from './landlord-signature';
 import { effectiveDate, longDate, ordinalDate, slashDate } from './letter-dates';
 import { drawSignature, FLOURISH_DESCENT, SIGNATURE_ASCENT } from './signature';
@@ -199,7 +199,21 @@ export async function generateAuthorizationLetter(
   const customerName = sanitize(caseData.full_name || '');
   const customerIc = icDigits(caseData.id_no || '');
   const rng = extras?.rng ?? Math.random;
-  const parties = extras?.parties ?? createDocumentParties(now, rng, customerName);
+  const generated = extras?.parties && partyFilled(extras.parties.landlord)
+    ? extras.parties
+    : createDocumentParties(now, rng, customerName);
+  const fallback = partyFilled(generated.landlordWitness) && partyFilled(generated.tenantWitness)
+    ? generated
+    : createDocumentParties(now, rng, customerName);
+  const parties: DocumentParties = {
+    landlord: partyFilled(generated.landlord) ? generated.landlord : fallback.landlord,
+    landlordWitness: partyFilled(generated.landlordWitness)
+      ? generated.landlordWitness
+      : fallback.landlordWitness,
+    tenantWitness: partyFilled(generated.tenantWitness)
+      ? generated.tenantWitness
+      : fallback.tenantWitness,
+  };
   const landlord = parties.landlord;
   const address = await buildLetterAddress(caseData.full_address || '', customerName);
   const effective = effectiveDate(caseData.case_no, now);

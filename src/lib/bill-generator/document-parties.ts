@@ -35,6 +35,10 @@ export function rngFromSeed(seed?: number, fallback: () => number = Math.random)
   return seed == null ? fallback : makeRng(seed);
 }
 
+export function partyFilled(p?: PartyIdentity | null): p is PartyIdentity {
+  return !!p && p.name.trim().length > 0 && /\d{6}/.test(p.nric);
+}
+
 function asParty(
   person: { name: string; ic: string },
 ): PartyIdentity {

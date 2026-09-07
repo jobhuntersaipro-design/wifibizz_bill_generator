@@ -10,6 +10,7 @@ ClickUp `86eyuua3n`. Signature model A.
 - A random pool image is stamped on the landlord signature line of both docs.
 - **Empty pool:** generate still succeeds; the landlord signature line is blank. No hard-fail.
 - First Schedule Section 4 premises wrap and shrink inside the particulars cell (`232–538` × `503–556`). Golden case `202666996` no longer overflows.
+- Execution page: witness Name+NRIC are drawn to the right of the printed labels (labels are not blanked). If needles miss, Chris's coordinates are used. Landlord signature image is stamped only on that page.
 - Case List Bills icon `Letter` → `Auth Letter`. Order Entry card `Authorization Letter` → `Auth Letter`. `TA` unchanged.
 
 ## Not in scope
