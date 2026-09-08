@@ -31,19 +31,27 @@ export async function adminListLandlordSignatures(): Promise<{
   if (!(await verifyAdminSession())) {
     return { success: false, error: "Unauthorized", images: [] };
   }
-  const rows = await prisma.landlordSignatureImage.findMany({
-    orderBy: { createdAt: "desc" },
-    select: { id: true, filename: true, createdAt: true },
-  });
-  return {
-    success: true,
-    images: rows.map((row) => ({
-      id: row.id,
-      filename: row.filename,
-      createdAt: row.createdAt.toISOString(),
-      previewUrl: previewUrl(row.id),
-    })),
-  };
+  try {
+    const rows = await prisma.landlordSignatureImage.findMany({
+      orderBy: { createdAt: "desc" },
+      select: { id: true, filename: true, createdAt: true },
+    });
+    return {
+      success: true,
+      images: rows.map((row) => ({
+        id: row.id,
+        filename: row.filename,
+        createdAt: row.createdAt.toISOString(),
+        previewUrl: previewUrl(row.id),
+      })),
+    };
+  } catch (error) {
+    console.error(
+      "adminListLandlordSignatures error:",
+      error instanceof Error ? error.message : error,
+    );
+    return { success: false, error: "Could not load signatures.", images: [] };
+  }
 }
 
 export async function adminUploadLandlordSignature(formData: FormData): Promise<{

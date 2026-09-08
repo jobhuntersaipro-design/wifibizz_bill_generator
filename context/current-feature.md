@@ -1,22 +1,64 @@
 # Current Feature: TA + Auth Letter landlord signature, witnesses, Section 4
 
-## Status
+**Status:** CODE ON BRANCH `feature/ta-auth-letter-signatures` (not yet committed
+beyond the cherry-picked work). Vercel + Prisma migration for
+`landlord_signature_images`. ClickUp `86eyuua3n`.
 
-In Progress
+Ask: generated TA and Authorization Letter show a landlord signature (admin
+image pool randomly paired to the randomized landlord), invented witness Name +
+NRIC on both parties, Section 4 premises fully inside its box, the same landlord
+NAME on both docs for one generate, and UI icons renamed so Auth Letter is not
+confusing.
 
-## Goals
+### Locked product decisions
 
-- Admin UI uploads, lists, and deletes landlord signature images (separate R2 pool)
-- Generate stamps a random pool signature on TA and Auth Letter, paired to a randomized landlord
-- Invented witness Name+NRIC on both parties' witness lines (TA + Auth Letter)
-- First Schedule Section 4 premises stay fully inside the particulars cell (golden case 202666996)
-- Landlord NAME string is identical on TA and Auth Letter for the same generate (OE + Case List)
-- Case List Bills icon `Letter` → `Auth Letter`; Order Entry card `Authorization Letter` → `Auth Letter`; TA unchanged
-- Empty signature pool: generate still succeeds with a blank landlord signature line (no hard-fail)
+- Signature **A**: admin image pool ↔ random landlord. No landlord registry.
+- Witnesses invented each generate (not an admin pool).
+- Overflow fix is **Section 4 only** (golden case `202666996`).
+- Rename: Case List Bills `Letter` + OE card `Authorization Letter` → both
+  **`Auth Letter`**. `TA` unchanged.
+- Empty pool: **generate still succeeds**; landlord signature line stays blank.
+  Stated on the ClickUp task.
+
+### Built
+
+- **`LandlordSignatureImage`** Prisma model + migration — R2 key
+  `landlord-signatures/{id}.{ext}`, same upload/list/delete shape as umobile
+  image. Admin tab `/admin/landlord-signature`.
+- **`createDocumentParties` / `createTaAuthContext`** — one Malay landlord + two
+  witnesses + optional pool PNG/JPEG. Case List and Order Entry send the same
+  `partiesSeed` for TA and Auth Letter so the landlord NAME matches.
+- TA execution page: witness Name+NRIC drawn to the right of the printed labels;
+  pool image stamped only on that page. Auth Letter: witness lines under each
+  signature block; Property Owner uses the pool image (or blank), Resident stays
+  the drawn mark.
+- **`drawSection4Premises`** wraps and shrinks inside `232–538` × `503–556`.
+
+### Tests
+
+142 related vitest passing (`tenancy-agreement`, `authorization-letter`,
+`document-parties`, `landlord-signature`, `order-documents`, `admin-nav`).
+Full unit suite 852 passing.
+
+### Verified (local)
+
+Golden case `202666996` against the real template: same landlord NAME
+(`SITI SYAHIRA BINTI SALLEH`) on TA + Auth Letter, both witness names on both
+docs, Section 4 premises inside the particulars cell, generate succeeds with
+`signature: null`. Admin list no longer 500s if the table is missing (returns
+empty). Migration `landlord_signature_images` applied on the local Neon.
+
+Staff UI on `http://localhost:3001` (signed in as the stored
+`aiboot1@gmailcom` account — `aiboot1@gmail.com` is CredentialsSignin here):
+Case List Bills caption is **Auth Letter**; Order Entry generate card is
+**Auth Letter** (`TA` unchanged). Admin pool upload already proven. Golden
+case `202666996` is not on this account's Case List. Live staff generate of
+TA + Auth Letter was not clicked (download of a customer PDF).
 
 ## Notes
 
-ClickUp 86eyuua3n. Signature model A: admin image pool randomly paired to a randomized landlord. No landlord registry. Landlord name/NRIC stay random per generate. Witnesses are invented each generate, not pooled. Overflow fix is Section 4 only. Empty pool → blank signature.
+Tenant signature unchanged. Internet / Utility / TIME / Chat / combine out of
+scope. No full template redesign.
 
 # Previous Feature: Fix Order Entry combine PDF+JPG server error
 
