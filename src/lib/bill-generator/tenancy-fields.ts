@@ -307,7 +307,6 @@ export function tenancyStampFrom(
   const date = pickAgreementDate(now, rng);
   const rentRinggit = pickRentRinggit(rng);
   const bankAccount = pickBankAccount(rng);
-  // Witnesses after rent/bank so existing stamp rng sequences stay stable.
   const used = `${name} ${landlord.name}`;
   const landlordWitness = partyFilled(parties?.landlordWitness)
     ? parties.landlordWitness

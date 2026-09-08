@@ -29,7 +29,6 @@ interface Props {
   onDone: (result: { doc?: OrderDocument; error?: string }) => void;
   /** Pool image to append after an internet bill. Omitted when the pool is empty. */
   umobileImageId?: string | null;
-  /** Shared TA + Auth Letter landlord/witness seed for this generate. */
   partiesSeed?: number | null;
 }
 

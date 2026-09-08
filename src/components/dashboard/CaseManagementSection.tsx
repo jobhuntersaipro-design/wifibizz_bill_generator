@@ -258,8 +258,6 @@ export default function CaseManagementSection() {
   const [letterCase, setLetterCase] = useState<string | null>(null);
   const [timeCase, setTimeCase] = useState<string | null>(null);
   const [taCase, setTaCase] = useState<string | null>(null);
-  // One seed per case so TA and Auth Letter print the same landlord NAME
-  // when both are generated in this session. Not a registry — reload redraws.
   const taAuthSeeds = useRef<Record<string, number>>({});
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<"success" | "error" | null>(null);

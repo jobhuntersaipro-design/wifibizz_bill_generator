@@ -583,9 +583,6 @@ export function blankSampleTenant(
         }
       }
       if (pageHits.length === 0) return { data: buf, count: 0 };
-      // Keep witness labels on the page — values are drawn to the right of
-      // the colon. Blanking the label then redrawing it is what left OE
-      // smoke looking at empty WITNESS NAME / NRIC NO lines.
       const ranges = uniqueRanges(
         pageHits
           .filter((h) => h.kind !== 'witness-name' && h.kind !== 'witness-nric')
@@ -780,11 +777,9 @@ function drawFittedTo(
   return drawSize;
 }
 
-/** First Schedule particulars cell for Section 4 (Chris’s template). */
 export const SECTION4_CELL_RIGHT = 538;
 export const SECTION4_CELL_BOTTOM = 503;
 
-/** Chris's execution page (template index 8). Used when needles miss. */
 export const EXEC_LANDLORD_NAME = { x: 306.2, y: 564.7 };
 export const EXEC_SIGNATURE = { x: 84, y: 575 };
 export const EXEC_WITNESS_SLOTS = [
@@ -887,10 +882,6 @@ function stampExecutionLandlordName(
   }
 }
 
-/**
- * Keep long demised-premises text inside the First Schedule Section 4
- * particulars box (x 232–538, y 503–556). Golden overflow: case 202666996.
- */
 function drawSection4Premises(
   page: PDFPage,
   font: PDFFont,
@@ -987,11 +978,6 @@ export async function copyWithoutPages(pdfDoc: PDFDocument, drop: number[]): Pro
   return out;
 }
 
-/**
- * Stamp a pool signature above the landlord's dotted line on the execution
- * page. Null image or a failed embed leaves the line blank — generate must
- * not hard-fail when the pool is empty.
- */
 async function drawLandlordSignatureImage(
   pdfDoc: PDFDocument,
   page: PDFPage,

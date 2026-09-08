@@ -225,7 +225,6 @@ export async function generateAuthorizationLetter(
 
   const cur = new Cursor(page, font, PAGE_H - MARGIN);
 
-  // ── Letterhead: the landlord, at the premise they own ────────────
   cur.text(landlord.name.toUpperCase());
   // Wrapped, not printed as-is: a portal address with no commas is one long
   // segment, and an unwrapped letterhead line runs straight off the page.
@@ -332,7 +331,6 @@ async function drawSignatureBlock(
   const lineY = cur.y + LINE_H * 0.35;
   const isLandlordBlock = block.landlordImage !== undefined;
   if (isLandlordBlock) {
-    // Pool image, or blank when the pool is empty / embed fails. Never hard-fail.
     if (block.landlordImage) {
       await drawLandlordSignatureOnLetter(pdfDoc, page, block.landlordImage, {
         x: MARGIN + 6,

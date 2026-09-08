@@ -1,11 +1,3 @@
-/**
- * Admin-uploaded landlord signature images.
- *
- * Model A: the pool is just images. Generation picks one at random and pairs
- * it to the invented landlord for that generate. An empty pool is valid —
- * generate still succeeds and the landlord signature line stays blank.
- */
-
 import { prisma } from "@/lib/prisma";
 import { getBytesFromR2 } from "@/lib/r2";
 import {
@@ -70,10 +62,6 @@ export async function loadLandlordSignatureById(
   }
 }
 
-/**
- * Pick and load one pool image. Null when the pool is empty, R2 is missing
- * the key, or the row is unreadable. Callers must not hard-fail on null.
- */
 export async function loadRandomLandlordSignature(
   rng: () => number = Math.random,
 ): Promise<SignatureImage | null> {
@@ -107,10 +95,6 @@ export interface TaAuthContext {
   now: Date;
 }
 
-/**
- * One generate's shared landlord, witnesses, and optional signature image.
- * Empty pool → signature is null; generate must still succeed.
- */
 export async function createTaAuthContext(opts: {
   tenantName: string;
   now?: Date;

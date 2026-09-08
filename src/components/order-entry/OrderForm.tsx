@@ -267,7 +267,6 @@ export function OrderForm({
   // Batch bookkeeping for the end-of-run summary. A ref, not state: it never
   // drives a render of its own, and the renders genDoc causes read it fresh.
   const genBatchRef = useRef({ active: false, total: 0, ok: 0, failed: [] as string[] });
-  // Shared landlord NAME for TA + Auth Letter in this form session.
   const taAuthSeedRef = useRef<number | null>(null);
   const [taAuthSeed, setTaAuthSeed] = useState<number | null>(null);
   // `collapsingKeys` and `arrivedKey` exist only to drive the animation: a

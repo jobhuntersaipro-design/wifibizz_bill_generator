@@ -1,6 +1,3 @@
--- Shared landlord signature image pool. Bytes stay in R2; this table is the
--- index the admin tab lists and TA / Authorization Letter generation picks from.
--- An empty pool is valid: generate still succeeds with a blank signature line.
 CREATE TABLE IF NOT EXISTS "landlord_signature_images" (
   "id"           TEXT NOT NULL,
   "r2_key"       TEXT NOT NULL,
