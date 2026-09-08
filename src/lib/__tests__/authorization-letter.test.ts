@@ -6,6 +6,7 @@ import {
   hashSeed,
   makeRng,
 } from "@/lib/bill-generator/owner-identity";
+import { createDocumentParties } from "@/lib/bill-generator/document-parties";
 import {
   generateAuthorizationLetter,
   sanitize,
@@ -349,6 +350,25 @@ describe("buildLetterAddress", () => {
   });
 });
 
+async function letterVisibleText(bytes: Uint8Array): Promise<string> {
+  const { extractTextRuns, loadPageCmaps } = await import("@/lib/bill-generator/tenancy-stamp");
+  const { getPageStreamRefs, transformStream } = await import("@/lib/bill-generator/pdf-utils");
+  const doc = await PDFDocument.load(bytes);
+  const parts: string[] = [];
+  for (const page of doc.getPages()) {
+    const cmaps = loadPageCmaps(doc, page);
+    for (const entry of getPageStreamRefs(doc, page)) {
+      transformStream(doc, entry, (buf) => {
+        for (const run of extractTextRuns(buf.toString("latin1"), cmaps)) {
+          if (run.text.trim()) parts.push(run.text);
+        }
+        return { data: buf, count: 0 };
+      });
+    }
+  }
+  return parts.join("\n");
+}
+
 describe("the whole letter", () => {
   const CASE = {
     case_no: "202662528",
@@ -363,14 +383,28 @@ describe("the whole letter", () => {
     expect(doc.getPageCount()).toBe(1);
   });
 
-  it("is byte-identical when regenerated — the same case cannot yield a second property owner", async () => {
+  it("prints the same landlord when both letters share one generate's parties", async () => {
     const when = new Date(2026, 7, 22);
-    const a = await generateAuthorizationLetter(CASE, when);
-    const b = await generateAuthorizationLetter(CASE, when);
-    // Creation timestamps aside, the drawn content stream must match exactly.
+    const parties = createDocumentParties(when, makeRng(11), CASE.full_name);
+    const a = await generateAuthorizationLetter(CASE, when, { parties });
+    const b = await generateAuthorizationLetter(CASE, when, { parties });
     const contentOf = (bytes: Uint8Array) =>
       Buffer.from(bytes).toString("latin1").replace(/\/(Creation|Mod)Date\s*\([^)]*\)/g, "");
     expect(contentOf(b)).toBe(contentOf(a));
+    const text = await letterVisibleText(a);
+    expect(text).toContain(parties.landlord.name);
+    expect(text).toContain(parties.landlordWitness.name);
+    expect(text).toContain(parties.tenantWitness.name);
+  });
+
+  it("still generates when the signature pool is empty", async () => {
+    const when = new Date(2026, 7, 22);
+    const parties = createDocumentParties(when, makeRng(3), CASE.full_name);
+    const bytes = await generateAuthorizationLetter(CASE, when, {
+      parties,
+      signature: null,
+    });
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1);
   });
 
   it("still generates when the case has no address at all", async () => {

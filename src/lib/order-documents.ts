@@ -110,7 +110,7 @@ export const GENERATED_DOCS: GeneratedDocSpec[] = [
   },
   {
     type: "authorization_letter",
-    label: "Authorization Letter",
+    label: "Auth Letter",
     requires: [NAME, ID, ADDR],
     attachAs: "other",
     attachLabel: "authorizationletter",

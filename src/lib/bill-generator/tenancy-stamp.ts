@@ -21,6 +21,7 @@ import {
 import { inflateSync } from 'zlib';
 import { getPageStreamRefs, transformStream } from './pdf-utils';
 import { wrapToWidth } from './authorization-letter';
+import type { SignatureImage } from './landlord-signature';
 import {
   SAMPLE_TENANT_NAME,
   SAMPLE_TENANT_NAME_LINE1,
@@ -327,7 +328,9 @@ export type StampKind =
   | 'rent'
   | 'rent-tail'
   | 'deposit'
-  | 'bank-account';
+  | 'bank-account'
+  | 'witness-name'
+  | 'witness-nric';
 
 export interface StampHit {
   needle: string;
@@ -533,7 +536,11 @@ function fieldNeedlesForPage(pageIndex: number): FieldNeedle[] {
     { needle: SAMPLE_BANK_ACCOUNT, kind: 'bank-account' },
     { needle: SAMPLE_BANK_ACCOUNT.replace(/\s/g, ''), kind: 'bank-account' },
   ];
-  return [...tenant, ...landlord, ...premises, ...dates, ...money];
+  const witnesses: FieldNeedle[] = [
+    { needle: 'WITNESS NAME :', kind: 'witness-name' },
+    { needle: 'NRIC NO :', kind: 'witness-nric' },
+  ];
+  return [...tenant, ...landlord, ...premises, ...dates, ...money, ...witnesses];
 }
 
 function isTenantNric(needle: string): boolean {
@@ -576,17 +583,21 @@ export function blankSampleTenant(
         }
       }
       if (pageHits.length === 0) return { data: buf, count: 0 };
-      const ranges = uniqueRanges(pageHits.flatMap((h) => h.ranges));
+      const ranges = uniqueRanges(
+        pageHits
+          .filter((h) => h.kind !== 'witness-name' && h.kind !== 'witness-nric')
+          .flatMap((h) => h.ranges),
+      );
       hits.push(...pageHits);
+      if (ranges.length === 0) return { data: buf, count: 0 };
       return { data: blankRanges(buf, ranges), count: ranges.length };
     });
   }
   return hits;
 }
 
-/** Cover + First Schedule are Times Bold; the execution page is Arial Bold. */
-function pickFont(fonts: { serif: PDFFont; sans: PDFFont }, pageIndex: number): PDFFont {
-  return pageIndex === 8 ? fonts.sans : fonts.serif;
+function pickFont(fonts: { serif: PDFFont }): PDFFont {
+  return fonts.serif;
 }
 
 function shouldRedraw(hit: StampHit, pageHits: StampHit[]): boolean {
@@ -629,6 +640,8 @@ function drawReplacement(
   hit: StampHit,
   stamp: TenantStamp,
   pageIndex: number,
+  pageHits: StampHit[],
+  isFirstSchedule: boolean,
 ): void {
   const size = hit.size >= 6 && hit.size <= 36 ? hit.size : 11;
 
@@ -679,7 +692,15 @@ function drawReplacement(
     return;
   }
   if (hit.kind === 'premises') {
+    if (isFirstSchedule) {
+      drawSection4Premises(page, font, hit, stamp.premises);
+      return;
+    }
     drawWrappedBlock(page, font, hit, stamp.premises, pageIndex, pageIndex === 0);
+    return;
+  }
+
+  if (hit.kind === 'witness-name' || hit.kind === 'witness-nric') {
     return;
   }
 
@@ -756,6 +777,141 @@ function drawFittedTo(
   return drawSize;
 }
 
+export const SECTION4_CELL_RIGHT = 538;
+export const SECTION4_CELL_BOTTOM = 503;
+
+export const EXEC_LANDLORD_NAME = { x: 306.2, y: 564.7 };
+export const EXEC_SIGNATURE = { x: 84, y: 575 };
+export const EXEC_WITNESS_SLOTS = [
+  { kind: 'witness-name' as const, x: 84, y: 499.44, landlord: true, size: 11.04 },
+  { kind: 'witness-nric' as const, x: 84, y: 486.96, landlord: true, size: 11.04 },
+  { kind: 'witness-name' as const, x: 84, y: 233.76, landlord: false, size: 11.04 },
+  { kind: 'witness-nric' as const, x: 84, y: 221.04, landlord: false, size: 11.04 },
+] as const;
+
+function isExecutionPage(pdfDoc: PDFDocument, page: PDFPage): boolean {
+  const text = pagePlainText(pdfDoc, page);
+  return /SIGNED/i.test(text) && /LANDLORD/i.test(text) && /WITNESS/i.test(text);
+}
+
+function isUpperWitnessHit(hit: StampHit, pageHits: StampHit[], kind: StampKind): boolean {
+  const same = pageHits.filter((h) => h.kind === kind).sort((a, b) => b.y - a.y);
+  return !!same[0] && Math.abs(same[0].y - hit.y) < 1;
+}
+
+function witnessValue(stamp: TenantStamp, kind: 'witness-name' | 'witness-nric', landlord: boolean): string {
+  if (kind === 'witness-name') {
+    return landlord ? stamp.landlordWitnessName : stamp.tenantWitnessName;
+  }
+  return landlord ? stamp.landlordWitnessNric : stamp.tenantWitnessNric;
+}
+
+function drawWitnessValue(
+  page: PDFPage,
+  font: PDFFont,
+  at: { x: number; y: number; size?: number; needle?: string; kind: 'witness-name' | 'witness-nric' },
+  value: string,
+): void {
+  if (!value.trim()) return;
+  const size = at.size && at.size >= 6 && at.size <= 36 ? at.size : 11;
+  const label = at.needle
+    || (at.kind === 'witness-name' ? 'WITNESS NAME :' : 'NRIC NO :');
+  const labelW = font.widthOfTextAtSize(`${label.replace(/\s*$/, '')} `, size);
+  page.drawText(value, {
+    x: at.x + labelW,
+    y: at.y,
+    size,
+    font,
+    color: INK,
+  });
+}
+
+function stampExecutionWitnesses(
+  page: PDFPage,
+  font: PDFFont,
+  stamp: TenantStamp,
+  pageHits: StampHit[],
+): void {
+  const nameHits = pageHits.filter((h) => h.kind === 'witness-name').sort((a, b) => b.y - a.y);
+  const nricHits = pageHits.filter((h) => h.kind === 'witness-nric').sort((a, b) => b.y - a.y);
+  if (nameHits.length >= 2 && nricHits.length >= 2) {
+    for (const hit of nameHits) {
+      drawWitnessValue(page, font, { ...hit, kind: 'witness-name' }, witnessValue(
+        stamp,
+        'witness-name',
+        isUpperWitnessHit(hit, pageHits, 'witness-name'),
+      ));
+    }
+    for (const hit of nricHits) {
+      drawWitnessValue(page, font, { ...hit, kind: 'witness-nric' }, witnessValue(
+        stamp,
+        'witness-nric',
+        isUpperWitnessHit(hit, pageHits, 'witness-nric'),
+      ));
+    }
+    return;
+  }
+  for (const slot of EXEC_WITNESS_SLOTS) {
+    drawWitnessValue(page, font, slot, witnessValue(stamp, slot.kind, slot.landlord));
+  }
+}
+
+function stampExecutionLandlordName(
+  page: PDFPage,
+  font: PDFFont,
+  stamp: TenantStamp,
+  pageHits: StampHit[],
+): void {
+  if (pageHits.some((h) => h.kind === 'landlord-name')) return;
+  const size = 11;
+  page.drawText(stamp.landlordName, {
+    x: EXEC_LANDLORD_NAME.x,
+    y: EXEC_LANDLORD_NAME.y,
+    size,
+    font,
+    color: INK,
+  });
+  if (stamp.landlordNric) {
+    page.drawText(stamp.landlordNric, {
+      x: EXEC_LANDLORD_NAME.x - 5,
+      y: EXEC_LANDLORD_NAME.y - 15,
+      size,
+      font,
+      color: INK,
+    });
+  }
+}
+
+function drawSection4Premises(
+  page: PDFPage,
+  font: PDFFont,
+  hit: StampHit,
+  text: string,
+): void {
+  const pad = 4;
+  const budget = Math.max(80, SECTION4_CELL_RIGHT - hit.x - pad);
+  const maxDrop = Math.max(8, hit.y - SECTION4_CELL_BOTTOM - 2);
+  let size = hit.size >= 6 && hit.size <= 36 ? hit.size : 10;
+  let lines = wrapToWidth(text || ' ', font, size, budget);
+  const gapOf = (s: number) => s * 1.12;
+  while (size > 5.5 && (lines.length - 1) * gapOf(size) > maxDrop) {
+    size -= 0.25;
+    lines = wrapToWidth(text || ' ', font, size, budget);
+  }
+  const gap = lines.length > 1
+    ? Math.min(gapOf(size), maxDrop / (lines.length - 1))
+    : gapOf(size);
+  for (let i = 0; i < lines.length; i++) {
+    page.drawText(lines[i], {
+      x: hit.x,
+      y: hit.y - i * gap,
+      size,
+      font,
+      color: INK,
+    });
+  }
+}
+
 function drawWrappedBlock(
   page: PDFPage,
   font: PDFFont,
@@ -822,9 +978,45 @@ export async function copyWithoutPages(pdfDoc: PDFDocument, drop: number[]): Pro
   return out;
 }
 
+async function drawLandlordSignatureImage(
+  pdfDoc: PDFDocument,
+  page: PDFPage,
+  pageHits: StampHit[],
+  image: SignatureImage | null,
+): Promise<void> {
+  if (!image) return;
+  const pageH = page.getHeight();
+  const nameHit = pageHits
+    .filter((h) => h.kind === 'landlord-name' && h.y > pageH * 0.5)
+    .sort((a, b) => b.y - a.y)[0]
+    ?? pageHits.filter((h) => h.kind === 'landlord-name').sort((a, b) => b.y - a.y)[0];
+  try {
+    const embedded = image.mime === 'image/png'
+      ? await pdfDoc.embedPng(image.bytes)
+      : await pdfDoc.embedJpg(image.bytes);
+    const maxW = 160;
+    const maxH = 36;
+    const scale = Math.min(maxW / embedded.width, maxH / embedded.height, 1);
+    const width = Math.max(embedded.width * scale, 40);
+    const height = Math.max(embedded.height * scale, 12);
+    page.drawImage(embedded, {
+      x: EXEC_SIGNATURE.x,
+      y: nameHit ? nameHit.y + 12 : EXEC_SIGNATURE.y,
+      width,
+      height,
+    });
+  } catch (error) {
+    console.error(
+      'landlord signature embed skipped:',
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
 export async function stampTenancyAgreement(
   templateBytes: Uint8Array,
   stamp: TenantStamp,
+  signature?: SignatureImage | null,
 ): Promise<Uint8Array> {
   const date = stamp.date ?? agreementDateFrom();
   const resolved: TenantStamp = {
@@ -834,30 +1026,41 @@ export async function stampTenancyAgreement(
     premises: stamp.premises ?? '',
     landlordName: stamp.landlordName ?? '',
     landlordNric: stamp.landlordNric ?? '',
+    landlordWitnessName: stamp.landlordWitnessName ?? '',
+    landlordWitnessNric: stamp.landlordWitnessNric ?? '',
+    tenantWitnessName: stamp.tenantWitnessName ?? '',
+    tenantWitnessNric: stamp.tenantWitnessNric ?? '',
     rentRinggit: stamp.rentRinggit ?? 2000,
     bankAccount: stamp.bankAccount ?? SAMPLE_BANK_ACCOUNT,
   };
   const pdfDoc = await PDFDocument.load(templateBytes);
   const fonts = {
     serif: await pdfDoc.embedFont(StandardFonts.TimesRomanBold),
-    sans: await pdfDoc.embedFont(StandardFonts.HelveticaBold),
   };
 
   const pages = pdfDoc.getPages();
   const dropPages = pagesToDropAfterSchedule(pdfDoc);
   let tenantHits = 0;
   for (let i = 0; i < pages.length; i++) {
+    const execution = isExecutionPage(pdfDoc, pages[i]);
     const pageHits = blankSampleTenant(pdfDoc, pages[i], i);
     tenantHits += pageHits.filter((h) => h.kind === 'name' || h.kind === 'nric').length;
-    const font = pickFont(fonts, i);
+    const font = pickFont(fonts);
+    const isFirstSchedule = /THE FIRST SCHEDULE/i.test(pagePlainText(pdfDoc, pages[i]));
     const drawn = new Set<string>();
     for (const hit of pageHits) {
+      if (hit.kind === 'witness-name' || hit.kind === 'witness-nric') continue;
       if (!shouldRedraw(hit, pageHits)) continue;
       const kind = hit.kind ?? (isNricNeedle(hit.needle) ? 'nric' : 'name');
       const key = `${Math.round(hit.x)}:${Math.round(hit.y)}:${kind}`;
       if (drawn.has(key)) continue;
       drawn.add(key);
-      drawReplacement(pages[i], font, hit, resolved, i);
+      drawReplacement(pages[i], font, hit, resolved, i, pageHits, isFirstSchedule);
+    }
+    if (execution) {
+      stampExecutionWitnesses(pages[i], font, resolved, pageHits);
+      stampExecutionLandlordName(pages[i], font, resolved, pageHits);
+      await drawLandlordSignatureImage(pdfDoc, pages[i], pageHits, signature ?? null);
     }
   }
 

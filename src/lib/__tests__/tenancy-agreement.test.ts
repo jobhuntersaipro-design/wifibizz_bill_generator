@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import { PDFDocument, PDFName, PDFDict, StandardFonts } from "pdf-lib";
 import {
   SAMPLE_LANDLORD_NAME,
   SAMPLE_LANDLORD_NRIC,
@@ -41,7 +41,13 @@ import {
   extractTextRuns,
   findNeedleHits,
   stampTenancyAgreement,
+  loadPageCmaps,
+  SECTION4_CELL_RIGHT,
+  SECTION4_CELL_BOTTOM,
 } from "@/lib/bill-generator/tenancy-stamp";
+import { getPageStreamRefs, transformStream } from "@/lib/bill-generator/pdf-utils";
+import { createDocumentParties } from "@/lib/bill-generator/document-parties";
+import { generateAuthorizationLetter } from "@/lib/bill-generator/authorization-letter";
 import {
   generateTenancyAgreement,
   resolveTenancyTemplatePath,
@@ -49,6 +55,23 @@ import {
 } from "@/lib/bill-generator/tenancy-agreement";
 import { formatIcDashed, generateRandomLandlord, makeRng } from "@/lib/bill-generator/owner-identity";
 import { pdfContentText } from "@/lib/erf-appointment";
+
+async function quartzVisibleText(bytes: Uint8Array): Promise<string> {
+  const doc = await PDFDocument.load(bytes);
+  const parts: string[] = [];
+  for (const page of doc.getPages()) {
+    const cmaps = loadPageCmaps(doc, page);
+    for (const entry of getPageStreamRefs(doc, page)) {
+      transformStream(doc, entry, (buf) => {
+        for (const run of extractTextRuns(buf.toString("latin1"), cmaps)) {
+          if (run.text.trim()) parts.push(run.text);
+        }
+        return { data: buf, count: 0 };
+      });
+    }
+  }
+  return parts.join("\n");
+}
 
 function pdfVisibleText(bytes: Uint8Array): string {
   const raw = pdfContentText(bytes);
@@ -61,6 +84,38 @@ function pdfVisibleText(bytes: Uint8Array): string {
   }
   return parts.join("\n");
 }
+
+function pageRuns(
+  pdf: PDFDocument,
+  page: ReturnType<PDFDocument["getPages"]>[0],
+): { text: string; x: number; y: number; size: number }[] {
+  const cmaps = loadPageCmaps(pdf, page);
+  const runs: { text: string; x: number; y: number; size: number }[] = [];
+  for (const entry of getPageStreamRefs(pdf, page)) {
+    transformStream(pdf, entry, (buf) => {
+      for (const run of extractTextRuns(buf.toString("latin1"), cmaps)) {
+        if (run.text.trim()) runs.push(run);
+      }
+      return { data: buf, count: 0 };
+    });
+  }
+  return runs;
+}
+
+function textNear(
+  runs: { text: string; x: number; y: number }[],
+  y: number,
+  tol = 10,
+): string {
+  return runs.filter((r) => Math.abs(r.y - y) <= tol).map((r) => r.text).join(" ");
+}
+
+const PIXEL_PNG = Uint8Array.from(
+  atob(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  ),
+  (c) => c.charCodeAt(0),
+);
 
 const CASE = {
   case_no: "202666996",
@@ -96,9 +151,13 @@ async function syntheticTemplate(): Promise<Uint8Array> {
   exec.drawText("SIGNED by the LANDLORD", { x: 72, y: 700, size: 11, font: sans });
   exec.drawText(`NAME : ${SAMPLE_LANDLORD_NAME}`, { x: 200, y: 640, size: 11, font: sans });
   exec.drawText(`NRIC : ${SAMPLE_LANDLORD_NRIC}`, { x: 200, y: 620, size: 11, font: sans });
+  exec.drawText("WITNESS NAME :", { x: 72, y: 580, size: 11, font: sans });
+  exec.drawText("NRIC NO :", { x: 72, y: 564, size: 11, font: sans });
   exec.drawText("SIGNED by the TENANT", { x: 72, y: 400, size: 11, font: sans });
   exec.drawText(`NAME : ${SAMPLE_TENANT_NAME}`, { x: 200, y: 340, size: 11, font: sans });
   exec.drawText(`NRIC : ${SAMPLE_TENANT_NRIC}`, { x: 200, y: 320, size: 11, font: sans });
+  exec.drawText("WITNESS NAME :", { x: 72, y: 280, size: 11, font: sans });
+  exec.drawText("NRIC NO :", { x: 72, y: 264, size: 11, font: sans });
 
   const sched = doc.addPage([612, 792]);
   sched.drawText("THE FIRST SCHEDULE ABOVE REFERRED TO", { x: 120, y: 740, size: 12, font: sans });
@@ -304,6 +363,10 @@ describe("stampTenancyAgreement", () => {
     expect(text).not.toContain(SAMPLE_LANDLORD_NRIC);
     expect(text).toContain(STAMP.landlordName);
     expect(text).toContain(STAMP.landlordNric);
+    expect(text).toContain(STAMP.landlordWitnessName);
+    expect(text).toContain(STAMP.landlordWitnessNric);
+    expect(text).toContain(STAMP.tenantWitnessName);
+    expect(text).toContain(STAMP.tenantWitnessNric);
     expect(text).toContain("LOT 978");
     expect(text).toContain("KAMPUNG SUNGAI BULOH");
     expect(text).toContain("47000");
@@ -361,16 +424,8 @@ describe("generateTenancyAgreement", () => {
     const bytes = await generateTenancyAgreement(CASE, undefined, FROZEN, makeRng(42));
     expect((await PDFDocument.load(bytes)).getPageCount()).toBe(10);
 
-    const { writeFileSync, unlinkSync } = await import("node:fs");
-    const { execFileSync } = await import("node:child_process");
-    const tmp = `/tmp/ta-stamped-${process.pid}.pdf`;
-    writeFileSync(tmp, bytes);
-    let text = "";
-    try {
-      text = execFileSync("pdftotext", ["-layout", tmp, "-"], { encoding: "utf8" });
-    } finally {
-      unlinkSync(tmp);
-    }
+    const text = await quartzVisibleText(bytes);
+    const packed = text.replace(/\n/g, "");
 
     expect(text).toContain("NOR AZZAWANI");
     expect(text).toContain("ZULKEPELI");
@@ -383,13 +438,15 @@ describe("generateTenancyAgreement", () => {
     expect(text).not.toContain(SAMPLE_LANDLORD_NRIC);
     expect(text).toContain(STAMP.landlordName);
     expect(text).toContain(STAMP.landlordNric);
+    expect(text).toContain(STAMP.landlordWitnessName);
+    expect(text).toContain(STAMP.tenantWitnessName);
     expect(text).toContain("LOT 978");
     expect(text).toContain("KAMPUNG SUNGAI BULOH");
     expect(text).toContain("47000");
     expect(text).toContain("MALAYSIA");
     expect(text).toContain("SUNGAI BULOH");
     expect(text).not.toContain("PELANGI");
-    expect(text).toContain(coverDayLabel(STAMP.date));
+    expect(packed).toContain(coverDayLabel(STAMP.date));
     expect(text).toContain(coverMonthLabel(STAMP.date));
     expect(text).toContain(String(STAMP.date.year));
     expect(text).toContain(scheduleDateLabel(STAMP.date));
@@ -397,7 +454,7 @@ describe("generateTenancyAgreement", () => {
     expect(text.split(scheduleDateLabel(STAMP.date)).length - 1).toBeGreaterThanOrEqual(2);
     expect(text).not.toContain("15TH JANUARY 2026");
     expect(text).not.toContain("14TH JULY 2027");
-    expect(text).toContain("MAYBANK");
+    expect(packed).toContain("MAYBANK");
     expect(text).toMatch(new RegExp(STAMP.bankAccount.split(" ").join("\\s*")));
     expect(text).not.toMatch(/7015\s*8357\s*68/);
     expect(text).toContain("18");
@@ -447,6 +504,139 @@ describe("pickBankAccount", () => {
   });
 });
 
+describe("shared landlord + Section 4 box", () => {
+  it("prints the same landlord NAME on TA and Auth Letter for one generate", async () => {
+    const parties = createDocumentParties(FROZEN, makeRng(7), CASE.full_name);
+    const { writeFile, mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "ta-shared-"));
+    const fixture = join(dir, "tenancy_agreement.pdf");
+    try {
+      await writeFile(fixture, await syntheticTemplate());
+      const ta = await generateTenancyAgreement(CASE, fixture, FROZEN, makeRng(7), { parties });
+      const letter = await generateAuthorizationLetter(CASE, FROZEN, { parties });
+      const taText = pdfVisibleText(ta);
+      const letterText = pdfVisibleText(letter);
+      expect(taText).toContain(parties.landlord.name);
+      expect(letterText).toContain(parties.landlord.name);
+      expect(taText).toContain(parties.landlordWitness.name);
+      expect(letterText).toContain(parties.landlordWitness.name);
+      expect(letterText).toContain(parties.tenantWitness.name);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps golden-case Section 4 premises inside the particulars cell", async () => {
+    const found = await resolveTenancyTemplatePath();
+    if (!found) return;
+
+    const bytes = await generateTenancyAgreement(CASE, undefined, FROZEN, makeRng(42));
+    const pdf = await PDFDocument.load(bytes);
+    const page = pdf.getPages()[9];
+    const font = await pdf.embedFont(StandardFonts.TimesRomanBold);
+    const cmaps = loadPageCmaps(pdf, page);
+    const runs: { text: string; x: number; y: number; size: number }[] = [];
+    for (const entry of getPageStreamRefs(pdf, page)) {
+      transformStream(pdf, entry, (buf) => {
+        for (const run of extractTextRuns(buf.toString("latin1"), cmaps)) {
+          if (run.text.trim()) runs.push(run);
+        }
+        return { data: buf, count: 0 };
+      });
+    }
+    const premises = runs.filter((r) =>
+      /LOT 978|KAMPUNG SUNGAI BULOH|SELANGOR|MALAYSIA|SUNGAI BULOH/.test(r.text)
+      && r.y >= SECTION4_CELL_BOTTOM - 1
+      && r.y <= 560
+      && r.x >= 220,
+    );
+    expect(premises.length).toBeGreaterThan(0);
+    for (const run of premises) {
+      const right = run.x + font.widthOfTextAtSize(run.text, run.size);
+      expect(right).toBeLessThanOrEqual(SECTION4_CELL_RIGHT + 0.6);
+      expect(run.y).toBeGreaterThanOrEqual(SECTION4_CELL_BOTTOM - 0.6);
+    }
+  });
+
+  it("still stamps when the signature image is missing", async () => {
+    const bytes = await stampTenancyAgreement(await syntheticTemplate(), STAMP, null);
+    expect(pdfVisibleText(bytes)).toContain(STAMP.landlordName);
+  });
+
+  it("uses one landlord NAME on cover, schedule §2, account name, and execution", async () => {
+    const found = await resolveTenancyTemplatePath();
+    if (!found) return;
+
+    const tenant = {
+      ...CASE,
+      full_name: "Muhammad Akmal Bin Omar",
+      id_no: "900101145678",
+    };
+    const parties = createDocumentParties(FROZEN, makeRng(7), tenant.full_name);
+    const bytes = await generateTenancyAgreement(tenant, undefined, FROZEN, makeRng(7), {
+      parties,
+      signature: { bytes: PIXEL_PNG, mime: "image/png" },
+    });
+    const pdf = await PDFDocument.load(bytes);
+    const pages = pdf.getPages();
+    const landlord = parties.landlord.name;
+    const tenantName = tenant.full_name.toUpperCase();
+
+    const cover = textNear(pageRuns(pdf, pages[0]), 447);
+    expect(cover).toContain(landlord);
+    expect(cover).not.toContain(tenantName);
+
+    const schedule = pages[pages.length - 1];
+    const schedRuns = pageRuns(pdf, schedule);
+    expect(textNear(schedRuns, 650)).toContain(landlord);
+    expect(textNear(schedRuns, 338)).toContain(landlord);
+    expect(textNear(schedRuns, 598)).toContain("MUHAMMAD AKMAL");
+    expect(textNear(schedRuns, 598)).not.toContain(landlord);
+
+    const exec = pages[8];
+    const execRuns = pageRuns(pdf, exec);
+    const execText = execRuns.map((r) => r.text).join(" ");
+    expect(execText).toContain(landlord);
+    expect(execText).toContain(parties.landlordWitness.name);
+    expect(execText).toContain(parties.tenantWitness.name);
+    expect(execText).toMatch(/WITNESS NAME\s*:/i);
+    const witnessValues = execRuns.filter((r) =>
+      r.text.includes(parties.landlordWitness.name) || r.text.includes(parties.tenantWitness.name),
+    );
+    expect(witnessValues.length).toBeGreaterThanOrEqual(2);
+
+    const xobj = exec.node.Resources()?.lookup(PDFName.of("XObject"), PDFDict);
+    expect(xobj).toBeTruthy();
+    expect(xobj && [...xobj.keys()].length).toBeGreaterThan(0);
+  });
+
+  it("invents witnesses when the shared parties object left them blank", async () => {
+    const parties = createDocumentParties(FROZEN, makeRng(3), CASE.full_name);
+    parties.landlordWitness = { name: "", nric: "" };
+    parties.tenantWitness = { name: "", nric: "" };
+    const { writeFile, mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "ta-blank-w-"));
+    const fixture = join(dir, "tenancy_agreement.pdf");
+    try {
+      await writeFile(fixture, await syntheticTemplate());
+      const bytes = await generateTenancyAgreement(CASE, fixture, FROZEN, makeRng(3), { parties });
+      const text = pdfVisibleText(bytes);
+      expect(text).toContain(parties.landlord.name);
+      expect(text).toMatch(/WITNESS NAME :/);
+      expect(text).toMatch(/NRIC NO :/);
+      const people = [...text.matchAll(/[A-Z]+(?: [A-Z]+)* (?:BIN|BINTI) [A-Z]+/g)].map((m) => m[0]);
+      expect(new Set(people).size).toBeGreaterThanOrEqual(4);
+      expect([...text.matchAll(/\d{6}-\d{2}-\d{4}/g)].length).toBeGreaterThanOrEqual(4);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("Bills column TA", () => {
   it("keeps TA on the first wrapped row of the case-row Bills cell", async () => {
     const { readFile } = await import("node:fs/promises");
@@ -454,6 +644,8 @@ describe("Bills column TA", () => {
     expect(src).toContain('data-action="tenancy-agreement"');
     expect(src).toContain("flex-wrap");
     expect(src).toContain("w-[236px]");
-    expect(src.indexOf("tenancy-agreement")).toBeLessThan(src.indexOf("Generate Authorization Letter"));
+    expect(src.indexOf("tenancy-agreement")).toBeLessThan(src.indexOf("Generate Auth Letter"));
+    expect(src).toContain(">Auth Letter<");
+    expect(src).toContain(">TA<");
   });
 });

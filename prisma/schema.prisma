@@ -480,3 +480,13 @@ model UmobileModemImage {
 
   @@map("umobile_modem_images")
 }
+
+model LandlordSignatureImage {
+  id          String   @id @default(cuid())
+  r2Key       String   @unique @map("r2_key")
+  filename    String
+  contentType String   @map("content_type")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("landlord_signature_images")
+}

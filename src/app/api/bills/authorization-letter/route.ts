@@ -3,6 +3,8 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { neon } from "@neondatabase/serverless";
 import { generateAuthorizationLetter } from "@/lib/bill-generator/authorization-letter";
+import { createTaAuthContext } from "@/lib/bill-generator/landlord-signature";
+import { parsePartiesSeed } from "@/lib/bill-generator/document-parties";
 import { fillMissingAddresses } from "@/lib/crawler/lazy-address";
 
 /**
@@ -20,7 +22,9 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    const caseNo = new URL(request.url).searchParams.get("case_no");
+    const url = new URL(request.url);
+    const caseNo = url.searchParams.get("case_no");
+    const partiesSeed = parsePartiesSeed(url.searchParams.get("partiesSeed"));
     if (!caseNo) {
       return NextResponse.json({ success: false, error: "case_no is required" }, { status: 400 });
     }
@@ -83,12 +87,20 @@ export async function GET(request: Request) {
     const resolved = await fillMissingAddresses(wifibizzUser, [caseData]);
     const fullAddress = resolved[caseData.case_no] ?? caseData.full_address;
 
-    const pdf = await generateAuthorizationLetter({
-      case_no: caseData.case_no,
-      full_name: caseData.full_name,
-      full_address: fullAddress,
-      id_no: idNo,
+    const ctx = await createTaAuthContext({
+      tenantName: caseData.full_name,
+      partiesSeed,
     });
+    const pdf = await generateAuthorizationLetter(
+      {
+        case_no: caseData.case_no,
+        full_name: caseData.full_name,
+        full_address: fullAddress,
+        id_no: idNo,
+      },
+      ctx.now,
+      { parties: ctx.parties, signature: ctx.signature, rng: ctx.rng },
+    );
 
     return new NextResponse(Buffer.from(pdf), {
       status: 200,
