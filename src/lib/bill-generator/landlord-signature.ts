@@ -38,6 +38,7 @@ export async function pickRandomLandlordSignature(
 ): Promise<SignatureImagePick | null> {
   try {
     const rows = await prisma.landlordSignatureImage.findMany({
+      orderBy: { id: "asc" },
       select: { id: true, filename: true },
     });
     return pickRandomFromPool(rows, rng);
