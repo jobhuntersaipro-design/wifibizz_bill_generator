@@ -19,6 +19,7 @@ import {
   type PDFPage,
 } from 'pdf-lib';
 import { inflateSync } from 'zlib';
+import sharp from 'sharp';
 import { getPageStreamRefs, transformStream } from './pdf-utils';
 import { wrapToWidth } from './authorization-letter';
 import type { SignatureImage } from './landlord-signature';
@@ -330,7 +331,8 @@ export type StampKind =
   | 'deposit'
   | 'bank-account'
   | 'witness-name'
-  | 'witness-nric';
+  | 'witness-nric'
+  | 'exec-date';
 
 export interface StampHit {
   needle: string;
@@ -539,6 +541,8 @@ function fieldNeedlesForPage(pageIndex: number): FieldNeedle[] {
   const witnesses: FieldNeedle[] = [
     { needle: 'WITNESS NAME :', kind: 'witness-name' },
     { needle: 'NRIC NO :', kind: 'witness-nric' },
+    { needle: 'DATE :', kind: 'exec-date' },
+    { needle: 'DATE:', kind: 'exec-date' },
   ];
   return [...tenant, ...landlord, ...premises, ...dates, ...money, ...witnesses];
 }
@@ -585,7 +589,7 @@ export function blankSampleTenant(
       if (pageHits.length === 0) return { data: buf, count: 0 };
       const ranges = uniqueRanges(
         pageHits
-          .filter((h) => h.kind !== 'witness-name' && h.kind !== 'witness-nric')
+          .filter((h) => h.kind !== 'witness-name' && h.kind !== 'witness-nric' && h.kind !== 'exec-date')
           .flatMap((h) => h.ranges),
       );
       hits.push(...pageHits);
@@ -642,6 +646,7 @@ function drawReplacement(
   pageIndex: number,
   pageHits: StampHit[],
   isFirstSchedule: boolean,
+  isExecution = false,
 ): void {
   const size = hit.size >= 6 && hit.size <= 36 ? hit.size : 11;
 
@@ -700,7 +705,7 @@ function drawReplacement(
     return;
   }
 
-  if (hit.kind === 'witness-name' || hit.kind === 'witness-nric') {
+  if (hit.kind === 'witness-name' || hit.kind === 'witness-nric' || hit.kind === 'exec-date') {
     return;
   }
 
@@ -719,7 +724,9 @@ function drawReplacement(
   }
 
   const sampleName = isLandlord ? SAMPLE_LANDLORD_NAME : SAMPLE_TENANT_NAME;
-  const maxLines = pageIndex === 0 ? Math.max(hit.lineYs.length, 2) : 3;
+  const maxLines = isExecution && !isLandlord
+    ? 1
+    : pageIndex === 0 ? Math.max(hit.lineYs.length, 2) : 3;
   let nameBudget =
     hit.lineYs.length > 1
       ? Math.max(font.widthOfTextAtSize(SAMPLE_TENANT_NAME_LINE1, size), pageIndex === 0 ? 240 : 80)
@@ -733,6 +740,17 @@ function drawReplacement(
   }
   if (lines.length > maxLines) {
     lines = [...lines.slice(0, maxLines - 1), lines.slice(maxLines - 1).join(' ')];
+  }
+  if (maxLines === 1) {
+    drawFittedTo(
+      page,
+      font,
+      hit,
+      `${label}${lines[0] ?? replacement}`,
+      Math.min(Math.max(nameBudget, pageW - hit.x - 18), pageW - hit.x - 12),
+      6,
+    );
+    return;
   }
   const gap = hit.lineYs.length > 1 ? hit.lineYs[0] - hit.lineYs[1] : size * 1.15;
   const centered = pageIndex === 0 && !label;
@@ -769,10 +787,11 @@ function drawFittedTo(
   hit: StampHit,
   text: string,
   maxW: number,
+  minSize = 7,
 ): number {
   const size = hit.size >= 6 && hit.size <= 36 ? hit.size : 10;
   let drawSize = size;
-  while (drawSize > 7 && font.widthOfTextAtSize(text, drawSize) > maxW) drawSize -= 0.25;
+  while (drawSize > minSize && font.widthOfTextAtSize(text, drawSize) > maxW) drawSize -= 0.25;
   page.drawText(text, { x: hit.x, y: hit.y, size: drawSize, font, color: INK });
   return drawSize;
 }
@@ -781,7 +800,24 @@ export const SECTION4_CELL_RIGHT = 538;
 export const SECTION4_CELL_BOTTOM = 503;
 
 export const EXEC_LANDLORD_NAME = { x: 306.2, y: 564.7 };
-export const EXEC_SIGNATURE = { x: 84, y: 575 };
+export const EXEC_DATE_SLOTS = [
+  { x: 264, y: 537.4 },
+  { x: 264.2, y: 259.2 },
+] as const;
+export type ExecSignatureRole = 'landlord' | 'landlord-witness' | 'tenant-witness';
+export type ExecSignatureLine = {
+  role: ExecSignatureRole;
+  x: number;
+  y: number;
+  width: number;
+  maxH: number;
+};
+/** Chris’s page-9 dotted signature lines (PDF points, y from bottom). */
+export const EXEC_SIGNATURE_LINES: ExecSignatureLine[] = [
+  { role: 'landlord', x: 267.7, y: 589.4, width: 204, maxH: 42 },
+  { role: 'landlord-witness', x: 84, y: 513.8, width: 170, maxH: 28 },
+  { role: 'tenant-witness', x: 84, y: 246.5, width: 170, maxH: 28 },
+];
 export const EXEC_WITNESS_SLOTS = [
   { kind: 'witness-name' as const, x: 84, y: 499.44, landlord: true, size: 11.04 },
   { kind: 'witness-nric' as const, x: 84, y: 486.96, landlord: true, size: 11.04 },
@@ -978,33 +1014,139 @@ export async function copyWithoutPages(pdfDoc: PDFDocument, drop: number[]): Pro
   return out;
 }
 
-async function drawLandlordSignatureImage(
+function stampExecutionDates(
+  page: PDFPage,
+  font: PDFFont,
+  stamp: TenantStamp,
+  pageHits: StampHit[],
+): void {
+  const label = scheduleDateLabel(stamp.date);
+  const hits = pageHits
+    .filter((h) => h.kind === 'exec-date')
+    .sort((a, b) => b.y - a.y)
+    .filter((h, i, all) => all.findIndex((o) => Math.abs(o.y - h.y) < 2) === i);
+  const slots = hits.length >= 2
+    ? hits.slice(0, 2).map((h) => ({ x: h.x, y: h.y, size: h.size, needle: h.needle }))
+    : EXEC_DATE_SLOTS.map((s) => ({ ...s, size: 11, needle: 'DATE :' }));
+  for (const slot of slots) {
+    const size = slot.size >= 6 && slot.size <= 36 ? slot.size : 11;
+    const prefix = slot.needle && slot.needle.startsWith('DATE') ? slot.needle : 'DATE :';
+    const labelW = font.widthOfTextAtSize(`${prefix.replace(/\s*$/, '')} `, size);
+    page.drawText(label, {
+      x: slot.x + labelW,
+      y: slot.y,
+      size,
+      font,
+      color: INK,
+    });
+  }
+}
+
+function isDotRun(text: string): boolean {
+  const t = text.replace(/\s+/g, '');
+  return t.length >= 2 && /^[.…]+$/.test(t);
+}
+
+export function collectDotRuns(runs: TextRun[]): { x: number; y: number; width: number }[] {
+  const dots = runs.filter((r) => isDotRun(r.text)).sort((a, b) => b.y - a.y || a.x - b.x);
+  const merged: { x: number; y: number; width: number }[] = [];
+  for (const run of dots) {
+    const est = Math.max(run.text.replace(/\s+/g, '').length * (run.size * 0.45), 12);
+    const near = merged.find((m) => Math.abs(m.y - run.y) < 2 && run.x <= m.x + m.width + 24);
+    if (near) {
+      const right = Math.max(near.x + near.width, run.x + est);
+      near.x = Math.min(near.x, run.x);
+      near.width = right - near.x;
+    } else {
+      merged.push({ x: run.x, y: run.y, width: est });
+    }
+  }
+  return merged;
+}
+
+export function execSignatureLinesFromRuns(runs: TextRun[], pageH: number): ExecSignatureLine[] {
+  const lines = collectDotRuns(runs);
+  const mid = pageH * 0.45;
+  const pick = (
+    role: ExecSignatureRole,
+    found: { x: number; y: number; width: number } | undefined,
+    fallback: ExecSignatureLine,
+  ): ExecSignatureLine => (
+    found
+      ? { role, x: found.x, y: found.y, width: found.width, maxH: fallback.maxH }
+      : fallback
+  );
+  return [
+    pick('landlord', lines.filter((l) => l.y > mid && l.x >= 220).sort((a, b) => b.y - a.y)[0], EXEC_SIGNATURE_LINES[0]),
+    pick('landlord-witness', lines.filter((l) => l.y > mid && l.x < 220).sort((a, b) => b.y - a.y)[0], EXEC_SIGNATURE_LINES[1]),
+    pick('tenant-witness', lines.filter((l) => l.y < mid && l.x < 220).sort((a, b) => b.y - a.y)[0], EXEC_SIGNATURE_LINES[2]),
+  ];
+}
+
+function pageTextRuns(pdfDoc: PDFDocument, page: PDFPage): TextRun[] {
+  const cmaps = loadPageCmaps(pdfDoc, page);
+  const runs: TextRun[] = [];
+  for (const entry of getPageStreamRefs(pdfDoc, page)) {
+    transformStream(pdfDoc, entry, (buf) => {
+      runs.push(...extractTextRuns(buf.toString('latin1'), cmaps));
+      return { data: buf, count: 0 };
+    });
+  }
+  return runs;
+}
+
+/** White box around a pool scan would cover the dotted line; punch it out. */
+async function inkOnlySignature(image: SignatureImage): Promise<SignatureImage> {
+  try {
+    const { data, info } = await sharp(image.bytes)
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i] > 245 && data[i + 1] > 245 && data[i + 2] > 245) data[i + 3] = 0;
+    }
+    const bytes = await sharp(data, {
+      raw: { width: info.width, height: info.height, channels: 4 },
+    }).png().toBuffer();
+    return { bytes, mime: 'image/png' };
+  } catch {
+    return image;
+  }
+}
+
+async function embedPoolImage(pdfDoc: PDFDocument, image: SignatureImage) {
+  return image.mime === 'image/png'
+    ? pdfDoc.embedPng(image.bytes)
+    : pdfDoc.embedJpg(image.bytes);
+}
+
+async function drawExecutionPoolSignatures(
   pdfDoc: PDFDocument,
   page: PDFPage,
   pageHits: StampHit[],
   image: SignatureImage | null,
 ): Promise<void> {
   if (!image) return;
-  const pageH = page.getHeight();
-  const nameHit = pageHits
-    .filter((h) => h.kind === 'landlord-name' && h.y > pageH * 0.5)
-    .sort((a, b) => b.y - a.y)[0]
-    ?? pageHits.filter((h) => h.kind === 'landlord-name').sort((a, b) => b.y - a.y)[0];
   try {
-    const embedded = image.mime === 'image/png'
-      ? await pdfDoc.embedPng(image.bytes)
-      : await pdfDoc.embedJpg(image.bytes);
-    const maxW = 160;
-    const maxH = 36;
-    const scale = Math.min(maxW / embedded.width, maxH / embedded.height, 1);
-    const width = Math.max(embedded.width * scale, 40);
-    const height = Math.max(embedded.height * scale, 12);
-    page.drawImage(embedded, {
-      x: EXEC_SIGNATURE.x,
-      y: nameHit ? nameHit.y + 12 : EXEC_SIGNATURE.y,
-      width,
-      height,
-    });
+    const ink = await inkOnlySignature(image);
+    const embedded = await embedPoolImage(pdfDoc, ink);
+    const lines = execSignatureLinesFromRuns(pageTextRuns(pdfDoc, page), page.getHeight());
+    const nameFloor = (role: ExecSignatureRole): number => {
+      if (role === 'landlord') {
+        const name = pageHits.filter((h) => h.kind === 'landlord-name').sort((a, b) => b.y - a.y)[0];
+        return name ? name.y + (name.size || 11) + 1 : 0;
+      }
+      const names = pageHits.filter((h) => h.kind === 'witness-name').sort((a, b) => b.y - a.y);
+      const hit = role === 'landlord-witness' ? names[0] : names[1];
+      return hit ? hit.y + (hit.size || 11) + 1 : 0;
+    };
+    for (const line of lines) {
+      const scale = Math.min(line.width / embedded.width, line.maxH / embedded.height, 1);
+      const width = embedded.width * scale;
+      const height = embedded.height * scale;
+      const y = Math.max(line.y - height * 0.2, nameFloor(line.role), line.y - 8);
+      page.drawImage(embedded, { x: line.x, y, width, height });
+    }
   } catch (error) {
     console.error(
       'landlord signature embed skipped:',
@@ -1049,18 +1191,19 @@ export async function stampTenancyAgreement(
     const isFirstSchedule = /THE FIRST SCHEDULE/i.test(pagePlainText(pdfDoc, pages[i]));
     const drawn = new Set<string>();
     for (const hit of pageHits) {
-      if (hit.kind === 'witness-name' || hit.kind === 'witness-nric') continue;
+      if (hit.kind === 'witness-name' || hit.kind === 'witness-nric' || hit.kind === 'exec-date') continue;
       if (!shouldRedraw(hit, pageHits)) continue;
       const kind = hit.kind ?? (isNricNeedle(hit.needle) ? 'nric' : 'name');
       const key = `${Math.round(hit.x)}:${Math.round(hit.y)}:${kind}`;
       if (drawn.has(key)) continue;
       drawn.add(key);
-      drawReplacement(pages[i], font, hit, resolved, i, pageHits, isFirstSchedule);
+      drawReplacement(pages[i], font, hit, resolved, i, pageHits, isFirstSchedule, execution);
     }
     if (execution) {
       stampExecutionWitnesses(pages[i], font, resolved, pageHits);
       stampExecutionLandlordName(pages[i], font, resolved, pageHits);
-      await drawLandlordSignatureImage(pdfDoc, pages[i], pageHits, signature ?? null);
+      stampExecutionDates(pages[i], font, resolved, pageHits);
+      await drawExecutionPoolSignatures(pdfDoc, pages[i], pageHits, signature ?? null);
     }
   }
 

@@ -42,6 +42,7 @@ import {
   findNeedleHits,
   stampTenancyAgreement,
   loadPageCmaps,
+  execSignatureLinesFromRuns,
   SECTION4_CELL_RIGHT,
   SECTION4_CELL_BOTTOM,
 } from "@/lib/bill-generator/tenancy-stamp";
@@ -149,13 +150,19 @@ async function syntheticTemplate(): Promise<Uint8Array> {
 
   const exec = doc.addPage([612, 792]);
   exec.drawText("SIGNED by the LANDLORD", { x: 72, y: 700, size: 11, font: sans });
+  exec.drawText("………………………………………………….", { x: 264, y: 655, size: 11, font: sans });
   exec.drawText(`NAME : ${SAMPLE_LANDLORD_NAME}`, { x: 200, y: 640, size: 11, font: sans });
   exec.drawText(`NRIC : ${SAMPLE_LANDLORD_NRIC}`, { x: 200, y: 620, size: 11, font: sans });
+  exec.drawText("DATE :", { x: 200, y: 600, size: 11, font: sans });
+  exec.drawText("……………………………………….", { x: 72, y: 594, size: 11, font: sans });
   exec.drawText("WITNESS NAME :", { x: 72, y: 580, size: 11, font: sans });
   exec.drawText("NRIC NO :", { x: 72, y: 564, size: 11, font: sans });
   exec.drawText("SIGNED by the TENANT", { x: 72, y: 400, size: 11, font: sans });
+  exec.drawText("………………………………………………….", { x: 264, y: 355, size: 11, font: sans });
   exec.drawText(`NAME : ${SAMPLE_TENANT_NAME}`, { x: 200, y: 340, size: 11, font: sans });
   exec.drawText(`NRIC : ${SAMPLE_TENANT_NRIC}`, { x: 200, y: 320, size: 11, font: sans });
+  exec.drawText("DATE :", { x: 200, y: 300, size: 11, font: sans });
+  exec.drawText("……………………………………….", { x: 72, y: 294, size: 11, font: sans });
   exec.drawText("WITNESS NAME :", { x: 72, y: 280, size: 11, font: sans });
   exec.drawText("NRIC NO :", { x: 72, y: 264, size: 11, font: sans });
 
@@ -563,6 +570,56 @@ describe("shared landlord + Section 4 box", () => {
   it("still stamps when the signature image is missing", async () => {
     const bytes = await stampTenancyAgreement(await syntheticTemplate(), STAMP, null);
     expect(pdfVisibleText(bytes)).toContain(STAMP.landlordName);
+  });
+
+  it("fills execution DATE from the generated agreement date", async () => {
+    const bytes = await stampTenancyAgreement(
+      await syntheticTemplate(),
+      STAMP,
+      { bytes: PIXEL_PNG, mime: "image/png" },
+    );
+    const text = pdfVisibleText(bytes);
+    expect(text).toContain(scheduleDateLabel(STAMP.date));
+  });
+
+  it("keeps a long tenant name off the execution NRIC line", async () => {
+    const found = await resolveTenancyTemplatePath();
+    if (!found) return;
+    const tenant = {
+      ...CASE,
+      full_name: "Nor Azzawani Fizatulazira Binti Zulkepeli",
+      id_no: "920608085172",
+    };
+    const bytes = await generateTenancyAgreement(tenant, undefined, FROZEN, makeRng(7));
+    const pdf = await PDFDocument.load(bytes);
+    const exec = pdf.getPages()[8];
+    const nricBand = textNear(pageRuns(pdf, exec), 270, 8);
+    expect(nricBand).toMatch(/920608-08-5172/);
+    expect(nricBand).not.toMatch(/ZULKEPELI/);
+    expect(nricBand).not.toMatch(/BINTI/);
+    const nameBand = textNear(pageRuns(pdf, exec), 284, 6);
+    expect(nameBand).toMatch(/ZULKEPELI/);
+    const execText = pageRuns(pdf, exec).map((r) => r.text).join(" ");
+    expect(execText).toContain(scheduleDateLabel(tenancyStampFrom(tenant, FROZEN, makeRng(7)).date));
+  });
+
+  it("places landlord and witness marks on the execution dotted lines", async () => {
+    const found = await resolveTenancyTemplatePath();
+    if (!found) return;
+    const { readFile } = await import("node:fs/promises");
+    const pdf = await PDFDocument.load(await readFile(found));
+    const exec = pdf.getPages()[8];
+    const lines = execSignatureLinesFromRuns(pageRuns(pdf, exec), exec.getHeight());
+    expect(lines.map((l) => l.role)).toEqual([
+      "landlord",
+      "landlord-witness",
+      "tenant-witness",
+    ]);
+    expect(lines[0].x).toBeGreaterThan(250);
+    expect(lines[0].y).toBeGreaterThan(580);
+    expect(lines[1].x).toBeLessThan(120);
+    expect(lines[2].x).toBeLessThan(120);
+    expect(lines[2].y).toBeLessThan(260);
   });
 
   it("uses one landlord NAME on cover, schedule §2, account name, and execution", async () => {
