@@ -3,6 +3,10 @@ import { crawl, type CrawlProgress } from "@/lib/crawler/scraper";
 import { upsertCases, updateLastCrawl, getUserPassword } from "@/lib/crawler/db";
 import { prisma } from "@/lib/prisma";
 import { appendCasesToSheet, getSheetCaseNumbers, updateSheetAddresses } from "@/lib/google-sheets";
+import {
+  CRAWL_LOOKBACK_MONTHS,
+  isCrawlDateInLookback,
+} from "@/lib/crawler/date-window";
 
 // Large accounts have many Activated/Pending cases; give the crawl room to finish
 // (Vercel caps this at the plan max — Hobby 60s, Pro 300s).
@@ -33,10 +37,28 @@ export async function POST(request: Request) {
       );
     }
 
-    // Parse date filter from query params
     const url = new URL(request.url);
     const dateFrom = url.searchParams.get("date_from") || undefined;
     const dateTo = url.searchParams.get("date_to") || undefined;
+    const now = new Date();
+    if (dateFrom && !isCrawlDateInLookback(dateFrom, now)) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: `From date cannot be older than ${CRAWL_LOOKBACK_MONTHS} months`,
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    if (dateTo && !isCrawlDateInLookback(dateTo, now)) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: `To date cannot be older than ${CRAWL_LOOKBACK_MONTHS} months`,
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
 
     const perUserPassword = getUserPassword({
       id: wifibizzUser.id,

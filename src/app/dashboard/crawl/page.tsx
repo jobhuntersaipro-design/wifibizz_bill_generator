@@ -5,6 +5,13 @@ import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import {
+  CRAWL_LOOKBACK_MONTHS,
+  crawlDateWindow,
+  crawlLookbackStart,
+  formatCrawlDate,
+  isCrawlDateInLookback,
+} from "@/lib/crawler/date-window";
 
 interface CrawlProgress {
   step: string;
@@ -13,25 +20,33 @@ interface CrawlProgress {
   percent: number;
 }
 
-type PresetKey = "1d" | "3d" | "7d" | "1w" | "1m" | "3m";
+type PresetKey = "1d" | "3d" | "7d" | "1w" | "1m" | "3m" | "6m" | "1y";
 
-const PRESETS: { key: PresetKey; label: string; days: number }[] = [
+type DatePreset =
+  | { key: Exclude<PresetKey, "6m" | "1y">; label: string; days: number }
+  | { key: "6m"; label: string; months: number }
+  | { key: "1y"; label: string };
+
+const PRESETS: DatePreset[] = [
   { key: "1d", label: "Last 1 day", days: 1 },
   { key: "3d", label: "Last 3 days", days: 3 },
   { key: "7d", label: "Last 7 days", days: 7 },
   { key: "1w", label: "Last 1 week", days: 7 },
   { key: "1m", label: "Last 1 month", days: 30 },
   { key: "3m", label: "Last 3 months", days: 90 },
+  { key: "6m", label: "Last 6 months", months: 6 },
+  { key: "1y", label: "Last 1 year" },
 ];
 
-function formatDate(d: Date): string {
-  return d.toISOString().split("T")[0];
-}
-
-function getMaxPastDate(): string {
-  const d = new Date();
-  d.setMonth(d.getMonth() - 3);
-  return formatDate(d);
+function fromDateForPreset(preset: DatePreset, now: Date): Date {
+  if (preset.key === "1y") return crawlLookbackStart(now);
+  const from = new Date(now);
+  if (preset.key === "6m") {
+    from.setMonth(from.getMonth() - preset.months);
+    return from;
+  }
+  from.setDate(from.getDate() - preset.days);
+  return from;
 }
 
 export default function CrawlPage() {
@@ -43,24 +58,28 @@ export default function CrawlPage() {
   } | null>(null);
   const router = useRouter();
 
-  // Date filter state
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [activePreset, setActivePreset] = useState<PresetKey | null>(null);
   const [dateError, setDateError] = useState("");
 
-  const today = formatDate(new Date());
-  const maxPast = getMaxPastDate();
+  const { start: maxPast, end: today } = crawlDateWindow(new Date());
 
-  // Validate dates
   const dateValidation = useMemo(() => {
     if (!dateFrom && !dateTo) return { valid: true, error: "" };
 
-    if (dateFrom && dateFrom < maxPast) {
-      return { valid: false, error: "From date cannot be older than 3 months" };
+    const now = new Date();
+    if (dateFrom && !isCrawlDateInLookback(dateFrom, now)) {
+      return {
+        valid: false,
+        error: `From date cannot be older than ${CRAWL_LOOKBACK_MONTHS} months`,
+      };
     }
-    if (dateTo && dateTo < maxPast) {
-      return { valid: false, error: "To date cannot be older than 3 months" };
+    if (dateTo && !isCrawlDateInLookback(dateTo, now)) {
+      return {
+        valid: false,
+        error: `To date cannot be older than ${CRAWL_LOOKBACK_MONTHS} months`,
+      };
     }
     if (dateFrom && dateTo && dateFrom > dateTo) {
       return { valid: false, error: "From date must be before To date" };
@@ -72,14 +91,12 @@ export default function CrawlPage() {
       return { valid: false, error: "To date cannot be in the future" };
     }
     return { valid: true, error: "" };
-  }, [dateFrom, dateTo, maxPast, today]);
+  }, [dateFrom, dateTo, today]);
 
-  function applyPreset(preset: typeof PRESETS[number]) {
+  function applyPreset(preset: DatePreset) {
     const to = new Date();
-    const from = new Date();
-    from.setDate(from.getDate() - preset.days);
-    setDateFrom(formatDate(from));
-    setDateTo(formatDate(to));
+    setDateFrom(formatCrawlDate(fromDateForPreset(preset, to)));
+    setDateTo(formatCrawlDate(to));
     setActivePreset(preset.key);
     setDateError("");
   }
@@ -104,7 +121,6 @@ export default function CrawlPage() {
   }
 
   async function handleCrawl() {
-    // Validate dates before crawling
     if (!dateValidation.valid) {
       setDateError(dateValidation.error);
       return;
