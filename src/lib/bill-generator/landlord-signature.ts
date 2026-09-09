@@ -5,7 +5,9 @@ import {
   rngFromSeed,
   type DocumentParties,
 } from "./document-parties";
-import { pickRandomFromPool } from "./umobile-modem";
+import { createHash } from "node:crypto";
+import sharp from "sharp";
+import { pickDistinctFromPool, pickRandomFromPool } from "./umobile-modem";
 
 export type SignatureImageMime = "image/png" | "image/jpeg";
 
@@ -69,6 +71,18 @@ export async function loadRandomLandlordSignature(
   return pick ? loadLandlordSignatureById(pick.id) : null;
 }
 
+export const EXECUTION_SIGNATURE_SLOTS = 3;
+export const MIN_SIGNATURE_PX = 40;
+
+export async function isUsableSignatureImage(image: SignatureImage): Promise<boolean> {
+  try {
+    const meta = await sharp(image.bytes).metadata();
+    return (meta.width ?? 0) >= MIN_SIGNATURE_PX && (meta.height ?? 0) >= MIN_SIGNATURE_PX;
+  } catch {
+    return false;
+  }
+}
+
 async function bytesFromRow(row: {
   r2Key: string;
   contentType: string;
@@ -88,9 +102,43 @@ async function bytesFromRow(row: {
   }
 }
 
+/** Distinct pool scans for landlord + both witnesses. Drops duplicate file bytes. */
+export async function loadDistinctLandlordSignatures(
+  count: number = EXECUTION_SIGNATURE_SLOTS,
+  rng: () => number = Math.random,
+): Promise<SignatureImage[]> {
+  try {
+    const rows = await prisma.landlordSignatureImage.findMany({
+      orderBy: { id: "asc" },
+      select: { id: true, r2Key: true, contentType: true },
+    });
+    const shuffled = pickDistinctFromPool(rows, rows.length, rng);
+    const unique: SignatureImage[] = [];
+    const seen = new Set<string>();
+    for (const row of shuffled) {
+      if (unique.length >= count) break;
+      const image = await bytesFromRow(row);
+      if (!image) continue;
+      if (!(await isUsableSignatureImage(image))) continue;
+      const hash = createHash("sha256").update(image.bytes).digest("hex");
+      if (seen.has(hash)) continue;
+      seen.add(hash);
+      unique.push(image);
+    }
+    return unique;
+  } catch (error) {
+    console.error(
+      "landlord signature pool load failed:",
+      error instanceof Error ? error.message : error,
+    );
+    return [];
+  }
+}
+
 export interface TaAuthContext {
   parties: DocumentParties;
   signature: SignatureImage | null;
+  signatures: SignatureImage[];
   rng: () => number;
   now: Date;
 }
@@ -104,6 +152,6 @@ export async function createTaAuthContext(opts: {
   const now = opts.now ?? new Date();
   const rng = opts.rng ?? rngFromSeed(opts.partiesSeed);
   const parties = createDocumentParties(now, rng, opts.tenantName);
-  const signature = await loadRandomLandlordSignature(rng);
-  return { parties, signature, rng, now };
+  const signatures = await loadDistinctLandlordSignatures(EXECUTION_SIGNATURE_SLOTS, rng);
+  return { parties, signature: signatures[0] ?? null, signatures, rng, now };
 }

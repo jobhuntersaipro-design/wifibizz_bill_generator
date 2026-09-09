@@ -19,10 +19,12 @@ import {
   type PDFPage,
 } from 'pdf-lib';
 import { inflateSync } from 'zlib';
+import { createHash } from 'node:crypto';
 import sharp from 'sharp';
 import { getPageStreamRefs, transformStream } from './pdf-utils';
 import { wrapToWidth } from './authorization-letter';
 import type { SignatureImage } from './landlord-signature';
+import { isUsableSignatureImage } from './landlord-signature';
 import {
   SAMPLE_TENANT_NAME,
   SAMPLE_TENANT_NAME_LINE1,
@@ -1124,29 +1126,42 @@ async function drawExecutionPoolSignatures(
   pdfDoc: PDFDocument,
   page: PDFPage,
   pageHits: StampHit[],
-  image: SignatureImage | null,
+  images: SignatureImage[],
 ): Promise<void> {
-  if (!image) return;
+  const lines = execSignatureLinesFromRuns(pageTextRuns(pdfDoc, page), page.getHeight());
+  const nameFloor = (role: ExecSignatureRole): number => {
+    if (role === 'landlord') {
+      const name = pageHits.filter((h) => h.kind === 'landlord-name').sort((a, b) => b.y - a.y)[0];
+      return name ? name.y + (name.size || 11) + 1 : 0;
+    }
+    const witnessNames = pageHits.filter((h) => h.kind === 'witness-name').sort((a, b) => b.y - a.y);
+    const hit = role === 'landlord-witness' ? witnessNames[0] : witnessNames[1];
+    return hit ? hit.y + (hit.size || 11) + 1 : 0;
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const image = images[i];
+    if (!image) continue;
+    if (!(await isUsableSignatureImage(image))) continue;
+    await drawPoolSignatureOnLine(pdfDoc, page, image, line, nameFloor(line.role));
+  }
+}
+
+async function drawPoolSignatureOnLine(
+  pdfDoc: PDFDocument,
+  page: PDFPage,
+  image: SignatureImage,
+  line: ExecSignatureLine,
+  floor: number,
+): Promise<void> {
   try {
     const ink = await inkOnlySignature(image);
     const embedded = await embedPoolImage(pdfDoc, ink);
-    const lines = execSignatureLinesFromRuns(pageTextRuns(pdfDoc, page), page.getHeight());
-    const nameFloor = (role: ExecSignatureRole): number => {
-      if (role === 'landlord') {
-        const name = pageHits.filter((h) => h.kind === 'landlord-name').sort((a, b) => b.y - a.y)[0];
-        return name ? name.y + (name.size || 11) + 1 : 0;
-      }
-      const names = pageHits.filter((h) => h.kind === 'witness-name').sort((a, b) => b.y - a.y);
-      const hit = role === 'landlord-witness' ? names[0] : names[1];
-      return hit ? hit.y + (hit.size || 11) + 1 : 0;
-    };
-    for (const line of lines) {
-      const scale = Math.min(line.width / embedded.width, line.maxH / embedded.height, 1);
-      const width = embedded.width * scale;
-      const height = embedded.height * scale;
-      const y = Math.max(line.y - height * 0.2, nameFloor(line.role), line.y - 8);
-      page.drawImage(embedded, { x: line.x, y, width, height });
-    }
+    const scale = Math.min(line.width / embedded.width, line.maxH / embedded.height);
+    const width = embedded.width * scale;
+    const height = embedded.height * scale;
+    const y = Math.max(line.y - height * 0.2, floor, line.y - 8);
+    page.drawImage(embedded, { x: line.x, y, width, height });
   } catch (error) {
     console.error(
       'landlord signature embed skipped:',
@@ -1155,10 +1170,25 @@ async function drawExecutionPoolSignatures(
   }
 }
 
+function asSignatureList(
+  signature?: SignatureImage | SignatureImage[] | null,
+): SignatureImage[] {
+  const raw = !signature ? [] : Array.isArray(signature) ? signature.filter(Boolean) : [signature];
+  const unique: SignatureImage[] = [];
+  const seen = new Set<string>();
+  for (const image of raw) {
+    const hash = createHash('sha256').update(image.bytes).digest('hex');
+    if (seen.has(hash)) continue;
+    seen.add(hash);
+    unique.push(image);
+  }
+  return unique;
+}
+
 export async function stampTenancyAgreement(
   templateBytes: Uint8Array,
   stamp: TenantStamp,
-  signature?: SignatureImage | null,
+  signature?: SignatureImage | SignatureImage[] | null,
 ): Promise<Uint8Array> {
   const date = stamp.date ?? agreementDateFrom();
   const resolved: TenantStamp = {
@@ -1203,7 +1233,12 @@ export async function stampTenancyAgreement(
       stampExecutionWitnesses(pages[i], font, resolved, pageHits);
       stampExecutionLandlordName(pages[i], font, resolved, pageHits);
       stampExecutionDates(pages[i], font, resolved, pageHits);
-      await drawExecutionPoolSignatures(pdfDoc, pages[i], pageHits, signature ?? null);
+      await drawExecutionPoolSignatures(
+        pdfDoc,
+        pages[i],
+        pageHits,
+        asSignatureList(signature),
+      );
     }
   }
 

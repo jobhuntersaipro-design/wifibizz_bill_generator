@@ -26,6 +26,24 @@ export function pickRandomFromPool<T>(
   return items[index] ?? null;
 }
 
+/** Shuffle a copy and take up to `count` items. Never returns the same slot twice. */
+export function pickDistinctFromPool<T>(
+  items: readonly T[],
+  count: number,
+  rng: () => number = Math.random,
+): T[] {
+  const remaining = [...items];
+  const out: T[] = [];
+  const n = Math.max(0, Math.min(remaining.length, Math.floor(count)));
+  while (out.length < n && remaining.length > 0) {
+    const index = Math.floor(rng() * remaining.length);
+    if (index < 0 || index >= remaining.length) break;
+    const [picked] = remaining.splice(index, 1);
+    if (picked !== undefined) out.push(picked);
+  }
+  return out;
+}
+
 export function modemMime(contentType: string): ModemImageMime | null {
   if (contentType === "image/png") return "image/png";
   if (contentType === "image/jpeg") return "image/jpeg";

@@ -3,6 +3,8 @@
 import { verifyAdminSession } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
 import { deleteFromR2, uploadToR2 } from "@/lib/r2";
+import sharp from "sharp";
+import { MIN_SIGNATURE_PX } from "@/lib/bill-generator/landlord-signature";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
@@ -72,6 +74,14 @@ export async function adminUploadLandlordSignature(formData: FormData): Promise<
   const filename =
     file.name.replace(/[/\\]/g, "").slice(0, 200) || `signature.${ext}`;
   const buf = Buffer.from(await file.arrayBuffer());
+  try {
+    const meta = await sharp(buf).metadata();
+    if ((meta.width ?? 0) < MIN_SIGNATURE_PX || (meta.height ?? 0) < MIN_SIGNATURE_PX) {
+      return { success: false, error: "That file is too small to use as a signature." };
+    }
+  } catch {
+    return { success: false, error: "Could not read that image." };
+  }
 
   const row = await prisma.landlordSignatureImage.create({
     data: {

@@ -136,7 +136,7 @@ export async function GET(request: Request) {
       undefined,
       ctx.now,
       ctx.rng,
-      { parties: ctx.parties, signature: ctx.signature },
+      { parties: ctx.parties, signature: ctx.signature, signatures: ctx.signatures },
     );
 
     return new NextResponse(Buffer.from(pdf), {

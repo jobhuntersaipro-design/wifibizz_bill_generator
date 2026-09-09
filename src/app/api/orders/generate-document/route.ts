@@ -104,7 +104,7 @@ export async function POST(request: Request) {
               undefined,
               ctx.now,
               ctx.rng,
-              { parties: ctx.parties, signature: ctx.signature },
+              { parties: ctx.parties, signature: ctx.signature, signatures: ctx.signatures },
             )
           : await generateAuthorizationLetter(caseData, ctx.now, {
               parties: ctx.parties,
