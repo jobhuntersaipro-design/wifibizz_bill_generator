@@ -1,22 +1,19 @@
-// Local-development bridge for the Neon serverless driver.
+// Local-development bridge for the Neon serverless driver, for standalone
+// scripts (seed-dev-user.ts, verify-db.ts) that construct their own Prisma Neon
+// adapter outside of Next.js. The Next.js app configures this inline in
+// src/lib/prisma.ts; this module mirrors that for plain `tsx`/node scripts.
 //
-// In production the app talks to Neon over WebSockets. Locally there is no Neon
-// endpoint, so we run a plain Postgres plus a websocket->TCP proxy (wsproxy) and
-// point the driver at it. This module mutates the shared `neonConfig` singleton
-// exported by `@neondatabase/serverless`; because `@prisma/adapter-neon`
-// imports the same module instance, preloading this file (via
-// `node --import`) reconfigures Prisma's Neon adapter without touching any app
-// source. It is a no-op unless NEON_WS_LOCAL_PROXY is set, so it is safe to load
-// everywhere.
-import "dotenv/config"; // load .env early: this runs before Next.js reads env
+// It mutates the shared `neonConfig` singleton from `@neondatabase/serverless`
+// so the driver talks to a local Postgres via wsproxy instead of a real Neon
+// endpoint. No-op unless NEON_WS_LOCAL_PROXY is set, so it is safe to import
+// anywhere.
+import "dotenv/config"; // load .env early: this runs before app env resolution
 import { neonConfig } from "@neondatabase/serverless";
-import ws from "ws";
 
 const proxy = process.env.NEON_WS_LOCAL_PROXY;
 if (proxy) {
-  neonConfig.webSocketConstructor = ws;
   neonConfig.wsProxy = proxy; // driver appends `?address=host:port`
   neonConfig.useSecureWebSocket = false; // plain ws to the local proxy
   neonConfig.pipelineConnect = false; // local Postgres uses SCRAM, not cleartext
-  // forceDisablePgSSL defaults to true, which strips sslmode for the local DB.
+  // webSocketConstructor is left as the Node global WebSocket (Node 22+).
 }
