@@ -1,0 +1,15 @@
+{
+  "name": "BizzFlow (WifiBizz crawler + bill generator)",
+  "install": "bash scripts/dev/setup.sh",
+  "start": "bash scripts/dev/dev-services.sh",
+  "terminals": [
+    {
+      "name": "next-dev",
+      "command": "NODE_OPTIONS=\"--import ./scripts/dev/neon-ws-local.mjs\" NEON_WS_LOCAL_PROXY=\"localhost:5433/v1\" npm run dev",
+      "description": "Next.js 16 dev server on http://localhost:3000. The --import preload bridges the Neon serverless driver to the local Postgres via wsproxy."
+    }
+  ],
+  "ports": [
+    { "name": "web", "port": 3000 }
+  ]
+}
