@@ -15,7 +15,12 @@ cd "$(dirname "$0")/../.."
 REPO_ROOT="$(pwd)"
 
 echo "==> [1/6] Installing system packages (PostgreSQL, Go, build tools)"
-sudo apt-get update -y
+# `apt-get update` returns non-zero if ANY configured source fails, including
+# unrelated third-party repos preinstalled in the base image (e.g. the Google
+# Chrome repo, which intermittently returns a Hash Sum mismatch). Those failures
+# must not abort setup, so tolerate update errors here and let the install step
+# below be the real gate — it fails loudly if the packages we need are missing.
+sudo apt-get update -y || sudo apt-get update -y || echo "    apt-get update reported errors (continuing)"
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   postgresql postgresql-contrib golang-go git ca-certificates
 
