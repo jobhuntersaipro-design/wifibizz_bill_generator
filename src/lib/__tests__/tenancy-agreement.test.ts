@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { PDFDocument, PDFName, PDFDict, StandardFonts } from "pdf-lib";
+import sharp from "sharp";
 import {
   SAMPLE_LANDLORD_NAME,
   SAMPLE_LANDLORD_NRIC,
@@ -634,7 +635,12 @@ describe("shared landlord + Section 4 box", () => {
     const parties = createDocumentParties(FROZEN, makeRng(7), tenant.full_name);
     const bytes = await generateTenancyAgreement(tenant, undefined, FROZEN, makeRng(7), {
       parties,
-      signature: { bytes: PIXEL_PNG, mime: "image/png" },
+      signature: {
+        bytes: await sharp({
+          create: { width: 80, height: 48, channels: 3, background: { r: 10, g: 10, b: 10 } },
+        }).png().toBuffer(),
+        mime: "image/png",
+      },
     });
     const pdf = await PDFDocument.load(bytes);
     const pages = pdf.getPages();
@@ -667,6 +673,51 @@ describe("shared landlord + Section 4 box", () => {
     const xobj = exec.node.Resources()?.lookup(PDFName.of("XObject"), PDFDict);
     expect(xobj).toBeTruthy();
     expect(xobj && [...xobj.keys()].length).toBeGreaterThan(0);
+  });
+
+  it("does not reuse one pool image on landlord and both witnesses", async () => {
+    const png = async (r: number, g: number, b: number) =>
+      sharp({ create: { width: 80, height: 48, channels: 3, background: { r, g, b } } }).png().toBuffer();
+    const [red, green, blue] = await Promise.all([png(200, 20, 20), png(20, 180, 40), png(30, 40, 200)]);
+    const bytes = await stampTenancyAgreement(await syntheticTemplate(), STAMP, [
+      { bytes: red, mime: "image/png" },
+      { bytes: green, mime: "image/png" },
+      { bytes: blue, mime: "image/png" },
+    ]);
+    const pdf = await PDFDocument.load(bytes);
+    const exec = pdf.getPages()[1];
+    const xobj = exec.node.Resources()?.lookup(PDFName.of("XObject"), PDFDict);
+    expect(xobj).toBeTruthy();
+    const hashes = [...(xobj?.keys() ?? [])].map((key) => {
+      const raw = xobj && pdf.context.lookup(xobj.get(key));
+      const contents = raw && "getContents" in raw ? (raw as { getContents: () => Uint8Array }).getContents() : new Uint8Array();
+      return Buffer.from(contents).toString("hex").slice(0, 48);
+    });
+    expect(new Set(hashes).size).toBe(3);
+
+    const one = await stampTenancyAgreement(await syntheticTemplate(), STAMP, [
+      { bytes: red, mime: "image/png" },
+      { bytes: red, mime: "image/png" },
+      { bytes: red, mime: "image/png" },
+    ]);
+    const onePdf = await PDFDocument.load(one);
+    const oneExec = onePdf.getPages()[1];
+    const oneX = oneExec.node.Resources()?.lookup(PDFName.of("XObject"), PDFDict);
+    expect(oneX && [...oneX.keys()].length).toBe(1);
+  });
+
+  it("does not stamp a 10x10 proof image as the landlord mark", async () => {
+    const tiny = await sharp({
+      create: { width: 10, height: 10, channels: 3, background: { r: 0, g: 0, b: 0 } },
+    }).png().toBuffer();
+    const bytes = await stampTenancyAgreement(await syntheticTemplate(), STAMP, {
+      bytes: tiny,
+      mime: "image/png",
+    });
+    const pdf = await PDFDocument.load(bytes);
+    const exec = pdf.getPages()[1];
+    const xobj = exec.node.Resources()?.lookup(PDFName.of("XObject"), PDFDict);
+    expect(!xobj || [...xobj.keys()].length === 0).toBe(true);
   });
 
   it("invents witnesses when the shared parties object left them blank", async () => {

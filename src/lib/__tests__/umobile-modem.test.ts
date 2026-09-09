@@ -4,6 +4,7 @@ import { PDFDocument } from "pdf-lib";
 import { generateInternetBill } from "@/lib/bill-generator/internet-bill";
 import {
   appendUmobileImagePage,
+  pickDistinctFromPool,
   pickRandomFromPool,
   type ModemImage,
 } from "@/lib/bill-generator/umobile-modem";
@@ -39,6 +40,14 @@ describe("pickRandomFromPool", () => {
     const pool = ["first", "second"];
     expect(pickRandomFromPool(pool, () => 0)).toBe("first");
     expect(pickRandomFromPool(pool, () => 0.99)).toBe("second");
+  });
+
+  it("picks distinct items without replacement", () => {
+    const pool = ["a", "b", "c"];
+    expect(pickDistinctFromPool(pool, 3, () => 0)).toEqual(["a", "b", "c"]);
+    expect(pickDistinctFromPool(pool, 2, () => 0.99)).toEqual(["c", "b"]);
+    expect(pickDistinctFromPool(["only"], 3, () => 0.4)).toEqual(["only"]);
+    expect(pickDistinctFromPool([], 3)).toEqual([]);
   });
 });
 

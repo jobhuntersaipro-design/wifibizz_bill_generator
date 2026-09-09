@@ -30,6 +30,7 @@ import type { SignatureImage } from './landlord-signature';
 export interface TenancyGenerateExtras {
   parties?: DocumentParties;
   signature?: SignatureImage | null;
+  signatures?: SignatureImage[];
 }
 
 export type { TenancyCaseData };
@@ -75,6 +76,6 @@ export async function generateTenancyAgreement(
   return stampTenancyAgreement(
     template,
     tenancyStampFrom(caseData, now, rng, extras?.parties),
-    extras?.signature,
+    extras?.signatures ?? (extras?.signature ? [extras.signature] : undefined),
   );
 }
