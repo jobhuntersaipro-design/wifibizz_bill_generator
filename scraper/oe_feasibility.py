@@ -32,6 +32,10 @@ from oe_errors import (APPOINTMENT_SLOT_TAKEN, CUSTOMER_IC_NAME_MISMATCH,
 from oe_helpers import set_combobox
 from portal_states import to_portal_state
 from order_entry import ORDER_ENTRY_URL, _frame, ensure_on_order_entry
+from delivery_address import (
+    installation_address_for_delivery,
+    overwrite_enter_address_js,
+)
 from shell_modal import describe_blocking_dialog, read_shell_dialog
 
 
@@ -4472,26 +4476,69 @@ async def fill_customer_order_info(page, payload: dict,
 
     # ── Delivery details + order confirmation ────────────────────────────────
     stage("delivery_terms")
-    # ── Default From Billing Address (check -> "Enter Address" popup -> OK) ────
-    # The popup is a plain form dialog (NOT warn/error), so _dismiss_popup_ok
-    # won't touch it — explicitly OK the "Enter Address" dialog (its fields are
-    # pre-filled from the billing address).
+    # ── Delivery address = installation address ───────────────────────────────
+    # The portal checkbox "Default From Billing Address" opens Enter Address
+    # pre-filled from the billing account. Billing often differs from the
+    # selected installation unit (existing account, or residence prefill), which
+    # is how delivery and installation diverged on submitted orders. We still
+    # use the checkbox to open the dialog, then overwrite every field with the
+    # installation address before OK so the two stay identical.
+    install_addr = installation_address_for_delivery(payload)
+    if not install_addr["street"]:
+        return {
+            "status": "error",
+            "stage": "customer_order_info",
+            "error": "delivery_address_missing_installation",
+            "message": ("Delivery address must copy the installation address, but "
+                        "the order has no installation street to copy."),
+            "steps": steps,
+        }
     try:
         cb = frame.locator('input[name="defaultBillingAddress"]').first
-        if await cb.count() and not await cb.is_checked():
-            await cb.check(timeout=5000)
-            await asyncio.sleep(1.5)
-            await page.evaluate(r"""(() => {
-              const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return;
-              const vis=e=>e&&e.offsetParent!==null;
-              const dl=[...d.querySelectorAll('.ui-dialog')].filter(vis)
-                .find(x=>/Enter Address/i.test(((x.querySelector('.modal-title,.ui-dialog-title')||{}).innerText)||''));
-              if(dl){ const ok=[...dl.querySelectorAll('button,a.btn')].find(b=>/^ok$/i.test((b.innerText||'').trim())); if(ok) ok.click(); }
-            })()""")
-            await asyncio.sleep(1)
-        steps["billing_addr"] = "ok" if await cb.count() else "skipped"
+        if not await cb.count():
+            return {
+                "status": "error",
+                "stage": "customer_order_info",
+                "error": "delivery_address_checkbox_missing",
+                "message": ("No Default From Billing Address checkbox on the delivery "
+                            "page, so the Enter Address dialog cannot be opened to set "
+                            "delivery = installation."),
+                "steps": steps,
+            }
+        if await cb.is_checked():
+            await cb.uncheck(timeout=5000)
+            await asyncio.sleep(0.8)
+        await cb.check(timeout=5000)
+        await asyncio.sleep(1.5)
+        filled = await page.evaluate(overwrite_enter_address_js(), install_addr)
+        if filled not in ("filled", "filled-street-only"):
+            return {
+                "status": "error",
+                "stage": "customer_order_info",
+                "error": "delivery_address_not_set",
+                "message": ("Could not write the installation address into the "
+                            f"Enter Address dialog ({filled})."),
+                "steps": {**steps, "delivery_addr": filled},
+            }
+        await page.evaluate(r"""(() => {
+          const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return;
+          const vis=e=>e&&e.offsetParent!==null;
+          const titleOf=dl=>((dl.querySelector('.modal-title,.ui-dialog-title')||{}).innerText)||'';
+          const dl=[...d.querySelectorAll('.ui-dialog,.modal')].filter(vis)
+            .find(x=>/Enter Address/i.test(titleOf(x)));
+          if(dl){ const ok=[...dl.querySelectorAll('button,a.btn')].find(b=>/^ok$/i.test((b.innerText||'').trim())); if(ok) ok.click(); }
+        })()""")
+        await asyncio.sleep(1)
+        steps["delivery_addr"] = f"ok (from installation; {filled})"
+        steps["billing_addr"] = "overwritten-with-installation"
     except Exception as e:
-        steps["billing_addr"] = f"skipped: {str(e)[:60]}"
+        return {
+            "status": "error",
+            "stage": "customer_order_info",
+            "error": "delivery_address_failed",
+            "message": f"Failed to set delivery address from installation: {str(e)[:120]}",
+            "steps": steps,
+        }
 
     # ── Delivery Phone (areaCode + number) + Email — the EDITABLE delivery fields
     # (the greyed Contact Number/Email name_<id> attrs are DISABLED display only).
