@@ -118,7 +118,10 @@ const EXT_CONTENT_TYPE: Record<string, string> = {
 // uses the agent-supplied label (e.g. "tenancy agreement" -> "tenancyagreement").
 function docSlug(docType: string, idType: string, otherLabel?: string): string {
   if (docType === "utility_bill") return "utilitybill";
-  if (docType === "im_conversation") return "imconversation";
+  if (docType === "im_conversation") {
+    const slug = (otherLabel || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+    return slug || "imconversation";
+  }
   if (docType === "mykad") return "mykad";
   if (docType === "passport") return "passport";
   if (docType === "other") {

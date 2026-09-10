@@ -9,9 +9,12 @@
 // route (what to build) and the dialog (what to attach it as), so the three can
 // never disagree about what a document needs.
 
+import type { ChatScriptVariant } from "./chat-script";
+
 /** The documents an order draft can produce. */
 export type GeneratedDocType =
   | "chat"
+  | "bizz_chat"
   | "internet_bill"
   | "utility_bill"
   | "tenancy_agreement"
@@ -52,7 +55,10 @@ export interface GeneratedDocSpec {
    * generically, so inventing types here would mean changing that contract too.
    */
   attachAs: "im_conversation" | "utility_bill" | "other";
-  /** Filename slug for the `other` bucket, so the stored name stays readable. */
+  /**
+   * Filename slug when attachAs is `other`, or when two `im_conversation` kinds
+   * need distinct stored names (Conversation Chat vs Bizz Chat).
+   */
   attachLabel?: string;
   /**
    * The slug this document's filename carries once stored, i.e. the middle part
@@ -62,6 +68,12 @@ export interface GeneratedDocSpec {
    */
   slug: string;
   ext: "pdf" | "png";
+  /**
+   * Set on the documents rasterised from the WhatsApp chrome in the browser,
+   * naming which closing script the chrome shows. The rest come from the server
+   * as PDFs.
+   */
+  chatVariant?: ChatScriptVariant;
 }
 
 const NAME = { field: "fullName", label: "Full Name" } as const;
@@ -81,6 +93,17 @@ export const GENERATED_DOCS: GeneratedDocSpec[] = [
     attachAs: "im_conversation",
     slug: "imconversation",
     ext: "png",
+    chatVariant: "conversation",
+  },
+  {
+    type: "bizz_chat",
+    label: "Bizz Chat",
+    requires: [NAME, ID, ADDR, MOBILE, PKG],
+    attachAs: "im_conversation",
+    attachLabel: "bizzchat",
+    slug: "bizzchat",
+    ext: "png",
+    chatVariant: "bizz",
   },
   {
     type: "internet_bill",

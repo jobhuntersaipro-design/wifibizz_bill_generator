@@ -102,6 +102,13 @@ describe("missingFieldsFor", () => {
       "Phone Number",
       "Package",
     ]);
+    expect(missingFieldsFor("bizz_chat", {})).toEqual([
+      "Full Name",
+      "ID Number",
+      "Installation Address",
+      "Phone Number",
+      "Package",
+    ]);
   });
 
   // The letter is the only document that prints the IC, and the chat is the only
@@ -113,6 +120,7 @@ describe("missingFieldsFor", () => {
 
   it("blocks the chat on the package", () => {
     expect(missingFieldsFor("chat", { ...FULL, offerName: "" })).toEqual(["Package"]);
+    expect(missingFieldsFor("bizz_chat", { ...FULL, offerName: "" })).toEqual(["Package"]);
   });
 
   it("blocks the bills on the phone number, which the letter and invoice do not print", () => {
@@ -191,9 +199,10 @@ describe("attach mapping", () => {
 });
 
 describe("server vs client documents", () => {
-  it("routes the five PDFs to the server and the chat to the client", () => {
+  it("routes the five PDFs to the server and the chats to the client", () => {
     expect(SERVER_DOC_TYPES).toHaveLength(5);
     expect(isServerDocType("chat")).toBe(false);
+    expect(isServerDocType("bizz_chat")).toBe(false);
     for (const t of SERVER_DOC_TYPES) expect(isServerDocType(t)).toBe(true);
   });
 
@@ -202,8 +211,17 @@ describe("server vs client documents", () => {
     expect(() => docSpec("payslip" as never)).toThrow(/Unknown generated document type/);
   });
 
+  // The runner mounts the WhatsApp chrome for exactly the types the server does
+  // not render, so the registry and SERVER_DOC_TYPES must agree on which those are.
+  it("names a chat variant on exactly the types the server does not render", () => {
+    for (const g of GENERATED_DOCS) {
+      expect(g.chatVariant !== undefined).toBe(!isServerDocType(g.type));
+    }
+  });
+
   it("names the chat .png and the rest .pdf", () => {
     expect(generatedFilename("chat", "920505034434")).toBe("chat_920505034434.png");
+    expect(generatedFilename("bizz_chat", "920505034434")).toBe("bizz_chat_920505034434.png");
     expect(generatedFilename("time_invoice", "920505034434")).toBe("time_invoice_920505034434.pdf");
     expect(generatedFilename("tenancy_agreement", "920505034434")).toBe(
       "tenancy_agreement_920505034434.pdf",
@@ -225,6 +243,7 @@ describe("slugFromFilename", () => {
     expect(slugFromFilename("920505034434_internetbill_1.pdf")).toBe("internetbill");
     expect(slugFromFilename("920505034434_utilitybill_2.pdf")).toBe("utilitybill");
     expect(slugFromFilename("920505034434_imconversation_1.png")).toBe("imconversation");
+    expect(slugFromFilename("920505034434_bizzchat_1.png")).toBe("bizzchat");
   });
 
   it("handles the MyKad front/back suffix, which is a word not a number", () => {
@@ -264,6 +283,7 @@ describe("isDocTypeAttached", () => {
     expect(isDocTypeAttached("authorization_letter", docs)).toBe(false);
     expect(isDocTypeAttached("tenancy_agreement", docs)).toBe(false);
     expect(isDocTypeAttached("chat", docs)).toBe(false);
+    expect(isDocTypeAttached("bizz_chat", docs)).toBe(false);
   });
 
   it("matches only *_tenancyagreement_* filenames for TA", () => {
@@ -285,6 +305,15 @@ describe("isDocTypeAttached", () => {
     expect(
       isDocTypeAttached("tenancy_agreement", attached("920505034434_imconversation_1.png")),
     ).toBe(false);
+  });
+
+  it("does not treat Conversation Chat and Bizz Chat as the same attachment", () => {
+    expect(isDocTypeAttached("chat", attached("920505034434_imconversation_1.png"))).toBe(true);
+    expect(isDocTypeAttached("bizz_chat", attached("920505034434_imconversation_1.png"))).toBe(
+      false,
+    );
+    expect(isDocTypeAttached("bizz_chat", attached("920505034434_bizzchat_1.png"))).toBe(true);
+    expect(isDocTypeAttached("chat", attached("920505034434_bizzchat_1.png"))).toBe(false);
   });
 
   // "However it arrived" — the order should not carry two utility bills that
@@ -325,7 +354,7 @@ describe("spec slugs match what the uploader stores", () => {
           ? g.attachLabel
           : g.attachAs === "utility_bill"
             ? "utilitybill"
-            : "imconversation";
+            : g.attachLabel || "imconversation";
       expect(g.slug).toBe(expected);
     }
   });
@@ -339,9 +368,10 @@ describe("spec slugs match what the uploader stores", () => {
 describe("generatableDocTypes", () => {
   const attached = (...names: string[]) => names.map((filename) => ({ filename }));
 
-  it("returns all six, in card order, for a filled form with nothing attached", () => {
+  it("returns all seven, in card order, for a filled form with nothing attached", () => {
     expect(generatableDocTypes(FULL, [], 10)).toEqual([
       "chat",
+      "bizz_chat",
       "internet_bill",
       "utility_bill",
       "tenancy_agreement",
@@ -356,6 +386,7 @@ describe("generatableDocTypes", () => {
       "920505034434_timeinvoice_1.pdf",
     );
     expect(generatableDocTypes(FULL, docs, 10)).toEqual([
+      "bizz_chat",
       "internet_bill",
       "utility_bill",
       "tenancy_agreement",
@@ -375,7 +406,7 @@ describe("generatableDocTypes", () => {
   });
 
   it("caps the queue to the attachment slots left", () => {
-    expect(generatableDocTypes(FULL, [], 2)).toEqual(["chat", "internet_bill"]);
+    expect(generatableDocTypes(FULL, [], 2)).toEqual(["chat", "bizz_chat"]);
     expect(generatableDocTypes(FULL, [], 0)).toEqual([]);
     // A negative slot count (more docs than the cap allows) must not throw.
     expect(generatableDocTypes(FULL, [], -1)).toEqual([]);
