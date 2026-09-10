@@ -97,8 +97,11 @@ def test_helper_collapses_consecutive_spaces_in_street():
 
 
 def test_helper_reports_an_empty_street_as_empty():
+    # order_to_payload sets keywords = street or postcode, so this payload
+    # carries keywords "90000". A bare postcode must not come back as the street.
     p = _payload(street="")
     p["customer"]["residence_address"] = ""
+    assert p["address"]["keywords"] == INSTALL_POSTCODE
     assert installation_address_for_delivery(p)["street"] == ""
     assert installation_address_for_delivery(None)["street"] == ""
 
