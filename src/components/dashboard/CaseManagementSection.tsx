@@ -25,7 +25,7 @@ import { billDownloadPath, revisionFromPublicUrl } from "@/lib/bill-object";
 
 // ── Case Detail Panel ──
 
-function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatLoading, onGenerateLetter, letterLoading, onCombine }: { caseData: CaseRow; onClose: () => void; cacheBuster: number; onGenerateChat: (c: CaseRow, variant?: ChatScriptVariant) => void; chatLoading: boolean; onGenerateLetter: (caseNo: string) => void; letterLoading: boolean; onCombine: (c: CaseRow) => void }) {
+function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatLoading, onGenerateLetter, letterLoading, onCombine }: { caseData: CaseRow; onClose: () => void; cacheBuster: number; onGenerateChat: (c: CaseRow, variant: ChatScriptVariant) => void; chatLoading: ChatScriptVariant | null; onGenerateLetter: (caseNo: string) => void; letterLoading: boolean; onCombine: (c: CaseRow) => void }) {
   // The Sheet owns Escape, outside-click, the focus trap and scroll lock, all of
   // which the old hand-rolled panel declared via markup and never implemented.
   // It also owns the enter/exit transitions — but the parent mounts this panel
@@ -195,11 +195,11 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
           <div className="panel-item-in" style={{ animationDelay: "880ms" }}>
             <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">Closing Script</h3>
             <button
-              onClick={() => onGenerateChat(caseData)}
-              disabled={chatLoading}
+              onClick={() => onGenerateChat(caseData, "conversation")}
+              disabled={chatLoading !== null}
               className="inline-flex items-center gap-2 text-sm font-medium text-[#25D366] hover:text-[#1DA851] transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {chatLoading ? (
+              {chatLoading === "conversation" ? (
                 <>
                   <span className="w-3.5 h-3.5 rounded-full border-2 border-[#25D366] border-t-transparent animate-spin" />
                   Fetching address…
@@ -212,10 +212,10 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
             </button>
             <button
               onClick={() => onGenerateChat(caseData, "bizz")}
-              disabled={chatLoading}
+              disabled={chatLoading !== null}
               className="mt-2 inline-flex items-center gap-2 text-sm font-medium text-[#0D9488] hover:text-[#0A2540] transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {chatLoading ? (
+              {chatLoading === "bizz" ? (
                 <>
                   <span className="w-3.5 h-3.5 rounded-full border-2 border-[#0D9488] border-t-transparent animate-spin" />
                   Fetching address…
@@ -268,10 +268,13 @@ export default function CaseManagementSection() {
   // Per-row single-bill generation in flight, keyed `${caseNo}:${type}`.
   const [generatingCell, setGeneratingCell] = useState<string | null>(null);
   const [statuses, setStatuses] = useState<string[]>([]);
-  const [chatCase, setChatCase] = useState<CaseRow | null>(null);
-  const [chatVariant, setChatVariant] = useState<ChatScriptVariant>("conversation");
-  // Case whose installation address is being fetched before the chat opens.
-  const [chatLoadingCase, setChatLoadingCase] = useState<string | null>(null);
+  // The chat open in the modal, and which template it prints.
+  const [chatCase, setChatCase] = useState<{ caseData: CaseRow; variant: ChatScriptVariant } | null>(null);
+  // Case whose installation address is being fetched before the chat opens,
+  // keyed with the variant so only the button that was clicked spins.
+  const [chatLoadingCase, setChatLoadingCase] = useState<{ caseNo: string; variant: ChatScriptVariant } | null>(null);
+  const chatBusy = (caseNo: string, variant: ChatScriptVariant) =>
+    chatLoadingCase?.caseNo === caseNo && chatLoadingCase.variant === variant;
   // Case whose authorization letter is being generated.
   const [letterCase, setLetterCase] = useState<string | null>(null);
   const [timeCase, setTimeCase] = useState<string | null>(null);
@@ -537,14 +540,14 @@ export default function CaseManagementSection() {
   // The crawler stores cases list-only, so full_address is often blank. Resolve it
   // from the portal first (same lazy fill the bill generator does) so the closing
   // script carries the real installation address.
-  async function handleGenerateChat(c: CaseRow, variant: ChatScriptVariant = "conversation") {
+  async function handleGenerateChat(c: CaseRow, variant: ChatScriptVariant) {
     if (chatLoadingCase) return;
-    setChatVariant(variant);
+    const open = (caseData: CaseRow) => setChatCase({ caseData, variant });
     if ((c.full_address && c.full_address.trim()) || !c.case_url) {
-      setChatCase(c);
+      open(c);
       return;
     }
-    setChatLoadingCase(c.case_no);
+    setChatLoadingCase({ caseNo: c.case_no, variant });
     try {
       const res = await fetch("/api/cases/address", {
         method: "POST",
@@ -556,15 +559,15 @@ export default function CaseManagementSection() {
       if (address) {
         setCases((prev) => prev.map((r) => (r.case_no === c.case_no ? { ...r, full_address: address } : r)));
         setSelectedCase((prev) => (prev && prev.case_no === c.case_no ? { ...prev, full_address: address } : prev));
-        setChatCase({ ...c, full_address: address });
+        open({ ...c, full_address: address });
       } else {
         toast.error("Couldn't fetch the installation address — generating chat without it.");
-        setChatCase(c);
+        open(c);
       }
     } catch (err) {
       console.error("Address fetch failed:", err);
       toast.error("Couldn't fetch the installation address — generating chat without it.");
-      setChatCase(c);
+      open(c);
     } finally {
       setChatLoadingCase(null);
     }
@@ -1004,11 +1007,11 @@ export default function CaseManagementSection() {
                           <button
                             title="Generate Chat"
                             aria-label={`Generate closing script chat for ${c.case_no}`}
-                            disabled={chatLoadingCase === c.case_no}
-                            onClick={() => handleGenerateChat(c)}
+                            disabled={chatBusy(c.case_no, "conversation")}
+                            onClick={() => handleGenerateChat(c, "conversation")}
                             className="w-14 flex flex-col items-center gap-0.5 rounded-md py-1 transition-colors text-[#25D366] hover:bg-[#E8FFF3] disabled:cursor-not-allowed"
                           >
-                            {chatLoadingCase === c.case_no
+                            {chatBusy(c.case_no, "conversation")
                               ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#25D366] border-t-transparent animate-spin" />
                               : <MessageSquareIcon className="w-4 h-4" />}
                             <span className="text-[10px] leading-none font-medium text-[#697386]">Chat</span>
@@ -1016,11 +1019,11 @@ export default function CaseManagementSection() {
                           <button
                             title="Generate Bizz Chat"
                             aria-label={`Generate bizz chat for ${c.case_no}`}
-                            disabled={chatLoadingCase === c.case_no}
+                            disabled={chatBusy(c.case_no, "bizz")}
                             onClick={() => handleGenerateChat(c, "bizz")}
                             className="w-14 flex flex-col items-center gap-0.5 rounded-md py-1 transition-colors text-[#0D9488] hover:bg-[#E6FFFA] disabled:cursor-not-allowed"
                           >
-                            {chatLoadingCase === c.case_no
+                            {chatBusy(c.case_no, "bizz")
                               ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#0D9488] border-t-transparent animate-spin" />
                               : <MessageSquareIcon className="w-4 h-4" />}
                             <span className="text-[10px] leading-none font-medium text-[#697386] text-center">bizz chat</span>
@@ -1132,19 +1135,16 @@ export default function CaseManagementSection() {
 
       {/* Slide-in detail panel */}
       {selectedCase && createPortal(
-        <CaseDetailPanel caseData={selectedCase} onClose={() => setSelectedCase(null)} cacheBuster={billCacheBuster} onGenerateChat={handleGenerateChat} chatLoading={chatLoadingCase === selectedCase.case_no} onGenerateLetter={handleAuthorizationLetter} letterLoading={letterCase === selectedCase.case_no} onCombine={setMergeCase} />,
+        <CaseDetailPanel caseData={selectedCase} onClose={() => setSelectedCase(null)} cacheBuster={billCacheBuster} onGenerateChat={handleGenerateChat} chatLoading={chatLoadingCase?.caseNo === selectedCase.case_no ? chatLoadingCase.variant : null} onGenerateLetter={handleAuthorizationLetter} letterLoading={letterCase === selectedCase.case_no} onCombine={setMergeCase} />,
         document.body
       )}
 
       {chatCase && (
         <ChatImageGenerator
-          key={`${chatCase.case_no}-${chatVariant}`}
-          caseData={chatCase}
-          variant={chatVariant}
-          onClose={() => {
-            setChatCase(null);
-            setChatVariant("conversation");
-          }}
+          key={`${chatCase.caseData.case_no}-${chatCase.variant}`}
+          caseData={chatCase.caseData}
+          variant={chatCase.variant}
+          onClose={() => setChatCase(null)}
         />
       )}
 

@@ -752,7 +752,7 @@ describe("Bills column TA", () => {
     expect(src).toContain('data-action="tenancy-agreement"');
     expect(src).toContain("flex-wrap");
     expect(src).toContain("w-[296px]");
-    expect(src.indexOf("bizz chat")).toBeLessThan(src.indexOf("tenancy-agreement"));
+    expect(src.indexOf('title="Generate Bizz Chat"')).toBeLessThan(src.indexOf('data-action="tenancy-agreement"'));
     expect(src.indexOf("tenancy-agreement")).toBeLessThan(src.indexOf("Generate Auth Letter"));
     expect(src).toContain(">Auth Letter<");
     expect(src).toContain(">TA<");
