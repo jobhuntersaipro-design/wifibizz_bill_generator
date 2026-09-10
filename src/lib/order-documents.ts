@@ -9,6 +9,8 @@
 // route (what to build) and the dialog (what to attach it as), so the three can
 // never disagree about what a document needs.
 
+import type { ChatScriptVariant } from "./chat-script";
+
 /** The documents an order draft can produce. */
 export type GeneratedDocType =
   | "chat"
@@ -66,6 +68,12 @@ export interface GeneratedDocSpec {
    */
   slug: string;
   ext: "pdf" | "png";
+  /**
+   * Set on the documents rasterised from the WhatsApp chrome in the browser,
+   * naming which closing script the chrome shows. The rest come from the server
+   * as PDFs.
+   */
+  chatVariant?: ChatScriptVariant;
 }
 
 const NAME = { field: "fullName", label: "Full Name" } as const;
@@ -85,6 +93,7 @@ export const GENERATED_DOCS: GeneratedDocSpec[] = [
     attachAs: "im_conversation",
     slug: "imconversation",
     ext: "png",
+    chatVariant: "conversation",
   },
   {
     type: "bizz_chat",
@@ -94,6 +103,7 @@ export const GENERATED_DOCS: GeneratedDocSpec[] = [
     attachLabel: "bizzchat",
     slug: "bizzchat",
     ext: "png",
+    chatVariant: "bizz",
   },
   {
     type: "internet_bill",

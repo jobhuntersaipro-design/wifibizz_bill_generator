@@ -211,6 +211,14 @@ describe("server vs client documents", () => {
     expect(() => docSpec("payslip" as never)).toThrow(/Unknown generated document type/);
   });
 
+  // The runner mounts the WhatsApp chrome for exactly the types the server does
+  // not render, so the registry and SERVER_DOC_TYPES must agree on which those are.
+  it("names a chat variant on exactly the types the server does not render", () => {
+    for (const g of GENERATED_DOCS) {
+      expect(g.chatVariant !== undefined).toBe(!isServerDocType(g.type));
+    }
+  });
+
   it("names the chat .png and the rest .pdf", () => {
     expect(generatedFilename("chat", "920505034434")).toBe("chat_920505034434.png");
     expect(generatedFilename("bizz_chat", "920505034434")).toBe("bizz_chat_920505034434.png");
