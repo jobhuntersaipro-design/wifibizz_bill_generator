@@ -6,6 +6,7 @@ import Image from "next/image";
 import { toPng } from "html-to-image";
 import type { CaseRow } from "./shared";
 import { CloseIcon, DownloadIcon } from "./icons";
+import { formatInstallDate, formatMobileRaw, formatPackage } from "@/lib/chat-script";
 import {
   BIZZ_AGREEMENT_REPLY,
   BIZZ_TERMS,
@@ -55,21 +56,6 @@ function formatMobileDisplay(mobile: string | null): string {
   return mobile;
 }
 
-function formatMobileRaw(mobile: string | null): string {
-  if (!mobile) return "—";
-  return mobile.replace(/[^0-9]/g, "");
-}
-
-function formatPackage(pkg: string | null): string {
-  if (!pkg) return "—";
-  // Remove everything after the + sign (e.g. "Unifi Home 500Mbps + Router" → "Unifi Home 500Mbps")
-  const plusIndex = pkg.indexOf("+");
-  if (plusIndex > 0) {
-    return pkg.slice(0, plusIndex).trim();
-  }
-  return pkg;
-}
-
 function getTimeString(): string {
   const h = 10 + Math.floor(Math.random() * 6);
   const m = Math.floor(Math.random() * 60);
@@ -96,14 +82,6 @@ function TextWithLinks({ text, style }: { text: string; style?: React.CSSPropert
       })}
     </span>
   );
-}
-
-function formatInstallDate(caseCreatedAt: string | null, offsetDays: number): string {
-  const base = caseCreatedAt ? new Date(caseCreatedAt) : new Date();
-  const d = new Date(base);
-  d.setDate(d.getDate() + offsetDays);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
 }
 
 // Builds the closing script lines as structured data for rendering
