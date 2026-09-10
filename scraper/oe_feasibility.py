@@ -32,6 +32,7 @@ from oe_errors import (APPOINTMENT_SLOT_TAKEN, CUSTOMER_IC_NAME_MISMATCH,
 from oe_helpers import set_combobox
 from portal_states import to_portal_state
 from order_entry import ORDER_ENTRY_URL, _frame, ensure_on_order_entry
+from delivery_address import set_delivery_address
 from shell_modal import describe_blocking_dialog, read_shell_dialog
 
 
@@ -4472,26 +4473,14 @@ async def fill_customer_order_info(page, payload: dict,
 
     # ── Delivery details + order confirmation ────────────────────────────────
     stage("delivery_terms")
-    # ── Default From Billing Address (check -> "Enter Address" popup -> OK) ────
-    # The popup is a plain form dialog (NOT warn/error), so _dismiss_popup_ok
-    # won't touch it — explicitly OK the "Enter Address" dialog (its fields are
-    # pre-filled from the billing address).
-    try:
-        cb = frame.locator('input[name="defaultBillingAddress"]').first
-        if await cb.count() and not await cb.is_checked():
-            await cb.check(timeout=5000)
-            await asyncio.sleep(1.5)
-            await page.evaluate(r"""(() => {
-              const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return;
-              const vis=e=>e&&e.offsetParent!==null;
-              const dl=[...d.querySelectorAll('.ui-dialog')].filter(vis)
-                .find(x=>/Enter Address/i.test(((x.querySelector('.modal-title,.ui-dialog-title')||{}).innerText)||''));
-              if(dl){ const ok=[...dl.querySelectorAll('button,a.btn')].find(b=>/^ok$/i.test((b.innerText||'').trim())); if(ok) ok.click(); }
-            })()""")
-            await asyncio.sleep(1)
-        steps["billing_addr"] = "ok" if await cb.count() else "skipped"
-    except Exception as e:
-        steps["billing_addr"] = f"skipped: {str(e)[:60]}"
+    # Delivery address := installation address. The Default From Billing Address
+    # box only opens the Enter Address dialog; delivery_address.py rewrites it
+    # from the order's installation address before OK, so a billing account
+    # carrying an older address can no longer become the delivery address.
+    delivery = await set_delivery_address(frame, page, payload)
+    if delivery.get("status") != "ok":
+        return {**delivery, "steps": steps}
+    steps["delivery_addr"] = delivery["detail"]
 
     # ── Delivery Phone (areaCode + number) + Email — the EDITABLE delivery fields
     # (the greyed Contact Number/Email name_<id> attrs are DISABLED display only).
