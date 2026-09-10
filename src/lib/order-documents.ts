@@ -12,6 +12,7 @@
 /** The documents an order draft can produce. */
 export type GeneratedDocType =
   | "chat"
+  | "bizz_chat"
   | "internet_bill"
   | "utility_bill"
   | "tenancy_agreement"
@@ -52,7 +53,10 @@ export interface GeneratedDocSpec {
    * generically, so inventing types here would mean changing that contract too.
    */
   attachAs: "im_conversation" | "utility_bill" | "other";
-  /** Filename slug for the `other` bucket, so the stored name stays readable. */
+  /**
+   * Filename slug when attachAs is `other`, or when two `im_conversation` kinds
+   * need distinct stored names (Conversation Chat vs Bizz Chat).
+   */
   attachLabel?: string;
   /**
    * The slug this document's filename carries once stored, i.e. the middle part
@@ -80,6 +84,15 @@ export const GENERATED_DOCS: GeneratedDocSpec[] = [
     requires: [NAME, ID, ADDR, MOBILE, PKG],
     attachAs: "im_conversation",
     slug: "imconversation",
+    ext: "png",
+  },
+  {
+    type: "bizz_chat",
+    label: "Bizz Chat",
+    requires: [NAME, ID, ADDR, MOBILE, PKG],
+    attachAs: "im_conversation",
+    attachLabel: "bizzchat",
+    slug: "bizzchat",
     ext: "png",
   },
   {
