@@ -7,6 +7,9 @@
 // phone number, a package name and the preferred installation date live here
 // once rather than once per template.
 
+/** Which template a chat prints. The conversation splits further into home and business by provider. */
+export type ChatScriptVariant = "conversation" | "bizz";
+
 export interface ScriptLine {
   /** Printed first, including its colon and trailing space; the value follows on the same line. */
   label: string;

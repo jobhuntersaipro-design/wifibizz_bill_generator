@@ -6,10 +6,14 @@ import Image from "next/image";
 import { toPng } from "html-to-image";
 import type { CaseRow } from "./shared";
 import { CloseIcon, DownloadIcon } from "./icons";
-import { formatInstallDate, formatMobileRaw, formatPackage } from "@/lib/chat-script";
+import {
+  formatInstallDate,
+  formatMobileRaw,
+  formatPackage,
+  type ChatScript,
+  type ChatScriptVariant,
+} from "@/lib/chat-script";
 import { buildBizzChatScript } from "@/lib/bizz-chat-script";
-
-export type ChatScriptVariant = "conversation" | "bizz";
 
 function isBusiness(provider: string | null): boolean {
   return !!provider && provider.toLowerCase().includes("business");
@@ -122,6 +126,40 @@ function getTerms(provider: string | null): string[] {
   ];
 }
 
+function buildConversationScript(c: CaseRow, installOffsetDays: number): ChatScript {
+  return {
+    heading: isBusiness(c.provider) ? undefined : "UNIFI",
+    lines: buildScriptLines(c, installOffsetDays),
+    terms: getTerms(c.provider),
+    consent: "By replying \u201CYES\u201D , I hereby acknowledge, confirm and agree to the following.",
+    agreement: "YES I AGREED",
+  };
+}
+
+// Everything that differs between the two chats, in one row per variant, so the
+// chrome and the modal read from it instead of branching on the variant.
+const CHAT_VARIANTS: Record<
+  ChatScriptVariant,
+  {
+    build: (c: CaseRow, installOffsetDays: number) => ChatScript;
+    /** Follows the case number in the modal header. */
+    kind: (c: CaseRow) => string;
+    /** Prefix of the downloaded PNG's filename. */
+    filePrefix: string;
+  }
+> = {
+  conversation: {
+    build: buildConversationScript,
+    kind: (c) => (isBusiness(c.provider) ? "Business" : "Home"),
+    filePrefix: "closing_script",
+  },
+  bizz: {
+    build: buildBizzChatScript,
+    kind: () => "Bizz",
+    filePrefix: "bizz_chat",
+  },
+};
+
 // WhatsApp iPhone dark mode wallpaper colors
 const WA_WALLPAPERS = [
   "#0B141A", // default dark (dark charcoal)
@@ -180,10 +218,7 @@ export function WhatsAppChat({
   installOffsetDays: number;
   variant?: ChatScriptVariant;
 }) {
-  const isBizz = variant === "bizz";
-  const bizz = isBizz ? buildBizzChatScript(caseData, installOffsetDays) : null;
-  const lines = bizz ? bizz.lines : buildScriptLines(caseData, installOffsetDays);
-  const terms = bizz ? bizz.terms : getTerms(caseData.provider);
+  const script = CHAT_VARIANTS[variant].build(caseData, installOffsetDays);
   const mobileDisplay = formatMobileDisplay(caseData.mobile);
 
   return (
@@ -289,13 +324,13 @@ export function WhatsAppChat({
               borderBottom: "10px solid transparent",
             }} />
 
-            {!isBizz && !isBusiness(caseData.provider) && (
-              <div style={{ ...S.text }}>UNIFI</div>
+            {script.heading && (
+              <div style={{ ...S.text }}>{script.heading}</div>
             )}
 
             {/* Script lines */}
             <div style={{ ...S.text }}>
-              {lines.map((line, i) => {
+              {script.lines.map((line, i) => {
                 // Email address on its own line (the blank label line for email value)
                 if (line.label === "" && line.value) {
                   return (
@@ -337,23 +372,21 @@ export function WhatsAppChat({
                 Wrapped lines now return to the left margin instead of hanging
                 under the text — which is what real WhatsApp does anyway. */}
             <div style={{ ...S.text }}>
-              {terms.map((term, i) => (
+              {script.terms.map((term, i) => (
                 <span key={i}>
                   <span style={{ fontSize: 14.2, lineHeight: 1.4 }}>✅ </span>
                   <TextWithLinks text={term} style={S.text} />
-                  {i < terms.length - 1 && <br />}
+                  {i < script.terms.length - 1 && <br />}
                 </span>
               ))}
             </div>
 
-            {!isBizz && (
-              <div style={{ ...S.text, marginTop: 14 }}>
-                By replying &ldquo;YES&rdquo; , I hereby acknowledge, confirm and agree to the following.
-              </div>
+            {script.consent && (
+              <div style={{ ...S.text, marginTop: 14 }}>{script.consent}</div>
             )}
 
             <div style={{ ...S.text, fontWeight: 700, marginTop: 14 }}>
-              {bizz ? bizz.agreement : "YES I AGREED"}
+              {script.agreement}
             </div>
 
             <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginTop: 2, paddingRight: 2 }}>
@@ -454,7 +487,7 @@ interface ChatImageGeneratorProps {
 }
 
 export default function ChatImageGenerator({ caseData, onClose, variant = "conversation" }: ChatImageGeneratorProps) {
-  const isBizz = variant === "bizz";
+  const chat = CHAT_VARIANTS[variant];
   const chatRef = useRef<HTMLDivElement>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageDims, setImageDims] = useState({ width: 414, height: 0 });
@@ -493,7 +526,7 @@ export default function ChatImageGenerator({ caseData, onClose, variant = "conve
   function handleDownload() {
     if (!imageUrl) return;
     const link = document.createElement("a");
-    link.download = isBizz ? `bizz_chat_${caseData.case_no}.png` : `closing_script_${caseData.case_no}.png`;
+    link.download = `${chat.filePrefix}_${caseData.case_no}.png`;
     link.href = imageUrl;
     link.click();
   }
@@ -522,7 +555,7 @@ export default function ChatImageGenerator({ caseData, onClose, variant = "conve
           <div>
             <h3 className="text-sm font-semibold text-[#0A2540]">Closing Script</h3>
             <p className="text-xs text-[#697386] mt-0.5">
-              {caseData.case_no} &middot; {isBizz ? "Bizz" : isBusiness(caseData.provider) ? "Business" : "Home"}
+              {caseData.case_no} &middot; {chat.kind(caseData)}
             </p>
           </div>
           <button

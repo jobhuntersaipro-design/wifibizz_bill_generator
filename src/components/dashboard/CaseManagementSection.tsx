@@ -17,7 +17,8 @@ import {
   InternetBillIcon, UtilityBillIcon, DownloadIcon, CheckCircleIcon,
   MessageSquareIcon, AuthLetterIcon, SyncSheetIcon, TimeBillIcon, TenancyAgreementIcon, MergeIcon,
 } from "./icons";
-import ChatImageGenerator, { type ChatScriptVariant } from "./ChatImageGenerator";
+import ChatImageGenerator from "./ChatImageGenerator";
+import type { ChatScriptVariant } from "@/lib/chat-script";
 import MergePdfDialog from "./MergePdfDialog";
 import { syncCasesToSheet } from "@/actions/settings";
 import { billDownloadPath, revisionFromPublicUrl } from "@/lib/bill-object";
