@@ -1,74 +1,54 @@
-import { formatInstallDate } from "./chat-script";
+// The Bizz Chat closing script, built from a case or an order draft.
+//
+// One template for every Bizz customer regardless of provider; the labels,
+// the four consent clauses and the closing "i agreed" are the ticket's text
+// verbatim, so the PNG the agent sends reads exactly as the ticket does.
 
-export interface BizzScriptInput {
-  customerName: string | null;
-  contactNumber: string | null;
-  customerId: string | null;
-  businessOwnerName: string | null;
+import { formatInstallDate, formatMobileRaw, formatPackage, type ChatScript } from "./chat-script";
+
+/** The case fields the Bizz template prints. A CaseRow satisfies it as-is. */
+export interface BizzChatSource {
+  full_name: string | null;
+  mobile: string | null;
+  id_no: string | null;
   email: string | null;
-  installationAddress: string | null;
-  packageName: string | null;
-  createdAt: string | null;
-  installOffsetDays: number;
-  representativeName: string | null;
+  full_address: string | null;
+  package: string | null;
+  case_created_at: string | null;
 }
 
-export interface BizzScriptLine {
-  label: string;
-  value: string;
+export interface BizzChatScript extends ChatScript {
+  agreement: "i agreed";
 }
 
 const MISSING = "—";
 
-export const BIZZ_TERMS: string[] = [
-  "I hereby consent to subscribed the service with subscription contract of 24/36months.",
-  "I have been informed on the Terms & Condition as at https://biz.unifi.com.my/business/biz-tnc and Privacy Notice of TM",
-  "I agree to pay advance payment of RM 100 within 10 days after installation complete",
-  "I hereby consent TM representative to proceed and process my order. Kindly notify me if there is any issues pertaining to my request.",
-];
+const present = (value: string | null): string => (value ?? "").trim() || MISSING;
 
-export const BIZZ_AGREEMENT_REPLY = "i agreed";
-
-export function formatBizzInstallDate(
-  createdAt: string | null | undefined,
-  offsetDays: number,
-): string {
-  return formatInstallDate(createdAt ?? null, offsetDays);
-}
-
-function present(value: string | null | undefined): string {
-  const t = (value ?? "").trim();
-  return t || MISSING;
-}
-
-function formatBizzMobile(mobile: string | null | undefined): string {
-  const digits = (mobile ?? "").replace(/[^0-9]/g, "");
-  return digits || MISSING;
-}
-
-function formatBizzPackage(pkg: string | null | undefined): string {
-  const t = (pkg ?? "").trim();
-  if (!t) return MISSING;
-  const plusIndex = t.indexOf("+");
-  if (plusIndex > 0) return t.slice(0, plusIndex).trim();
-  return t;
-}
-
-export function buildBizzScriptLines(input: BizzScriptInput): BizzScriptLine[] {
-  const representative = (input.representativeName ?? "").trim();
-  return [
-    { label: "Customer Name (as per NRIC/Passport) :", value: present(input.customerName) },
-    { label: "Contact Number :", value: formatBizzMobile(input.contactNumber) },
-    { label: "Customer ID ( i.e BRN):", value: present(input.customerId) },
-    { label: "Business Owner Name:", value: present(input.businessOwnerName) },
-    { label: "Email Address :", value: present(input.email) },
-    { label: "Installation Address:", value: present(input.installationAddress) },
-    { label: "Billing Address :", value: "SAME AS ABOVE" },
-    { label: "Package to be subscribed :", value: formatBizzPackage(input.packageName) },
-    {
-      label: "Preferred Installation Date :",
-      value: formatBizzInstallDate(input.createdAt, input.installOffsetDays),
-    },
-    { label: "Representative Name ( if any) :", value: representative || "-" },
-  ];
+export function buildBizzChatScript(c: BizzChatSource, installOffsetDays: number): BizzChatScript {
+  const name = present(c.full_name);
+  return {
+    lines: [
+      { label: "Customer Name (as per NRIC/Passport) : ", value: name },
+      { label: "Contact Number : ", value: formatMobileRaw(c.mobile) || MISSING },
+      { label: "Customer ID ( i.e BRN): ", value: present(c.id_no) },
+      // Nothing in the product records a director separately from the customer.
+      { label: "Business Owner Name: ", value: name },
+      { label: "Email Address : ", value: present(c.email) },
+      { label: "Installation Address: ", value: present(c.full_address) },
+      // Literal, not a copy of the address: the product has no billing address to print.
+      { label: "Billing Address : ", value: "SAME AS ABOVE" },
+      { label: "Package to be subscribed : ", value: formatPackage(c.package?.trim() || null) },
+      { label: "Preferred Installation Date : ", value: formatInstallDate(c.case_created_at, installOffsetDays) },
+      // Always a dash. The crawler's agent (e.g. "AI CHAT BOT") is not the customer's representative.
+      { label: "Representative Name ( if any) : ", value: "-" },
+    ],
+    terms: [
+      "I hereby consent to subscribed the service with subscription contract of 24/36months.",
+      "I have been informed on the Terms & Condition as at https://biz.unifi.com.my/business/biz-tnc and Privacy Notice of TM",
+      "I agree to pay advance payment of RM 100 within 10 days after installation complete",
+      "I hereby consent TM representative to proceed and process my order. Kindly notify me if there is any issues pertaining to my request.",
+    ],
+    agreement: "i agreed",
+  };
 }

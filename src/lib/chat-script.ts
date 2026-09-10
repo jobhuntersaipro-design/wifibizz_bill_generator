@@ -1,8 +1,29 @@
-// Field formatting shared by every closing script the WhatsApp chrome renders.
+// The closing script the WhatsApp chrome renders, and the field formatting
+// every template shares.
 //
-// The Conversation Chat and the Bizz Chat print the same customer fields under
-// different labels, so the rules for a phone number, a package name and the
-// preferred installation date live here once rather than once per template.
+// One shape for every variant, so the chrome prints whatever the script holds
+// and carries no per-template branches. The Conversation Chat and the Bizz Chat
+// print the same customer fields under different labels, so the rules for a
+// phone number, a package name and the preferred installation date live here
+// once rather than once per template.
+
+export interface ScriptLine {
+  /** Printed first, including its colon and trailing space; the value follows on the same line. */
+  label: string;
+  value: string;
+}
+
+export interface ChatScript {
+  /** Printed above the fields. The home conversation says "UNIFI"; the other templates have none. */
+  heading?: string;
+  lines: ScriptLine[];
+  /** Without the leading ✅. The chrome adds it. */
+  terms: string[];
+  /** The sentence between the terms and the customer's reply, where the template has one. */
+  consent?: string;
+  /** The customer's reply that closes the script. */
+  agreement: string;
+}
 
 /** Digits only, e.g. "+60 14-889 3212" prints as 60148893212. */
 export function formatMobileRaw(mobile: string | null): string {

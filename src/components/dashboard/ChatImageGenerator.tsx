@@ -7,29 +7,9 @@ import { toPng } from "html-to-image";
 import type { CaseRow } from "./shared";
 import { CloseIcon, DownloadIcon } from "./icons";
 import { formatInstallDate, formatMobileRaw, formatPackage } from "@/lib/chat-script";
-import {
-  BIZZ_AGREEMENT_REPLY,
-  BIZZ_TERMS,
-  buildBizzScriptLines,
-  type BizzScriptInput,
-} from "@/lib/bizz-chat-script";
+import { buildBizzChatScript } from "@/lib/bizz-chat-script";
 
 export type ChatScriptVariant = "conversation" | "bizz";
-
-function caseToBizzInput(c: CaseRow, installOffsetDays: number): BizzScriptInput {
-  return {
-    customerName: c.full_name,
-    contactNumber: c.mobile,
-    customerId: c.id_no,
-    businessOwnerName: c.full_name,
-    email: c.email,
-    installationAddress: c.full_address,
-    packageName: c.package,
-    createdAt: c.case_created_at,
-    installOffsetDays,
-    representativeName: c.agent,
-  };
-}
 
 function isBusiness(provider: string | null): boolean {
   return !!provider && provider.toLowerCase().includes("business");
@@ -201,10 +181,9 @@ export function WhatsAppChat({
   variant?: ChatScriptVariant;
 }) {
   const isBizz = variant === "bizz";
-  const lines = isBizz
-    ? buildBizzScriptLines(caseToBizzInput(caseData, installOffsetDays))
-    : buildScriptLines(caseData, installOffsetDays);
-  const terms = isBizz ? BIZZ_TERMS : getTerms(caseData.provider);
+  const bizz = isBizz ? buildBizzChatScript(caseData, installOffsetDays) : null;
+  const lines = bizz ? bizz.lines : buildScriptLines(caseData, installOffsetDays);
+  const terms = bizz ? bizz.terms : getTerms(caseData.provider);
   const mobileDisplay = formatMobileDisplay(caseData.mobile);
 
   return (
@@ -374,7 +353,7 @@ export function WhatsAppChat({
             )}
 
             <div style={{ ...S.text, fontWeight: 700, marginTop: 14 }}>
-              {isBizz ? BIZZ_AGREEMENT_REPLY : "YES I AGREED"}
+              {bizz ? bizz.agreement : "YES I AGREED"}
             </div>
 
             <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginTop: 2, paddingRight: 2 }}>

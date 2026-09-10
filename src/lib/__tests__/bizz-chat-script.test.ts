@@ -1,150 +1,114 @@
-import { describe, it, expect } from "vitest";
-import {
-  BIZZ_AGREEMENT_REPLY,
-  BIZZ_TERMS,
-  buildBizzScriptLines,
-  formatBizzInstallDate,
-  type BizzScriptInput,
-} from "../bizz-chat-script";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { buildBizzChatScript, type BizzChatSource } from "../bizz-chat-script";
+import type { ChatScript } from "../chat-script";
 
-const FILLED: BizzScriptInput = {
-  customerName: "PHONG KONE LEE",
-  contactNumber: "+60148893212",
-  customerId: "201501012345",
-  businessOwnerName: "PHONG KONE LEE",
+const CASE: BizzChatSource = {
+  full_name: "PHONG KONE LEE",
+  mobile: "+60148893212",
+  id_no: "201501012345",
   email: "phong@example.com",
-  installationAddress: "C-30-11 JALAN ECO MAJESTIC 3A/5, 43500 SEMENYIH, SELANGOR",
-  packageName: "Unifi Biz 100Mbps + Router",
-  createdAt: "2026-03-28T12:00:00",
-  installOffsetDays: 3,
-  representativeName: "AI CHAT BOT (ACE999)",
+  full_address: "C-30-11 JALAN ECO MAJESTIC 3A/5, 43500 SEMENYIH, SELANGOR",
+  package: "Unifi Biz 100Mbps + Router",
+  case_created_at: "2026-03-28T12:00:00",
 };
 
-const EMPTY: BizzScriptInput = {
-  customerName: null,
-  contactNumber: null,
-  customerId: null,
-  businessOwnerName: null,
+const EMPTY: BizzChatSource = {
+  full_name: null,
+  mobile: null,
+  id_no: null,
   email: null,
-  installationAddress: null,
-  packageName: null,
-  createdAt: "2026-03-28T12:00:00",
-  installOffsetDays: 0,
-  representativeName: null,
+  full_address: null,
+  package: null,
+  case_created_at: "2026-03-28T12:00:00",
 };
 
-const AC_LABELS = [
-  "Customer Name (as per NRIC/Passport) :",
-  "Contact Number :",
-  "Customer ID ( i.e BRN):",
-  "Business Owner Name:",
-  "Email Address :",
-  "Installation Address:",
-  "Billing Address :",
-  "Package to be subscribed :",
-  "Preferred Installation Date :",
-  "Representative Name ( if any) :",
-] as const;
+// What the chrome prints, line for line: label then value on one line, the
+// heading over the ✅-prefixed terms, a gap, then the customer's reply.
+function asChatText(script: ChatScript): string {
+  return [
+    ...script.lines.map((l) => l.label + l.value),
+    "",
+    "Terms & Conditions:",
+    ...script.terms.map((t) => `✅ ${t}`),
+    "",
+    script.agreement,
+  ].join("\n");
+}
 
-describe("buildBizzScriptLines", () => {
-  it("returns the ten AC labels with exact spacing and no numbered prefixes", () => {
-    const lines = buildBizzScriptLines(FILLED);
-    expect(lines).toHaveLength(10);
-    expect(lines.map((l) => l.label)).toEqual([...AC_LABELS]);
-    for (const line of lines) {
-      expect(line.label).not.toMatch(/^\d+\./);
-    }
-  });
-
-  it("fills every field from a complete fixture and never uses placeholders there", () => {
-    const lines = buildBizzScriptLines(FILLED);
-    const byLabel = Object.fromEntries(lines.map((l) => [l.label, l.value]));
-    expect(byLabel["Customer Name (as per NRIC/Passport) :"]).toBe("PHONG KONE LEE");
-    expect(byLabel["Contact Number :"]).toBe("60148893212");
-    expect(byLabel["Customer ID ( i.e BRN):"]).toBe("201501012345");
-    expect(byLabel["Business Owner Name:"]).toBe("PHONG KONE LEE");
-    expect(byLabel["Email Address :"]).toBe("phong@example.com");
-    expect(byLabel["Installation Address:"]).toBe(
-      "C-30-11 JALAN ECO MAJESTIC 3A/5, 43500 SEMENYIH, SELANGOR",
+describe("buildBizzChatScript", () => {
+  it("prints the ticket's template word for word from a full case", () => {
+    expect(asChatText(buildBizzChatScript(CASE, 3))).toBe(
+      [
+        "Customer Name (as per NRIC/Passport) : PHONG KONE LEE",
+        "Contact Number : 60148893212",
+        "Customer ID ( i.e BRN): 201501012345",
+        "Business Owner Name: PHONG KONE LEE",
+        "Email Address : phong@example.com",
+        "Installation Address: C-30-11 JALAN ECO MAJESTIC 3A/5, 43500 SEMENYIH, SELANGOR",
+        "Billing Address : SAME AS ABOVE",
+        "Package to be subscribed : Unifi Biz 100Mbps",
+        "Preferred Installation Date : 31/03/2026",
+        "Representative Name ( if any) : -",
+        "",
+        "Terms & Conditions:",
+        "✅ I hereby consent to subscribed the service with subscription contract of 24/36months.",
+        "✅ I have been informed on the Terms & Condition as at https://biz.unifi.com.my/business/biz-tnc and Privacy Notice of TM",
+        "✅ I agree to pay advance payment of RM 100 within 10 days after installation complete",
+        "✅ I hereby consent TM representative to proceed and process my order. Kindly notify me if there is any issues pertaining to my request.",
+        "",
+        "i agreed",
+      ].join("\n"),
     );
-    expect(byLabel["Package to be subscribed :"]).toBe("Unifi Biz 100Mbps");
-    expect(byLabel["Preferred Installation Date :"]).toBe("31/03/2026");
-    expect(byLabel["Representative Name ( if any) :"]).toBe("AI CHAT BOT (ACE999)");
-    expect(Object.values(byLabel)).not.toContain("—");
   });
 
-  it("always sets Billing Address to SAME AS ABOVE, not a copied installation address", () => {
-    const filled = buildBizzScriptLines(FILLED).find((l) => l.label === "Billing Address :");
-    const empty = buildBizzScriptLines(EMPTY).find((l) => l.label === "Billing Address :");
-    expect(filled?.value).toBe("SAME AS ABOVE");
-    expect(empty?.value).toBe("SAME AS ABOVE");
+  // The chrome prints a heading and a consent sentence only when the script
+  // carries them; the Bizz template has neither ("UNIFI" and "By replying YES"
+  // belong to the Conversation Chat).
+  it("carries only lines, terms and the reply", () => {
+    expect(Object.keys(buildBizzChatScript(CASE, 3)).sort()).toEqual(["agreement", "lines", "terms"]);
   });
 
-  it("uses an em dash for missing fields and a hyphen when there is no representative", () => {
-    const byLabel = Object.fromEntries(
-      buildBizzScriptLines(EMPTY).map((l) => [l.label, l.value]),
-    );
-    expect(byLabel["Customer Name (as per NRIC/Passport) :"]).toBe("—");
-    expect(byLabel["Contact Number :"]).toBe("—");
-    expect(byLabel["Customer ID ( i.e BRN):"]).toBe("—");
-    expect(byLabel["Business Owner Name:"]).toBe("—");
-    expect(byLabel["Email Address :"]).toBe("—");
-    expect(byLabel["Installation Address:"]).toBe("—");
-    expect(byLabel["Package to be subscribed :"]).toBe("—");
-    expect(byLabel["Representative Name ( if any) :"]).toBe("-");
-    expect(byLabel["Preferred Installation Date :"]).toBe("28/03/2026");
-  });
-
-  it("treats whitespace-only fields as missing", () => {
-    const byLabel = Object.fromEntries(
-      buildBizzScriptLines({
-        ...EMPTY,
-        customerName: "   ",
-        contactNumber: " + ",
-        representativeName: "  ",
-        packageName: "   ",
-      }).map((l) => [l.label, l.value]),
-    );
-    expect(byLabel["Customer Name (as per NRIC/Passport) :"]).toBe("—");
-    expect(byLabel["Contact Number :"]).toBe("—");
-    expect(byLabel["Package to be subscribed :"]).toBe("—");
-    expect(byLabel["Representative Name ( if any) :"]).toBe("-");
-  });
-});
-
-describe("BIZZ_TERMS and agreement", () => {
-  it("exports the four T&C strings without leading checkmarks", () => {
-    expect(BIZZ_TERMS).toEqual([
-      "I hereby consent to subscribed the service with subscription contract of 24/36months.",
-      "I have been informed on the Terms & Condition as at https://biz.unifi.com.my/business/biz-tnc and Privacy Notice of TM",
-      "I agree to pay advance payment of RM 100 within 10 days after installation complete",
-      "I hereby consent TM representative to proceed and process my order. Kindly notify me if there is any issues pertaining to my request.",
+  it("dashes what the case lacks, and never the billing or representative lines", () => {
+    expect(buildBizzChatScript(EMPTY, 0).lines.map((l) => l.label + l.value)).toEqual([
+      "Customer Name (as per NRIC/Passport) : —",
+      "Contact Number : —",
+      "Customer ID ( i.e BRN): —",
+      "Business Owner Name: —",
+      "Email Address : —",
+      "Installation Address: —",
+      "Billing Address : SAME AS ABOVE",
+      "Package to be subscribed : —",
+      "Preferred Installation Date : 28/03/2026",
+      "Representative Name ( if any) : -",
     ]);
-    for (const term of BIZZ_TERMS) {
-      expect(term.startsWith("✅")).toBe(false);
-    }
   });
 
-  it("uses lowercase i agreed as the reply", () => {
-    expect(BIZZ_AGREEMENT_REPLY).toBe("i agreed");
+  it("treats whitespace-only fields and a digit-less phone number as missing", () => {
+    const lines = buildBizzChatScript(
+      { ...EMPTY, full_name: "   ", mobile: " + ", package: "   " },
+      0,
+    ).lines;
+    const value = (label: string) => lines.find((l) => l.label === label)?.value;
+    expect(value("Customer Name (as per NRIC/Passport) : ")).toBe("—");
+    expect(value("Business Owner Name: ")).toBe("—");
+    expect(value("Contact Number : ")).toBe("—");
+    expect(value("Package to be subscribed : ")).toBe("—");
   });
-});
 
-describe("formatBizzInstallDate", () => {
-  it("adds offsetDays onto createdAt as DD/MM/YYYY", () => {
-    expect(formatBizzInstallDate("2026-03-28T12:00:00", 3)).toBe("31/03/2026");
-    expect(formatBizzInstallDate("2026-03-28T12:00:00", 0)).toBe("28/03/2026");
-  });
-});
+  describe("preferred installation date", () => {
+    afterEach(() => vi.useRealTimers());
 
-describe("exported script helpers", () => {
-  it("do not carry Conversation Chat consent copy", () => {
-    const dumped = JSON.stringify({
-      terms: BIZZ_TERMS,
-      reply: BIZZ_AGREEMENT_REPLY,
-      lines: buildBizzScriptLines(FILLED),
+    // Order Entry has no creation date, so the offset counts from today, the
+    // same way the Conversation Chat's date does.
+    it("counts from today when the source has no creation date", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 8, 10, 12, 0, 0));
+      const line = buildBizzChatScript({ ...CASE, case_created_at: null }, 5).lines[8];
+      expect(line).toEqual({ label: "Preferred Installation Date : ", value: "15/09/2026" });
     });
-    expect(dumped).not.toMatch(/By replying/);
-    expect(dumped).not.toMatch(/YES I AGREED/);
+
+    it("rolls over the month end", () => {
+      expect(buildBizzChatScript(CASE, 4).lines[8].value).toBe("01/04/2026");
+    });
   });
 });
