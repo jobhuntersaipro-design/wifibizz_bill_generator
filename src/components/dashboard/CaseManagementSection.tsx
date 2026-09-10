@@ -1003,6 +1003,9 @@ export default function CaseManagementSection() {
                       <td className="px-4 py-3 text-[13px] text-[#697386] tabular-nums whitespace-nowrap">{formatDateTime(c.case_created_at)}</td>
                       <td className="px-4 py-3 text-[13px] text-[#697386] tabular-nums whitespace-nowrap hidden lg:table-cell">{formatDateTime(c.updated_at)}</td>
                       <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                        {/* Five w-14 buttons + 4 gaps = 296px. Wrap so TA (5th) stays
+                            on the first row; a nowrap strip hid it in the last-column
+                            clip when the table is scrolled to Bills. */}
                         <div className="flex flex-wrap items-start gap-1 border-l border-[#E3E8EF] pl-2 w-[296px]">
                           <button
                             title="Generate Chat"
