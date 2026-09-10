@@ -1,3 +1,5 @@
+import { formatInstallDate } from "./chat-script";
+
 export interface BizzScriptInput {
   customerName: string | null;
   contactNumber: string | null;
@@ -27,6 +29,13 @@ export const BIZZ_TERMS: string[] = [
 
 export const BIZZ_AGREEMENT_REPLY = "i agreed";
 
+export function formatBizzInstallDate(
+  createdAt: string | null | undefined,
+  offsetDays: number,
+): string {
+  return formatInstallDate(createdAt ?? null, offsetDays);
+}
+
 function present(value: string | null | undefined): string {
   const t = (value ?? "").trim();
   return t || MISSING;
@@ -43,18 +52,6 @@ function formatBizzPackage(pkg: string | null | undefined): string {
   const plusIndex = t.indexOf("+");
   if (plusIndex > 0) return t.slice(0, plusIndex).trim();
   return t;
-}
-
-/** Same calendar arithmetic as Conversation Chat: createdAt (or now) plus offsetDays, DD/MM/YYYY. */
-export function formatBizzInstallDate(
-  createdAt: string | null | undefined,
-  offsetDays: number,
-): string {
-  const base = createdAt ? new Date(createdAt) : new Date();
-  const d = new Date(base);
-  d.setDate(d.getDate() + offsetDays);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
 }
 
 export function buildBizzScriptLines(input: BizzScriptInput): BizzScriptLine[] {

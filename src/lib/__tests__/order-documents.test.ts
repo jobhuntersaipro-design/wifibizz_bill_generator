@@ -299,8 +299,6 @@ describe("isDocTypeAttached", () => {
     ).toBe(false);
   });
 
-  // "However it arrived" — the order should not carry two utility bills that
-  // disagree, and who made them does not change that.
   it("does not treat Conversation Chat and Bizz Chat as the same attachment", () => {
     expect(isDocTypeAttached("chat", attached("920505034434_imconversation_1.png"))).toBe(true);
     expect(isDocTypeAttached("bizz_chat", attached("920505034434_imconversation_1.png"))).toBe(
@@ -310,6 +308,8 @@ describe("isDocTypeAttached", () => {
     expect(isDocTypeAttached("chat", attached("920505034434_bizzchat_1.png"))).toBe(false);
   });
 
+  // "However it arrived" — the order should not carry two utility bills that
+  // disagree, and who made them does not change that.
   it("counts a manually uploaded file of the same type", () => {
     expect(isDocTypeAttached("utility_bill", attached("920505034434_utilitybill_1.pdf"))).toBe(true);
   });

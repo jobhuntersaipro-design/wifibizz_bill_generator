@@ -999,8 +999,6 @@ export default function CaseManagementSection() {
                       <td className="px-4 py-3 text-[13px] text-[#697386] tabular-nums whitespace-nowrap">{formatDateTime(c.case_created_at)}</td>
                       <td className="px-4 py-3 text-[13px] text-[#697386] tabular-nums whitespace-nowrap hidden lg:table-cell">{formatDateTime(c.updated_at)}</td>
                       <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
-                        {/* Five w-14 buttons + 4 gaps = 296px so Chat, bizz chat,
-                            Internet, Utility and TA stay on the first row. */}
                         <div className="flex flex-wrap items-start gap-1 border-l border-[#E3E8EF] pl-2 w-[296px]">
                           <button
                             title="Generate Chat"
@@ -1137,7 +1135,6 @@ export default function CaseManagementSection() {
         document.body
       )}
 
-      {/* Chat image generator modal */}
       {chatCase && (
         <ChatImageGenerator
           key={`${chatCase.case_no}-${chatVariant}`}
