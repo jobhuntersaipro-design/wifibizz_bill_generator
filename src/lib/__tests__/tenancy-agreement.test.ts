@@ -751,7 +751,8 @@ describe("Bills column TA", () => {
     const src = await readFile("src/components/dashboard/CaseManagementSection.tsx", "utf8");
     expect(src).toContain('data-action="tenancy-agreement"');
     expect(src).toContain("flex-wrap");
-    expect(src).toContain("w-[236px]");
+    expect(src).toContain("w-[296px]");
+    expect(src.indexOf("bizz chat")).toBeLessThan(src.indexOf("tenancy-agreement"));
     expect(src.indexOf("tenancy-agreement")).toBeLessThan(src.indexOf("Generate Auth Letter"));
     expect(src).toContain(">Auth Letter<");
     expect(src).toContain(">TA<");

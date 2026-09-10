@@ -6,6 +6,29 @@ import Image from "next/image";
 import { toPng } from "html-to-image";
 import type { CaseRow } from "./shared";
 import { CloseIcon, DownloadIcon } from "./icons";
+import {
+  BIZZ_AGREEMENT_REPLY,
+  BIZZ_TERMS,
+  buildBizzScriptLines,
+  type BizzScriptInput,
+} from "@/lib/bizz-chat-script";
+
+export type ChatScriptVariant = "conversation" | "bizz";
+
+function caseToBizzInput(c: CaseRow, installOffsetDays: number): BizzScriptInput {
+  return {
+    customerName: c.full_name,
+    contactNumber: c.mobile,
+    customerId: c.id_no,
+    businessOwnerName: c.full_name,
+    email: c.email,
+    installationAddress: c.full_address,
+    packageName: c.package,
+    createdAt: c.case_created_at,
+    installOffsetDays,
+    representativeName: c.agent,
+  };
+}
 
 function isBusiness(provider: string | null): boolean {
   return !!provider && provider.toLowerCase().includes("business");
@@ -190,15 +213,20 @@ export function WhatsAppChat({
   time,
   unreadCount,
   installOffsetDays,
+  variant = "conversation",
 }: {
   caseData: CaseRow;
   wallpaper: string;
   time: string;
   unreadCount: number;
   installOffsetDays: number;
+  variant?: ChatScriptVariant;
 }) {
-  const lines = buildScriptLines(caseData, installOffsetDays);
-  const terms = getTerms(caseData.provider);
+  const isBizz = variant === "bizz";
+  const lines = isBizz
+    ? buildBizzScriptLines(caseToBizzInput(caseData, installOffsetDays))
+    : buildScriptLines(caseData, installOffsetDays);
+  const terms = isBizz ? BIZZ_TERMS : getTerms(caseData.provider);
   const mobileDisplay = formatMobileDisplay(caseData.mobile);
 
   return (
@@ -305,7 +333,7 @@ export function WhatsAppChat({
             }} />
 
             {/* Script heading */}
-            {!isBusiness(caseData.provider) && (
+            {!isBizz && !isBusiness(caseData.provider) && (
               <div style={{ ...S.text }}>UNIFI</div>
             )}
 
@@ -362,14 +390,15 @@ export function WhatsAppChat({
               ))}
             </div>
 
-            {/* Consent statement */}
-            <div style={{ ...S.text, marginTop: 14 }}>
-              By replying &ldquo;YES&rdquo; , I hereby acknowledge, confirm and agree to the following.
-            </div>
+            {!isBizz && (
+              <div style={{ ...S.text, marginTop: 14 }}>
+                By replying &ldquo;YES&rdquo; , I hereby acknowledge, confirm and agree to the following.
+              </div>
+            )}
 
             {/* Agreement line */}
             <div style={{ ...S.text, fontWeight: 700, marginTop: 14 }}>
-              YES I AGREED
+              {isBizz ? BIZZ_AGREEMENT_REPLY : "YES I AGREED"}
             </div>
 
             {/* Timestamp — bottom right, no read receipt for incoming */}
@@ -467,9 +496,11 @@ export function WhatsAppChat({
 interface ChatImageGeneratorProps {
   caseData: CaseRow;
   onClose: () => void;
+  variant?: ChatScriptVariant;
 }
 
-export default function ChatImageGenerator({ caseData, onClose }: ChatImageGeneratorProps) {
+export default function ChatImageGenerator({ caseData, onClose, variant = "conversation" }: ChatImageGeneratorProps) {
+  const isBizz = variant === "bizz";
   const chatRef = useRef<HTMLDivElement>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageDims, setImageDims] = useState({ width: 414, height: 0 });
@@ -508,7 +539,7 @@ export default function ChatImageGenerator({ caseData, onClose }: ChatImageGener
   function handleDownload() {
     if (!imageUrl) return;
     const link = document.createElement("a");
-    link.download = `closing_script_${caseData.case_no}.png`;
+    link.download = isBizz ? `bizz_chat_${caseData.case_no}.png` : `closing_script_${caseData.case_no}.png`;
     link.href = imageUrl;
     link.click();
   }
@@ -537,7 +568,7 @@ export default function ChatImageGenerator({ caseData, onClose }: ChatImageGener
           <div>
             <h3 className="text-sm font-semibold text-[#0A2540]">Closing Script</h3>
             <p className="text-xs text-[#697386] mt-0.5">
-              {caseData.case_no} &middot; {isBusiness(caseData.provider) ? "Business" : "Home"}
+              {caseData.case_no} &middot; {isBizz ? "Bizz" : isBusiness(caseData.provider) ? "Business" : "Home"}
             </p>
           </div>
           <button
@@ -559,6 +590,7 @@ export default function ChatImageGenerator({ caseData, onClose }: ChatImageGener
                 time={rand.time}
                 unreadCount={rand.unreadCount}
                 installOffsetDays={rand.installOffsetDays}
+                variant={variant}
               />
             </div>
           </div>

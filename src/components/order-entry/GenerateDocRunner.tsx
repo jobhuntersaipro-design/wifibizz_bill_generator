@@ -48,12 +48,13 @@ export default function GenerateDocRunner({ type, source, existingOfType, onDone
   const seed = documentSeed(source.idNumber);
   const chatRef = useRef<HTMLDivElement>(null);
   const [rand] = useState(makeRandomization);
+  const isChatPng = type === "chat" || type === "bizz_chat";
 
   const run = useCallback(async () => {
     try {
       let bytes: Blob;
 
-      if (type === "chat") {
+      if (isChatPng) {
         const node = chatRef.current;
         if (!node) throw new Error("The chat could not be rendered.");
         const dataUrl = await toPng(node, { pixelRatio: 2, backgroundColor: rand.wallpaper });
@@ -110,7 +111,7 @@ export default function GenerateDocRunner({ type, source, existingOfType, onDone
     } catch (e) {
       onDone({ error: e instanceof Error ? e.message : "Generation failed." });
     }
-  }, [type, rand.wallpaper, source, seed, spec, existingOfType, onDone, umobileImageId, partiesSeed]);
+  }, [type, isChatPng, rand.wallpaper, source, seed, spec, existingOfType, onDone, umobileImageId, partiesSeed]);
 
   // `run` is held in a ref and the effect depends only on `type`, so a parent
   // re-render cannot cancel the pending generate.
@@ -128,11 +129,11 @@ export default function GenerateDocRunner({ type, source, existingOfType, onDone
     // One frame for the off-screen chat to lay out before it is photographed.
     // Under Strict Mode's double mount the first timer is cleared and the second
     // fires, so this still generates exactly once.
-    const timer = setTimeout(() => runRef.current(), type === "chat" ? 150 : 0);
+    const timer = setTimeout(() => runRef.current(), isChatPng ? 150 : 0);
     return () => clearTimeout(timer);
-  }, [type]);
+  }, [type, isChatPng]);
 
-  if (type !== "chat") return null;
+  if (!isChatPng) return null;
 
   const chatCase: CaseRow = {
     case_no: seed,
@@ -163,6 +164,7 @@ export default function GenerateDocRunner({ type, source, existingOfType, onDone
           time={rand.time}
           unreadCount={rand.unreadCount}
           installOffsetDays={rand.installOffsetDays}
+          variant={type === "bizz_chat" ? "bizz" : "conversation"}
         />
       </div>
     </div>
