@@ -57,6 +57,7 @@ next-env.d.ts
 !public/icon-*.png
 !src/app/icon.png
 !src/app/apple-icon.png
+!docs/order-submit-workflow/snapshots/*.png
 
 # scraper (separate Python project — contains dealer credentials, session
 # state, and Google service-account keys; managed/deployed outside this repo)
