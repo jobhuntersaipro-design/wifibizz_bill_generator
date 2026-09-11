@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import type { CaseData } from "./db";
+import { formatCrawlDate, toPortalCreatedAtFilter } from "./date-window";
 
 // Regular agents live on wifibizz.com (the admin portal admin.wifibizz.com only
 // accepts superadmin accounts, so per-user login there fails for normal agents).
@@ -109,26 +110,21 @@ function parseCreatedAt(s: string | undefined): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-// Fetch cases NEWEST-FIRST (order by created_at DESC) and STOP as soon as we page
-// past the `from` cutoff. The shared admin account sees the ENTIRE platform
-// (200k+ records) and the endpoint has NO server-side date filter, so ordering
-// desc + an early stop is the only way to bound the crawl to a recent window
-// instead of downloading everything (which hangs). The `module` param is ignored
-// by the portal — one sweep already returns all operator_types (home/biz/4g) — so
-// we sweep once and rely on each row's `operator_type`. Rows newer than `to` are
-// skipped (they're outside the window's upper bound).
+// Newest-first with portal `created_at` Advanced Search. Without the filter, a
+// 1-year lookback walks ~40k rows and dies under Vercel's 300s cap before upsert.
 async function fetchCasesInWindow(
   baseUrl: string,
   session: LoginSession,
   from: Date | null,
   to: Date | null,
   module: string,
+  portalCreatedAt: string | null,
   onPage?: (rowsSoFar: number) => void
 ): Promise<Record<string, unknown>[]> {
   const allRecords: Record<string, unknown>[] = [];
   let start = 0;
-  const length = 100;
-  const MAX_PAGES = 800; // backstop (~80k rows) so a bad cutoff can never run away
+  const length = 500;
+  const MAX_PAGES = 800; // backstop so a bad cutoff can never run away
 
   for (let page = 0; page < MAX_PAGES; page++) {
     const params = new URLSearchParams({
@@ -142,6 +138,7 @@ async function fetchCasesInWindow(
       "order[0][dir]": "desc",
       module, // required on wifibizz.com — /applications 404s without it (each module is its own endpoint)
     });
+    if (portalCreatedAt) params.set("created_at", portalCreatedAt);
 
     const res = await fetch(`${baseUrl}/applications?${params.toString()}`, {
       headers: {
@@ -311,15 +308,17 @@ export async function crawl(
   onProgress?.({ step: "Logging in to WifiBizz...", current: 0, total: 0, percent: 5 });
   const session = await login(baseUrl, email, password);
 
-  // Bound the crawl to a recent window. The account can see a huge set (tens of
-  // thousands) and the endpoint has no server-side date filter, so we page
-  // NEWEST-FIRST per module and stop at the `from` cutoff. Default window = the
-  // last 1 month; the crawl page's From/To override it.
+  // Bound the crawl to a recent window. Default = last 1 month; From/To override.
+  // Always send WifiBizz `created_at` Advanced Search so the server filters the
+  // window — newest-first paging alone cannot finish a year under maxDuration.
   const now = new Date();
-  const from = options?.dateFrom
-    ? new Date(options.dateFrom + "T00:00:00")
-    : new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
-  const to = options?.dateTo ? new Date(options.dateTo + "T23:59:59") : null;
+  const dateFromStr =
+    options?.dateFrom ??
+    formatCrawlDate(new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()));
+  const dateToStr = options?.dateTo ?? formatCrawlDate(now);
+  const from = new Date(dateFromStr + "T00:00:00");
+  const to = new Date(dateToStr + "T23:59:59");
+  const portalCreatedAt = toPortalCreatedAtFilter(dateFromStr, dateToStr);
 
   // Each module is a separate endpoint on wifibizz.com (/applications?module=…),
   // so sweep them one by one and combine, de-duping by case number.
@@ -328,7 +327,14 @@ export async function crawl(
   const seenCaseNos = new Set<string>();
   for (const mod of MODULES) {
     onProgress?.({ step: `Fetching ${mod}…`, current: allRecords.length, total: 0, percent: 15 });
-    const recs = await fetchCasesInWindow(baseUrl, session, from, to, mod, (rowsInModule) => {
+    const recs = await fetchCasesInWindow(
+      baseUrl,
+      session,
+      from,
+      to,
+      mod,
+      portalCreatedAt,
+      (rowsInModule) => {
       const found = allRecords.length + rowsInModule;
       onProgress?.({
         step: `Fetching ${mod}… ${found} found`,

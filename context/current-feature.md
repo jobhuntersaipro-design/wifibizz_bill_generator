@@ -1,4 +1,24 @@
-# Current Feature: TA + Auth Letter landlord signature, witnesses, Section 4
+# Current Feature: Fix Crawl Last 1 year missing old cases
+
+## Status
+
+In Progress
+
+## Goals
+
+- Crawl with **Last 1 year** (From ≈ 12 months ago, To ≈ today) completes without error
+- Case List shows ≥1 case dated near the From bound (e.g. Sep 2025 when From is 2025-09-11)
+- Shorter presets still work (spot-check Last 1 month and Last 3 months)
+- Root cause + solution posted on ClickUp `z8v9xnfpg4` before review
+- No redesign of crawler chrome; Home + Business fibre types unchanged; no extension beyond 1 year
+
+## Notes
+
+ClickUp https://app.clickup.com/t/z8v9xnfpg4. Reported on production: Last 1 year selected; no new cases when backtracking 1 year. Login for verify: `calvin.maxnet@gmail.com`. PR #12 already raised the UI/API lookback to 12 months and noted a full-year crawl can still hit the 300s Vercel cap. Suspect crawl date wiring (API/scraper/early-stop/timeout/Case List), not a new product.
+
+Verify with `/poteto-mode` on real crawl + Case List. Evidence: screenshots of date filter + Case List row dated ~From.
+
+# Previous Feature: TA + Auth Letter landlord signature, witnesses, Section 4
 
 ## Status
 
