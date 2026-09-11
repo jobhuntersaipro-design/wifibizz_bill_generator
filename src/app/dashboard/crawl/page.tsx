@@ -11,6 +11,7 @@ import {
   crawlLookbackStart,
   formatCrawlDate,
   isCrawlDateInLookback,
+  splitCrawlDateRange,
 } from "@/lib/crawler/date-window";
 
 interface CrawlProgress {
@@ -120,6 +121,78 @@ export default function CrawlPage() {
     setDateError("");
   }
 
+  async function runCrawlRequest(
+    from: string | undefined,
+    to: string | undefined,
+    onChunkProgress?: (step: string, percent: number) => void
+  ): Promise<{ total: number; saved: number } | null> {
+    const params = new URLSearchParams();
+    if (from) params.set("date_from", from);
+    if (to) params.set("date_to", to);
+
+    const url = `/api/crawl${params.toString() ? `?${params.toString()}` : ""}`;
+    const res = await fetch(url, { method: "POST" });
+
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const json = await res.json();
+      if (json.error === "no_credentials") {
+        toast.error("Set your WifiBizz credentials in Settings first.");
+        router.push("/dashboard/settings");
+        return null;
+      }
+      toast.error(json.error ?? "Crawl failed");
+      return null;
+    }
+
+    const reader = res.body?.getReader();
+    if (!reader) {
+      toast.error("Failed to start crawl stream");
+      return null;
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let chunkResult: { total: number; saved: number } | null = null;
+    let failed = false;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        try {
+          const data = JSON.parse(line.slice(6));
+
+          if (data.type === "progress") {
+            onChunkProgress?.(data.step, data.percent);
+            setProgress({
+              step: data.step,
+              current: data.current,
+              total: data.total,
+              percent: data.percent,
+            });
+          } else if (data.type === "done") {
+            chunkResult = { total: data.total, saved: data.saved };
+          } else if (data.type === "error") {
+            toast.error(data.error ?? "Crawl failed");
+            failed = true;
+          }
+        } catch {
+          // skip malformed SSE data
+        }
+      }
+    }
+
+    if (failed) return null;
+    return chunkResult;
+  }
+
   async function handleCrawl() {
     if (!dateValidation.valid) {
       setDateError(dateValidation.error);
@@ -132,72 +205,55 @@ export default function CrawlPage() {
     setProgress({ step: "Starting...", current: 0, total: 0, percent: 0 });
 
     try {
-      const params = new URLSearchParams();
-      if (dateFrom) params.set("date_from", dateFrom);
-      if (dateTo) params.set("date_to", dateTo);
+      // Long windows (Last 1 year ≈ 40k rows) exceed Vercel maxDuration in one
+      // request. Split into ≤31-day chunks, oldest first, so each upsert lands.
+      const chunks =
+        dateFrom && dateTo
+          ? splitCrawlDateRange(dateFrom, dateTo)
+          : [{ from: dateFrom || undefined, to: dateTo || undefined }];
 
-      const url = `/api/crawl${params.toString() ? `?${params.toString()}` : ""}`;
-      const res = await fetch(url, { method: "POST" });
+      let totalFound = 0;
+      let totalSaved = 0;
 
-      // Handle non-SSE error responses (JSON)
-      const contentType = res.headers.get("content-type") || "";
-      if (contentType.includes("application/json")) {
-        const json = await res.json();
-        if (json.error === "no_credentials") {
-          toast.error("Set your WifiBizz credentials in Settings first.");
-          router.push("/dashboard/settings");
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const label =
+          chunks.length > 1
+            ? `Chunk ${i + 1}/${chunks.length} (${chunk.from} → ${chunk.to})`
+            : "Starting...";
+        setProgress({
+          step: label,
+          current: i,
+          total: chunks.length,
+          percent: Math.round((i / chunks.length) * 100),
+        });
+
+        const chunkResult = await runCrawlRequest(
+          chunk.from,
+          chunk.to,
+          (step, percent) => {
+            const base = (i / chunks.length) * 100;
+            const span = 100 / chunks.length;
+            setProgress({
+              step: chunks.length > 1 ? `${label}: ${step}` : step,
+              current: i,
+              total: chunks.length,
+              percent: Math.min(99, Math.round(base + (percent / 100) * span)),
+            });
+          }
+        );
+
+        if (!chunkResult) {
+          setProgress(null);
           return;
         }
-        toast.error(json.error ?? "Crawl failed");
-        return;
+        totalFound += chunkResult.total;
+        totalSaved += chunkResult.saved;
       }
 
-      // Read SSE stream
-      const reader = res.body?.getReader();
-      if (!reader) {
-        toast.error("Failed to start crawl stream");
-        return;
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const data = JSON.parse(line.slice(6));
-
-            if (data.type === "progress") {
-              setProgress({
-                step: data.step,
-                current: data.current,
-                total: data.total,
-                percent: data.percent,
-              });
-            } else if (data.type === "done") {
-              setResult({
-                total: data.total,
-                saved: data.saved,
-              });
-              setProgress(null);
-              toast.success(`Crawl complete — ${data.saved} cases saved`);
-            } else if (data.type === "error") {
-              toast.error(data.error ?? "Crawl failed");
-              setProgress(null);
-            }
-          } catch {
-            // skip malformed SSE data
-          }
-        }
-      }
+      setResult({ total: totalFound, saved: totalSaved });
+      setProgress(null);
+      toast.success(`Crawl complete — ${totalSaved} cases saved`);
     } catch {
       toast.error("Network error. Please try again.");
     } finally {
