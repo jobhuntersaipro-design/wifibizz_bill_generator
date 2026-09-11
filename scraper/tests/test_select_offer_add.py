@@ -63,7 +63,7 @@ async def main() -> int:
             "() => document.querySelector('#myIframe').contentWindow.__clicked")
         print(f"\nopened={opened!r}  clicked={clicked!r}\n")
 
-        check("finder reported success", opened in ("ok", "fallback"), repr(opened))
+        check("finder reported ok", opened == "ok", repr(opened))
         check("clicked Select Offer Add", clicked == "select-offer-add",
               f"clicked={clicked!r}")
         check("did not click Agreement trash", clicked != "agreement-trash",
