@@ -3,12 +3,70 @@
 import "dotenv/config";
 import { defineConfig } from "prisma/config";
 
+/**
+ * The URL the Prisma CLI (migrate / generate) connects with.
+ *
+ * It must NOT be the pooled endpoint. `prisma migrate deploy` guards itself with
+ * `SELECT pg_advisory_lock(72707369)`, which is a SESSION-level lock. Through
+ * PgBouncer that lock is taken on whichever backend served the statement, and the
+ * pooler then keeps that backend alive and hands it to other clients — so the lock
+ * is never released and every later migration fails with:
+ *
+ *   Error: P1002 ... Timed out trying to acquire a postgres advisory lock
+ *
+ * That is not hypothetical: it happened on 2026-09-11 and blocked production
+ * deploys until the orphaned backend was terminated by hand.
+ *
+ * The app itself is unaffected by this value — `src/lib/prisma.ts` builds its own
+ * client from DATABASE_URL through the Neon adapter, and SHOULD keep using the
+ * pooled endpoint, which is what serverless wants.
+ */
+function migrationUrl(): string | undefined {
+  const explicit = process.env["DIRECT_DATABASE_URL"];
+  if (explicit) return explicit;
+
+  // Fall back to deriving Neon's direct endpoint from the pooled one, so this is
+  // correct without anyone having to remember a second environment variable.
+  // Neon pairs `<endpoint>-pooler.<rest>` with `<endpoint>.<rest>`.
+  const url = process.env["DATABASE_URL"];
+  if (!url) return undefined;
+  return toDirectNeonUrl(url);
+}
+
+/**
+ * Rewrites ONLY the host. A plain string replace would also hit a `-pooler.neon.tech`
+ * sitting in the password, and rebuilding the URL through `new URL()` would re-encode
+ * the credentials — so the authority is sliced by hand and everything else is left
+ * byte-for-byte alone. Exported shape is mirrored by src/lib/__tests__/migration-url.test.ts.
+ */
+export function toDirectNeonUrl(url: string): string {
+  const schemeEnd = url.indexOf("://");
+  if (schemeEnd === -1) return url;
+
+  const authorityStart = schemeEnd + 3;
+  let authorityEnd = url.length;
+  for (const ch of ["/", "?", "#"]) {
+    const i = url.indexOf(ch, authorityStart);
+    if (i !== -1 && i < authorityEnd) authorityEnd = i;
+  }
+
+  const authority = url.slice(authorityStart, authorityEnd);
+  const at = authority.lastIndexOf("@"); // credentials may themselves contain '@'
+  const userinfo = at === -1 ? "" : authority.slice(0, at + 1);
+  const hostPort = authority.slice(at + 1);
+
+  if (!/-pooler\.[^/]*neon\.tech(:\d+)?$/.test(hostPort)) return url;
+  const direct = hostPort.replace("-pooler.", ".");
+
+  return url.slice(0, authorityStart) + userinfo + direct + url.slice(authorityEnd);
+}
+
 export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env["DATABASE_URL"],
+    url: migrationUrl(),
   },
 });
