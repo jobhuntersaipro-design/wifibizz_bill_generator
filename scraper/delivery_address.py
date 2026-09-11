@@ -107,13 +107,32 @@ async def set_delivery_address(frame, page, payload: dict | None) -> dict:
                       f"failed: {type(e).__name__}: {str(e)[:160]}")
 
 
+async def _find_billing_checkbox(frame):
+    """Locate Default From Billing Address by name, then by label text.
+
+    Engineer Door-to-door (and other non-courier) orders never render this
+    control — there is no separate delivery address to rewrite. Name alone also
+    drifts; the printed label is the stable signal on the live portal.
+    """
+    by_name = frame.locator('input[name="defaultBillingAddress"]').first
+    if await by_name.count():
+        return by_name
+    by_label = frame.locator(
+        'label:has-text("Default From Billing Address") input[type="checkbox"]').first
+    if await by_label.count():
+        return by_label
+    return None
+
+
 async def _fill_from_installation(frame, page, addr: dict) -> dict:
-    box = frame.locator('input[name="defaultBillingAddress"]').first
-    if not await box.count():
-        return _error("delivery_address_checkbox_missing",
-                      "No 'Default From Billing Address' checkbox on the Customer Order "
-                      "Information page, so the Enter Address dialog could not be "
-                      "opened to set delivery = installation.")
+    box = await _find_billing_checkbox(frame)
+    if box is None:
+        # Pre-#15 delivery_terms skipped when the box was absent. #15 turned that
+        # into a hard error and stranded ORD-0135 (attempts 9–12): Engineer
+        # Door-to-door leaves no Delivery Information block, so there is nothing
+        # to set and installation already is delivery.
+        return {"status": "ok",
+                "detail": "skipped (no Default From Billing Address control)"}
     # A ticked box means the dialog was already accepted with the billing
     # address. Only ticking opens it, so untick first to get it back.
     if await box.is_checked():
