@@ -3888,6 +3888,64 @@ async def _dismiss_success_popups(frame, page, tries: int = 8) -> int:
     return closed
 
 
+# Click the Broadband tab's "Select Offer" Add. Kept as a module-level constant
+# so tests can exercise THIS string against a fixture (Agreement trash sits
+# above Select Offer in the same scroller; an ancestor-innerText match used to
+# treat the trash as the Add and open Select Agreement instead of Offer).
+#
+# Find the Select Offer *heading* first (shortest visible match, same rule as
+# SCROLL_TO_HEADING_JS), then an Add *inside that heading/section*. Never walk
+# from arbitrary .js-add nodes via ancestor text — that picks Agreement trash
+# when a shared parent also contains "Select Offer". Never click trash/remove.
+# Match span.add even without js-add (the portal's Select Offer control).
+SELECT_OFFER_ADD_CLICK_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
+  const vis=e=>e&&e.offsetParent!==null && e.getClientRects().length>0;
+  const isTrash=e=>{
+    for(let n=e,i=0;n&&i<3;n=n.parentElement,i++){
+      const s=((n.className||'')+' '+(n.title||'')+' '+(n.innerHTML||'')).toLowerCase();
+      if(/glyphicon-trash|fa-trash|js-del|js-remove|js-clear|\btrash\b/.test(s)) return true;
+    }
+    return false;
+  };
+  const looksAdd=e=>{
+    if(!e||isTrash(e)) return false;
+    const cls=(e.className||'').toString();
+    const t=(e.innerText||'').replace(/\s+/g,' ').trim();
+    return /(?:^|\s)(?:add|js-add)(?:\s|$)/i.test(cls)
+        || /^\+\s*add$/i.test(t)
+        || /^add$/i.test(t);
+  };
+  // Shortest visible "Select Offer" heading; among ties, the deepest (largest
+  // top) so a right-hand nav link does not win over the section title.
+  const re=/select\s*offer/i;
+  let heading=null, bestLen=1e9, bestTop=-1;
+  for(const el of d.querySelectorAll('*')){
+    if(!vis(el)) continue;
+    const txt=(el.textContent||'').trim();
+    if(txt.length>60 || !re.test(txt)) continue;
+    const top=el.getBoundingClientRect().top;
+    if(txt.length<bestLen || (txt.length===bestLen && top>bestTop)){
+      heading=el; bestLen=txt.length; bestTop=top;
+    }
+  }
+  if(!heading) return 'noadd';
+  // Portal puts "+ Add" in the heading row. Prefer that, then the section.
+  let add=[...heading.querySelectorAll('span.add, a.add, .js-add, span, a, button')]
+            .filter(vis).find(looksAdd);
+  if(!add){
+    const section=heading.closest('section')||heading.parentElement;
+    if(section){
+      add=[...section.querySelectorAll('span.add, a.add, .js-add')]
+            .filter(vis).find(looksAdd);
+    }
+  }
+  if(!add) return 'noadd';
+  add.click();
+  return 'ok';
+})()"""
+
+
 async def _select_device_once(page, dev_code: str, dev_name: str,
                               payload_discover: bool = False,
                               group_names: list = None,
@@ -3901,18 +3959,9 @@ async def _select_device_once(page, dev_code: str, dev_name: str,
     """
     frame = _frame(page)
 
-    # Click the Add that belongs to "Select Offer" (there's also an Order-Comments
-    # Add). Scope by walking up for a "Select Offer" label.
-    opened = await page.evaluate(r"""(() => {
-      const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
-      const vis=e=>e&&e.offsetParent!==null;
-      const adds=[...d.querySelectorAll('span.add.js-add, .js-add')].filter(vis);
-      let target=null;
-      for(const a of adds){ let p=a;
-        for(let i=0;i<6&&p;i++){ if(/select\s*offer/i.test(p.innerText||'')){target=a;break;} p=p.parentElement; }
-        if(target) break; }
-      const el=target||adds[0]; if(!el) return 'noadd'; el.click(); return target?'ok':'fallback';
-    })()""")
+    # Click the Add that belongs to "Select Offer" (never Agreement trash / Order
+    # Comments Add). SELECT_OFFER_ADD_CLICK_JS finds the heading first.
+    opened = await page.evaluate(SELECT_OFFER_ADD_CLICK_JS)
     if opened in ("nodoc", "noadd"):
         return {"status": "error", "error": "select_offer_add_not_found",
                 "stage": "device", "message": opened}
@@ -3924,8 +3973,25 @@ async def _select_device_once(page, dev_code: str, dev_name: str,
     try:
         await dlg.locator('tr').first.wait_for(state="visible", timeout=15000)
     except Exception:
+        # Name the dialog we actually opened. Mis-clicking Agreement trash opens
+        # "Select Agreement", which has no offer rows — surface that sentence
+        # instead of a generic "did not populate".
+        title = ""
+        try:
+            title = ((await dlg.locator(
+                '.ui-dialog-title, .modal-title').first.inner_text(timeout=1000))
+                     or "").strip()
+        except Exception:
+            title = ""
+        if title and re.search(r"agreement", title, re.I):
+            return {"status": "error", "error": "agreement_dialog_opened",
+                    "stage": "device",
+                    "message": f"Opened {title!r} instead of Select Offer. "
+                               "Agreement was left alone; refuse rather than clear it."}
         return {"status": "error", "error": "offer_dialog_no_rows",
-                "stage": "device", "message": "Offer dialog did not populate."}
+                "stage": "device",
+                "message": (f"{title}: Offer dialog did not populate."
+                            if title else "Offer dialog did not populate.")}
     await asyncio.sleep(1.0)
 
     # Only the mandatory groups are orderable for this plan — expand those. The

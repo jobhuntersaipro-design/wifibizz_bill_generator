@@ -1,0 +1,62 @@
+<!doctype html>
+<!--
+  Broadband tab stand-in for the Agreement-trash misclick.
+
+  Live report: Agreement is already filled ("unifi Home") with a trash control.
+  The scraper's Select Offer Add finder walks ≤6 ancestors matching
+  /select\s*offer/i on innerText, then falls back to adds[0]. Agreement sits
+  ABOVE Select Offer in a shared scroller, so a shared parent's innerText
+  contains "Select Offer" and the first .js-add (Agreement trash) wins.
+
+  Select Offer Add is modelled as span.add WITHOUT js-add (same as
+  fixture_broadband_tab.html), so the finder cannot see it via
+  span.add.js-add and must rely on .js-add / fallback — the live trap.
+-->
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; font: 14px/1.4 system-ui, sans-serif; }
+  .layout-right-wrapper { padding: 16px; }
+  section { padding: 8px 0; }
+  .h { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 600; }
+  .add { color: #2f6fed; font-weight: 400; font-size: 14px; cursor: pointer; }
+  .field { height: 44px; display: flex; align-items: center; gap: 8px; }
+  .input-group-addon { cursor: pointer; padding: 6px 10px; border: 1px solid #ccc; }
+  .glyphicon-trash::before { content: "🗑"; }
+  .row { height: 40px; border-top: 1px solid #eee; display: flex; align-items: center; }
+</style>
+
+<div class="layout-right-wrapper" id="scroller">
+  <section id="agreement-section">
+    <div class="h">Agreement</div>
+    <div class="field input-group js-agreement">
+      <span>Agreement:</span>
+      <input name="agreement" value="unifi Home" readonly>
+      <!-- Filled Agreement: trash clears and opens Select Agreement.
+           Classed .js-add the way Unifi reuses the add/clear control. -->
+      <span id="agreement-trash"
+            class="input-group-addon js-add"
+            title="Remove"
+            onclick="window.__clicked='agreement-trash'">
+        <i class="glyphicon glyphicon-trash"></i>
+      </span>
+    </div>
+  </section>
+
+  <section id="select-offer">
+    <div class="h">Select Offer
+      <span id="select-offer-add"
+            class="add"
+            onclick="window.__clicked='select-offer-add'">+ Add</span>
+    </div>
+    <div class="row">Unifi Home 500Mbps Premium Value With Device[Pick 0-1]</div>
+  </section>
+
+  <section id="order-comments">
+    <div class="h">Order Comments
+      <span id="order-comments-add"
+            class="add js-add"
+            onclick="window.__clicked='order-comments-add'">+ Add</span>
+    </div>
+    <div class="row">No record found</div>
+  </section>
+</div>
