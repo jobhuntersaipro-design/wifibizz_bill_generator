@@ -3028,20 +3028,104 @@ _PICKER_OPEN_JS = r"""(() => {
 })()"""
 
 
+# Open the Voice Service Number picker via its 3-dots control.
+# Live ORD-0135 attempt 8 (2026-09-11): clicking the LAST visible
+# `span.icon-option-horizontal` on the page opened Select Agreement instead
+# (Voice Agreement sits below Service Number with the same icon class). Query
+# then hit that modal's Query button and the run died as "number cards did not
+# load after Query" with Select Agreement still on screen.
+OPEN_VOICE_NUMBER_DOTS_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
+  const vis=e=>e&&e.offsetParent!==null && e.getClientRects().length>0;
+  const txt=e=>((e.innerText||e.textContent||'').replace(/\s+/g,' ').trim());
+  const isTrash=e=>{
+    if(!e) return false;
+    // Only THIS control — never parent.innerHTML (a shared tab/section that
+    // also contains Agreement trash would poison every sibling control).
+    const self=((e.className||'')+' '+(e.title||'')+' '
+      +(e.getAttribute && e.getAttribute('aria-label')||'')).toLowerCase();
+    if(/glyphicon-trash|fa-trash|js-del|js-remove|js-clear|\btrash\b/.test(self)) return true;
+    return !!(e.querySelector && e.querySelector(
+      '.glyphicon-trash, .fa-trash, [class*="trash"]'));
+  };
+  const underAgreement=el=>{
+    for(let p=el,i=0;p&&i<6;p=p.parentElement,i++){
+      // Only the element's own row/group text — not a whole tab that also
+      // contains an Agreement section further down.
+      const own=[...p.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent).join('')
+        + [...(p.children||[])].filter(c=>/^(LABEL|SPAN)$/i.test(c.tagName)
+             && !c.classList.contains('icon-option-horizontal')
+             && !c.querySelector?.('.glyphicon-trash'))
+          .map(txt).join(' ');
+      const compact=own.replace(/\s+/g,' ').trim();
+      if(/agreement/i.test(compact) && compact.length<60) return true;
+      for(const lab of p.querySelectorAll(':scope > label, :scope > .control-label')){
+        const t=txt(lab);
+        if(/^\*?agreement\b/i.test(t) && t.length<40) return true;
+      }
+    }
+    return false;
+  };
+  // Shortest visible label whose text is (essentially) "Service Number".
+  let label=null, bestLen=1e9, bestTop=-1;
+  for(const el of d.querySelectorAll('label, .control-label')){
+    if(!vis(el)) continue;
+    const t=txt(el).replace(/^\*/,'').trim();
+    if(t.length>30 || !/^service\s*number$/i.test(t)) continue;
+    const top=el.getBoundingClientRect().top;
+    if(t.length<bestLen || (t.length===bestLen && top>bestTop)){
+      label=el; bestLen=t.length; bestTop=top;
+    }
+  }
+  let dots=null;
+  if(label){
+    let root=label.parentElement;
+    for(let i=0;i<5&&root&&!dots;i++){
+      const cands=[...root.querySelectorAll('span.icon-option-horizontal')].filter(vis)
+        .filter(x=>!isTrash(x) && !underAgreement(x));
+      if(cands.length) dots=cands[0];
+      root=root.parentElement;
+    }
+  }
+  if(!dots){
+    const all=[...d.querySelectorAll('span.icon-option-horizontal')].filter(vis)
+      .filter(x=>!isTrash(x) && !underAgreement(x));
+    dots=all[0] || null;
+  }
+  if(!dots) return 'nodots';
+  if(underAgreement(dots)) return 'agreement_control';
+  dots.click();
+  return 'ok';
+})()"""
+
+
 async def _open_voice_number_picker(frame, page) -> dict:
-    """3-dots -> Query -> confirm popup OK -> wait for the number cards."""
-    opened = await page.evaluate(r"""(() => {
-      const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
-      const vis=e=>e&&e.offsetParent!==null;
-      const dots=[...d.querySelectorAll('span.icon-option-horizontal')].filter(vis);
-      if(!dots.length) return 'nodots';
-      dots[dots.length-1].click(); return 'ok';
-    })()""")
+    """3-dots (Service Number only) -> Query -> confirm popup OK -> wait for cards."""
+    opened = await page.evaluate(OPEN_VOICE_NUMBER_DOTS_JS)
     if opened != "ok":
         return {"status": "error", "error": "voice_dots_failed",
                 "stage": "voice_number", "message": opened}
     await asyncio.sleep(2)
+    title = await _top_dialog_title(page)
+    if title and re.search(r"agreement", title, re.I):
+        return {"status": "error", "error": "agreement_dialog_opened",
+                "stage": "voice_number",
+                "message": f"Opened {title!r} instead of Select Number. "
+                           "Voice Agreement was left alone; refuse rather than clear it."}
     return await _query_voice_numbers(frame, page)
+
+
+async def _top_dialog_title(page) -> str:
+    try:
+        return await page.evaluate(r"""(() => {
+          const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return '';
+          const vis=e=>e&&e.offsetParent!==null;
+          const dl=[...d.querySelectorAll('.ui-dialog, .modal.in')].filter(vis).pop();
+          if(!dl) return '';
+          return ((dl.querySelector('.ui-dialog-title,.modal-title')||{}).innerText||'').trim();
+        })()""") or ""
+    except Exception:
+        return ""
 
 
 async def _query_voice_numbers(frame, page, query: str | None = None,
@@ -3054,6 +3138,11 @@ async def _query_voice_numbers(frame, page, query: str | None = None,
     for the list to CHANGE — reading the stale list back would count as "still
     exhausted" and waste the filter.
     """
+    title = await _top_dialog_title(page)
+    if title and re.search(r"agreement", title, re.I):
+        return {"status": "error", "error": "agreement_dialog_opened",
+                "stage": "voice_number",
+                "message": f"{title} is open — refusing to press Query on it."}
     if query is not None:
         box = frame.locator(
             '.ui-dialog:visible input[placeholder*="6038"], '
@@ -3068,10 +3157,17 @@ async def _query_voice_numbers(frame, page, query: str | None = None,
                     "stage": "voice_number",
                     "message": f"could not type the Service Number filter {query!r}: {e}"}
     await page.evaluate(_TAG_PICKER_JS)
+    # Prefer the Select Number Query only. A bare `:has-text("Query")` matches
+    # Select Agreement's Query when that modal is topmost (ORD-0135 attempt 8).
     try:
-        await frame.locator(
-            'button.js-search-whp-number:visible, .ui-dialog:visible button:has-text("Query")'
-        ).last.click(timeout=8000)
+        whp = frame.locator('button.js-search-whp-number:visible')
+        if await whp.count():
+            await whp.last.click(timeout=8000)
+        else:
+            await frame.locator(
+                '.ui-dialog:visible:has(.number-card, input[placeholder*="6038"], '
+                'input[placeholder*="8080"]) button:has-text("Query")'
+            ).last.click(timeout=8000)
     except Exception as e:
         return {"status": "error", "error": "voice_query_failed",
                 "stage": "voice_number", "message": str(e)}
@@ -3902,11 +3998,14 @@ SELECT_OFFER_ADD_CLICK_JS = r"""(() => {
   const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
   const vis=e=>e&&e.offsetParent!==null && e.getClientRects().length>0;
   const isTrash=e=>{
-    for(let n=e,i=0;n&&i<3;n=n.parentElement,i++){
-      const s=((n.className||'')+' '+(n.title||'')+' '+(n.innerHTML||'')).toLowerCase();
-      if(/glyphicon-trash|fa-trash|js-del|js-remove|js-clear|\btrash\b/.test(s)) return true;
-    }
-    return false;
+    if(!e) return false;
+    // Only THIS control — never parent.innerHTML (a shared tab/section that
+    // also contains Agreement trash would poison every sibling control).
+    const self=((e.className||'')+' '+(e.title||'')+' '
+      +(e.getAttribute && e.getAttribute('aria-label')||'')).toLowerCase();
+    if(/glyphicon-trash|fa-trash|js-del|js-remove|js-clear|\btrash\b/.test(self)) return true;
+    return !!(e.querySelector && e.querySelector(
+      '.glyphicon-trash, .fa-trash, [class*="trash"]'));
   };
   const looksAdd=e=>{
     if(!e||isTrash(e)) return false;
