@@ -125,57 +125,83 @@ export interface CaseData {
 
 export async function upsertCases(userId: number, cases: CaseData[]): Promise<{ inserted: number; updated: number }> {
   const sql = getDb();
+  if (cases.length === 0) return { inserted: 0, updated: 0 };
 
-  // Upsert in bounded-concurrency chunks. A month of platform-wide cases is now
-  // thousands of rows; firing them all at once (one Neon HTTP request each) blows
-  // past connection limits. CHUNK requests run concurrently, chunks run in series.
-  const CHUNK = 50;
-  const results: { is_insert: boolean }[][] = [];
-  for (let i = 0; i < cases.length; i += CHUNK) {
-    const batch = cases.slice(i, i + CHUNK);
-    const batchResults = await Promise.all(
-      batch.map((c) =>
-      sql`
-        INSERT INTO wifibizz_cases (
-          user_id, case_no, case_url, full_name, full_address, mobile, email, id_no,
-          provider, package, order_no, agent, agent_remark,
-          status, case_created_at, scraped_at, updated_at
-        ) VALUES (
-          ${userId}, ${c.case_no}, ${c.case_url}, ${c.full_name}, ${c.full_address}, ${c.mobile}, ${c.email}, ${c.id_no},
-          ${c.provider}, ${c.package}, ${c.order_no}, ${c.agent}, ${c.agent_remark},
-          ${c.status || 'Unknown'}, ${c.case_created_at}, NOW(), NOW()
-        )
-        ON CONFLICT (user_id, case_no) DO UPDATE SET
-          case_url = ${c.case_url},
-          full_name = ${c.full_name},
-          -- Don't clobber an already-resolved address: the crawl stores cases
-          -- list-only (full_address ''), so keep the lazily-fetched value on re-crawl.
-          full_address = CASE WHEN ${c.full_address} = '' THEN wifibizz_cases.full_address
-                              ELSE ${c.full_address} END,
-          mobile = ${c.mobile},
-          email = ${c.email},
-          id_no = ${c.id_no},
-          provider = ${c.provider},
-          package = ${c.package},
-          order_no = ${c.order_no},
-          agent = ${c.agent},
-          agent_remark = ${c.agent_remark},
-          status = ${c.status || 'Unknown'},
-          case_created_at = ${c.case_created_at},
-          scraped_at = NOW(),
-          updated_at = NOW()
-        RETURNING (xmax = 0) AS is_insert
-      `
-      )
-    );
-    results.push(...(batchResults as { is_insert: boolean }[][]));
-  }
+  // One multi-row INSERT per batch instead of one HTTP request PER ROW. A 12-month
+  // window is ~42k cases; at one Neon round trip each that was ~840 serial chunks and
+  // a large part of why a long crawl could never finish inside the platform time cap.
+  const BATCH = 500;
+
+  // ON CONFLICT DO UPDATE cannot touch the same row twice in one statement
+  // ("cannot affect row a second time"), so a case_no repeated inside a batch has to
+  // be collapsed first. The crawl already de-dupes across modules; this is the guard
+  // that keeps a duplicate from failing the whole statement.
+  const byCaseNo = new Map<string, CaseData>();
+  for (const c of cases) byCaseNo.set(c.case_no, c);
+  const rows = Array.from(byCaseNo.values());
 
   let inserted = 0;
   let updated = 0;
-  for (const rows of results) {
-    if (rows[0]?.is_insert) inserted++;
-    else updated++;
+
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const b = rows.slice(i, i + BATCH);
+    const col = <T,>(f: (c: CaseData) => T) => b.map(f);
+
+    const result = (await sql`
+      INSERT INTO wifibizz_cases (
+        user_id, case_no, case_url, full_name, full_address, mobile, email, id_no,
+        provider, package, order_no, agent, agent_remark,
+        status, case_created_at, scraped_at, updated_at
+      )
+      SELECT
+        ${userId}, t.case_no, t.case_url, t.full_name, t.full_address, t.mobile,
+        t.email, t.id_no, t.provider, t.package, t.order_no, t.agent, t.agent_remark,
+        t.status, NULLIF(t.case_created_at, '')::timestamp, NOW(), NOW()
+      FROM UNNEST(
+        ${col((c) => c.case_no)}::text[],
+        ${col((c) => c.case_url)}::text[],
+        ${col((c) => c.full_name)}::text[],
+        ${col((c) => c.full_address)}::text[],
+        ${col((c) => c.mobile)}::text[],
+        ${col((c) => c.email)}::text[],
+        ${col((c) => c.id_no)}::text[],
+        ${col((c) => c.provider)}::text[],
+        ${col((c) => c.package)}::text[],
+        ${col((c) => c.order_no)}::text[],
+        ${col((c) => c.agent)}::text[],
+        ${col((c) => c.agent_remark)}::text[],
+        ${col((c) => c.status || 'Unknown')}::text[],
+        ${col((c) => c.case_created_at)}::text[]
+      ) AS t(
+        case_no, case_url, full_name, full_address, mobile, email, id_no,
+        provider, package, order_no, agent, agent_remark, status, case_created_at
+      )
+      ON CONFLICT (user_id, case_no) DO UPDATE SET
+        case_url = EXCLUDED.case_url,
+        full_name = EXCLUDED.full_name,
+        -- Don't clobber an already-resolved address: the crawl stores cases
+        -- list-only (full_address ''), so keep the lazily-fetched value on re-crawl.
+        full_address = CASE WHEN EXCLUDED.full_address = '' THEN wifibizz_cases.full_address
+                            ELSE EXCLUDED.full_address END,
+        mobile = EXCLUDED.mobile,
+        email = EXCLUDED.email,
+        id_no = EXCLUDED.id_no,
+        provider = EXCLUDED.provider,
+        package = EXCLUDED.package,
+        order_no = EXCLUDED.order_no,
+        agent = EXCLUDED.agent,
+        agent_remark = EXCLUDED.agent_remark,
+        status = EXCLUDED.status,
+        case_created_at = EXCLUDED.case_created_at,
+        scraped_at = NOW(),
+        updated_at = NOW()
+      RETURNING (xmax = 0) AS is_insert
+    `) as { is_insert: boolean }[];
+
+    for (const r of result) {
+      if (r.is_insert) inserted++;
+      else updated++;
+    }
   }
 
   return { inserted, updated };

@@ -109,76 +109,65 @@ function parseCreatedAt(s: string | undefined): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-// Fetch cases NEWEST-FIRST (order by created_at DESC) and STOP as soon as we page
-// past the `from` cutoff. The shared admin account sees the ENTIRE platform
-// (200k+ records) and the endpoint has NO server-side date filter, so ordering
-// desc + an early stop is the only way to bound the crawl to a recent window
-// instead of downloading everything (which hangs). The `module` param is ignored
-// by the portal — one sweep already returns all operator_types (home/biz/4g) — so
-// we sweep once and rely on each row's `operator_type`. Rows newer than `to` are
-// skipped (they're outside the window's upper bound).
-async function fetchCasesInWindow(
+// The portal has NO server-side date filter and this account can see the whole
+// platform (home_fibre alone reports ~88k records), so a window is reached by
+// paging NEWEST-FIRST (created_at DESC) and stopping once we page past `from`.
+//
+// PAGE SIZE IS THE BIG LEVER. Measured against the live portal 2026-09-11:
+// length=100 -> 54.0 ms/row, 500 -> 7.8, 1000 -> 6.4, 2000 -> 5.1, 5000 -> 4.2.
+// At 100 a 12-month window needed ~425 requests (~12 min) and could never finish
+// inside the platform time cap. 1000 is the sweet spot: ~8x cheaper per row while
+// keeping a response ~3 MB, so memory and the 30 s per-request timeout stay safe.
+export const CRAWL_PAGE_LENGTH = 1000;
+
+// Each module is its own endpoint on wifibizz.com (/applications?module=…) and they
+// return disjoint sets, so all three are swept in order.
+export const CRAWL_MODULES = ["home_fibre", "biz_fibre", "4g"] as const;
+
+// Runaway guard: a bad cutoff must never page the entire platform.
+const MAX_ROWS_PER_MODULE = 200_000;
+
+/** Where a crawl pass stopped, so the next pass resumes instead of re-paging. */
+export interface CrawlCursor {
+  moduleIndex: number;
+  start: number;
+}
+
+async function fetchPage(
   baseUrl: string,
   session: LoginSession,
-  from: Date | null,
-  to: Date | null,
   module: string,
-  onPage?: (rowsSoFar: number) => void
+  start: number
 ): Promise<Record<string, unknown>[]> {
-  const allRecords: Record<string, unknown>[] = [];
-  let start = 0;
-  const length = 100;
-  const MAX_PAGES = 800; // backstop (~80k rows) so a bad cutoff can never run away
+  const params = new URLSearchParams({
+    draw: "1",
+    start: start.toString(),
+    length: CRAWL_PAGE_LENGTH.toString(),
+    "columns[0][data]": "created_at",
+    "columns[0][name]": "created_at",
+    "columns[0][orderable]": "true",
+    "order[0][column]": "0",
+    "order[0][dir]": "desc",
+    module, // required on wifibizz.com — /applications 404s without it
+  });
 
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const params = new URLSearchParams({
-      draw: "1",
-      start: start.toString(),
-      length: length.toString(),
-      "columns[0][data]": "created_at",
-      "columns[0][name]": "created_at",
-      "columns[0][orderable]": "true",
-      "order[0][column]": "0",
-      "order[0][dir]": "desc",
-      module, // required on wifibizz.com — /applications 404s without it (each module is its own endpoint)
-    });
+  const res = await fetch(`${baseUrl}/applications?${params.toString()}`, {
+    headers: {
+      Cookie: session.cookies,
+      "X-Requested-With": "XMLHttpRequest",
+      Accept: "application/json",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      Referer: `${baseUrl}/applications`,
+    },
+    signal: AbortSignal.timeout(60000),
+  });
 
-    const res = await fetch(`${baseUrl}/applications?${params.toString()}`, {
-      headers: {
-        Cookie: session.cookies,
-        "X-Requested-With": "XMLHttpRequest",
-        Accept: "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        Referer: `${baseUrl}/applications`,
-      },
-      signal: AbortSignal.timeout(30000),
-    });
-
-    if (!res.ok) {
-      throw new Error(`DataTables API returned ${res.status}: ${res.statusText}`);
-    }
-
-    const json = (await res.json()) as DataTablesResponse;
-    const rows = json.data || [];
-    if (rows.length === 0) break;
-
-    let reachedCutoff = false;
-    for (const r of rows) {
-      const ca = parseCreatedAt(r.created_at as string);
-      if (from && ca && ca < from) {
-        reachedCutoff = true; // rows are newest-first, so everything after is older too
-        break;
-      }
-      if (to && ca && ca > to) continue; // newer than the window end — skip
-      allRecords.push(r);
-    }
-
-    onPage?.(allRecords.length);
-    if (reachedCutoff) break;
-    start += length;
+  if (!res.ok) {
+    throw new Error(`DataTables API returned ${res.status}: ${res.statusText}`);
   }
 
-  return allRecords;
+  const json = (await res.json()) as DataTablesResponse;
+  return json.data || [];
 }
 
 // ── Step 3b: Fetch case detail page for address ──
@@ -298,6 +287,23 @@ export interface CrawlProgress {
 export interface CrawlOptions {
   dateFrom?: string; // YYYY-MM-DD
   dateTo?: string;   // YYYY-MM-DD
+  /** Resume point from a previous pass. Omit to start at the newest row. */
+  cursor?: CrawlCursor | null;
+  /** Date.now() value after which the pass stops cleanly and returns a cursor. */
+  deadline?: number;
+  /** Rows already saved by earlier passes — progress reporting only. */
+  fetchedSoFar?: number;
+  /** Persist each page as it arrives instead of buffering the whole window. */
+  onBatch?: (cases: CaseData[]) => Promise<void>;
+}
+
+export interface CrawlOutcome {
+  /** Only populated when no `onBatch` sink was supplied. */
+  cases: CaseData[];
+  fetched: number;
+  complete: boolean;
+  nextCursor: CrawlCursor | null;
+  oldestSeen: string | null;
 }
 
 export async function crawl(
@@ -305,58 +311,92 @@ export async function crawl(
   password: string,
   onProgress?: (progress: CrawlProgress) => void,
   options?: CrawlOptions
-): Promise<{ cases: CaseData[] }> {
+): Promise<CrawlOutcome> {
   const baseUrl = getBaseUrl();
 
   onProgress?.({ step: "Logging in to WifiBizz...", current: 0, total: 0, percent: 5 });
   const session = await login(baseUrl, email, password);
 
-  // Bound the crawl to a recent window. The account can see a huge set (tens of
-  // thousands) and the endpoint has no server-side date filter, so we page
-  // NEWEST-FIRST per module and stop at the `from` cutoff. Default window = the
-  // last 1 month; the crawl page's From/To override it.
+  // Default window = the last 1 month; the crawl page's From/To override it.
   const now = new Date();
   const from = options?.dateFrom
     ? new Date(options.dateFrom + "T00:00:00")
     : new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
   const to = options?.dateTo ? new Date(options.dateTo + "T23:59:59") : null;
 
-  // Each module is a separate endpoint on wifibizz.com (/applications?module=…),
-  // so sweep them one by one and combine, de-duping by case number.
-  const MODULES = ["home_fibre", "biz_fibre", "4g"];
-  const allRecords: Record<string, unknown>[] = [];
-  const seenCaseNos = new Set<string>();
-  for (const mod of MODULES) {
-    onProgress?.({ step: `Fetching ${mod}…`, current: allRecords.length, total: 0, percent: 15 });
-    const recs = await fetchCasesInWindow(baseUrl, session, from, to, mod, (rowsInModule) => {
-      const found = allRecords.length + rowsInModule;
-      onProgress?.({
-        step: `Fetching ${mod}… ${found} found`,
-        current: found,
-        total: 0,
-        percent: Math.min(90, 15 + Math.floor(found / 100)),
-      });
+  const deadline = options?.deadline ?? Infinity;
+  const onBatch = options?.onBatch;
+  const startCursor: CrawlCursor = options?.cursor ?? { moduleIndex: 0, start: 0 };
+  const alreadyFetched = options?.fetchedSoFar ?? 0;
+
+  // Only buffered when there is no sink to stream into (the local CLI script).
+  const collected: CaseData[] = [];
+  let fetched = 0;
+  let oldestSeen: string | null = null;
+
+  const emit = (step: string) =>
+    onProgress?.({
+      step,
+      current: alreadyFetched + fetched,
+      total: 0,
+      percent: Math.min(90, 15 + Math.floor((alreadyFetched + fetched) / 500)),
     });
-    for (const r of recs) {
-      const cn = ((r.prefix_with_no as string) || "").replace(/<[^>]*>/g, "").trim();
-      if (cn && seenCaseNos.has(cn)) continue;
-      if (cn) seenCaseNos.add(cn);
-      allRecords.push(r);
+
+  for (let mi = startCursor.moduleIndex; mi < CRAWL_MODULES.length; mi++) {
+    const mod = CRAWL_MODULES[mi];
+    let start = mi === startCursor.moduleIndex ? startCursor.start : 0;
+    emit(`Fetching ${mod}…`);
+
+    for (;;) {
+      if (start >= MAX_ROWS_PER_MODULE) break;
+
+      const rows = await fetchPage(baseUrl, session, mod, start);
+      if (rows.length === 0) break;
+
+      // Rows are newest-first, so the first row older than `from` ends this module.
+      let reachedCutoff = false;
+      const keep: Record<string, unknown>[] = [];
+      for (const r of rows) {
+        const ca = parseCreatedAt(r.created_at as string);
+        if (from && ca && ca < from) {
+          reachedCutoff = true;
+          break;
+        }
+        if (to && ca && ca > to) continue; // newer than the window end — skip
+        keep.push(r);
+        if (r.created_at) oldestSeen = r.created_at as string;
+      }
+
+      const cases = extractCases(keep, baseUrl);
+      fetched += cases.length;
+
+      // PERSIST AS WE GO. Buffering the whole window and saving at the end is what
+      // made a timeout throw away 100% of the work — and 42k rows in memory is its
+      // own problem. Whatever this pass fetched is already saved before it returns.
+      if (onBatch) await onBatch(cases);
+      else collected.push(...cases);
+
+      start += rows.length;
+      emit(`Fetching ${mod}… ${alreadyFetched + fetched} found`);
+
+      if (reachedCutoff) break;
+
+      // Out of time: hand back exactly where to resume. The next pass picks up at
+      // this module/offset rather than re-paging from the top.
+      if (Date.now() >= deadline) {
+        return {
+          cases: collected,
+          fetched,
+          complete: false,
+          nextCursor: { moduleIndex: mi, start },
+          oldestSeen,
+        };
+      }
     }
   }
 
-  onProgress?.({ step: "Processing cases...", current: 0, total: allRecords.length, percent: 92 });
-  const cases = extractCases(allRecords, baseUrl);
-  // Keep ALL statuses (Activated/Pending/Processed/Rejected/Follow Up/…) within the
-  // window. All modules (home/biz/4g) are combined above.
-
-  // NOTE: addresses are intentionally NOT fetched here. The detail-page address is
-  // one HTTP request PER case; for a month of platform-wide cases (thousands) that
-  // would take ~10 min and blow the serverless limit. `full_address` stays empty
-  // and is filled lazily (fetchCaseAddress) when a bill is generated for a case.
-
-  onProgress?.({ step: "Complete", current: cases.length, total: cases.length, percent: 100 });
-  return { cases };
+  emit("Complete");
+  return { cases: collected, fetched, complete: true, nextCursor: null, oldestSeen };
 }
 
 // ── Lazy address fill (bill-time) ──

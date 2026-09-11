@@ -1,4 +1,106 @@
-# Current Feature: TA + Auth Letter landlord signature, witnesses, Section 4
+# Current Feature: Long-window crawls (6m / 1y) actually finish and save
+
+## Status
+
+In Progress
+
+## Goals
+
+- `Last 1 year` on `/dashboard/crawl` completes and the cases appear in the case list
+- A crawl that runs out of server time saves what it already fetched instead of discarding everything
+- A crawl cut short by the platform says so, instead of ending silently
+- `Last 6 months` works too (it is over budget today, same cause)
+- Shorter windows (1d/3d/7d/1w/1m/3m) keep working and get faster
+- No change to what is crawled: same modules, same rows, same statuses, same de-duping
+
+## Built
+
+- **`CRAWL_PAGE_LENGTH = 1000`** (was 100) — the single biggest win, ~8x cheaper per row.
+- **`crawl()` takes a cursor + a deadline and an `onBatch` sink.** It persists every page
+  as it arrives, stops cleanly when the budget is spent, and returns `{moduleIndex, start}`
+  to resume from. No sink supplied (the local CLI) still buffers and returns `cases`.
+- **`POST /api/crawl` runs one bounded pass** (`CRAWL_PASS_BUDGET_MS`, default 220 s, env
+  tunable because portal speed varies a lot) and reports `complete` + `nextCursor`.
+  `updateLastCrawl` and the Sheet sync only run on the pass that actually completes.
+- **The crawl page loops passes** until complete, aggregating counts, labelling
+  `Pass N · …`, with a 30-pass backstop.
+- **A stream that ends with neither `done` nor `error` is now reported**, naming how many
+  cases were already saved and that pressing Start Crawl again carries on.
+- **`upsertCases` is one multi-row `INSERT … UNNEST … ON CONFLICT`** per 500 rows instead
+  of one HTTP request per row. It de-dupes `case_no` within a batch first, because
+  `ON CONFLICT DO UPDATE` cannot touch the same row twice in one statement.
+- **The Sheet sync is chunked and time-boxed** (2,000 rows per append, 45 s budget).
+  Several users have a sheet configured, and one append of 42k rows would have risked both
+  the Sheets request limit and the rest of the function's budget. Rows not reached stay
+  unsynced and the next crawl continues them — the existing marker already works that way.
+
+## Verified
+
+**The reported scenario, live against the real portal (2026-09-11).** Window
+`2025-09-11 .. 2026-09-11`, the exact one from the screenshot:
+
+```
+pass 1: 226.0s  fetched 15,000  complete=false  next={moduleIndex:0, start:15000}
+pass 2: 223.0s  fetched 41,130  complete=false  next={moduleIndex:1, start:2000}
+pass 3:  17.6s  fetched 42,596  complete=true   next=null
+RESULT  rows=42,595  dupes=0  range=2025-09-11..2026-09-11  total=466.6s
+```
+
+Every pass sits under the 300 s cap, the full 12 months is covered, and
+`fetched == inserted + updated` — exactly one row was re-read across a pass boundary, so
+OFFSET drift on a live table is a non-issue (new rows push old ones to HIGHER offsets, so
+resuming re-reads rather than skips; the DB de-dupes the overlap).
+
+**In the browser**, signed in as the reporting agent on the real dev server with a session
+minted from the app's own `AUTH_SECRET` rather than typing a password: `Last 1 month` ran
+several passes on screen (`Pass 2 · Fetching biz_fibre…`) and finished
+**"Crawl complete — 3,206 cases saved"**; the dashboard case list then showed **6,515**
+cases where it had 3,309. **Zero console errors.**
+
+**Tests:** 9 new in `crawl-resume.test.ts` against a mocked portal — large pages requested,
+the `from` cutoff, incremental persistence, the cursor returned on a spent deadline,
+resuming without re-paging from the top, **a full resume loop covering every row exactly
+once**, the `To` bound, all three modules, and the CLI buffering path. 9 in `db-live.test.ts`
+(opt-in, `npm run test:db`, throwaway user) pinning the bulk upsert: insert/update counting
+at 1,200 rows, a duplicate `case_no` inside one batch, the address-preservation rule both
+ways, empty timestamp to NULL, blank status to `Unknown`.
+
+**NOT verified:** production, where nothing is deployed; and a window larger than 12 months
+(the lookback floor forbids it).
+
+## Notes
+
+Root cause measured live on production (2026-09-11), account `calvin.maxnet@gmail.com`.
+
+The 12-month window is genuinely ~42,000 records (`home_fibre` `recordsTotal` 88,352; the
+2025-09-11 cutoff sits at offset ~39,200, plus `biz_fibre` ~3,200 and `4g` 31). The crawler
+pages at `length=100` at ~1.7 s/page, so the fetch alone needs **~425 sequential requests
+≈ 712 s** against `maxDuration = 300`. Three compounding defects:
+
+1. **All-or-nothing.** `upsertCases` only runs after the whole crawl returns, so a timeout
+   throws away 100% of the work. Proven: after the failed attempt, `last_crawl_at` was still
+   2026-09-10 and the oldest stored case still 2026-07-06.
+2. **Silent.** Vercel kills the function, the SSE stream just ends, the client's read loop
+   sees `done` and falls through `finally` — no `error` event, so no toast.
+3. **One Neon HTTP request per row** in `upsertCases` (50 concurrent, chunks serial) —
+   ~840 serial round trips for 42k rows.
+
+Ruled out by measurement, so nobody re-chases them: ordering IS `created_at DESC` (early stop
+is sound), the date validation passes, `module` IS honored (the three sweeps are disjoint),
+and the 30 s per-request timeout never fires (worst page 3.5 s).
+
+**Page size is the big lever, measured:** 100 rows = 54.0 ms/row, 500 = 7.8, 1000 = 6.4,
+2000 = 5.1, 5000 = 4.2 (15 MB response). At `length=1000` the year drops to ~271 s of fetch —
+better but still over 300 s, and 42k rows buffered in memory is its own problem.
+
+**Chosen design — bigger pages + bounded resumable passes + bulk upsert.** Month-segmenting
+on the client (the first idea) was rejected: `fetchCasesInWindow` always restarts at offset 0
+and skips rows newer than `to`, so 12 month-segments would re-page ~6.5x the work — O(n²).
+Instead the crawl takes a **cursor** (module + offset), persists **every page as it arrives**,
+stops on a **time budget** under the platform cap, and returns the cursor; the page loops
+passes until complete. That makes partial progress survive, keeps memory flat, and stays linear.
+
+# Previous Feature: TA + Auth Letter landlord signature, witnesses, Section 4
 
 ## Status
 

@@ -131,71 +131,143 @@ export default function CrawlPage() {
     setDateError("");
     setProgress({ step: "Starting...", current: 0, total: 0, percent: 0 });
 
+    // A long window (6 months, 1 year) is tens of thousands of records and cannot be
+    // fetched inside one serverless invocation. The server saves every page as it
+    // arrives and hands back a cursor when it runs out of time; we call straight back
+    // to resume. Nothing already fetched is re-fetched or lost.
+    let cursor: { moduleIndex: number; start: number } | null = null;
+    let fetched = 0;
+    let inserted = 0;
+    let updated = 0;
+    let sheetSynced = 0;
+    let pass = 0;
+
+    // Each pass strictly advances the cursor, so this terminates on its own. The cap
+    // is a backstop against a runaway loop hammering the API from the browser — far
+    // above the 2-3 passes a 12-month window actually needs.
+    const MAX_PASSES = 30;
+
     try {
-      const params = new URLSearchParams();
-      if (dateFrom) params.set("date_from", dateFrom);
-      if (dateTo) params.set("date_to", dateTo);
-
-      const url = `/api/crawl${params.toString() ? `?${params.toString()}` : ""}`;
-      const res = await fetch(url, { method: "POST" });
-
-      // Handle non-SSE error responses (JSON)
-      const contentType = res.headers.get("content-type") || "";
-      if (contentType.includes("application/json")) {
-        const json = await res.json();
-        if (json.error === "no_credentials") {
-          toast.error("Set your WifiBizz credentials in Settings first.");
-          router.push("/dashboard/settings");
+      for (;;) {
+        if (++pass > MAX_PASSES) {
+          toast.error(
+            `Stopped after ${MAX_PASSES} passes. ${fetched.toLocaleString()} cases were saved — press Start Crawl again to carry on.`
+          );
           return;
         }
-        toast.error(json.error ?? "Crawl failed");
-        return;
-      }
+        const params = new URLSearchParams();
+        if (dateFrom) params.set("date_from", dateFrom);
+        if (dateTo) params.set("date_to", dateTo);
+        if (cursor) {
+          params.set("cursor_module", String(cursor.moduleIndex));
+          params.set("cursor_start", String(cursor.start));
+          params.set("fetched", String(fetched));
+        }
 
-      // Read SSE stream
-      const reader = res.body?.getReader();
-      if (!reader) {
-        toast.error("Failed to start crawl stream");
-        return;
-      }
+        const url = `/api/crawl${params.toString() ? `?${params.toString()}` : ""}`;
+        const res = await fetch(url, { method: "POST" });
 
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const data = JSON.parse(line.slice(6));
-
-            if (data.type === "progress") {
-              setProgress({
-                step: data.step,
-                current: data.current,
-                total: data.total,
-                percent: data.percent,
-              });
-            } else if (data.type === "done") {
-              setResult({
-                total: data.total,
-                saved: data.saved,
-              });
-              setProgress(null);
-              toast.success(`Crawl complete — ${data.saved} cases saved`);
-            } else if (data.type === "error") {
-              toast.error(data.error ?? "Crawl failed");
-              setProgress(null);
-            }
-          } catch {
-            // skip malformed SSE data
+        // Handle non-SSE error responses (JSON)
+        const contentType = res.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+          const json = await res.json();
+          if (json.error === "no_credentials") {
+            toast.error("Set your WifiBizz credentials in Settings first.");
+            router.push("/dashboard/settings");
+            return;
           }
+          toast.error(json.error ?? "Crawl failed");
+          return;
+        }
+
+        const reader = res.body?.getReader();
+        if (!reader) {
+          toast.error("Failed to start crawl stream");
+          return;
+        }
+
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let outcome: {
+          complete?: boolean;
+          nextCursor?: { moduleIndex: number; start: number } | null;
+          fetched?: number;
+          inserted?: number;
+          updated?: number;
+          sheetSynced?: number;
+        } | null = null;
+        let failed = false;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            try {
+              const data = JSON.parse(line.slice(6));
+
+              if (data.type === "progress") {
+                setProgress({
+                  step: pass > 1 ? `Pass ${pass} · ${data.step}` : data.step,
+                  current: data.current,
+                  total: data.total,
+                  percent: data.percent,
+                });
+              } else if (data.type === "done") {
+                outcome = data;
+              } else if (data.type === "error") {
+                toast.error(data.error ?? "Crawl failed");
+                setProgress(null);
+                failed = true;
+              }
+            } catch {
+              // skip malformed SSE data
+            }
+          }
+        }
+
+        if (failed) return;
+
+        // The stream ended without a done OR an error event. That is the platform
+        // killing the function mid-flight — previously this fell through silently and
+        // looked exactly like "nothing happened".
+        if (!outcome) {
+          toast.error(
+            fetched > 0
+              ? `The crawl was stopped early by the server. ${fetched.toLocaleString()} cases were already saved — press Start Crawl again to carry on from there.`
+              : "The crawl was stopped early by the server before anything was saved. Try a shorter date range."
+          );
+          return;
+        }
+
+        inserted += outcome.inserted ?? 0;
+        updated += outcome.updated ?? 0;
+        sheetSynced += outcome.sheetSynced ?? 0;
+        fetched = outcome.fetched ?? fetched;
+
+        if (outcome.complete) {
+          setResult({ total: fetched, saved: inserted + updated });
+          setProgress(null);
+          toast.success(
+            `Crawl complete — ${(inserted + updated).toLocaleString()} cases saved` +
+              (sheetSynced ? ` · ${sheetSynced.toLocaleString()} synced to Sheet` : "")
+          );
+          return;
+        }
+
+        cursor = outcome.nextCursor ?? null;
+        if (!cursor) {
+          // Incomplete with nowhere to resume from should be impossible; say so
+          // rather than looping forever on the same offset.
+          toast.error(
+            `The crawl stopped early with no resume point. ${fetched.toLocaleString()} cases were saved.`
+          );
+          return;
         }
       }
     } catch {
