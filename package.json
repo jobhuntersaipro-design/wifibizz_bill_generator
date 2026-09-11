@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "test:db": "CRAWL_DB_TEST=1 vitest run src/lib/crawler/__tests__/db-live.test.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",
