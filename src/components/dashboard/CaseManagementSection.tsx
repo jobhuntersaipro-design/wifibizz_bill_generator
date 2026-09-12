@@ -318,8 +318,11 @@ export default function CaseManagementSection() {
 
   function applySearch() {
     const next = searchDraft.trim();
+    const clamped = clampCaseDateRange(dateFrom, dateTo);
     setPage(0);
     setSearch(next);
+    setDateFrom(clamped.dateFrom);
+    setDateTo(clamped.dateTo);
     setSelectedCases(new Set());
   }
 

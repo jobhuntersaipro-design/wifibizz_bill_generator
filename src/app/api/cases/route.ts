@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { neon } from "@neondatabase/serverless";
 import { prisma } from "@/lib/prisma";
-import { caseDateFilterBounds, parseCaseDateField } from "@/lib/case-list-filters";
+import { caseDateFilterBounds, clampCaseDateRange, parseCaseDateField } from "@/lib/case-list-filters";
 
 const SORTABLE_COLUMNS = new Set([
   "case_no", "order_no", "full_name", "full_address", "mobile",
@@ -24,8 +24,10 @@ export async function GET(request: Request) {
     const offset = Number(url.searchParams.get("offset") || "0");
     const search = url.searchParams.get("search")?.trim() ?? "";
     const status = url.searchParams.get("status")?.trim() ?? "";
-    const dateFrom = url.searchParams.get("date_from")?.trim() ?? "";
-    const dateTo = url.searchParams.get("date_to")?.trim() ?? "";
+    const { dateFrom, dateTo } = clampCaseDateRange(
+      url.searchParams.get("date_from")?.trim() ?? "",
+      url.searchParams.get("date_to")?.trim() ?? "",
+    );
     const { createdFrom, createdTo, updatedFrom, updatedTo } = caseDateFilterBounds(
       parseCaseDateField(url.searchParams.get("date_field")),
       dateFrom,
