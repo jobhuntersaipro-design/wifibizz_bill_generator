@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { neon } from "@neondatabase/serverless";
-import { fillMissingAddresses } from "@/lib/crawler/lazy-address";
+import { fetchBizzDetailFields, fillMissingAddresses } from "@/lib/crawler/lazy-address";
 
 const MAX_BATCH = 20;
 
@@ -24,6 +24,7 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const caseNos: string[] = body.caseNos;
+    const includeBizzFields = body.includeBizzFields === true;
 
     if (!Array.isArray(caseNos) || caseNos.length === 0) {
       return NextResponse.json(
@@ -73,6 +74,24 @@ export async function POST(request: Request) {
     const addresses: Record<string, string> = {};
     for (const c of cases) {
       if (c.full_address && c.full_address.trim()) addresses[c.case_no] = c.full_address.trim();
+    }
+
+    if (includeBizzFields) {
+      const details = await fetchBizzDetailFields(wifibizzUser, cases);
+      const bizzFields: Record<string, { companyName: string; companyReg: string; customerName: string }> = {};
+      for (const [caseNo, fields] of Object.entries(details)) {
+        if (fields.address.trim()) addresses[caseNo] = fields.address.trim();
+        bizzFields[caseNo] = {
+          companyName: fields.companyName,
+          companyReg: fields.companyReg,
+          customerName: fields.customerName,
+        };
+      }
+      const stillMissing = cases.filter((c) => !addresses[c.case_no]);
+      if (stillMissing.length > 0) {
+        Object.assign(addresses, await fillMissingAddresses(wifibizzUser, stillMissing));
+      }
+      return NextResponse.json({ success: true, addresses, bizzFields });
     }
 
     const resolved = await fillMissingAddresses(wifibizzUser, cases);

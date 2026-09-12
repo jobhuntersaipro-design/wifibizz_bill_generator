@@ -4,6 +4,7 @@
 // the four consent clauses and the closing "i agreed" are the ticket's text
 // verbatim, so the PNG the agent sends reads exactly as the ticket does.
 
+import { resolveBizzChatFields } from "./case-kind";
 import { formatInstallDate, formatMobileRaw, formatPackage, type ChatScript } from "./chat-script";
 
 /** The case fields the Bizz template prints. A CaseRow satisfies it as-is. */
@@ -15,6 +16,9 @@ export interface BizzChatSource {
   full_address: string | null;
   package: string | null;
   case_created_at: string | null;
+  company_name?: string | null;
+  company_reg?: string | null;
+  director_name?: string | null;
 }
 
 export interface BizzChatScript extends ChatScript {
@@ -27,13 +31,13 @@ const present = (value: string | null): string => (value ?? "").trim() || MISSIN
 
 export function buildBizzChatScript(c: BizzChatSource, installOffsetDays: number): BizzChatScript {
   const name = present(c.full_name);
+  const biz = resolveBizzChatFields(c);
   return {
     lines: [
       { label: "Customer Name (as per NRIC/Passport) : ", value: name },
       { label: "Contact Number : ", value: formatMobileRaw(c.mobile) || MISSING },
-      { label: "Customer ID ( i.e BRN): ", value: present(c.id_no) },
-      // Nothing in the product records a director separately from the customer.
-      { label: "Business Owner Name: ", value: name },
+      { label: "Customer ID ( i.e BRN): ", value: present(biz.customerId) },
+      { label: "Business Owner Name: ", value: present(biz.businessOwnerName) },
       { label: "Email Address : ", value: present(c.email) },
       { label: "Installation Address: ", value: present(c.full_address) },
       // Literal, not a copy of the address: the product has no billing address to print.

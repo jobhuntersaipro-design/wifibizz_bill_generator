@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractCases } from "../scraper";
+import { extractCases, parseCaseDetailFields } from "../scraper";
 
 const BASE_URL = "https://wifibizz.com";
 
@@ -21,6 +21,35 @@ function makeRecord(overrides: Record<string, unknown> = {}): Record<string, unk
     ...overrides,
   };
 }
+
+describe("parseCaseDetailFields", () => {
+  it("reads Company Registration No and Customer-tab Name from a view page", () => {
+    const html = `
+      <label>Company Name</label><div>MONBLEU CAFE</div>
+      <label>Company Registration No.</label><div>JM0920662-D</div>
+      <label>Name</label><div>TIAN ZI XUAN</div>
+      <label>National ID No.</label><div>981020-01-6087</div>
+      <label>Address</label><div>1 JALAN CAFE</div>
+      <label>Street Name</label><div>JALAN CAFE</div>
+      <label>Building Name</label><div></div>
+    `;
+    expect(parseCaseDetailFields(html)).toEqual({
+      address: "1 JALAN CAFE",
+      companyName: "MONBLEU CAFE",
+      companyReg: "JM0920662-D",
+      customerName: "TIAN ZI XUAN",
+    });
+  });
+
+  it("reads Full Name (as per ID) from an edit page", () => {
+    const html = `
+      <label>Company Registration No.</label><div>1688747-V</div>
+      <label>Full Name (as per ID)</label><div>TAN SENG BOON</div>
+      <label>Address</label><div>2 JALAN INDUSTRI</div>
+    `;
+    expect(parseCaseDetailFields(html).customerName).toBe("TAN SENG BOON");
+  });
+});
 
 describe("extractCases", () => {
   it("extracts case_no from HTML anchor tag", () => {

@@ -1,5 +1,5 @@
 import { neon } from "@neondatabase/serverless";
-import { fetchAddressesForCases } from "@/lib/crawler/scraper";
+import { fetchAddressesForCases, fetchCaseDetailsForCases, type CaseDetailFields } from "@/lib/crawler/scraper";
 import { getUserPassword } from "@/lib/crawler/db";
 
 export interface WifibizzUserForAddress {
@@ -84,6 +84,62 @@ export async function fillMissingAddresses(
     return resolved;
   } catch (err) {
     console.error("Lazy address fetch failed:", err);
+    return {};
+  }
+}
+
+function crawlCreds(user: WifibizzUserForAddress): { email: string; password: string } {
+  return {
+    email: user.wifibizzEmail || process.env.WIFIBIZZ_CRAWL_EMAIL || "",
+    password:
+      getUserPassword({
+        id: user.id,
+        wifibizz_email: user.wifibizzEmail,
+        wifibizz_password_enc: user.wifibizzPasswordEnc,
+        last_crawl_at: user.lastCrawlAt?.toISOString() ?? null,
+      }) || process.env.WIFIBIZZ_CRAWL_PASSWORD || "",
+  };
+}
+
+/**
+ * Pull Company Name, Company Registration No, and Customer-tab Name from the
+ * same WifiBizz detail page the address fill uses. Persists any newly resolved
+ * address. Best-effort: missing creds or a failed page leave the case out.
+ */
+export async function fetchBizzDetailFields(
+  user: WifibizzUserForAddress,
+  cases: CaseAddressInput[],
+): Promise<Record<string, CaseDetailFields>> {
+  const withUrl = cases.filter((c) => c.case_url);
+  if (withUrl.length === 0) return {};
+
+  const { email, password } = crawlCreds(user);
+  if (!email || !password) return {};
+
+  try {
+    const details = await fetchCaseDetailsForCases(
+      email,
+      password,
+      withUrl.map((c) => ({ caseNo: c.case_no, caseUrl: c.case_url! })),
+    );
+
+    const sql = neon(process.env.DATABASE_URL!);
+    await Promise.all(
+      Object.entries(details).map(([caseNo, fields]) => {
+        const address = fields.address.trim();
+        const row = withUrl.find((c) => c.case_no === caseNo);
+        if (!address || (row?.full_address && row.full_address.trim())) return Promise.resolve();
+        return sql`
+          UPDATE wifibizz_cases
+          SET full_address = ${address}, updated_at = NOW()
+          WHERE case_no = ${caseNo} AND user_id = ${user.id}
+        `;
+      }),
+    );
+
+    return details;
+  } catch (err) {
+    console.error("Bizz detail fetch failed:", err);
     return {};
   }
 }
