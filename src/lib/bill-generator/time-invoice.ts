@@ -49,6 +49,7 @@ import { deflateSync } from 'zlib';
 import { getPageStreamRefs, transformStream } from './pdf-utils';
 import { hashSeed, makeRng } from './owner-identity';
 import { sanitize } from './address-parts';
+import { decodeCustomerName } from '../html-entities';
 import {
   buildInvoiceAddress,
   computeInvoiceFields,
@@ -326,10 +327,11 @@ export async function generateTimeInvoice(
     helvB: await pdfDoc.embedFont(StandardFonts.HelveticaBold),
   };
 
-  const name = sanitize(caseData.full_name).toUpperCase();
+  const customerName = decodeCustomerName(caseData.full_name);
+  const name = sanitize(customerName).toUpperCase();
   const address = await buildInvoiceAddress(
     caseData.full_address,
-    caseData.full_name,
+    customerName,
     (text) => fonts.helv.widthOfTextAtSize(text, 9),
     ADDRESS_MAX_WIDTH,
   );

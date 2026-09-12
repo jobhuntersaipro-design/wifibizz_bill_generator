@@ -33,4 +33,18 @@ describe("buildConversationChatScript", () => {
     expect(text).not.toContain("SAME AS ABOVE");
     expect(text).not.toContain("i agreed");
   });
+
+  it("prints the golden 02634395 name with a real apostrophe", () => {
+    const script = buildConversationChatScript(
+      {
+        ...BIZ_CASE,
+        full_name: "SITI AYESAH BINTI YA&#039;ASAK",
+      },
+      3,
+    );
+    const name = script.lines.find((l) => l.label.includes("Customer Name"))?.value;
+    expect(name).toBe("SITI AYESAH BINTI YA'ASAK");
+    expect(name).not.toContain("&#039;");
+    expect(name).not.toContain("&quot;");
+  });
 });

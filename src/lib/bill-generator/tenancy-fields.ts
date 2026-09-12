@@ -19,6 +19,7 @@ import {
 } from './owner-identity';
 import { partyFilled, type DocumentParties } from './document-parties';
 import { sanitize } from './address-parts';
+import { decodeCustomerName } from '../html-entities';
 
 /** Cover / schedule / signature tenant as printed on the sample. */
 export const SAMPLE_TENANT_NAME = 'NUR SYAFIQAH BINTI ISMAIL NASRUDDIN';
@@ -297,7 +298,7 @@ export function tenancyStampFrom(
   parties?: DocumentParties,
 ): TenantStamp {
   const digits = icDigits(caseData.id_no);
-  const name = sanitize(caseData.full_name || '').toUpperCase();
+  const name = sanitize(decodeCustomerName(caseData.full_name)).toUpperCase();
   const landlord = partyFilled(parties?.landlord)
     ? { name: parties.landlord.name, nric: parties.landlord.nric }
     : (() => {

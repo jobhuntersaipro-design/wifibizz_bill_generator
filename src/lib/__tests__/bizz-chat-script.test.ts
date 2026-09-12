@@ -113,6 +113,22 @@ describe("buildBizzChatScript", () => {
     expect(value("Business Owner Name: ")).not.toBe("MONBLEU CAFE(JM0920662-D)");
   });
 
+  it("decodes HTML entities in the printed customer and owner names", () => {
+    const lines = buildBizzChatScript(
+      {
+        ...CASE,
+        full_name: "SITI AYESAH BINTI YA&#039;ASAK",
+        company_reg: "JM1",
+        director_name: "ALI &quot;DIN&quot; &amp; CO",
+      },
+      3,
+    ).lines;
+    const value = (label: string) => lines.find((l) => l.label === label)?.value;
+    expect(value("Customer Name (as per NRIC/Passport) : ")).toBe("SITI AYESAH BINTI YA'ASAK");
+    expect(value("Business Owner Name: ")).toBe('ALI "DIN" & CO');
+    expect(value("Customer ID ( i.e BRN): ")).toBe("JM1");
+  });
+
   describe("preferred installation date", () => {
     afterEach(() => vi.useRealTimers());
 

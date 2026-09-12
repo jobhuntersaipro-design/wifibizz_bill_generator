@@ -18,6 +18,7 @@ import { formatIcDashed, icDigits } from './owner-identity';
 import { createDocumentParties, partyFilled, type DocumentParties } from './document-parties';
 import type { SignatureImage } from './landlord-signature';
 import { effectiveDate, longDate, ordinalDate, slashDate } from './letter-dates';
+import { decodeCustomerName } from '../html-entities';
 import { drawSignature, FLOURISH_DESCENT, SIGNATURE_ASCENT } from './signature';
 
 export interface LetterGenerateExtras {
@@ -196,7 +197,7 @@ export async function generateAuthorizationLetter(
   now: Date = new Date(),
   extras?: LetterGenerateExtras,
 ): Promise<Uint8Array> {
-  const customerName = sanitize(caseData.full_name || '');
+  const customerName = sanitize(decodeCustomerName(caseData.full_name));
   const customerIc = icDigits(caseData.id_no || '');
   const rng = extras?.rng ?? Math.random;
   const generated = extras?.parties && partyFilled(extras.parties.landlord)

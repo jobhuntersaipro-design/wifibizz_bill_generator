@@ -20,6 +20,7 @@ import {
 } from './pdf-utils';
 import { normalizeAddress, type UtilityAddressResult, type UtilityLayout } from './address-normalizer';
 import type { CaseData } from './internet-bill';
+import { decodeCustomerName } from '../html-entities';
 
 // ── Original values from utility_bill_template.pdf ────────────────
 const ORIGINAL_ACCOUNT = '2202926650XX';
@@ -361,7 +362,7 @@ export async function generateUtilityBill(caseData: CaseData): Promise<Buffer> {
   const addrResult = await normalizeAddress(
     caseData.full_address,
     'utility',
-    caseData.full_name,
+    decodeCustomerName(caseData.full_name),
     undefined,
     undefined,
     addrLayout,

@@ -7,6 +7,8 @@
 // phone number, a package name and the preferred installation date live here
 // once rather than once per template.
 
+import { decodeCustomerName } from "./html-entities";
+
 /** Which template a chat prints. Conversation is residential only; Bizz is the business path. */
 export type ChatScriptVariant = "conversation" | "bizz";
 
@@ -34,6 +36,11 @@ export function formatMobileRaw(mobile: string | null): string {
   return mobile.replace(/[^0-9]/g, "");
 }
 
+/** Portal-escaped names print as `YA'ASAK`, never `YA&#039;ASAK`. */
+export function formatCustomerName(name: string | null | undefined): string {
+  return decodeCustomerName(name) || "—";
+}
+
 /** Drops the bundled hardware: "Unifi Home 500Mbps + Router" prints as "Unifi Home 500Mbps". */
 export function formatPackage(pkg: string | null): string {
   if (!pkg) return "—";
@@ -57,7 +64,7 @@ export function buildConversationChatScript(
   },
   installOffsetDays: number,
 ): ChatScript {
-  const name = c.full_name || "—";
+  const name = formatCustomerName(c.full_name);
   const mobile = formatMobileRaw(c.mobile);
   const idNo = c.id_no || "—";
   const email = c.email || "—";
