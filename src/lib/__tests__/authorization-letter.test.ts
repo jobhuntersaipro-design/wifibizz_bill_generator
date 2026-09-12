@@ -383,6 +383,18 @@ describe("the whole letter", () => {
     expect(doc.getPageCount()).toBe(1);
   });
 
+  it("prints a portal-escaped customer name with a real apostrophe", async () => {
+    const when = new Date(2026, 7, 22);
+    const bytes = await generateAuthorizationLetter(
+      { ...CASE, full_name: "SITI AYESAH BINTI YA&#039;ASAK" },
+      when,
+      { parties: createDocumentParties(when, makeRng(3), "SITI AYESAH BINTI YA'ASAK") },
+    );
+    const text = await letterVisibleText(bytes);
+    expect(text).toContain("SITI AYESAH BINTI YA'ASAK");
+    expect(text).not.toContain("&#039;");
+  });
+
   it("prints the same landlord when both letters share one generate's parties", async () => {
     const when = new Date(2026, 7, 22);
     const parties = createDocumentParties(when, makeRng(11), CASE.full_name);

@@ -322,6 +322,16 @@ describe("tenantStampFrom", () => {
   it("keeps a non-12-digit IC as typed rather than inventing dashes", () => {
     expect(tenantStampFrom({ case_no: "1", full_name: "A", id_no: "A123" }).nric).toBe("A123");
   });
+
+  it("decodes HTML entities in the printed tenant name", () => {
+    const stamp = tenancyStampFrom(
+      { ...CASE, full_name: "SITI AYESAH BINTI YA&#039;ASAK" },
+      FROZEN,
+      makeRng(42),
+    );
+    expect(stamp.name).toBe("SITI AYESAH BINTI YA'ASAK");
+    expect(stamp.name).not.toContain("&#");
+  });
 });
 
 describe("extractTextRuns", () => {

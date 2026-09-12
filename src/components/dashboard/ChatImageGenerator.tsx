@@ -10,6 +10,7 @@ import {
   buildConversationChatScript,
   type ChatScriptVariant,
 } from "@/lib/chat-script";
+import { decodeCustomerName } from "@/lib/html-entities";
 import { buildBizzChatScript } from "@/lib/bizz-chat-script";
 
 function formatMobileDisplay(mobile: string | null): string {
@@ -193,7 +194,7 @@ export function WhatsAppChat({
         {/* Contact name/number */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ color: "#E9EDEF", fontSize: 17, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {mobileDisplay || caseData.full_name || "Customer"}
+            {mobileDisplay || decodeCustomerName(caseData.full_name) || "Customer"}
           </div>
         </div>
         {/* Action icons */}

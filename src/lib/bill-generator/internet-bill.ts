@@ -9,6 +9,7 @@
 import { PDFDocument } from 'pdf-lib';
 import { readFile } from 'fs/promises';
 import path from 'path';
+import { decodeCustomerName } from '../html-entities';
 import {
   getPageStreamRefs,
   transformStream,
@@ -218,7 +219,7 @@ export async function generateInternetBill(caseData: CaseData): Promise<Buffer> 
       const o = NAME_ADDR_OVERLAY;
       const addrYKeys = [o.addr1Y, o.addr2Y, o.addr3Y];
       const lines: { text: string; x: number; y: number; font: string; fontSize: number }[] = [
-        { text: caseData.full_name, x: o.x, y: o.nameY, font: '/FHB', fontSize: o.fontSize },
+        { text: decodeCustomerName(caseData.full_name), x: o.x, y: o.nameY, font: '/FHB', fontSize: o.fontSize },
       ];
 
       for (let i = 0; i < addrLines.length && i < addrYKeys.length; i++) {
