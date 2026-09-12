@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { neon } from "@neondatabase/serverless";
 import { prisma } from "@/lib/prisma";
-import { caseDateFilterBounds, clampCaseDateRange, parseCaseDateField } from "@/lib/case-list-filters";
+import { caseDateFilterBounds, isInvalidCaseDateRange, parseCaseDateField } from "@/lib/case-list-filters";
 
 export async function GET(request: Request) {
   try {
@@ -26,10 +26,14 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const search = url.searchParams.get("search")?.trim() ?? "";
     const status = url.searchParams.get("status")?.trim() ?? "";
-    const { dateFrom, dateTo } = clampCaseDateRange(
-      url.searchParams.get("date_from")?.trim() ?? "",
-      url.searchParams.get("date_to")?.trim() ?? "",
-    );
+    const dateFrom = url.searchParams.get("date_from")?.trim() ?? "";
+    const dateTo = url.searchParams.get("date_to")?.trim() ?? "";
+    if (isInvalidCaseDateRange(dateFrom, dateTo)) {
+      return NextResponse.json(
+        { success: false, error: "date_to cannot be before date_from" },
+        { status: 400 },
+      );
+    }
     const { createdFrom, createdTo, updatedFrom, updatedTo } = caseDateFilterBounds(
       parseCaseDateField(url.searchParams.get("date_field")),
       dateFrom,

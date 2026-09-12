@@ -11,16 +11,24 @@ describe("Case List filter bar and row-open preview", () => {
     expect(source).toContain("Updated At");
     expect(source).toContain('aria-pressed={dateField === "case_created_at"}');
     expect(source).toContain('aria-pressed={dateField === "updated_at"}');
-    expect(source).toContain("clampCaseDateRange");
+    expect(source).toContain("isInvalidCaseDateRange");
+    expect(source).not.toContain("clampCaseDateRange");
+    expect(source).toContain("disabled={invalidDateRange}");
+    expect(source).toContain("CASE_DATE_RANGE_ERROR");
+    expect(source).toContain('role="alert"');
     expect(source).toContain("min={dateFrom || undefined}");
     expect(source).toContain("max={dateTo || undefined}");
   });
 
-  it("clamps inverted From/To on the cases APIs so an invalid range cannot apply", async () => {
+  it("rejects inverted From/To on the cases APIs instead of rewriting them", async () => {
     const list = await readFile("src/app/api/cases/route.ts", "utf8");
     const ids = await readFile("src/app/api/cases/ids/route.ts", "utf8");
-    expect(list).toContain("clampCaseDateRange");
-    expect(ids).toContain("clampCaseDateRange");
+    expect(list).toContain("isInvalidCaseDateRange");
+    expect(ids).toContain("isInvalidCaseDateRange");
+    expect(list).toContain("date_to cannot be before date_from");
+    expect(ids).toContain("date_to cannot be before date_from");
+    expect(list).not.toContain("clampCaseDateRange");
+    expect(ids).not.toContain("clampCaseDateRange");
   });
 
   it("opens bill previews inline so a row click does not download", async () => {

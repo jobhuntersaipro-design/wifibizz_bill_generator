@@ -22,7 +22,7 @@ Row click only opens `CaseDetailPanel`. That panel embeds stored bills in `<ifra
 
 ### Solution
 
-Pass `{ preview: true }` on the utility iframe (same as internet). Explicit Download links stay without `preview` so they still attach. Search is a submit button (Enter works as Search). Date inputs use min/max plus `clampCaseDateRange`. A Created At / Updated At toggle sends `date_field` to `/api/cases` and `/api/cases/ids`.
+Pass `{ preview: true }` on the utility iframe (same as internet). Explicit Download links stay without `preview` so they still attach. Search is a submit button (Enter works as Search). To before From is **blocked** (inline error, Search disabled, no fetch, API 400). Dates are not rewritten. A Created At / Updated At toggle sends `date_field` to `/api/cases` and `/api/cases/ids`.
 
 # Previous Feature: Decode HTML entities in generated customer names
 

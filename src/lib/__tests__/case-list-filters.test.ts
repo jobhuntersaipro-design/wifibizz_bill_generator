@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   caseDateFilterBounds,
-  clampCaseDateRange,
+  isInvalidCaseDateRange,
   parseCaseDateField,
   setCaseListQueryParams,
 } from "@/lib/case-list-filters";
@@ -19,30 +19,17 @@ describe("parseCaseDateField", () => {
   });
 });
 
-describe("clampCaseDateRange", () => {
-  it("leaves a valid range alone", () => {
-    expect(clampCaseDateRange("2026-01-01", "2026-01-31")).toEqual({
-      dateFrom: "2026-01-01",
-      dateTo: "2026-01-31",
-    });
+describe("isInvalidCaseDateRange", () => {
+  it("accepts a valid or open-ended range", () => {
+    expect(isInvalidCaseDateRange("2026-01-01", "2026-01-31")).toBe(false);
+    expect(isInvalidCaseDateRange("2026-09-10", "2026-09-10")).toBe(false);
+    expect(isInvalidCaseDateRange("2026-09-10", "")).toBe(false);
+    expect(isInvalidCaseDateRange("", "2026-09-01")).toBe(false);
+    expect(isInvalidCaseDateRange("", "")).toBe(false);
   });
 
-  it("corrects To when it is before From", () => {
-    expect(clampCaseDateRange("2026-09-10", "2026-09-01")).toEqual({
-      dateFrom: "2026-09-10",
-      dateTo: "2026-09-10",
-    });
-  });
-
-  it("allows an open-ended range", () => {
-    expect(clampCaseDateRange("2026-09-10", "")).toEqual({
-      dateFrom: "2026-09-10",
-      dateTo: "",
-    });
-    expect(clampCaseDateRange("", "2026-09-01")).toEqual({
-      dateFrom: "",
-      dateTo: "2026-09-01",
-    });
+  it("flags To before From without rewriting either value", () => {
+    expect(isInvalidCaseDateRange("2026-09-10", "2026-09-01")).toBe(true);
   });
 });
 

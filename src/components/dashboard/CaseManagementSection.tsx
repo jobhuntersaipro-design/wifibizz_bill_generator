@@ -25,7 +25,8 @@ import { syncCasesToSheet } from "@/actions/settings";
 import { billDownloadPath, revisionFromPublicUrl } from "@/lib/bill-object";
 import {
   type CaseDateField,
-  clampCaseDateRange,
+  CASE_DATE_RANGE_ERROR,
+  isInvalidCaseDateRange,
   setCaseListQueryParams,
 } from "@/lib/case-list-filters";
 
@@ -295,7 +296,13 @@ export default function CaseManagementSection() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<"success" | "error" | null>(null);
   const [syncCount, setSyncCount] = useState(0);
+  const invalidDateRange = isInvalidCaseDateRange(dateFrom, dateTo);
+
   const fetchCases = useCallback(async () => {
+    if (isInvalidCaseDateRange(dateFrom, dateTo)) {
+      setCasesLoading(false);
+      return;
+    }
     setCasesLoading(true);
     const params = new URLSearchParams({
       limit: String(PAGE_SIZE),
@@ -317,20 +324,19 @@ export default function CaseManagementSection() {
   useEffect(() => { fetchCases(); }, [fetchCases]);
 
   function applySearch() {
-    const next = searchDraft.trim();
-    const clamped = clampCaseDateRange(dateFrom, dateTo);
+    if (isInvalidCaseDateRange(dateFrom, dateTo)) {
+      toast.error(CASE_DATE_RANGE_ERROR);
+      return;
+    }
     setPage(0);
-    setSearch(next);
-    setDateFrom(clamped.dateFrom);
-    setDateTo(clamped.dateTo);
+    setSearch(searchDraft.trim());
     setSelectedCases(new Set());
   }
 
   function applyDateRange(nextFrom: string, nextTo: string) {
-    const clamped = clampCaseDateRange(nextFrom, nextTo);
-    setPage(0);
-    setDateFrom(clamped.dateFrom);
-    setDateTo(clamped.dateTo);
+    setDateFrom(nextFrom);
+    setDateTo(nextTo);
+    if (!isInvalidCaseDateRange(nextFrom, nextTo)) setPage(0);
   }
 
   function clearFilters() {
@@ -380,6 +386,10 @@ export default function CaseManagementSection() {
   }
 
   async function selectAllCases() {
+    if (isInvalidCaseDateRange(dateFrom, dateTo)) {
+      toast.error(CASE_DATE_RANGE_ERROR);
+      return;
+    }
     const params = new URLSearchParams();
     setCaseListQueryParams(params, { search, status, dateFrom, dateTo, dateField });
     const res = await fetch(`/api/cases/ids?${params}`);
@@ -824,7 +834,7 @@ export default function CaseManagementSection() {
                   className="pl-9 h-9 bg-[#F6F9FC] border-[#E3E8EF] rounded-lg text-sm text-[#0A2540] placeholder:text-[#697386] focus:bg-white focus:border-[#635BFF] transition-all"
                 />
               </div>
-              <Button type="submit" className="h-9 shrink-0 rounded-lg bg-[#635BFF] px-4 text-sm font-medium text-white hover:bg-[#5851DB]">
+              <Button type="submit" disabled={invalidDateRange} className="h-9 shrink-0 rounded-lg bg-[#635BFF] px-4 text-sm font-medium text-white hover:bg-[#5851DB] disabled:cursor-not-allowed disabled:opacity-50">
                 Search
               </Button>
             </div>
@@ -855,9 +865,14 @@ export default function CaseManagementSection() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <label className="text-xs text-[#697386] whitespace-nowrap font-medium hidden sm:inline">From</label>
-              <input type="date" aria-label="From date" max={dateTo || undefined} className="h-9 rounded-lg border border-[#E3E8EF] bg-white px-2 sm:px-3 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none max-w-37.5" value={dateFrom} onChange={(e) => applyDateRange(e.target.value, dateTo)} />
+              <input type="date" aria-label="From date" aria-invalid={invalidDateRange} max={dateTo || undefined} className={`h-9 rounded-lg border bg-white px-2 sm:px-3 text-sm text-[#425466] focus:ring-1 transition-all outline-none max-w-37.5 ${invalidDateRange ? "border-[#DF1B41] focus:border-[#DF1B41] focus:ring-[#DF1B41]/20" : "border-[#E3E8EF] focus:border-[#635BFF] focus:ring-[#635BFF]/20"}`} value={dateFrom} onChange={(e) => applyDateRange(e.target.value, dateTo)} />
               <label className="text-xs text-[#697386] whitespace-nowrap font-medium hidden sm:inline">To</label>
-              <input type="date" aria-label="To date" min={dateFrom || undefined} className="h-9 rounded-lg border border-[#E3E8EF] bg-white px-2 sm:px-3 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none max-w-37.5" value={dateTo} onChange={(e) => applyDateRange(dateFrom, e.target.value)} />
+              <input type="date" aria-label="To date" aria-invalid={invalidDateRange} aria-describedby={invalidDateRange ? "case-list-date-range-error" : undefined} min={dateFrom || undefined} className={`h-9 rounded-lg border bg-white px-2 sm:px-3 text-sm text-[#425466] focus:ring-1 transition-all outline-none max-w-37.5 ${invalidDateRange ? "border-[#DF1B41] focus:border-[#DF1B41] focus:ring-[#DF1B41]/20" : "border-[#E3E8EF] focus:border-[#635BFF] focus:ring-[#635BFF]/20"}`} value={dateTo} onChange={(e) => applyDateRange(dateFrom, e.target.value)} />
+              {invalidDateRange && (
+                <p id="case-list-date-range-error" role="alert" className="w-full text-xs font-medium text-[#DF1B41]">
+                  {CASE_DATE_RANGE_ERROR}
+                </p>
+              )}
             </div>
             {hasFilters && (
               <Button type="button" variant="ghost" size="sm" className="text-xs rounded-lg text-[#DF1B41] hover:bg-red-50 hover:text-[#DF1B41] transition-colors" onClick={clearFilters}>

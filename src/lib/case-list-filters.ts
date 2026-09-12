@@ -1,13 +1,14 @@
 export type CaseDateField = "case_created_at" | "updated_at";
 
+export const CASE_DATE_RANGE_ERROR = "To cannot be before From";
+
 export function parseCaseDateField(raw: string | null | undefined): CaseDateField {
   return raw === "updated_at" ? "updated_at" : "case_created_at";
 }
 
-/** YYYY-MM-DD strings compare lexicographically. Pull To up to From when inverted. */
-export function clampCaseDateRange(from: string, to: string): { dateFrom: string; dateTo: string } {
-  if (from && to && to < from) return { dateFrom: from, dateTo: from };
-  return { dateFrom: from, dateTo: to };
+/** YYYY-MM-DD strings compare lexicographically. Open-ended ranges are valid. */
+export function isInvalidCaseDateRange(from: string, to: string): boolean {
+  return Boolean(from && to && to < from);
 }
 
 export function caseDateFilterBounds(dateField: CaseDateField, dateFrom: string, dateTo: string) {
