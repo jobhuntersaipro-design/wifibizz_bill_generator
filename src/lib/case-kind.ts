@@ -70,6 +70,11 @@ export function isBusinessCase(s: BusinessSignals): boolean {
   return false;
 }
 
+/** XOR: business cases get Bizz Chat only; normal cases get Conversation Chat only. */
+export function closingScriptVariant(s: BusinessSignals): "bizz" | "conversation" {
+  return isBusinessCase(s) ? "bizz" : "conversation";
+}
+
 export interface BizzChatFields {
   /** Company Registration No / BRN. Never NRIC. */
   customerId: string | null;

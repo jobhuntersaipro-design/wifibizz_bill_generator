@@ -19,7 +19,7 @@ import {
 } from "./icons";
 import ChatImageGenerator from "./ChatImageGenerator";
 import type { ChatScriptVariant } from "@/lib/chat-script";
-import { isBusinessCase } from "@/lib/case-kind";
+import { closingScriptVariant } from "@/lib/case-kind";
 import MergePdfDialog from "./MergePdfDialog";
 import { syncCasesToSheet } from "@/actions/settings";
 import { billDownloadPath, revisionFromPublicUrl } from "@/lib/bill-object";
@@ -195,6 +195,7 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
           <div className="border-t border-[#E3E8EF] my-5 panel-item-in"  style={{ animationDelay: "860ms" }} />
           <div className="panel-item-in" style={{ animationDelay: "880ms" }}>
             <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">Closing Script</h3>
+            {closingScriptVariant(caseData) === "conversation" && (
             <button
               onClick={() => onGenerateChat(caseData, "conversation")}
               disabled={chatLoading !== null}
@@ -211,11 +212,12 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
                 </>
               )}
             </button>
-            {isBusinessCase(caseData) && (
+            )}
+            {closingScriptVariant(caseData) === "bizz" && (
             <button
               onClick={() => onGenerateChat(caseData, "bizz")}
               disabled={chatLoading !== null}
-              className="mt-2 inline-flex items-center gap-2 text-sm font-medium text-[#0D9488] hover:text-[#0A2540] transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-70"
+              className="inline-flex items-center gap-2 text-sm font-medium text-[#0D9488] hover:text-[#0A2540] transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-70"
             >
               {chatLoading === "bizz" ? (
                 <>
@@ -545,7 +547,7 @@ export default function CaseManagementSection() {
   // script carries the real installation address.
   async function handleGenerateChat(c: CaseRow, variant: ChatScriptVariant) {
     if (chatLoadingCase) return;
-    if (variant === "bizz" && !isBusinessCase(c)) return;
+    if (variant !== closingScriptVariant(c)) return;
     const open = (caseData: CaseRow) => setChatCase({ caseData, variant });
     const needsAddress = !(c.full_address && c.full_address.trim()) && !!c.case_url;
     const needsBizzFields = variant === "bizz" && !!c.case_url && !c.director_name;
@@ -1023,6 +1025,7 @@ export default function CaseManagementSection() {
                             on the first row; a nowrap strip hid it in the last-column
                             clip when the table is scrolled to Bills. */}
                         <div className="flex flex-wrap items-start gap-1 border-l border-[#E3E8EF] pl-2 w-[296px]">
+                          {closingScriptVariant(c) === "conversation" && (
                           <button
                             title="Generate Chat"
                             aria-label={`Generate closing script chat for ${c.case_no}`}
@@ -1035,7 +1038,8 @@ export default function CaseManagementSection() {
                               : <MessageSquareIcon className="w-4 h-4" />}
                             <span className="text-[10px] leading-none font-medium text-[#697386]">Chat</span>
                           </button>
-                          {isBusinessCase(c) && (
+                          )}
+                          {closingScriptVariant(c) === "bizz" && (
                           <button
                             title="Generate Bizz Chat"
                             aria-label={`Generate bizz chat for ${c.case_no}`}

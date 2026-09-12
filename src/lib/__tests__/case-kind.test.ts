@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  closingScriptVariant,
   isBusinessCase,
   parseCompanyPair,
   resolveBizzChatFields,
@@ -64,6 +65,14 @@ describe("isBusinessCase", () => {
     expect(isBusinessCase({ company_reg: "JM0920662-D" })).toBe(true);
     expect(isBusinessCase({ full_name: "MONBLEU CAFE(JM0920662-D)" })).toBe(true);
     expect(isBusinessCase({ full_name: "TIAN ZI XUAN" })).toBe(false);
+  });
+
+  it("XORs the visible closing-script button", () => {
+    expect(closingScriptVariant({ provider: "Unifi Business" })).toBe("bizz");
+    expect(closingScriptVariant({ full_name: "MONBLEU CAFE(JM0920662-D)" })).toBe("bizz");
+    expect(closingScriptVariant({ provider: "Unifi Premium Value", package: "Unifi Home 500Mbps" })).toBe(
+      "conversation",
+    );
   });
 
   it("is normal when none of the signals fire", () => {

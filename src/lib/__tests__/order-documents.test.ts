@@ -379,10 +379,9 @@ describe("generatableDocTypes", () => {
     ]);
   });
 
-  it("includes Bizz Chat only for a business offer", () => {
+  it("includes Bizz Chat and hides Conversation Chat for a business offer", () => {
     const biz = { ...FULL, offerName: "Unifi Business 300Mbps (MESH6)" };
     expect(generatableDocTypes(biz, [], 10)).toEqual([
-      "chat",
       "bizz_chat",
       "internet_bill",
       "utility_bill",

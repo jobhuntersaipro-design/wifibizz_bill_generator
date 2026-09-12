@@ -1893,7 +1893,11 @@ export function OrderForm({
               </div>
 
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {GENERATED_DOCS.filter((g) => g.type !== "bizz_chat" || isBusinessOrder(genSource)).map((g) => {
+                {GENERATED_DOCS.filter((g) => {
+                  if (g.type === "bizz_chat") return isBusinessOrder(genSource);
+                  if (g.type === "chat") return !isBusinessOrder(genSource);
+                  return true;
+                }).map((g) => {
                   const missing = missingFieldsFor(g.type, genSource);
                   const blocked = missing.length > 0;
                   const running = genDoc === g.type;

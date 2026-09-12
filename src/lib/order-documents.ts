@@ -269,7 +269,8 @@ export function generatableDocTypes(
     (g) =>
       !isDocTypeAttached(g.type, docs) &&
       missingFieldsFor(g.type, source).length === 0 &&
-      (g.type !== "bizz_chat" || isBusinessOrder(source)),
+      (g.type !== "bizz_chat" || isBusinessOrder(source)) &&
+      (g.type !== "chat" || !isBusinessOrder(source)),
   )
     .slice(0, Math.max(0, slotsLeft))
     .map((g) => g.type);
