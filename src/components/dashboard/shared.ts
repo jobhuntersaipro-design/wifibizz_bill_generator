@@ -39,6 +39,12 @@ export interface CaseRow {
   utility_bill_url: string | null;
   case_created_at: string | null;
   updated_at: string | null;
+  /** WifiBizz Company Name — filled at Bizz Chat generate time from the detail page. */
+  company_name?: string | null;
+  /** WifiBizz Company Registration No (BRN). */
+  company_reg?: string | null;
+  /** Customer-tab Name / director, not the company. */
+  director_name?: string | null;
 }
 
 export type SortDir = "asc" | "desc";

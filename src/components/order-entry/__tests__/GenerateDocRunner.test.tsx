@@ -49,7 +49,7 @@ describe("GenerateDocRunner", () => {
     const text = textOf(markup("bizz_chat"));
     expect(text).toContain("Customer Name (as per NRIC/Passport) : PHONG KONE LEE");
     expect(text).toContain("Contact Number : 60148893212");
-    expect(text).toContain("Customer ID ( i.e BRN): 920505034434");
+    expect(text).not.toContain("Customer ID ( i.e BRN): 920505034434");
     expect(text).toContain("Business Owner Name: PHONG KONE LEE");
     expect(text).toContain("Billing Address : SAME AS ABOVE");
     expect(text).toContain("Package to be subscribed : Unifi Biz 100Mbps");
@@ -60,5 +60,14 @@ describe("GenerateDocRunner", () => {
     expect(text).not.toContain(
       "I hereby agree all the information provided to TM is correct and genuine.",
     );
+  });
+
+  it("keeps Conversation Chat on the residential path even when the offer is Business", () => {
+    const text = textOf(markup("chat"));
+    expect(text).toContain("UNIFI");
+    expect(text).toContain("Customer IC/Passport No.");
+    expect(text).not.toContain("Customer ID ( i.e BRN)");
+    expect(text).not.toContain("Business Owner Name");
+    expect(text).not.toContain("biz.unifi.com.my");
   });
 });

@@ -368,8 +368,20 @@ describe("spec slugs match what the uploader stores", () => {
 describe("generatableDocTypes", () => {
   const attached = (...names: string[]) => names.map((filename) => ({ filename }));
 
-  it("returns all seven, in card order, for a filled form with nothing attached", () => {
+  it("returns the six residential kinds for a Home offer, hiding Bizz Chat", () => {
     expect(generatableDocTypes(FULL, [], 10)).toEqual([
+      "chat",
+      "internet_bill",
+      "utility_bill",
+      "tenancy_agreement",
+      "authorization_letter",
+      "time_invoice",
+    ]);
+  });
+
+  it("includes Bizz Chat only for a business offer", () => {
+    const biz = { ...FULL, offerName: "Unifi Business 300Mbps (MESH6)" };
+    expect(generatableDocTypes(biz, [], 10)).toEqual([
       "chat",
       "bizz_chat",
       "internet_bill",
@@ -386,7 +398,6 @@ describe("generatableDocTypes", () => {
       "920505034434_timeinvoice_1.pdf",
     );
     expect(generatableDocTypes(FULL, docs, 10)).toEqual([
-      "bizz_chat",
       "internet_bill",
       "utility_bill",
       "tenancy_agreement",
@@ -406,7 +417,7 @@ describe("generatableDocTypes", () => {
   });
 
   it("caps the queue to the attachment slots left", () => {
-    expect(generatableDocTypes(FULL, [], 2)).toEqual(["chat", "bizz_chat"]);
+    expect(generatableDocTypes(FULL, [], 2)).toEqual(["chat", "internet_bill"]);
     expect(generatableDocTypes(FULL, [], 0)).toEqual([]);
     // A negative slot count (more docs than the cap allows) must not throw.
     expect(generatableDocTypes(FULL, [], -1)).toEqual([]);

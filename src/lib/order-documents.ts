@@ -9,6 +9,7 @@
 // route (what to build) and the dialog (what to attach it as), so the three can
 // never disagree about what a document needs.
 
+import { isBusinessCase } from "./case-kind";
 import type { ChatScriptVariant } from "./chat-script";
 
 /** The documents an order draft can produce. */
@@ -42,6 +43,10 @@ export interface GeneratorSource {
   fullAddress: string;
   mobile: string;
   offerName: string;
+  offerCategory?: string;
+  serviceCategory?: string;
+  companyName?: string;
+  companyReg?: string;
 }
 
 export interface GeneratedDocSpec {
@@ -244,13 +249,27 @@ export function isDocTypeAttached(
  * disagree — and the queue re-applies it before each step, since every attach
  * consumes a slot and can change the answer.
  */
+export function isBusinessOrder(source: Partial<GeneratorSource>): boolean {
+  return isBusinessCase({
+    provider: source.serviceCategory,
+    package: source.offerName,
+    offer_category: source.offerCategory,
+    company_name: source.companyName,
+    company_reg: source.companyReg,
+    full_name: source.fullName,
+  });
+}
+
 export function generatableDocTypes(
   source: Partial<GeneratorSource>,
   docs: readonly { filename: string }[],
   slotsLeft: number,
 ): GeneratedDocType[] {
   return GENERATED_DOCS.filter(
-    (g) => !isDocTypeAttached(g.type, docs) && missingFieldsFor(g.type, source).length === 0,
+    (g) =>
+      !isDocTypeAttached(g.type, docs) &&
+      missingFieldsFor(g.type, source).length === 0 &&
+      (g.type !== "bizz_chat" || isBusinessOrder(source)),
   )
     .slice(0, Math.max(0, slotsLeft))
     .map((g) => g.type);

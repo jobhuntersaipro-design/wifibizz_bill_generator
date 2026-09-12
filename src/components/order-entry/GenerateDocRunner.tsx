@@ -145,6 +145,8 @@ export default function GenerateDocRunner({ type, source, existingOfType, onDone
     id_no: source.idNumber,
     provider: source.serviceCategory || null,
     package: source.offerName,
+    company_name: source.companyName ?? null,
+    company_reg: source.companyReg ?? null,
     order_no: null,
     agent: null,
     agent_remark: null,

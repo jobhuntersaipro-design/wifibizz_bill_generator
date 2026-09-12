@@ -19,6 +19,7 @@ import {
 } from "./icons";
 import ChatImageGenerator from "./ChatImageGenerator";
 import type { ChatScriptVariant } from "@/lib/chat-script";
+import { isBusinessCase } from "@/lib/case-kind";
 import MergePdfDialog from "./MergePdfDialog";
 import { syncCasesToSheet } from "@/actions/settings";
 import { billDownloadPath, revisionFromPublicUrl } from "@/lib/bill-object";
@@ -210,6 +211,7 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
                 </>
               )}
             </button>
+            {isBusinessCase(caseData) && (
             <button
               onClick={() => onGenerateChat(caseData, "bizz")}
               disabled={chatLoading !== null}
@@ -226,6 +228,7 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
                 </>
               )}
             </button>
+            )}
           </div>
         </div>
         {caseData.case_url && (
@@ -542,8 +545,11 @@ export default function CaseManagementSection() {
   // script carries the real installation address.
   async function handleGenerateChat(c: CaseRow, variant: ChatScriptVariant) {
     if (chatLoadingCase) return;
+    if (variant === "bizz" && !isBusinessCase(c)) return;
     const open = (caseData: CaseRow) => setChatCase({ caseData, variant });
-    if ((c.full_address && c.full_address.trim()) || !c.case_url) {
+    const needsAddress = !(c.full_address && c.full_address.trim()) && !!c.case_url;
+    const needsBizzFields = variant === "bizz" && !!c.case_url && !c.director_name;
+    if (!needsAddress && !needsBizzFields) {
       open(c);
       return;
     }
@@ -552,18 +558,28 @@ export default function CaseManagementSection() {
       const res = await fetch("/api/cases/address", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ caseNos: [c.case_no] }),
+        body: JSON.stringify({ caseNos: [c.case_no], includeBizzFields: needsBizzFields }),
       });
       const body = await res.json().catch(() => ({}));
       const address: string | undefined = body?.addresses?.[c.case_no];
+      const bizz = body?.bizzFields?.[c.case_no] as
+        | { companyName?: string; companyReg?: string; customerName?: string }
+        | undefined;
+      const merged: CaseRow = {
+        ...c,
+        full_address: address || c.full_address,
+        company_name: bizz?.companyName || c.company_name,
+        company_reg: bizz?.companyReg || c.company_reg,
+        director_name: bizz?.customerName || c.director_name,
+      };
       if (address) {
         setCases((prev) => prev.map((r) => (r.case_no === c.case_no ? { ...r, full_address: address } : r)));
         setSelectedCase((prev) => (prev && prev.case_no === c.case_no ? { ...prev, full_address: address } : prev));
-        open({ ...c, full_address: address });
-      } else {
-        toast.error("Couldn't fetch the installation address — generating chat without it.");
-        open(c);
       }
+      if (needsAddress && !address) {
+        toast.error("Couldn't fetch the installation address — generating chat without it.");
+      }
+      open(merged);
     } catch (err) {
       console.error("Address fetch failed:", err);
       toast.error("Couldn't fetch the installation address — generating chat without it.");
@@ -1019,6 +1035,7 @@ export default function CaseManagementSection() {
                               : <MessageSquareIcon className="w-4 h-4" />}
                             <span className="text-[10px] leading-none font-medium text-[#697386]">Chat</span>
                           </button>
+                          {isBusinessCase(c) && (
                           <button
                             title="Generate Bizz Chat"
                             aria-label={`Generate bizz chat for ${c.case_no}`}
@@ -1031,6 +1048,7 @@ export default function CaseManagementSection() {
                               : <MessageSquareIcon className="w-4 h-4" />}
                             <span className="text-[10px] leading-none font-medium text-[#697386] text-center">bizz chat</span>
                           </button>
+                          )}
                           <button
                             title={c.internet_bill_url ? "Download Internet Bill" : "Generate Internet Bill"}
                             aria-label={c.internet_bill_url ? `Download internet bill for ${c.case_no}` : `Generate internet bill for ${c.case_no}`}

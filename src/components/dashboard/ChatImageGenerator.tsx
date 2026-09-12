@@ -7,17 +7,10 @@ import { toPng } from "html-to-image";
 import type { CaseRow } from "./shared";
 import { CloseIcon, DownloadIcon } from "./icons";
 import {
-  formatInstallDate,
-  formatMobileRaw,
-  formatPackage,
-  type ChatScript,
+  buildConversationChatScript,
   type ChatScriptVariant,
 } from "@/lib/chat-script";
 import { buildBizzChatScript } from "@/lib/bizz-chat-script";
-
-function isBusiness(provider: string | null): boolean {
-  return !!provider && provider.toLowerCase().includes("business");
-}
 
 function formatMobileDisplay(mobile: string | null): string {
   if (!mobile) return "";
@@ -68,80 +61,12 @@ function TextWithLinks({ text, style }: { text: string; style?: React.CSSPropert
   );
 }
 
-// Builds the closing script lines as structured data for rendering
-function buildScriptLines(c: CaseRow, installOffsetDays: number): { label: string; value: string }[] {
-  const name = c.full_name || "—";
-  const mobile = formatMobileRaw(c.mobile);
-  const idNo = c.id_no || "—";
-  const email = c.email || "—";
-  const address = c.full_address || "—";
-  const pkg = formatPackage(c.package);
-  const installDate = formatInstallDate(c.case_created_at, installOffsetDays);
-
-  if (isBusiness(c.provider)) {
-    return [
-      { label: "1.\u2060 \u2060Customer Name (as per NRIC/Passport) :", value: name },
-      { label: "2.\u2060 \u2060Contact Number :", value: mobile },
-      { label: "3.\u2060 \u2060Customer ID ( i.e BRN) :", value: idNo },
-      { label: "4.\u2060 \u2060Business Owner Name :", value: name },
-      { label: "5.\u2060 \u2060Email Address :", value: email },
-      { label: "6.\u2060 \u2060Installation Address : ", value: address },
-      { label: "7.\u2060 \u2060Billing Address :", value: "same as above" },
-      { label: "8.\u2060 \u2060Package to be subscribed :", value: pkg },
-      { label: "9.\u2060 \u2060Preferred Installation Date :", value: installDate },
-      { label: "10.Representative Name ( if any) :", value: "-" },
-    ];
-  }
-
-  return [
-    { label: "1.\u2060 \u2060Customer Name (as per NRIC/Passport): ", value: name },
-    { label: "2.\u2060 \u2060Contact Number: ", value: mobile },
-    { label: "3.\u2060 \u2060Customer IC/Passport No.: ", value: idNo },
-    { label: "4.\u2060 \u2060Email Address:", value: "" },
-    { label: "", value: email },
-    { label: "5.\u2060 \u2060Installation Address: ", value: address },
-    { label: "6.\u2060 \u2060Package to be Subscribed: ", value: pkg },
-    { label: "7.\u2060 \u2060Preferred Installation Date: ", value: installDate },
-  ];
-}
-
-function getTerms(provider: string | null): string[] {
-  if (isBusiness(provider)) {
-    return [
-      "I hereby consent to subscribed the service with subscription contract of 36 months.",
-      "I have been informed on the Terms & Condition as at https://biz.unifi.com.my/business/biz-tnc and Privacy Notice of TM",
-      "I agree to pay advance payment of RM 100 within 10 days after installation complete",
-      "I hereby agree all the information provided to TM is correct and genuine.",
-      "I hereby consent TM representative to proceed and process my order. Kindly notify me if there is any issues pertaining to my request.",
-    ];
-  }
-  return [
-    "I hereby consent to subscribed the service with subscription contract of 24/27/30/36 months.",
-    "I agree to pay advance payment of RM100 for Malaysian within 10 days after installation complete or Deposit RM500 for foreigner before installation",
-    "I have been informed on the Terms & Condition as at https://unifi.com.my/personal/home/fibre-broadband/tnc and Privacy Notice of TM",
-    "I hereby consent TM representative to proceed and process my order. Kindly notify me if there is any issues pertaining to my request.",
-    "I acknowledge that the package order cannot be cancelled once the order has been submitted. Where applicable, I agree to bear any device penalty or related charges arising from cancellation, including where the device has already been processed for delivery.",
-    "I acknowledge and agree to be liable for all applicable costs, charges, device penalties and expenses arising from any cancellation, early termination or breach of the applicable subscription terms.",
-    "I hereby authorise the *TM representative* to proceed with and process my order based on the information provided.",
-  ];
-}
-
-function buildConversationScript(c: CaseRow, installOffsetDays: number): ChatScript {
-  return {
-    heading: isBusiness(c.provider) ? undefined : "UNIFI",
-    lines: buildScriptLines(c, installOffsetDays),
-    terms: getTerms(c.provider),
-    consent: "By replying \u201CYES\u201D , I hereby acknowledge, confirm and agree to the following.",
-    agreement: "YES I AGREED",
-  };
-}
-
 // Everything that differs between the two chats, in one row per variant, so the
 // chrome and the modal read from it instead of branching on the variant.
 const CHAT_VARIANTS: Record<
   ChatScriptVariant,
   {
-    build: (c: CaseRow, installOffsetDays: number) => ChatScript;
+    build: (c: CaseRow, installOffsetDays: number) => ReturnType<typeof buildConversationChatScript>;
     /** Follows the case number in the modal header. */
     kind: (c: CaseRow) => string;
     /** Prefix of the downloaded PNG's filename. */
@@ -149,8 +74,8 @@ const CHAT_VARIANTS: Record<
   }
 > = {
   conversation: {
-    build: buildConversationScript,
-    kind: (c) => (isBusiness(c.provider) ? "Business" : "Home"),
+    build: buildConversationChatScript,
+    kind: () => "Home",
     filePrefix: "closing_script",
   },
   bizz: {

@@ -3,13 +3,15 @@ import { buildBizzChatScript, type BizzChatSource } from "../bizz-chat-script";
 import type { ChatScript } from "../chat-script";
 
 const CASE: BizzChatSource = {
-  full_name: "PHONG KONE LEE",
+  full_name: "MONBLEU CAFE(JM0920662-D)",
   mobile: "+60148893212",
-  id_no: "201501012345",
+  id_no: "981020016087",
   email: "phong@example.com",
   full_address: "C-30-11 JALAN ECO MAJESTIC 3A/5, 43500 SEMENYIH, SELANGOR",
   package: "Unifi Biz 100Mbps + Router",
   case_created_at: "2026-03-28T12:00:00",
+  company_reg: "JM0920662-D",
+  director_name: "TIAN ZI XUAN",
 };
 
 const EMPTY: BizzChatSource = {
@@ -39,10 +41,10 @@ describe("buildBizzChatScript", () => {
   it("prints the ticket's template word for word from a full case", () => {
     expect(asChatText(buildBizzChatScript(CASE, 3))).toBe(
       [
-        "Customer Name (as per NRIC/Passport) : PHONG KONE LEE",
+        "Customer Name (as per NRIC/Passport) : MONBLEU CAFE(JM0920662-D)",
         "Contact Number : 60148893212",
-        "Customer ID ( i.e BRN): 201501012345",
-        "Business Owner Name: PHONG KONE LEE",
+        "Customer ID ( i.e BRN): JM0920662-D",
+        "Business Owner Name: TIAN ZI XUAN",
         "Email Address : phong@example.com",
         "Installation Address: C-30-11 JALAN ECO MAJESTIC 3A/5, 43500 SEMENYIH, SELANGOR",
         "Billing Address : SAME AS ABOVE",
@@ -93,6 +95,22 @@ describe("buildBizzChatScript", () => {
     expect(value("Business Owner Name: ")).toBe("—");
     expect(value("Contact Number : ")).toBe("—");
     expect(value("Package to be subscribed : ")).toBe("—");
+  });
+
+  it("never prints NRIC as Customer ID or the company as Business Owner", () => {
+    const lines = buildBizzChatScript(
+      {
+        ...CASE,
+        company_reg: null,
+        director_name: null,
+      },
+      3,
+    ).lines;
+    const value = (label: string) => lines.find((l) => l.label === label)?.value;
+    expect(value("Customer ID ( i.e BRN): ")).toBe("JM0920662-D");
+    expect(value("Business Owner Name: ")).toBe("—");
+    expect(value("Customer ID ( i.e BRN): ")).not.toBe("981020016087");
+    expect(value("Business Owner Name: ")).not.toBe("MONBLEU CAFE(JM0920662-D)");
   });
 
   describe("preferred installation date", () => {

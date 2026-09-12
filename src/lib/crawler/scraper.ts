@@ -174,12 +174,51 @@ async function fetchPage(
 // Exported for lazy, on-demand use at bill-generation time — the crawl no longer
 // fetches addresses inline (too many detail pages for a month of platform data).
 
+export interface CaseDetailFields {
+  address: string;
+  companyName: string;
+  companyReg: string;
+  /** Customer-tab Name / Full Name (as per ID) — the director, not the company. */
+  customerName: string;
+}
+
+function normalizeDetailLabel(raw: string): string {
+  return raw.replace(/\s+/g, " ").trim().replace(/\s*\*$/, "").replace(/\.$/, "");
+}
+
+/** Label/value pairs from a WifiBizz case view or edit page. */
+export function parseCaseDetailFields(html: string): CaseDetailFields {
+  const $ = cheerio.load(html);
+  const out: CaseDetailFields = { address: "", companyName: "", companyReg: "", customerName: "" };
+  $("label").each((_, el) => {
+    const label = normalizeDetailLabel($(el).text());
+    const value = $(el).next().text().replace(/\s+/g, " ").trim();
+    if (!value) return;
+    if (label === "Address") out.address = value;
+    else if (label === "Company Name") out.companyName = value;
+    else if (label === "Company Registration No") out.companyReg = value;
+    else if (label === "Name" || label === "Full Name (as per ID)") out.customerName = value;
+  });
+  return out;
+}
+
 export async function fetchCaseAddress(
   baseUrl: string,
   session: LoginSession,
   caseId: number,
   module: string = "home_fibre"
 ): Promise<string> {
+  const fields = await fetchCaseDetail(baseUrl, session, caseId, module);
+  return fields.address;
+}
+
+async function fetchCaseDetail(
+  baseUrl: string,
+  session: LoginSession,
+  caseId: number,
+  module: string = "home_fibre",
+): Promise<CaseDetailFields> {
+  const empty: CaseDetailFields = { address: "", companyName: "", companyReg: "", customerName: "" };
   const res = await fetch(`${baseUrl}/applications/${caseId}?module=${module}`, {
     headers: {
       Cookie: session.cookies,
@@ -188,21 +227,8 @@ export async function fetchCaseAddress(
     signal: AbortSignal.timeout(30000),
   });
 
-  if (!res.ok) return "";
-
-  const html = await res.text();
-  const $ = cheerio.load(html);
-
-  // Address is in a <label> with text "Address" — the next sibling has the value
-  let address = "";
-  $("label").each((_, el) => {
-    if ($(el).text().trim() === "Address") {
-      address = $(el).next().text().trim();
-      return false;
-    }
-  });
-
-  return address;
+  if (!res.ok) return empty;
+  return parseCaseDetailFields(await res.text());
 }
 
 // ── Step 4: Extract all cases ──
@@ -406,12 +432,12 @@ export async function crawl(
 // id + module are parsed from the stored `case_url`
 // (…/applications/<id>?module=<operator_type>). Best-effort — a case that can't be
 // resolved is simply omitted from the result. Returns { case_no: address }.
-export async function fetchAddressesForCases(
+export async function fetchCaseDetailsForCases(
   email: string,
   password: string,
-  items: { caseNo: string; caseUrl: string }[]
-): Promise<Record<string, string>> {
-  const out: Record<string, string> = {};
+  items: { caseNo: string; caseUrl: string }[],
+): Promise<Record<string, CaseDetailFields>> {
+  const out: Record<string, CaseDetailFields> = {};
   if (items.length === 0) return out;
 
   const baseUrl = getBaseUrl();
@@ -425,13 +451,28 @@ export async function fetchAddressesForCases(
         const m = it.caseUrl?.match(/\/applications\/(\d+)(?:\/edit)?\?module=([a-z0-9_]+)/i);
         if (!m) return;
         try {
-          const addr = await fetchCaseAddress(baseUrl, session, Number(m[1]), m[2]);
-          if (addr && addr.trim()) out[it.caseNo] = addr.trim();
+          const fields = await fetchCaseDetail(baseUrl, session, Number(m[1]), m[2]);
+          if (fields.address || fields.companyReg || fields.customerName || fields.companyName) {
+            out[it.caseNo] = fields;
+          }
         } catch {
-          // best-effort — leave this case unresolved (bill just won't get an address)
+          // best-effort — leave this case unresolved
         }
       })
     );
+  }
+  return out;
+}
+
+export async function fetchAddressesForCases(
+  email: string,
+  password: string,
+  items: { caseNo: string; caseUrl: string }[]
+): Promise<Record<string, string>> {
+  const details = await fetchCaseDetailsForCases(email, password, items);
+  const out: Record<string, string> = {};
+  for (const [caseNo, fields] of Object.entries(details)) {
+    if (fields.address.trim()) out[caseNo] = fields.address.trim();
   }
   return out;
 }

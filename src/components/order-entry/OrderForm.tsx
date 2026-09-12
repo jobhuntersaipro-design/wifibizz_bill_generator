@@ -21,7 +21,7 @@ import {
   hasSupportingDocument,
   type OrderDocument,
 } from "@/lib/order-types";
-import { GENERATED_DOCS, docSpec, generatableDocTypes, isDocTypeAttached, missingFieldsFor, type GeneratedDocType } from "@/lib/order-documents";
+import { GENERATED_DOCS, docSpec, generatableDocTypes, isBusinessOrder, isDocTypeAttached, missingFieldsFor, type GeneratedDocType } from "@/lib/order-documents";
 import {
   COMBINED_DOC_TYPE,
   MIN_COMBINE,
@@ -405,6 +405,7 @@ export function OrderForm({
     idType,
     email: email.trim(),
     serviceCategory,
+    offerCategory,
   };
 
   // What "Generate all" would run right now. Also the button's count, so the
@@ -1892,7 +1893,7 @@ export function OrderForm({
               </div>
 
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {GENERATED_DOCS.map((g) => {
+                {GENERATED_DOCS.filter((g) => g.type !== "bizz_chat" || isBusinessOrder(genSource)).map((g) => {
                   const missing = missingFieldsFor(g.type, genSource);
                   const blocked = missing.length > 0;
                   const running = genDoc === g.type;

@@ -1,4 +1,43 @@
-# Current Feature: Long-window crawls (6m / 1y) actually finish and save
+# Current Feature: Separate Bizz vs normal chat; fix BRN + Director mapping
+
+## Status
+
+In Progress
+
+## Goals
+
+- Business vs normal detection so Bizz Chat is only available on business cases
+- Bizz Chat Customer ID = Company Registration No (BRN), not NRIC
+- Bizz Chat Business Owner = Customer-tab Name / director, not company name
+- Conversation Chat stays on the residential template even for Unifi Business cases
+- Normal residential cases: Bizz Chat hidden; Conversation Chat still works
+- Other Bills generates and case edit fields unchanged (mapping only)
+
+## Notes
+
+ClickUp z8v9xnfqru. Golden case `202648711` (MONBLEU CAFE / Unifi Business).
+Two generate paths only — do not invent a third chat type.
+
+### Final business-vs-normal rule (in `isBusinessCase`)
+
+Treat as **business** if any of:
+1. provider or package matches Unifi Business / Business Fibre (`\bbusiness(\s+fibre)?\b`)
+2. case_url has `module=biz_fibre` (WifiBizz Bizz module — how cases are tagged Bizz)
+3. Order Entry offer category matches `\bbiz\b` (Biz catalogue)
+4. an explicit tag token `Bizz`
+5. Company Name or Company Registration No is set, including the crawled `COMPANY(REG)` shape in `full_name`
+
+Otherwise **normal**.
+
+### Root cause
+
+The list API already has `company_name` + `company_reg`, and the Customer tab Name is the director. The crawler stored `customer_name` (often `MONBLEU CAFE(JM0920662-D)`) as `full_name` and `customer_id_no` (NRIC) as `id_no`. Bizz Chat then mapped Customer ID → `id_no` and Business Owner → `full_name`. Conversation Chat still had a leftover `isBusiness(provider)` branch that printed the BRN/owner T&C template.
+
+### Solution
+
+`resolveBizzChatFields` maps BRN from `company_reg` or `COMPANY(REG)`, never NRIC; owner from Customer-tab Name (fetched from the same detail page as address), never the company. Conversation Chat always uses the residential builder. Bizz Chat is hidden on normal cases.
+
+# Previous Feature: Long-window crawls (6m / 1y) actually finish and save
 
 ## Status
 
