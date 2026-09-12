@@ -86,6 +86,13 @@ describe("Case List generate overwrites the stored bill object", () => {
     );
     expect(internetHandler).not.toContain("window.open(");
     expect(internetHandler).toContain("45_000");
+
+    const utilityPreview = caseList.slice(
+      caseList.indexOf('title="Utility Bill Preview"') - 280,
+      caseList.indexOf('title="Utility Bill Preview"'),
+    );
+    expect(utilityPreview).toContain("preview: true");
+    expect(utilityPreview).toContain('"utility"');
   });
 
   it("empty-pool bytes are 3 pages and not the previous 4-page combine", async () => {

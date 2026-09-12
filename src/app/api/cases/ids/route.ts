@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { neon } from "@neondatabase/serverless";
 import { prisma } from "@/lib/prisma";
+import { caseDateFilterBounds, parseCaseDateField } from "@/lib/case-list-filters";
 
 export async function GET(request: Request) {
   try {
@@ -27,6 +28,11 @@ export async function GET(request: Request) {
     const status = url.searchParams.get("status")?.trim() ?? "";
     const dateFrom = url.searchParams.get("date_from")?.trim() ?? "";
     const dateTo = url.searchParams.get("date_to")?.trim() ?? "";
+    const { createdFrom, createdTo, updatedFrom, updatedTo } = caseDateFilterBounds(
+      parseCaseDateField(url.searchParams.get("date_field")),
+      dateFrom,
+      dateTo,
+    );
 
     const sql = neon(process.env.DATABASE_URL!);
     const searchPattern = search ? `%${search}%` : "";
@@ -44,8 +50,10 @@ export async function GET(request: Request) {
           OR full_address ILIKE ${searchPattern}
         ))
         AND (${!status} OR status = ${status})
-        AND (${!dateFrom} OR case_created_at >= ${dateFrom || '1970-01-01'}::timestamp)
-        AND (${!dateTo} OR case_created_at <= (${dateTo || '9999-12-31'}::date + interval '1 day'))
+        AND (${!createdFrom} OR case_created_at >= ${createdFrom || '1970-01-01'}::timestamp)
+        AND (${!createdTo} OR case_created_at <= (${createdTo || '9999-12-31'}::date + interval '1 day'))
+        AND (${!updatedFrom} OR updated_at >= ${updatedFrom || '1970-01-01'}::timestamp)
+        AND (${!updatedTo} OR updated_at <= (${updatedTo || '9999-12-31'}::date + interval '1 day'))
       ORDER BY case_created_at DESC
     `;
 
