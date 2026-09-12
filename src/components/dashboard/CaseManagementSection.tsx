@@ -23,6 +23,12 @@ import { closingScriptVariant } from "@/lib/case-kind";
 import MergePdfDialog from "./MergePdfDialog";
 import { syncCasesToSheet } from "@/actions/settings";
 import { billDownloadPath, revisionFromPublicUrl } from "@/lib/bill-object";
+import {
+  type CaseDateField,
+  CASE_DATE_RANGE_ERROR,
+  isInvalidCaseDateRange,
+  setCaseListQueryParams,
+} from "@/lib/case-list-filters";
 
 // ── Case Detail Panel ──
 
@@ -144,7 +150,7 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
             {caseData.utility_bill_url ? (
               <div className="space-y-3">
                 <div className="rounded-lg border border-[#E3E8EF] overflow-hidden bg-[#F6F9FC]">
-                  <iframe src={billDownloadPath(caseData.case_no, "utility", `${revisionFromPublicUrl(caseData.utility_bill_url)}-${cacheBuster}`)} className="w-full h-100" title="Utility Bill Preview" />
+                  <iframe src={billDownloadPath(caseData.case_no, "utility", `${revisionFromPublicUrl(caseData.utility_bill_url)}-${cacheBuster}`, { preview: true })} className="w-full h-100" title="Utility Bill Preview" />
                 </div>
                 <a href={billDownloadPath(caseData.case_no, "utility", `${revisionFromPublicUrl(caseData.utility_bill_url)}-${cacheBuster}`)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-[#FF6B35] hover:text-[#0A2540] transition-colors duration-200">
                   <DownloadIcon className="w-3.5 h-3.5" />Download Utility Bill
@@ -252,10 +258,12 @@ export default function CaseManagementSection() {
   const [cases, setCases] = useState<CaseRow[]>([]);
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(0);
+  const [searchDraft, setSearchDraft] = useState("");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [dateField, setDateField] = useState<CaseDateField>("case_created_at");
   const [casesLoading, setCasesLoading] = useState(true);
   const [lastCrawlAt, setLastCrawlAt] = useState<string | null>(null);
   const [sort, setSort] = useState<SortState>({ column: "case_created_at", dir: "desc" });
@@ -288,9 +296,13 @@ export default function CaseManagementSection() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<"success" | "error" | null>(null);
   const [syncCount, setSyncCount] = useState(0);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const invalidDateRange = isInvalidCaseDateRange(dateFrom, dateTo);
 
   const fetchCases = useCallback(async () => {
+    if (isInvalidCaseDateRange(dateFrom, dateTo)) {
+      setCasesLoading(false);
+      return;
+    }
     setCasesLoading(true);
     const params = new URLSearchParams({
       limit: String(PAGE_SIZE),
@@ -298,10 +310,7 @@ export default function CaseManagementSection() {
       sort_by: sort.column,
       sort_dir: sort.dir,
     });
-    if (search) params.set("search", search);
-    if (status) params.set("status", status);
-    if (dateFrom) params.set("date_from", dateFrom);
-    if (dateTo) params.set("date_to", dateTo);
+    setCaseListQueryParams(params, { search, status, dateFrom, dateTo, dateField });
 
     const res = await fetch(`/api/cases?${params}`);
     const json = await res.json();
@@ -310,17 +319,34 @@ export default function CaseManagementSection() {
     if (json.statuses) setStatuses(json.statuses);
     if (json.last_crawl_at !== undefined) setLastCrawlAt(json.last_crawl_at);
     setCasesLoading(false);
-  }, [page, search, status, dateFrom, dateTo, sort]);
+  }, [page, search, status, dateFrom, dateTo, dateField, sort]);
 
   useEffect(() => { fetchCases(); }, [fetchCases]);
 
-  function handleSearchChange(value: string) {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      setPage(0);
-      setSearch(value);
-      setSelectedCases(new Set());
-    }, 300);
+  function applySearch() {
+    if (isInvalidCaseDateRange(dateFrom, dateTo)) {
+      toast.error(CASE_DATE_RANGE_ERROR);
+      return;
+    }
+    setPage(0);
+    setSearch(searchDraft.trim());
+    setSelectedCases(new Set());
+  }
+
+  function applyDateRange(nextFrom: string, nextTo: string) {
+    setDateFrom(nextFrom);
+    setDateTo(nextTo);
+    if (!isInvalidCaseDateRange(nextFrom, nextTo)) setPage(0);
+  }
+
+  function clearFilters() {
+    setSearchDraft("");
+    setSearch("");
+    setStatus("Activated");
+    setDateFrom("");
+    setDateTo("");
+    setDateField("case_created_at");
+    setPage(0);
   }
 
   function handleSort(column: string) {
@@ -360,11 +386,12 @@ export default function CaseManagementSection() {
   }
 
   async function selectAllCases() {
+    if (isInvalidCaseDateRange(dateFrom, dateTo)) {
+      toast.error(CASE_DATE_RANGE_ERROR);
+      return;
+    }
     const params = new URLSearchParams();
-    if (search) params.set("search", search);
-    if (status) params.set("status", status);
-    if (dateFrom) params.set("date_from", dateFrom);
-    if (dateTo) params.set("date_to", dateTo);
+    setCaseListQueryParams(params, { search, status, dateFrom, dateTo, dateField });
     const res = await fetch(`/api/cases/ids?${params}`);
     const json = await res.json();
     const allNos = (json.case_nos ?? []) as string[];
@@ -792,12 +819,24 @@ export default function CaseManagementSection() {
           </p>
         </div>
 
-        {/* Filters bar */}
+        {/* Filters bar. Search applies on the button or Enter (form submit). */}
         <div className="bg-white rounded-lg border border-[#E3E8EF] p-4 animate-fade-in-up" style={{ animationDelay: "550ms" }}>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex-1 min-w-0 sm:min-w-55 max-w-sm relative group">
-              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#697386] transition-colors group-focus-within:text-[#635BFF]" />
-              <Input placeholder="Search name, case no, mobile, provider..." defaultValue="" onChange={(e) => handleSearchChange(e.target.value)} className="pl-9 h-9 bg-[#F6F9FC] border-[#E3E8EF] rounded-lg text-sm text-[#0A2540] placeholder:text-[#697386] focus:bg-white focus:border-[#635BFF] transition-all" />
+          <form className="flex flex-wrap items-center gap-3" onSubmit={(e) => { e.preventDefault(); applySearch(); }}>
+            <div className="flex min-w-0 flex-1 items-center gap-2 sm:min-w-55 max-w-lg">
+              <div className="relative group min-w-0 flex-1">
+                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#697386] transition-colors group-focus-within:text-[#635BFF]" />
+                <Input
+                  value={searchDraft}
+                  onChange={(e) => setSearchDraft(e.target.value)}
+                  placeholder="Search name, case no, mobile, provider…"
+                  title="Press Enter or click Search"
+                  aria-label="Search cases. Press Enter or click Search to apply."
+                  className="pl-9 h-9 bg-[#F6F9FC] border-[#E3E8EF] rounded-lg text-sm text-[#0A2540] placeholder:text-[#697386] focus:bg-white focus:border-[#635BFF] transition-all"
+                />
+              </div>
+              <Button type="submit" disabled={invalidDateRange} className="h-9 shrink-0 rounded-lg bg-[#635BFF] px-4 text-sm font-medium text-white hover:bg-[#5851DB] disabled:cursor-not-allowed disabled:opacity-50">
+                Search
+              </Button>
             </div>
             <div className="relative">
               <select className="h-9 rounded-lg border border-[#E3E8EF] bg-white pl-3 pr-9 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none appearance-none" value={status} onChange={(e) => { setPage(0); setStatus(e.target.value); }}>
@@ -806,18 +845,41 @@ export default function CaseManagementSection() {
               </select>
               <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#697386]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
             </div>
+            <div role="group" aria-label="Date filter field" className="inline-flex h-9 rounded-lg border border-[#E3E8EF] bg-[#F6F9FC] p-0.5">
+              <button
+                type="button"
+                aria-pressed={dateField === "case_created_at"}
+                onClick={() => { setDateField("case_created_at"); setPage(0); }}
+                className={`rounded-md px-2.5 text-xs font-medium transition-colors ${dateField === "case_created_at" ? "bg-white text-[#0A2540] shadow-sm" : "text-[#697386] hover:text-[#0A2540]"}`}
+              >
+                Created At
+              </button>
+              <button
+                type="button"
+                aria-pressed={dateField === "updated_at"}
+                onClick={() => { setDateField("updated_at"); setPage(0); }}
+                className={`rounded-md px-2.5 text-xs font-medium transition-colors ${dateField === "updated_at" ? "bg-white text-[#0A2540] shadow-sm" : "text-[#697386] hover:text-[#0A2540]"}`}
+              >
+                Updated At
+              </button>
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <label className="text-xs text-[#697386] whitespace-nowrap font-medium hidden sm:inline">From</label>
-              <input type="date" aria-label="From date" className="h-9 rounded-lg border border-[#E3E8EF] bg-white px-2 sm:px-3 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none max-w-37.5" value={dateFrom} onChange={(e) => { setPage(0); setDateFrom(e.target.value); }} />
+              <input type="date" aria-label="From date" aria-invalid={invalidDateRange} max={dateTo || undefined} className={`h-9 rounded-lg border bg-white px-2 sm:px-3 text-sm text-[#425466] focus:ring-1 transition-all outline-none max-w-37.5 ${invalidDateRange ? "border-[#DF1B41] focus:border-[#DF1B41] focus:ring-[#DF1B41]/20" : "border-[#E3E8EF] focus:border-[#635BFF] focus:ring-[#635BFF]/20"}`} value={dateFrom} onChange={(e) => applyDateRange(e.target.value, dateTo)} />
               <label className="text-xs text-[#697386] whitespace-nowrap font-medium hidden sm:inline">To</label>
-              <input type="date" aria-label="To date" className="h-9 rounded-lg border border-[#E3E8EF] bg-white px-2 sm:px-3 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none max-w-37.5" value={dateTo} onChange={(e) => { setPage(0); setDateTo(e.target.value); }} />
+              <input type="date" aria-label="To date" aria-invalid={invalidDateRange} aria-describedby={invalidDateRange ? "case-list-date-range-error" : undefined} min={dateFrom || undefined} className={`h-9 rounded-lg border bg-white px-2 sm:px-3 text-sm text-[#425466] focus:ring-1 transition-all outline-none max-w-37.5 ${invalidDateRange ? "border-[#DF1B41] focus:border-[#DF1B41] focus:ring-[#DF1B41]/20" : "border-[#E3E8EF] focus:border-[#635BFF] focus:ring-[#635BFF]/20"}`} value={dateTo} onChange={(e) => applyDateRange(dateFrom, e.target.value)} />
+              {invalidDateRange && (
+                <p id="case-list-date-range-error" role="alert" className="w-full text-xs font-medium text-[#DF1B41]">
+                  {CASE_DATE_RANGE_ERROR}
+                </p>
+              )}
             </div>
             {hasFilters && (
-              <Button variant="ghost" size="sm" className="text-xs rounded-lg text-[#DF1B41] hover:bg-red-50 hover:text-[#DF1B41] transition-colors" onClick={() => { setSearch(""); setStatus("Activated"); setDateFrom(""); setDateTo(""); setPage(0); }}>
+              <Button type="button" variant="ghost" size="sm" className="text-xs rounded-lg text-[#DF1B41] hover:bg-red-50 hover:text-[#DF1B41] transition-colors" onClick={clearFilters}>
                 Clear all
               </Button>
             )}
-          </div>
+          </form>
         </div>
 
         {/* Generate Bill Buttons + Selection Info */}

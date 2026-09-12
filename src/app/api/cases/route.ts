@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { neon } from "@neondatabase/serverless";
 import { prisma } from "@/lib/prisma";
+import { caseDateFilterBounds, isInvalidCaseDateRange, parseCaseDateField } from "@/lib/case-list-filters";
 
 const SORTABLE_COLUMNS = new Set([
   "case_no", "order_no", "full_name", "full_address", "mobile",
@@ -25,6 +26,17 @@ export async function GET(request: Request) {
     const status = url.searchParams.get("status")?.trim() ?? "";
     const dateFrom = url.searchParams.get("date_from")?.trim() ?? "";
     const dateTo = url.searchParams.get("date_to")?.trim() ?? "";
+    if (isInvalidCaseDateRange(dateFrom, dateTo)) {
+      return NextResponse.json(
+        { success: false, error: "date_to cannot be before date_from" },
+        { status: 400 },
+      );
+    }
+    const { createdFrom, createdTo, updatedFrom, updatedTo } = caseDateFilterBounds(
+      parseCaseDateField(url.searchParams.get("date_field")),
+      dateFrom,
+      dateTo,
+    );
 
     // Sorting — validated against whitelist so safe to interpolate
     const sortByParam = url.searchParams.get("sort_by")?.trim() ?? "";
@@ -57,8 +69,10 @@ export async function GET(request: Request) {
           OR full_address ILIKE ${searchPattern}
         ))
         AND (${!status} OR status = ${status})
-        AND (${!dateFrom} OR case_created_at >= ${dateFrom || '1970-01-01'}::timestamp)
-        AND (${!dateTo} OR case_created_at <= (${dateTo || '9999-12-31'}::date + interval '1 day'))
+        AND (${!createdFrom} OR case_created_at >= ${createdFrom || '1970-01-01'}::timestamp)
+        AND (${!createdTo} OR case_created_at <= (${createdTo || '9999-12-31'}::date + interval '1 day'))
+        AND (${!updatedFrom} OR updated_at >= ${updatedFrom || '1970-01-01'}::timestamp)
+        AND (${!updatedTo} OR updated_at <= (${updatedTo || '9999-12-31'}::date + interval '1 day'))
     `;
 
     // Dynamic ORDER BY using sql.unsafe() — sortBy is validated against SORTABLE_COLUMNS whitelist
@@ -77,8 +91,10 @@ export async function GET(request: Request) {
           OR full_address ILIKE ${searchPattern}
         ))
         AND (${!status} OR status = ${status})
-        AND (${!dateFrom} OR case_created_at >= ${dateFrom || '1970-01-01'}::timestamp)
-        AND (${!dateTo} OR case_created_at <= (${dateTo || '9999-12-31'}::date + interval '1 day'))
+        AND (${!createdFrom} OR case_created_at >= ${createdFrom || '1970-01-01'}::timestamp)
+        AND (${!createdTo} OR case_created_at <= (${createdTo || '9999-12-31'}::date + interval '1 day'))
+        AND (${!updatedFrom} OR updated_at >= ${updatedFrom || '1970-01-01'}::timestamp)
+        AND (${!updatedTo} OR updated_at <= (${updatedTo || '9999-12-31'}::date + interval '1 day'))
       ORDER BY ${sql.unsafe(sortBy)} ${sql.unsafe(sortDir)} NULLS LAST
       LIMIT ${limit} OFFSET ${offset}
     `;

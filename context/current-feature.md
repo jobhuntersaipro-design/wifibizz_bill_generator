@@ -1,4 +1,4 @@
-# Current Feature: Decode HTML entities in generated customer names
+# Current Feature: Case List row-click download + search/date filters
 
 ## Status
 
@@ -6,25 +6,29 @@ In Progress
 
 ## Goals
 
-- Generated docs print real characters in customer names (`YA'ASAK`, `"`), never `&#039;` / `&quot;`
-- One shared full HTML-entity decoder on the generate/output path (not a `&#039;`-only replace)
-- Golden case `02634395`: Conversation Chat / Closing Script shows `SITI AYESAH BINTI YA'ASAK`
-- Other generates that print the customer name also decode
-- Unit/fixture proves `&quot;` → `"`, `&amp;` → `&`, `&#39;` → `'`
-- Edit Cases display, IC/address/package, and names without special chars stay unchanged
-- No bulk DB rewrite; output-time sanitize only
+- Clicking empty/padding area of a Case List row does not start a document download
+- Bills icons, hyperlinks, and explicit Download controls still work
+- Filter bar has a visible Search button (Enter also applies search)
+- Date To cannot be earlier than From (blocked or corrected)
+- Created At / Updated At toggle switches which column From/To filter
 
 ## Notes
 
-ClickUp z8v9xnfqv4. Golden case `02634395` (`SITI AYESAH BINTI YA'ASAK`).
+ClickUp z8v9xnfquv. UI only. Reuse the existing Case List table. No Bills icon redesign. No crawl changes.
 
 ### Root cause
 
-WifiBizz's Laravel DataTables API HTML-escapes `customer_name` (`htmlspecialchars` → `&#039;` for apostrophe). `extractCases` stores that string as `full_name` with no decode. Edit Cases looks correct because the browser decodes entities when rendering the field. Generated docs (WhatsApp chrome as React text, PDFs as drawn literals) do not parse HTML, so `YA&#039;ASAK` prints verbatim.
+Row click only opens `CaseDetailPanel`. That panel embeds stored bills in `<iframe>`s pointed at `/api/bills/download`. Internet already sends `preview=1` (inline, no rebuild). Utility omitted `preview=1`, so the API answered `Content-Disposition: attachment`. The browser treated the iframe load as a file download. "Sometimes" matches cases that already have a utility bill.
 
 ### Solution
 
-`decodeHtmlEntities` / `decodeCustomerName` in `src/lib/html-entities.ts` — a general decoder (named + decimal + hex), not a `&#039;`-only replace. Applied on the generate/output path: `formatCustomerName` for Conversation / Bizz Chat, and the same helper in internet bill, utility bill, tenancy, authorization letter, and TIME invoice. No crawler or DB rewrite.
+Pass `{ preview: true }` on the utility iframe (same as internet). Explicit Download links stay without `preview` so they still attach. Search is a submit button (Enter works as Search). To before From is **blocked** (inline error, Search disabled, no fetch, API 400). Dates are not rewritten. A Created At / Updated At toggle sends `date_field` to `/api/cases` and `/api/cases/ids`.
+
+# Previous Feature: Decode HTML entities in generated customer names
+
+## Status
+
+MERGED TO MAIN 2026-09-12 (`f7d76a8`, squash merge `07a0162`, PR #24).
 
 # Previous Feature: Long-window crawls (6m / 1y) actually finish and save
 
