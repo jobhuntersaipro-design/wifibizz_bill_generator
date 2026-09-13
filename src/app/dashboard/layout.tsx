@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { Sidebar } from "@/components/dashboard/sidebar";
 import { Topbar } from "@/components/dashboard/topbar";
 import { DealerSessionBanner } from "@/components/dashboard/DealerSessionBanner";
@@ -18,7 +18,9 @@ export default function DashboardLayout({
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex flex-col flex-1 overflow-hidden">
         <Topbar onMenuToggle={() => setSidebarOpen((v) => !v)} />
-        <DealerSessionBanner />
+        <Suspense fallback={null}>
+          <DealerSessionBanner />
+        </Suspense>
         <main className="flex-1 overflow-y-auto p-4 md:p-8">
           <PullToRefresh>{children}</PullToRefresh>
         </main>

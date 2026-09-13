@@ -2,34 +2,28 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { getDealerConnection } from "@/actions/dealer";
 import { hasOrderEntryAccess } from "@/actions/settings";
 import {
   DEALER_SESSION_EXPIRED_COPY,
   DEALER_SESSION_RECONNECT_HREF,
+  forceDealerExpiredFromSearch,
   shouldShowDealerSessionBanner,
 } from "@/lib/agent-connection";
 
-/** QA only. Production Vercel ignores `?forceDealerExpired=1`. */
-function forceExpiredFromQuery(): boolean {
-  if (typeof window === "undefined") return false;
-  if (process.env.NEXT_PUBLIC_VERCEL_ENV === "production") return false;
-  return new URLSearchParams(window.location.search).get("forceDealerExpired") === "1";
-}
-
 export function DealerSessionBanner() {
-  const [visible, setVisible] = useState(false);
+  const searchParams = useSearchParams();
+  const forced = forceDealerExpiredFromSearch(searchParams.toString());
+  const [expired, setExpired] = useState(false);
 
   useEffect(() => {
-    if (forceExpiredFromQuery()) {
-      setVisible(true);
-      return;
-    }
+    if (forced) return;
     let alive = true;
     Promise.all([hasOrderEntryAccess(), getDealerConnection()])
       .then(([orderEntryEnabled, result]) => {
         if (!alive) return;
-        setVisible(
+        setExpired(
           shouldShowDealerSessionBanner({
             orderEntryEnabled,
             sessionExpiresAt: result.success ? result.data?.sessionExpiresAt : null,
@@ -37,14 +31,14 @@ export function DealerSessionBanner() {
         );
       })
       .catch(() => {
-        if (alive) setVisible(false);
+        if (alive) setExpired(false);
       });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [forced]);
 
-  if (!visible) return null;
+  if (!forced && !expired) return null;
 
   return (
     <div

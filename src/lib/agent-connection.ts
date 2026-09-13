@@ -41,6 +41,10 @@ export const DEALER_SESSION_EXPIRED_COPY = {
 
 export const DEALER_SESSION_RECONNECT_HREF = "/dashboard/order-entry";
 
+export function forceDealerExpiredFromSearch(search: string): boolean {
+  return new URLSearchParams(search).get("forceDealerExpired") === "1";
+}
+
 /**
  * Chrome banner only. A live or never-connected session is silent.
  * Same stored expiry `describeConnection` and the submit gate already share.
