@@ -10,10 +10,20 @@ import {
   shouldShowDealerSessionBanner,
 } from "@/lib/agent-connection";
 
+function forceExpiredFromQuery(): boolean {
+  if (typeof window === "undefined") return false;
+  if (process.env.NEXT_PUBLIC_VERCEL_ENV === "production") return false;
+  return new URLSearchParams(window.location.search).get("forceDealerExpired") === "1";
+}
+
 export function DealerSessionBanner() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
+    if (forceExpiredFromQuery()) {
+      setVisible(true);
+      return;
+    }
     let alive = true;
     Promise.all([hasOrderEntryAccess(), getDealerConnection()])
       .then(([orderEntryEnabled, result]) => {
