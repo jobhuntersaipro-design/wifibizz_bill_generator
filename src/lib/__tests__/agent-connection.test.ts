@@ -7,7 +7,13 @@
  * would send you looking in the wrong place.
  */
 import { describe, it, expect } from "vitest";
-import { describeConnection, isConnected, EXPIRING_SOON_MS } from "@/lib/agent-connection";
+import {
+  describeConnection,
+  isConnected,
+  EXPIRING_SOON_MS,
+  shouldShowDealerSessionBanner,
+  DEALER_SESSION_EXPIRED_COPY,
+} from "@/lib/agent-connection";
 
 const NOW = new Date("2026-08-30T12:00:00Z");
 const inMs = (ms: number) => ({ sessionExpiresAt: new Date(NOW.getTime() + ms) });
@@ -63,6 +69,40 @@ describe("describeConnection", () => {
       { sessionExpiresAt: new Date(NOW.getTime() + 3600_000).toISOString() }, NOW,
     );
     expect(v.state).toBe("connected");
+  });
+});
+
+describe("shouldShowDealerSessionBanner", () => {
+  it("shows only for an expired session the agent is allowed to reconnect", () => {
+    expect(
+      shouldShowDealerSessionBanner({ orderEntryEnabled: true, ...inMs(-1000) }, NOW),
+    ).toBe(true);
+  });
+
+  it("stays hidden while the session can still submit", () => {
+    expect(
+      shouldShowDealerSessionBanner({ orderEntryEnabled: true, ...inMs(60_000) }, NOW),
+    ).toBe(false);
+    expect(
+      shouldShowDealerSessionBanner({ orderEntryEnabled: true, ...inMs(4 * 3600_000) }, NOW),
+    ).toBe(false);
+  });
+
+  it("stays hidden when Order Entry is off or the agent never connected", () => {
+    expect(
+      shouldShowDealerSessionBanner({ orderEntryEnabled: false, ...inMs(-1000) }, NOW),
+    ).toBe(false);
+    expect(
+      shouldShowDealerSessionBanner({ orderEntryEnabled: true, sessionExpiresAt: null }, NOW),
+    ).toBe(false);
+  });
+
+  it("uses the unified expired-session copy", () => {
+    expect(DEALER_SESSION_EXPIRED_COPY).toEqual({
+      title: "Dealer session expired",
+      body: "Reconnect to submit orders",
+      cta: "Reconnect",
+    });
   });
 });
 

@@ -1,8 +1,27 @@
-# Current Feature: Case List row-click download + search/date filters
+# Current Feature: Sticky dealer-session banner (unified copy)
 
 ## Status
 
 In Progress
+
+## Goals
+
+- Expired dealer session shows one sticky full-width banner under the header on every main dashboard route
+- Banner copy is exactly `Dealer session expired` / `Reconnect to submit orders` / `Reconnect`
+- Banner never overlaps charts, map, Case List, or tables
+- Reconnect CTA goes to the existing Order Entry reconnect flow
+- Order Entry reconnect screen uses the same title and body (no alternate pill)
+- Sidebar does not flash `Not configured` while Order Entry loads
+
+## Notes
+
+ClickUp z8v9xnfrhr. UI chrome only. No auto-refresh dealer-session backend. No new APIs.
+
+# Previous Feature: Case List row-click download + search/date filters
+
+## Status
+
+MERGED TO MAIN 2026-09-13 (`538763a`, PR #25).
 
 ## Goals
 

@@ -20,6 +20,10 @@ import {
 } from "@/actions/dealer";
 import { toast } from "sonner";
 import LottieSpot from "./LottieSpot";
+import {
+  DEALER_SESSION_EXPIRED_COPY,
+  shouldShowDealerSessionBanner,
+} from "@/lib/agent-connection";
 
 // "auto" = server is reading the OTP from Gmail in the background (tried for
 // every Email-channel login; only actually succeeds if it lands in the
@@ -107,7 +111,6 @@ export default function OrderEntryShell({
   // Live session-health check state
   const lastAutoRefreshRef = useRef(0);
   const [checking, setChecking] = useState(false);
-  const [sessionExpired, setSessionExpired] = useState(false);
   const [nowTs, setNowTs] = useState(() => Date.now());
 
   const runStatusCheck = useCallback(async () => {
@@ -121,7 +124,6 @@ export default function OrderEntryShell({
         setConnection(result.data);
         if (result.data?.staffCode) setStaffCode(result.data.staffCode);
         if (result.data?.registeredEmail) setRegisteredEmail(result.data.registeredEmail);
-        setSessionExpired(!!result.data && !result.data.connected);
       }
     } catch {
       // Leave the last known state as-is; the countdown still governs expiry.
@@ -166,7 +168,6 @@ export default function OrderEntryShell({
       setConnection(result.data);
       if (result.data?.staffCode) setStaffCode(result.data.staffCode);
       if (result.data?.registeredEmail) setRegisteredEmail(result.data.registeredEmail);
-      setSessionExpired(!!result.data && !result.data.connected);
     }
     setLoading(false);
     // Verify against the portal on load so the badge reflects REALITY — the
@@ -204,7 +205,6 @@ export default function OrderEntryShell({
           setOtp("");
           setPendingId(null);
           setStep("form");
-          setSessionExpired(false);
           await loadConnection();
           break;
         case "error":
@@ -351,7 +351,6 @@ export default function OrderEntryShell({
       setOtp("");
       setPendingId(null);
       setStep("form");
-      setSessionExpired(false);
       await loadConnection();
     } else if (result.badCredentials) {
       failToCredentials(result.error ?? "Your staff code or password is incorrect.");
@@ -389,7 +388,6 @@ export default function OrderEntryShell({
       setOtp("");
       setPendingId(null);
       setStep("form");
-      setSessionExpired(false);
       await loadConnection();
     } else if (result.connecting) {
       // Already found and mid-login — stay on the auto step; its poll will
@@ -408,6 +406,13 @@ export default function OrderEntryShell({
   // expired clock. `checking` keeps it shown (as "Verifying…") during a check.
   const isConnected =
     connection?.connected && (checking || sessionSecondsLeft > 0);
+  const sessionExpiredCopy =
+    !isConnected &&
+    (shouldShowDealerSessionBanner({
+      orderEntryEnabled: true,
+      sessionExpiresAt: connection?.sessionExpiresAt,
+    }) ||
+      !!connection?.lastConnectedAt);
 
   // One warning as the session enters its last five minutes — expiring silently
   // mid-form is how an agent loses a filled order. Re-arms after a reconnect.
@@ -512,10 +517,14 @@ export default function OrderEntryShell({
               </div>
               <div>
                 <h2 className="text-sm font-semibold text-[#0A2540]">
-                  Connect Unifi Dealer Account
+                  {sessionExpiredCopy
+                    ? DEALER_SESSION_EXPIRED_COPY.title
+                    : "Connect Unifi Dealer Account"}
                 </h2>
                 <p className="text-xs text-[#697386] mt-0.5">
-                  Log in with your own staff code, password, and OTP.
+                  {sessionExpiredCopy
+                    ? DEALER_SESSION_EXPIRED_COPY.body
+                    : "Log in with your own staff code, password, and OTP."}
                 </p>
               </div>
             </div>
@@ -547,15 +556,6 @@ export default function OrderEntryShell({
             ) : step === "form" ? (
               /* ---------- Step 1: staff code + password + channel ---------- */
               <form onSubmit={handleSendOtp} className="space-y-4">
-                {sessionExpired && (
-                  <div className="flex items-start gap-2 text-xs bg-amber-50 text-amber-700 rounded-lg px-4 py-2.5">
-                    <ClockIcon className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                    <span>
-                      Your dealer session timed out. Reconnect to continue keying
-                      orders.
-                    </span>
-                  </div>
-                )}
                 {credentialsError && (
                   <div
                     role="alert"
