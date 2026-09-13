@@ -10,6 +10,7 @@ import {
   shouldShowDealerSessionBanner,
 } from "@/lib/agent-connection";
 
+/** QA only. Production Vercel ignores `?forceDealerExpired=1`. */
 function forceExpiredFromQuery(): boolean {
   if (typeof window === "undefined") return false;
   if (process.env.NEXT_PUBLIC_VERCEL_ENV === "production") return false;
