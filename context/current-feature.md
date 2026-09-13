@@ -16,6 +16,7 @@ In Progress
 ## Notes
 
 ClickUp z8v9xnfrhr. UI chrome only. No auto-refresh dealer-session backend. No new APIs.
+`?forceDealerExpired=1` shows the banner on production and preview. A live session without the query stays hidden.
 
 # Previous Feature: Case List row-click download + search/date filters
 

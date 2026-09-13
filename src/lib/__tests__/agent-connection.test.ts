@@ -108,13 +108,19 @@ describe("shouldShowDealerSessionBanner", () => {
 });
 
 describe("forceDealerExpiredFromSearch", () => {
-  it("is true for forceDealerExpired=1 on production Vercel", () => {
-    expect(forceDealerExpiredFromSearch("?forceDealerExpired=1", "production")).toBe(true);
+  it("is true for forceDealerExpired=1 when NEXT_PUBLIC_VERCEL_ENV is production", () => {
+    const prev = process.env.NEXT_PUBLIC_VERCEL_ENV;
+    process.env.NEXT_PUBLIC_VERCEL_ENV = "production";
+    try {
+      expect(forceDealerExpiredFromSearch("?forceDealerExpired=1")).toBe(true);
+    } finally {
+      process.env.NEXT_PUBLIC_VERCEL_ENV = prev;
+    }
   });
 
-  it("is false without the query, including on production", () => {
-    expect(forceDealerExpiredFromSearch("", "production")).toBe(false);
-    expect(forceDealerExpiredFromSearch("?forceDealerExpired=0", "preview")).toBe(false);
+  it("is false without the query", () => {
+    expect(forceDealerExpiredFromSearch("")).toBe(false);
+    expect(forceDealerExpiredFromSearch("?forceDealerExpired=0")).toBe(false);
   });
 });
 
