@@ -33,6 +33,29 @@ export interface ConnectionView {
  */
 export const EXPIRING_SOON_MS = 30 * 60 * 1000;
 
+export const DEALER_SESSION_EXPIRED_COPY = {
+  title: "Dealer session expired",
+  body: "Reconnect to submit orders",
+  cta: "Reconnect",
+} as const;
+
+export const DEALER_SESSION_RECONNECT_HREF = "/dashboard/order-entry";
+
+/**
+ * Chrome banner only. A live or never-connected session is silent.
+ * Same stored expiry `describeConnection` and the submit gate already share.
+ */
+export function shouldShowDealerSessionBanner(
+  input: {
+    orderEntryEnabled: boolean;
+    sessionExpiresAt?: Date | string | null;
+  },
+  now?: Date,
+): boolean {
+  if (!input.orderEntryEnabled) return false;
+  return describeConnection(input, now).state === "expired";
+}
+
 export function describeConnection(
   dealer: { sessionExpiresAt?: Date | string | null } | null | undefined,
   now: Date = new Date(),
