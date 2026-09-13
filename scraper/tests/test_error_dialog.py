@@ -104,6 +104,10 @@ def test_mapping() -> None:
     check("classified dialog carries code + portal_code",
           classified.get("error") == DEVICE_OUT_OF_STOCK
           and classified.get("portal_code") == "40300338", str(classified))
+    check("unmapped dialog keeps the Unifi sentence as portal_message",
+          unmapped.get("portal_message") == "Please select one offer.")
+    check("classified dialog keeps the Unifi sentence as portal_message",
+          classified.get("portal_message") == stock)
 
 
 def test_pay_tail() -> None:

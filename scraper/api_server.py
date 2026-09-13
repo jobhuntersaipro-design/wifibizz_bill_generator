@@ -643,6 +643,8 @@ def _redact_order_result(result):
                  # live run answers "which selector actually matched?" — and both
                  # are portal metadata, not customer data.
                  "portal_code", "dialog",
+                 # The Unifi UI sentence, distinct from our wrapping in `message`.
+                 "portal_message",
                  # The e-RF's R2 key and the portal order URL. NOT PII: the key is
                  # order-screenshots/<userId>/<orderId>/<portalOrderNumber>_erf.pdf
                  # and the URL carries the order number only.

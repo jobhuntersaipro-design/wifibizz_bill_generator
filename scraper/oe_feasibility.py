@@ -1623,6 +1623,7 @@ async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = 
         outcome = {"status": "error", "stage": "order_entry",
                    "error": "portal_error" if popup else "exception",
                    "message": popup or humanize_error(e),
+                   "portal_message": popup or "",
                    "exception": f"{type(e).__name__}: {e}"}
         # The page (popup and all) is still up — photograph what actually threw.
         await capture_failure(page, payload, outcome, stage)
@@ -3791,7 +3792,7 @@ def classify_dialog(dlg: dict | None) -> dict:
     if not dlg:
         return {}
     msg = dlg.get("message") or ""
-    out = {"message": msg, "dialog": dlg}
+    out = {"message": msg, "dialog": dlg, "portal_message": msg}
     # Deliberately omit `error` when nothing matched: callers fall back to their
     # own stage-specific code ("next_blocked", "device_rejected"), which says
     # more about where we are than a blanket "unknown_error" would.

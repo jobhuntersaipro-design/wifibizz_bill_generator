@@ -6,6 +6,19 @@
  * way last time?" needs an append-only trail — that is what `recordEvent` builds.
  */
 import { prisma } from "@/lib/prisma";
+import { mirrorTerminalEvent } from "@/lib/order-outcome-log";
+
+/**
+ * The statuses that end an attempt. One set for the timeline's "how did this
+ * run end" and for the outcome log's "is this the row to mirror", so the two
+ * can never disagree about what counts as finished.
+ */
+export const TERMINAL_STATUSES: ReadonlySet<string> = new Set([
+  "submitted",
+  "failed",
+  "warning",
+  "order_entered",
+]);
 
 /**
  * Next short reference, e.g. "ORD-0042".
@@ -35,6 +48,12 @@ export interface StatusEventInput {
   // scraper's history in a burst, so insert time would compress a ten-minute run
   // into one instant and make every per-step timing read as 0s.
   createdAt?: Date;
+  // Unifi UI text, when the portal showed any. The sheet's reason column; not
+  // written to the trail (the trail already has `message`, which may wrap).
+  portalMessage?: string | null;
+  // R2 key of the screen the run died on (or finished on). The sink also
+  // recovers this from capture_* events when the writer omitted it.
+  deathScreenKey?: string | null;
 }
 
 /**
@@ -56,6 +75,7 @@ export async function recordEvent(e: StatusEventInput): Promise<void> {
         ...(e.createdAt ? { createdAt: e.createdAt } : {}),
       },
     });
+    if (TERMINAL_STATUSES.has(e.status)) await mirrorTerminalEvent(e);
   } catch (err) {
     console.error("[recordEvent] failed (continuing):", err);
   }
@@ -129,7 +149,6 @@ export function groupByAttempt(events: StatusEventView[]): AttemptView[] {
     else byAttempt.set(e.attempt, [e]);
   }
 
-  const TERMINAL = new Set(["submitted", "failed", "warning", "order_entered"]);
   return [...byAttempt.entries()]
     .sort((a, b) => b[0] - a[0])
     .map(([attempt, list]) => {
@@ -139,7 +158,7 @@ export function groupByAttempt(events: StatusEventView[]): AttemptView[] {
       // and reading one as "still running" relabelled a submitted attempt as
       // Running the moment it was cancelled.
       const ended =
-        [...sorted].reverse().find((e) => TERMINAL.has(e.status ?? "")) ?? null;
+        [...sorted].reverse().find((e) => TERMINAL_STATUSES.has(e.status ?? "")) ?? null;
       return {
         attempt,
         startedAt: sorted[0]?.createdAt ?? "",

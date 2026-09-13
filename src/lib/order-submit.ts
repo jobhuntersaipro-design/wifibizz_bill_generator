@@ -15,6 +15,7 @@ import { attachStageDetail, recordEvent } from "@/lib/order-history";
 import {
   CAPTURE_STAGE_PREFIX,
   ERF_NOT_DOWNLOADED,
+  JOB_LOST,
   LEGACY_PAGE1_CAPTURE_STAGE,
   PAGE1_CAPTURE_SLOT,
   POINT_OF_NO_RETURN,
@@ -28,6 +29,7 @@ import {
   type StageDetails,
 } from "@/lib/order-types";
 import { retryPendingAt } from "@/lib/retry-policy";
+import { portalUiText } from "@/lib/order-outcome-log";
 
 const SCRAPER_API_URL = process.env.SCRAPER_API_URL ?? "http://localhost:5000";
 const ORDER_TOKEN = process.env.ORDER_ENTRY_API_TOKEN ?? "";
@@ -49,6 +51,17 @@ export interface OrderJobResult {
   // The portal's own numeric code, e.g. "40300338". Carried for the log; the UI
   // re-derives it from the message so the two can never disagree.
   portal_code?: string;
+  // The scraper's sub-step at the moment the run ended, e.g. "voice_number".
+  stage?: string;
+  // The Unifi dialog's own sentence, when the scraper read one. Distinct from
+  // `message`, which may be our wrapping or a stage-specific sentence.
+  portal_message?: string;
+  dialog?: {
+    message?: string;
+    title?: string;
+    selector?: string;
+    container?: string;
+  };
   // Set when the portal refused a device for this package. Recorded so the
   // picker and preflight can stop offering it — the portal only tells us this
   // AFTER the order number exists, so learning it is the only way to avoid
@@ -80,8 +93,9 @@ export interface JobSnapshot {
   result?: OrderJobResult;
   error?: string;
   // How the run ended, when the scraper could say: "cancelled" (a person pressed
-  // Stop), "portal_timeout", "infra", "unexpected". Only `cancelled` changes what
-  // is written here — a stop is a decision, not a failure of the order.
+  // Stop), "portal_timeout", "infra", "unexpected", "abandoned", "runner_died".
+  // Persisted as the failure's class; only `cancelled` is renamed, because a
+  // stop is a decision, not a failure of the order.
   error_kind?: string;
 }
 
@@ -178,11 +192,10 @@ function page1CaptureKey(details: StageDetails): string | null {
  * seen on this attempt, and details only fill a row whose message is still null.
  */
 async function drainStages(
-  id: string,
-  attempt: number,
+  order: { id: string; attempt: number; stage: string | null; screenshotUrl: string | null },
   stages: JobStage[] | undefined,
-  currentScreenshotUrl: string | null,
 ): Promise<{ details: StageDetails; screenshotKey: string | null }> {
+  const { id, attempt } = order;
   const details = collapseStageDetails(stages);
   const screenshotKey = page1CaptureKey(details);
 
@@ -220,6 +233,17 @@ async function drainStages(
     await attachStageDetail(id, attempt, stage, detailMessage(detail));
   }
 
+  // Move the pointer to the last milestone in the history. The caller's running
+  // branch only sees the stage a poll happened to land on, so a run that
+  // finished between two polls, or with no browser polling at all, would
+  // otherwise file its terminal row on whatever step the last poll saw.
+  const reached = [...stages].reverse().find((s) => movesStagePointer(s?.name))?.name;
+  if (reached && reached !== order.stage) {
+    await prisma.order
+      .update({ where: { id }, data: { stage: reached, stageAt: new Date() } })
+      .catch((err) => console.error("[drainStages] stage pointer:", err));
+  }
+
   // The portal order number, the moment this attempt's portal mints it.
   //
   // Written HERE rather than only on the terminal paths, because a resubmit
@@ -242,7 +266,7 @@ async function drainStages(
       .catch((err) => console.error("[drainStages] order id:", err));
   }
 
-  if (screenshotKey && screenshotKey !== currentScreenshotUrl) {
+  if (screenshotKey && screenshotKey !== order.screenshotUrl) {
     // Latest attempt's frame, so a collapsed row can show evidence exists
     // without loading history.
     await prisma.order
@@ -343,9 +367,16 @@ async function applyResult(
       },
     });
     await recordEvent({
-      orderId, attempt, status: data.status, stage: o.stage,
+      // The scraper's own sub-step when it has one: the pointer only knows the
+      // milestone, and "which step did it die on" is asked per sub-step.
+      orderId, attempt, status: data.status, stage: result.stage ?? o.stage,
       message: data.errorMessage ?? null,
       errorCode: data.errorCode ?? null,
+      portalMessage: portalUiText({
+        portalMessage: result.portal_message,
+        dialog: result.dialog,
+        message: result.message,
+      }),
     });
     return {
       status: o.status,
@@ -389,16 +420,19 @@ async function applyResult(
   }
 
   if (result.status === "error") {
-    // A code we have copy for is rendered as a titled block with its own
-    // explanation and remedy, so the message stays the portal's VERBATIM
-    // wording. Wrapping it in our own prose here would put the explanation in
-    // two voices and bury the sentence the agent can quote at Unifi support.
-    const code = submitErrorCopy(result.error) ? result.error! : null;
+    // The code is kept whether or not we have copy for it: failures are worked
+    // by class, and a code nobody has explained yet is still a class. Copy only
+    // decides the WORDING. A code with copy is rendered as a titled block with
+    // its own explanation and remedy, so the message stays the portal's
+    // VERBATIM wording; wrapping it in our own prose would put the explanation
+    // in two voices and bury the sentence the agent can quote at Unifi support.
+    const code = result.error ?? null;
+    const hasCopy = !!submitErrorCopy(code);
     if (result.order_id) {
       // Order EXISTS in the portal despite the failure. Surface as a warning to
       // verify/complete by hand — a plain "failed" would re-enable submit and
       // invite a duplicate.
-      const msg = code
+      const msg = hasCopy
         ? result.message || "The portal returned an error."
         : `Order ${result.order_id} was created but the flow didn't finish: ${
             result.message || result.error || "error"
@@ -473,12 +507,13 @@ async function finalizeMissingJob(id: string): Promise<ProgressState> {
       status: "warning",
       jobId: null,
       errorMessage,
+      errorCode: JOB_LOST,
       // Same rule as every other finalization: if this is one the automatic
       // retry will come back for, the row must say so instead of offering a
       // Submit button that would start a second run against it.
       autoRetryAt: retryPendingAt({
         status: "warning",
-        errorCode: null,
+        errorCode: JOB_LOST,
         errorMessage,
         autoRetries: before?.autoRetries ?? 0,
         attempt: before?.attempt ?? 1,
@@ -487,13 +522,14 @@ async function finalizeMissingJob(id: string): Promise<ProgressState> {
   });
   await recordEvent({
     orderId: id, attempt: o.attempt, status: "warning", stage: o.stage,
-    message: o.errorMessage,
+    message: o.errorMessage, errorCode: JOB_LOST,
   });
   return {
     status: o.status,
     stage: o.stage,
     orderId: o.orderId,
     errorMessage: o.errorMessage,
+    errorCode: o.errorCode,
     done: true,
   };
 }
@@ -527,9 +563,7 @@ export async function pollOrderProgress(id: string): Promise<ProgressState | nul
   // Drain the history BEFORE branching on status. A run can finish between two
   // polls, and the intermediate steps — with the values the portal resolved —
   // exist only in the job record, which the scraper drops on restart.
-  const { details, screenshotKey } = await drainStages(
-    id, order.attempt, job.stages, order.screenshotUrl,
-  );
+  const { details, screenshotKey } = await drainStages(order, job.stages);
   const withDetails = (s: ProgressState): ProgressState => ({
     ...s,
     details,
@@ -540,12 +574,14 @@ export async function pollOrderProgress(id: string): Promise<ProgressState | nul
     // A run a PERSON stopped is not a failure of the order, and it must not be
     // handed straight back to the automatic retry — which is exactly what an
     // unclassified failure would be. `submit_stopped` is terminal in
-    // retry-policy, so the stop stands until somebody decides otherwise.
+    // retry-policy, so the stop stands until somebody decides otherwise. Every
+    // other kind is kept as the class it is; the retry judges an unknown code
+    // exactly like a missing one, so nothing changes about what runs again.
     const stopped = job.error_kind === "cancelled";
     const errorMessage = stopped
       ? job.error || STOPPED_MSG
       : job.error || "The portal run failed.";
-    const errorCode = stopped ? SUBMIT_STOPPED : null;
+    const errorCode = stopped ? SUBMIT_STOPPED : (job.error_kind ?? null);
     const o = await prisma.order.update({
       where: { id },
       data: {
