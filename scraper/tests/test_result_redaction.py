@@ -29,7 +29,7 @@ from api_server import _redact_order_result  # noqa: E402
 BIZZFLOW_READS = [
     "status", "stage", "error", "message", "warning",
     "order_id", "order_url", "erf_key", "advance_payment",
-    "available_devices", "portal_code",
+    "available_devices", "portal_code", "dialog", "portal_message",
 ]
 
 # A real successful run, as pay_and_submit returns it.

@@ -452,6 +452,13 @@ export const ERF_NOT_DOWNLOADED = "erf_not_downloaded";
 export const SUBMIT_STOPPED = "submit_stopped";
 
 /**
+ * A run whose job the scraper has forgotten, usually a restart mid-run. The
+ * job registry is in-memory, so nothing says how far it got, and the order may
+ * already exist at Unifi. Raised by BizzFlow when the job read comes back 404.
+ */
+export const JOB_LOST = "job_lost";
+
+/**
  * What a stopped run says on the row, in the history, and in the email.
  *
  * It leads with the portal, not with us: the Customer Order Number is minted
@@ -733,6 +740,29 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
     subtext:
       "It was abandoned after running far longer than any run should. It may " +
       "have reached the portal before it stopped.",
+    fix: "Check at Unifi for this customer before submitting again.",
+    action: "check_portal",
+  },
+  job_lost: {
+    title: "The run was lost",
+    subtext:
+      "The order service forgot this run, usually because it restarted " +
+      "mid-run. It may have reached the portal before that, so the order may " +
+      "already exist at Unifi.",
+    fix: "Check at Unifi for this customer before submitting again.",
+    action: "check_portal",
+  },
+  unexpected: {
+    title: "The order service crashed",
+    subtext: "The run hit an error nobody anticipated. Something on our side, not the draft.",
+    fix: "Submit again. If it repeats, tell your admin.",
+    action: "resubmit",
+  },
+  runner_died: {
+    title: "The order service died mid-run",
+    subtext:
+      "The process running the portal flow was killed before it could report. " +
+      "It may have reached the portal before it died.",
     fix: "Check at Unifi for this customer before submitting again.",
     action: "check_portal",
   },
