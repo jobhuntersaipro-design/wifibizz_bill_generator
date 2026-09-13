@@ -189,6 +189,9 @@ describe("withForceDealerExpiredQuery", () => {
     expect(
       withForceDealerExpiredQuery("/dashboard/order-entry/new-order", false),
     ).toBe("/dashboard/order-entry/new-order");
+    expect(
+      withForceDealerExpiredQuery("/dashboard/order-entry", true),
+    ).toBe("/dashboard/order-entry?forceDealerExpired=1");
   });
 });
 
