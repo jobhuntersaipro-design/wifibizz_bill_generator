@@ -13,6 +13,7 @@ import {
   EXPIRING_SOON_MS,
   shouldShowDealerSessionBanner,
   DEALER_SESSION_EXPIRED_COPY,
+  forceDealerExpiredFromSearch,
 } from "@/lib/agent-connection";
 
 const NOW = new Date("2026-08-30T12:00:00Z");
@@ -103,6 +104,17 @@ describe("shouldShowDealerSessionBanner", () => {
       body: "Reconnect to submit orders",
       cta: "Reconnect",
     });
+  });
+});
+
+describe("forceDealerExpiredFromSearch", () => {
+  it("is true for forceDealerExpired=1 on production Vercel", () => {
+    expect(forceDealerExpiredFromSearch("?forceDealerExpired=1", "production")).toBe(true);
+  });
+
+  it("is false without the query, including on production", () => {
+    expect(forceDealerExpiredFromSearch("", "production")).toBe(false);
+    expect(forceDealerExpiredFromSearch("?forceDealerExpired=0", "preview")).toBe(false);
   });
 });
 

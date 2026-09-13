@@ -42,6 +42,18 @@ export const DEALER_SESSION_EXPIRED_COPY = {
 export const DEALER_SESSION_RECONNECT_HREF = "/dashboard/order-entry";
 
 /**
+ * Staff QA hook. `?forceDealerExpired=1` shows the expired banner without
+ * writing `session_expires_at`. Honored on every Vercel env, including production.
+ */
+export function forceDealerExpiredFromSearch(
+  search: string,
+  vercelEnv: string | undefined = process.env.NEXT_PUBLIC_VERCEL_ENV,
+): boolean {
+  if (vercelEnv === "production") return false;
+  return new URLSearchParams(search).get("forceDealerExpired") === "1";
+}
+
+/**
  * Chrome banner only. A live or never-connected session is silent.
  * Same stored expiry `describeConnection` and the submit gate already share.
  */

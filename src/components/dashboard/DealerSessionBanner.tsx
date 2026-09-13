@@ -7,14 +7,13 @@ import { hasOrderEntryAccess } from "@/actions/settings";
 import {
   DEALER_SESSION_EXPIRED_COPY,
   DEALER_SESSION_RECONNECT_HREF,
+  forceDealerExpiredFromSearch,
   shouldShowDealerSessionBanner,
 } from "@/lib/agent-connection";
 
-/** QA only. Production Vercel ignores `?forceDealerExpired=1`. */
 function forceExpiredFromQuery(): boolean {
   if (typeof window === "undefined") return false;
-  if (process.env.NEXT_PUBLIC_VERCEL_ENV === "production") return false;
-  return new URLSearchParams(window.location.search).get("forceDealerExpired") === "1";
+  return forceDealerExpiredFromSearch(window.location.search);
 }
 
 export function DealerSessionBanner() {
