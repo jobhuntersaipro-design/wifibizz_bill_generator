@@ -1,8 +1,29 @@
-# Current Feature: Sticky dealer-session banner (unified copy)
+# Current Feature: Order Entry reconnect IA + OTP above fold
 
 ## Status
 
 In Progress
+
+## Goals
+
+- Expired or forced-expired dealer session lands on `/dashboard/order-entry/reconnect` with H1 `Reconnect dealer account` (not New Order)
+- One expiry message, same G1 copy (`Dealer session expired` / `Reconnect to submit orders`); no second overlapping pill on the form
+- Help “How to set this up” opens a Sheet so Send OTP stays above the fold
+- OTP channel labels are `Email` and `SMS` only
+- Loading shows a visible purple spinner; no “Connect Unifi Dealer Account” / “Not configured” flash on the expired path
+- No auto-send OTP; keep the existing password-used-once copy
+
+## Notes
+
+ClickUp z8v9xnfrhx. UI chrome / client routing only. Reuse `OrderEntryShell` OTP. Keep G1 banner and `DEALER_SESSION_RECONNECT_HREF` (`/dashboard/order-entry`).
+`?forceDealerExpired=1` must survive the index redirect and drive reconnect IA for QA.
+Must not break a live session on `/new-order` or manual Send OTP.
+
+# Previous Feature: Sticky dealer-session banner (unified copy)
+
+## Status
+
+MERGED TO MAIN 2026-09-13 (`0604df2`, PR #27).
 
 ## Goals
 

@@ -41,8 +41,53 @@ export const DEALER_SESSION_EXPIRED_COPY = {
 
 export const DEALER_SESSION_RECONNECT_HREF = "/dashboard/order-entry";
 
+export const ORDER_ENTRY_RECONNECT_PATH = "/dashboard/order-entry/reconnect";
+export const ORDER_ENTRY_NEW_ORDER_PATH = "/dashboard/order-entry/new-order";
+export const RECONNECT_DEALER_ACCOUNT_TITLE = "Reconnect dealer account";
+
+export type OrderEntryLandingInput = {
+  forceExpired: boolean;
+  connected?: boolean;
+  sessionExpiresAt?: Date | string | null;
+  lastConnectedAt?: Date | string | null;
+};
+
 export function forceDealerExpiredFromSearch(search: string): boolean {
   return new URLSearchParams(search).get("forceDealerExpired") === "1";
+}
+
+export function forceExpiredFromParam(
+  value: string | string[] | undefined,
+): boolean {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return raw === "1";
+}
+
+export function shouldUseReconnectIA(input: OrderEntryLandingInput): boolean {
+  if (input.forceExpired) return true;
+  if (input.connected) return false;
+  if (
+    shouldShowDealerSessionBanner({
+      orderEntryEnabled: true,
+      sessionExpiresAt: input.sessionExpiresAt,
+    })
+  ) {
+    return true;
+  }
+  return Boolean(input.lastConnectedAt);
+}
+
+export function orderEntryLandingPath(input: OrderEntryLandingInput): string {
+  return shouldUseReconnectIA(input)
+    ? ORDER_ENTRY_RECONNECT_PATH
+    : ORDER_ENTRY_NEW_ORDER_PATH;
+}
+
+export function withForceDealerExpiredQuery(
+  path: string,
+  forceExpired: boolean,
+): string {
+  return forceExpired ? `${path}?forceDealerExpired=1` : path;
 }
 
 /**

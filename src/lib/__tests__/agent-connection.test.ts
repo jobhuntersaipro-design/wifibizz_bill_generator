@@ -14,6 +14,9 @@ import {
   shouldShowDealerSessionBanner,
   DEALER_SESSION_EXPIRED_COPY,
   forceDealerExpiredFromSearch,
+  forceExpiredFromParam,
+  orderEntryLandingPath,
+  withForceDealerExpiredQuery,
 } from "@/lib/agent-connection";
 
 const NOW = new Date("2026-08-30T12:00:00Z");
@@ -121,6 +124,71 @@ describe("forceDealerExpiredFromSearch", () => {
   it("is false without the query", () => {
     expect(forceDealerExpiredFromSearch("")).toBe(false);
     expect(forceDealerExpiredFromSearch("?forceDealerExpired=0")).toBe(false);
+  });
+});
+
+describe("forceExpiredFromParam", () => {
+  it("reads the page searchParams shape", () => {
+    expect(forceExpiredFromParam("1")).toBe(true);
+    expect(forceExpiredFromParam(["1"])).toBe(true);
+    expect(forceExpiredFromParam("0")).toBe(false);
+    expect(forceExpiredFromParam(undefined)).toBe(false);
+  });
+});
+
+describe("orderEntryLandingPath", () => {
+  it("sends an expired session to reconnect, not new-order", () => {
+    expect(
+      orderEntryLandingPath({ forceExpired: false, ...inMs(-1000) }),
+    ).toBe("/dashboard/order-entry/reconnect");
+  });
+
+  it("sends a prior connection that is no longer live to reconnect", () => {
+    expect(
+      orderEntryLandingPath({
+        forceExpired: false,
+        connected: false,
+        lastConnectedAt: "2026-08-01T00:00:00.000Z",
+      }),
+    ).toBe("/dashboard/order-entry/reconnect");
+  });
+
+  it("keeps a live session on new-order", () => {
+    expect(
+      orderEntryLandingPath({
+        forceExpired: false,
+        connected: true,
+        lastConnectedAt: "2026-08-01T00:00:00.000Z",
+        ...inMs(60_000),
+      }),
+    ).toBe("/dashboard/order-entry/new-order");
+  });
+
+  it("keeps a first-time agent on new-order", () => {
+    expect(
+      orderEntryLandingPath({ forceExpired: false, connected: false }),
+    ).toBe("/dashboard/order-entry/new-order");
+  });
+
+  it("forces reconnect IA even when the stored session is still live", () => {
+    expect(
+      orderEntryLandingPath({
+        forceExpired: true,
+        connected: true,
+        ...inMs(60_000),
+      }),
+    ).toBe("/dashboard/order-entry/reconnect");
+  });
+});
+
+describe("withForceDealerExpiredQuery", () => {
+  it("keeps the QA flag on the landing URL", () => {
+    expect(
+      withForceDealerExpiredQuery("/dashboard/order-entry/reconnect", true),
+    ).toBe("/dashboard/order-entry/reconnect?forceDealerExpired=1");
+    expect(
+      withForceDealerExpiredQuery("/dashboard/order-entry/new-order", false),
+    ).toBe("/dashboard/order-entry/new-order");
   });
 });
 
