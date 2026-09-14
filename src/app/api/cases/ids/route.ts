@@ -50,6 +50,7 @@ export async function GET(request: Request) {
         AND (${!search} OR (
           full_name ILIKE ${searchPattern}
           OR case_no ILIKE ${searchPattern}
+          OR order_no ILIKE ${searchPattern}
           OR mobile ILIKE ${searchPattern}
           OR email ILIKE ${searchPattern}
           OR provider ILIKE ${searchPattern}

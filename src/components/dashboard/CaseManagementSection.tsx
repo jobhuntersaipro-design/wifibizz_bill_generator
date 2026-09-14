@@ -828,7 +828,7 @@ export default function CaseManagementSection() {
                 <Input
                   value={searchDraft}
                   onChange={(e) => setSearchDraft(e.target.value)}
-                  placeholder="Search name, case no, mobile, provider…"
+                  placeholder="Search name, case no, order ID, mobile…"
                   title="Press Enter or click Search"
                   aria-label="Search cases. Press Enter or click Search to apply."
                   className="pl-9 h-9 bg-[#F6F9FC] border-[#E3E8EF] rounded-lg text-sm text-[#0A2540] placeholder:text-[#697386] focus:bg-white focus:border-[#635BFF] transition-all"
