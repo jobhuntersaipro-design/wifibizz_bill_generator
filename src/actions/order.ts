@@ -12,6 +12,7 @@ import {
   hasSupportingDocument,
   type OrderDocument,
   formatPhone,
+  resolveStaffCode,
   canSubmit,
   type OrderListItem,
   STOPPED_MSG,
@@ -515,12 +516,13 @@ function toOrderListItem(
       : [],
     createdAt: o.createdAt.toISOString(),
     createdByEmail: opts.superAdmin ? o.user?.email ?? null : null,
-    // The OWNING agent's dealer staff code, read live from their DealerAccount.
-    // Deliberately NOT superadmin-gated the way createdByEmail is: a
-    // non-superadmin only ever receives their own orders, so this is their own
-    // code. Null when that agent has never connected a dealer account — the
-    // column shows a dash rather than pretending to a code.
-    staffCode: o.user?.dealerAccount?.staffCode ?? null,
+    // The code recorded at submit time, else the owner's current code for a
+    // never-submitted row. Not superadmin-gated: a non-superadmin only ever
+    // receives their own orders.
+    ...(() => {
+      const r = resolveStaffCode(o.submittedStaffCode, o.user?.dealerAccount?.staffCode);
+      return { staffCode: r.code, staffCodeRecorded: r.recorded };
+    })(),
   };
 }
 

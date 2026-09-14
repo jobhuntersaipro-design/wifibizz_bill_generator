@@ -12,7 +12,7 @@ import {
   type AdminOrderRow, type AdminStats, type LiveJob,
 } from "@/actions/admin-orders";
 import { purgePhrase, bucketLabel, orderErrorLabel, type Granularity } from "@/lib/admin-order-stats";
-import { errorShortLabel } from "@/lib/order-types";
+import { NO_STAFF_CODE, errorShortLabel, matchesStaffCode, staffCodeOptions } from "@/lib/order-types";
 import { matchesOrderSearch, toCsv, withinCreatedRange } from "@/lib/admin-search";
 import { formatDuration } from "@/lib/order-types";
 import LottieSpot from "@/components/order-entry/LottieSpot";
@@ -44,6 +44,8 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
   // null = follow the range's own default; a value pins it.
   const [granularity, setGranularity] = useState<Granularity | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
+  // "" = every staff code; NO_STAFF_CODE = rows with none.
+  const [staffCodeFilter, setStaffCodeFilter] = useState("");
   const [search, setSearch] = useState("");
   const [createdFrom, setCreatedFrom] = useState("");
   const [createdTo, setCreatedTo] = useState("");
@@ -81,10 +83,11 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
   const filtered = useMemo(
     () => orders.filter((o) =>
       (!agentFilter || o.agentId === agentFilter) &&
+      matchesStaffCode(o.agentStaffCode, staffCodeFilter || "all") &&
       (!statusFilter || (statusFilter === "deleted" ? o.deletedAt : o.status === statusFilter)) &&
       withinCreatedRange(o.createdAt, createdFrom, createdTo) &&
       matchesOrderSearch(o, search)),
-    [orders, agentFilter, statusFilter, search, createdFrom, createdTo],
+    [orders, agentFilter, staffCodeFilter, statusFilter, search, createdFrom, createdTo],
   );
 
   // Clamped at render rather than reset in an effect (the repo's
@@ -102,6 +105,15 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
     return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   }, [orders]);
 
+  // Like the status options, scoped to the selected agent so a code that agent
+  // never submitted under is not offered.
+  const staffCodeOpts = useMemo(
+    () => staffCodeOptions(
+      orders.filter((o) => !agentFilter || o.agentId === agentFilter).map((o) => o.agentStaffCode),
+    ),
+    [orders, agentFilter],
+  );
+
   // Derived from the orders CURRENTLY IN VIEW, not from every order: with an
   // agent selected, offering a status that agent has none of gives an option
   // that always yields an empty table, which reads as a broken filter.
@@ -116,9 +128,9 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
     // Exactly the FILTERED rows: an export that ignores the filters exports
     // something the screen never showed.
     const csv = toCsv(
-      ["reference", "name", "ic", "agent", "status", "error_code", "portal_order", "package", "created", "deleted_at"],
+      ["reference", "name", "ic", "agent", "staff_code", "status", "error_code", "portal_order", "package", "created", "deleted_at"],
       filtered.map((o) => [
-        o.reference, o.fullName, o.idNumber, o.agentEmail, o.status, o.errorCode,
+        o.reference, o.fullName, o.idNumber, o.agentEmail, o.agentStaffCode, o.status, o.errorCode,
         o.orderId, o.offerName, o.createdAt instanceof Date ? o.createdAt.toISOString() : String(o.createdAt),
         o.deletedAt ? (o.deletedAt instanceof Date ? o.deletedAt.toISOString() : String(o.deletedAt)) : null,
       ]),
@@ -218,6 +230,11 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
             <Select value={agentFilter} onChange={(v) => { setAgentFilter(v); setPage(1); }} label="All agents"
               options={agentOptions.map(([id, email]) => ({ value: id, label: email }))} />
           )}
+          <Select value={staffCodeFilter} onChange={(v) => { setStaffCodeFilter(v); setPage(1); }} label="All staff codes"
+            options={[
+              ...staffCodeOpts.codes.map((c) => ({ value: c, label: c })),
+              ...(staffCodeOpts.hasNone ? [{ value: NO_STAFF_CODE, label: "No staff code" }] : []),
+            ]} />
           <Select value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} label="All statuses"
             options={[...statusOptions.map((s) => ({ value: s, label: s })), { value: "deleted", label: "deleted" }]} />
           <label className="flex items-center gap-1 text-xs text-[#697386]">
@@ -621,10 +638,17 @@ function OrderTable({ rows, onRestore, onPurge }: {
                   {o.agentEmail ?? "—"}
                 </Link>
                 {/* The staff code rides under the e-mail rather than taking its
-                    own column: this table has no breakpoints, and the Order
-                    cell beside it already reads as two lines. A dash rather
-                    than a blank when the agent has never connected. */}
-                <div className="text-xs tabular-nums text-[#697386]">{o.agentStaffCode ?? "—"}</div>
+                    own column: this table has no breakpoints. Solid when a
+                    submit recorded it; muted when it is only the owner's current
+                    code on a never-submitted row. */}
+                {o.agentStaffCodeRecorded ? (
+                  <div className="text-xs font-medium tabular-nums text-[#0A2540]">{o.agentStaffCode}</div>
+                ) : (
+                  <div className="text-xs tabular-nums text-[#B4BCCA]"
+                    title={o.agentStaffCode ? "Not submitted yet — this is the owner's current staff code" : undefined}>
+                    {o.agentStaffCode ?? "—"}
+                  </div>
+                )}
               </td>
               <td className="py-2.5 pr-3">
                 <StatusPill status={o.status} deleted={!!o.deletedAt} />

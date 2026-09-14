@@ -279,6 +279,26 @@ function FailureReason({ o }: { o: OrderListItem }) {
   );
 }
 
+/**
+ * The row's staff code. Solid when a submit recorded it; muted with an
+ * explanation when it is only the owner's current code on a never-submitted row.
+ */
+function StaffCode({ o }: { o: OrderListItem }) {
+  if (!o.staffCode) return <span className="text-[#8792A2]">—</span>;
+  if (o.staffCodeRecorded) {
+    return <span className="font-medium text-[#0A2540]">{o.staffCode}</span>;
+  }
+  return (
+    <span
+      className="text-[#8792A2]"
+      title="Not submitted yet — this is the owner's current staff code"
+    >
+      {o.staffCode}
+      <span className="sr-only"> (not submitted yet)</span>
+    </span>
+  );
+}
+
 function OrderNumber({ o }: { o: OrderListItem }) {
   if (!o.orderId) {
     // Absence is meaningful: the portal has not minted a number for this draft
@@ -747,11 +767,12 @@ export function OrderRow({
         </TableCell>
       )}
 
-      {/* Sits immediately after Made By, matching the COLUMNS splice. An agent
-          who has never connected a dealer account has no code, and a dash says
-          so — a blank cell reads as a rendering fault. */}
-      <TableCell className="hidden px-4 py-4 align-middle text-[12px] tabular-nums text-[#425466] 2xl:table-cell">
-        {o.staffCode ?? "—"}
+      {/* Sits immediately after Made By, matching the COLUMNS splice. A code
+          recorded by a submit reads solid; the owner's current code standing in
+          for a never-submitted row reads muted, so it is not mistaken for a
+          submit record. No code at all is a dash, not a blank. */}
+      <TableCell className="hidden px-4 py-4 align-middle text-[12px] tabular-nums lg:table-cell">
+        <StaffCode o={o} />
       </TableCell>
 
       <TableCell className="max-w-[220px] px-4 py-4 align-middle text-[13px] text-[#425466]">
@@ -858,7 +879,14 @@ export function OrderCard({
             how "08-09" becomes genuinely ambiguous. */}
         <Field label="Installation" value={formatInstallation(o.installationDate)} />
         {isSuperAdmin && <Field label="Made by" value={o.createdByEmail ?? null} />}
-        <Field label="Staff Code" value={o.staffCode ?? null} />
+        {o.staffCode && (
+        <div className="flex gap-2">
+          <dt className="w-20 shrink-0 text-[#8792A2]">Staff Code</dt>
+          <dd className="min-w-0 flex-1">
+            <StaffCode o={o} />
+          </dd>
+        </div>
+        )}
         <div className="flex gap-2">
           <dt className="w-20 shrink-0 text-[#8792A2]">Order No.</dt>
           <dd className="min-w-0 flex-1">

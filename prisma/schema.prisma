@@ -118,6 +118,13 @@ model Order {
   // under their OWN session — and an automatic retry has none to read.
   lastSubmitUserId String? @map("last_submit_user_id")
 
+  // The dealer staff code (e.g. TMRS00517) whose portal session ran the latest
+  // submit, FROZEN at submit time. Read live from DealerAccount it would re-label
+  // every past order when an agent reconnects under another code, and would name
+  // the draft's owner rather than the superadmin who actually submitted it.
+  // Null = never submitted since this column existed.
+  submittedStaffCode String? @map("submitted_staff_code")
+
   jobId   String?   @map("job_id") // Flask job id for the in-flight run
   stage   String? // last stage key seen (e.g. checking_address)
   stageAt DateTime? @map("stage_at") // when `stage` last changed — staleness check
@@ -189,6 +196,7 @@ model Order {
   // Every agent-facing list filters on this; admin oversight is the only
   // reader that does not.
   @@index([deletedAt])
+  @@index([submittedStaffCode])
   @@map("orders")
 }
 

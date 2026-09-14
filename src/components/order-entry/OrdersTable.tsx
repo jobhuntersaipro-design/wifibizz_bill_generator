@@ -36,10 +36,10 @@ const COLUMNS: { key: string; label: string; at: string | null; align?: string }
     // to sit near the right edge, behind the widest columns in the table.
     { key: "status", label: "Status", at: null },
     { key: "reference", label: "BizzFlow Order ID", at: "lg" },
-    // Which dealer staff code the order belongs to. `2xl`, beside Made By, so
-    // the two "who keyed this in" columns sit together and neither pushes the
-    // customer-facing columns off a 1280px viewport.
-    { key: "staffCode", label: "Staff Code", at: "2xl" },
+    // Which dealer staff code submitted the order. `lg`, not `2xl`: tracking who
+    // submitted what is the point of the column, and a nine-character code
+    // costs far less width than the address or package it sits beside.
+    { key: "staffCode", label: "Staff Code", at: "lg" },
     { key: "package", label: "Package", at: null },
     // Device drops to 2xl so the ADDRESS can come up to xl. Both cannot be at
     // xl: bounded at their max widths the row still overruns the ~1044px a

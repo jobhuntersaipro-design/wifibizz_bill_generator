@@ -5,6 +5,7 @@ import { verifyAdminSession } from "@/lib/admin-auth";
 import { SCRAPER_API_URL, ORDER_TOKEN } from "@/lib/order-start";
 import { describeConnection, isConnected, type ConnectionView } from "@/lib/agent-connection";
 import { ADMIN_ACTOR, recordAudit } from "@/lib/audit";
+import { resolveStaffCode } from "@/lib/order-types";
 import {
   agentStats,
   errorBreakdown,
@@ -63,10 +64,10 @@ export interface AdminOrderRow {
   createdAt: Date;
   deletedAt: Date | null;
   agentEmail: string | null;
-  // Dealer staff code of the order's OWNER, read live from DealerAccount —
-  // nothing stamps a code onto the order, so this is what that agent is
-  // connected as today. Null = they have never connected.
+  // The staff code that submitted the order (frozen at submit time), else the
+  // owner's current code for a never-submitted row — see resolveStaffCode.
   agentStaffCode: string | null;
+  agentStaffCodeRecorded: boolean;
   agentId: string;
   documentCount: number;
 }
@@ -119,7 +120,10 @@ export async function adminListOrders(filters?: {
         createdAt: o.createdAt,
         deletedAt: o.deletedAt,
         agentEmail: o.user.email,
-        agentStaffCode: o.user.dealerAccount?.staffCode ?? null,
+        ...(() => {
+          const r = resolveStaffCode(o.submittedStaffCode, o.user.dealerAccount?.staffCode);
+          return { agentStaffCode: r.code, agentStaffCodeRecorded: r.recorded };
+        })(),
         agentId: o.user.id,
         documentCount: Array.isArray(o.documents) ? o.documents.length : 0,
       })),

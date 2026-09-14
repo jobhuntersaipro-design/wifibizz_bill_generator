@@ -258,8 +258,9 @@ describe("activeFilterCount", () => {
         dateTo: "2026-08-18",
         offerName: "Unifi 500Mbps",
         deviceName: "TV",
+        staffCode: "TMRS00517",
       }),
-    ).toBe(5);
+    ).toBe(6);
   });
 
   it("counts a date range ONCE however many ends are set", () => {

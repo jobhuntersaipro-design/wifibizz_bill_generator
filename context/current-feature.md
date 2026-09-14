@@ -1,4 +1,36 @@
-# Current Feature: Sticky dealer-session banner (unified copy)
+# Current Feature: Record the submitting staff code on every order + filter by it
+
+## Status
+
+CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/order-staff-code-record`, not yet committed).
+Vercel-only, no scraper change. **Migration `20260914120000_order_submitted_staff_code`** — Vercel's
+build applies it (`migrate deploy` runs in the build script).
+
+## Goals
+
+- Every order records which dealer staff code (e.g. TMRS00517) submitted it, frozen at submit time
+- The Orders tab and admin/orders both show that code
+- Both tables can be filtered by staff code
+
+## Notes
+
+Replaces the 2026-08-31 read-time join, which re-labelled every past order when an agent reconnected
+under another code and named the draft OWNER rather than a superadmin who submitted it.
+
+- `orders.submitted_staff_code`, stamped in `startSubmitRun` from the SUBMITTER's `DealerAccount`
+  (single, batch and auto-retry all go through it). A submitter with no code leaves an earlier record alone.
+- Backfill: orders with `attempt > 0`, a portal order number, or a non-draft status get the submitting
+  user's (else owner's) CURRENT code — the best available, not a true record.
+- `resolveStaffCode`: the recorded code wins; a never-submitted row falls back to the owner's current code,
+  rendered muted with a "Not submitted yet" tooltip. Filtering uses the displayed code.
+- Filters: `matchesStaffCode` (exact, case-insensitive, "No staff code" sentinel) + options derived from the
+  loaded rows. Admin CSV gains a `staff_code` column. Agent table column moved `2xl` → `lg`.
+- Verified live on dev: header + cells, muted draft, option lists; with one order temporarily set to
+  TMRS00999 both filters narrowed 4 → 1 / 3 (restored). No 375px overflow, zero console errors.
+  17 new/updated tests; 946 vitest, build clean.
+- NOT verified: a real submit stamping the code (unit-tested), production.
+
+# Previous Feature: Sticky dealer-session banner (unified copy)
 
 ## Status
 
