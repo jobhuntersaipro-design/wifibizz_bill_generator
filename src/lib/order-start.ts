@@ -169,12 +169,23 @@ export async function startSubmitRun(
     return { ok: false as const, busy: !!opts_.busy, error: message };
   };
 
+  // The staff code this run submits under, frozen onto the order. Read from the
+  // SUBMITTER's dealer account (opts.userKey), not the draft owner's — a
+  // superadmin submitting another agent's draft does so under their own code.
+  const submitter = await prisma.dealerAccount.findUnique({
+    where: { userId: opts.userKey },
+    select: { staffCode: true },
+  });
+
   await prisma.order.update({
     where: { id: order.id },
     data: {
       attempt,
       // Whose session this run uses — read back by the automatic retry.
       lastSubmitUserId: opts.userKey,
+      // Kept as-is when the submitter has no code, so a lookup miss cannot
+      // erase the record an earlier attempt left.
+      ...(submitter?.staffCode?.trim() ? { submittedStaffCode: submitter.staffCode.trim() } : {}),
       // A person pressing Submit is a new decision and hands back a full budget.
       // Held HERE, in the one place every start goes through, so the reset rule
       // cannot be forgotten by a new caller.

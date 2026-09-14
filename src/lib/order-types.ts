@@ -1306,10 +1306,59 @@ export interface OrderListItem {
   documents: OrderDocument[];
   createdAt: string;
   createdByEmail?: string | null; // only populated for superadmins (all-drafts view)
-  // Dealer staff code of the agent who owns the order, joined at READ time from
-  // DealerAccount — nothing stamps it onto the order itself, so it reflects the
-  // code that agent is connected as today. Null = never connected.
+  // The dealer staff code to show and filter on — see resolveStaffCode.
   staffCode?: string | null;
+  // True when `staffCode` was frozen onto the order by a submit; false when it
+  // is only the owner's CURRENT code standing in for a never-submitted draft.
+  staffCodeRecorded?: boolean;
+}
+
+/**
+ * Which staff code a row reports.
+ *
+ * The code recorded at submit time wins — it is who actually submitted, and it
+ * does not change when an agent later reconnects under another code. A row
+ * never submitted has no such record, so it falls back to the owner's current
+ * code, flagged unrecorded so the UI can say it is not a submit record.
+ */
+export function resolveStaffCode(
+  submitted: string | null | undefined,
+  ownerCurrent: string | null | undefined,
+): { code: string | null; recorded: boolean } {
+  const rec = submitted?.trim();
+  if (rec) return { code: rec, recorded: true };
+  const cur = ownerCurrent?.trim();
+  return { code: cur || null, recorded: false };
+}
+
+/** Sentinel filter value for rows with no staff code at all. */
+export const NO_STAFF_CODE = "__none__";
+
+/**
+ * Does a row pass the staff-code filter? "all" passes everything; the sentinel
+ * matches rows with no code. Case-insensitive, because codes are typed by hand
+ * on the connect form and TMRS00517 / tmrs00517 are the same dealer.
+ */
+export function matchesStaffCode(code: string | null | undefined, filter: string): boolean {
+  if (filter === "all") return true;
+  const c = code?.trim() ?? "";
+  if (filter === NO_STAFF_CODE) return c === "";
+  return c.toUpperCase() === filter.trim().toUpperCase();
+}
+
+/** Distinct staff codes present in the rows, uppercased and sorted. */
+export function staffCodeOptions(codes: (string | null | undefined)[]): {
+  codes: string[];
+  hasNone: boolean;
+} {
+  const set = new Set<string>();
+  let hasNone = false;
+  for (const raw of codes) {
+    const c = raw?.trim();
+    if (c) set.add(c.toUpperCase());
+    else hasNone = true;
+  }
+  return { codes: [...set].sort((a, b) => a.localeCompare(b)), hasNone };
 }
 
 /* ── Drafts-table display helpers ─────────────────────────────────────────── */
@@ -1446,6 +1495,7 @@ export interface OrderFilters {
   dateTo: string | null;
   offerName: string;
   deviceName: string;
+  staffCode: string;
 }
 
 export const EMPTY_FILTERS: OrderFilters = {
@@ -1455,6 +1505,7 @@ export const EMPTY_FILTERS: OrderFilters = {
   dateTo: null,
   offerName: "all",
   deviceName: "all",
+  staffCode: "all",
 };
 
 /** How many filters are actually narrowing the list, for the "Clear" affordance. */
@@ -1466,7 +1517,8 @@ export function activeFilterCount(f: OrderFilters): number {
     // for a single date range would be counting inputs, not filters.
     (f.dateFrom || f.dateTo ? 1 : 0) +
     (f.offerName !== "all" ? 1 : 0) +
-    (f.deviceName !== "all" ? 1 : 0)
+    (f.deviceName !== "all" ? 1 : 0) +
+    (f.staffCode !== "all" ? 1 : 0)
   );
 }
 
@@ -1480,6 +1532,8 @@ export function activeFilterCount(f: OrderFilters): number {
 export function filterOptions(orders: OrderListItem[]): {
   offers: string[];
   devices: string[];
+  staffCodes: string[];
+  hasNoStaffCode: boolean;
 } {
   const offers = new Set<string>();
   const devices = new Set<string>();
@@ -1488,7 +1542,13 @@ export function filterOptions(orders: OrderListItem[]): {
     if (o.deviceName?.trim()) devices.add(o.deviceName.trim());
   }
   const sort = (s: Set<string>) => [...s].sort((a, b) => a.localeCompare(b));
-  return { offers: sort(offers), devices: sort(devices) };
+  const staff = staffCodeOptions(orders.map((o) => o.staffCode));
+  return {
+    offers: sort(offers),
+    devices: sort(devices),
+    staffCodes: staff.codes,
+    hasNoStaffCode: staff.hasNone,
+  };
 }
 
 /**
@@ -1514,6 +1574,7 @@ export function filterOrders(
     if (f.status !== "all" && o.status !== f.status) return false;
     if (f.offerName !== "all" && (o.offerName ?? "").trim() !== f.offerName) return false;
     if (f.deviceName !== "all" && (o.deviceName ?? "").trim() !== f.deviceName) return false;
+    if (!matchesStaffCode(o.staffCode, f.staffCode)) return false;
     if (from !== null || to !== null) {
       const t = new Date(o.createdAt).getTime();
       // An unparseable timestamp is KEPT. Dropping it would hide a real draft

@@ -106,3 +106,24 @@ describe("startSubmitRun when the droplet is busy", () => {
     ).toBe(true);
   });
 });
+
+describe("startSubmitRun records the submitting staff code", () => {
+  it("stamps the SUBMITTER's staff code onto the order in the attempt write", async () => {
+    dealerFindUnique.mockResolvedValue({
+      staffCode: " TMRS00517 ",
+      sessionExpiresAt: new Date(Date.now() + 3600_000),
+    });
+    fetchMock.mockRejectedValue(new Error("connect ECONNREFUSED"));
+    await startSubmitRun(ORDER, { userKey: "admin_1" });
+    const attemptWrite = orderUpdate.mock.calls[0][0];
+    expect(attemptWrite.data.submittedStaffCode).toBe("TMRS00517");
+    // Looked up by whoever pressed Submit, not by the draft's owner.
+    expect(dealerFindUnique.mock.calls[0][0].where).toEqual({ userId: "admin_1" });
+  });
+
+  it("leaves an earlier record alone when the submitter has no code", async () => {
+    dealerFindUnique.mockResolvedValue(null);
+    await startSubmitRun(ORDER, { userKey: "user_1" });
+    expect("submittedStaffCode" in orderUpdate.mock.calls[0][0].data).toBe(false);
+  });
+});
