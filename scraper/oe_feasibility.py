@@ -1157,6 +1157,107 @@ async def _pii_otp_target(frame) -> str | None:
     return None
 
 
+_RANDOM_NEEDED_RE = re.compile(r"Random\s+(\d+)\s+questions?\s+must\s+be\s+correct", re.I)
+
+
+def random_questions_needed(dialog_text: str) -> int | None:
+    """How many of the "Random N questions" the dialog wants answered, from its
+    own heading; None when there is no such block. Pure, so it is testable
+    without a browser and the heading's wording is pinned in one place."""
+    m = _RANDOM_NEEDED_RE.search(dialog_text or "")
+    return int(m.group(1)) if m else None
+
+
+async def _answer_random_pii_questions(frame) -> dict:
+    """ORD-0168 (2026-09-14): beneath the Mandatory Questions the portal can put
+    a second block — "Random N questions must be correct" — where each question
+    shows only a **Show Answer** link, and Proceed stays disabled until N of the
+    answers it reveals are ticked. Ticking the mandatory boxes alone leaves the
+    dialog exactly where the live run left it: three boxes ticked, Proceed grey.
+
+    The user's rule: click Show Answer, tick the box it reveals, Proceed. This
+    reveals the FIRST N answers (the portal orders them; nobody here can judge
+    which is "correct") and ticks whatever confirm box each reveal exposes.
+
+    The block's markup has never been captured, so it is printed to the run log
+    the first time this runs live — the same "one run answers it" pattern the
+    appointment reader and the Add Account form used. Returns what it did, for
+    the caller's message; never raises.
+    """
+    out = {"needed": 0, "offered": 0, "shown": 0, "ticked": 0}
+    try:
+        dlg = frame.locator(".ui-dialog:visible, .modal.in:visible").filter(
+            has_text="Proceed").last
+        if not await dlg.count():
+            return out
+        text = " ".join((await dlg.inner_text(timeout=3000)).split())
+        links = dlg.get_by_text("Show Answer", exact=True)
+        offered = await links.count()
+        needed = random_questions_needed(text)
+        if needed is None and not offered:
+            return out  # no random block on this dialog
+        needed = needed if needed is not None else 1
+        out.update(needed=needed, offered=offered)
+
+        # Record the real markup before touching it.
+        try:
+            html = await links.first.evaluate(
+                "el => (el.closest('form') || el.closest('.tab-pane') || el.parentElement).outerHTML")
+            print(f"  ↳ PII random block ({needed} required, {offered} offered): "
+                  f"{' '.join(html.split())[:3000]}", flush=True)
+        except Exception:  # noqa: BLE001
+            print(f"  ↳ PII random block ({needed} required, {offered} offered)", flush=True)
+
+        for _ in range(min(needed, offered)):
+            # A revealed link may stay put or be replaced by the answer, so
+            # each click is stamped and the next pick skips stamped ones.
+            link = dlg.locator(':text-is("Show Answer"):not([data-bf-shown])').first
+            handle = await link.element_handle(timeout=2000) if await link.count() else None
+            if handle is None:
+                break
+            await handle.click(timeout=5000)
+            out["shown"] += 1
+            try:  # the reveal may replace the link; a stamp on a gone node is fine
+                await handle.evaluate("el => el.setAttribute('data-bf-shown', '1')")
+            except Exception:  # noqa: BLE001
+                pass
+            await asyncio.sleep(0.8)
+            # Tick what the reveal exposed: any visible, unticked box in the
+            # dialog outside the mandatory form (those are ticked already).
+            boxes = dlg.locator('input[type="checkbox"]:visible')
+            for i in range(await boxes.count()):
+                box = boxes.nth(i)
+                try:
+                    if await box.is_checked():
+                        continue
+                    if await box.evaluate(
+                            "el => !!el.closest('form.js-mandatory-question-form')"):
+                        continue
+                    try:
+                        await box.check(timeout=3000)
+                    except Exception:  # noqa: BLE001
+                        await box.click(force=True)
+                    out["ticked"] += 1
+                except Exception:  # noqa: BLE001
+                    continue
+        print(f"  ↳ PII random questions: revealed {out['shown']}, ticked {out['ticked']} "
+              f"(needed {needed})", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  ↳ PII random questions: gave up ({type(e).__name__}: "
+              f"{' '.join(str(e).split())[:400]})", flush=True)
+    return out
+
+
+def _describe_pii_answers(n: int, rnd: dict) -> str:
+    """"3 mandatory question(s)" or "3 mandatory question(s) and 1 of 1 random
+    answer(s) revealed, 1 ticked" — what the run actually did, for the message."""
+    s = f"{n} mandatory question(s)"
+    if rnd.get("needed"):
+        s += (f" and {rnd['shown']} of {rnd['needed']} random answer(s) revealed, "
+              f"{rnd['ticked']} ticked")
+    return s
+
+
 async def _answer_pii_and_proceed(frame, note: str | None = None) -> dict:
     """Answer the PII identity check and click Proceed. Shared by the
     search-attach path (after the result-row dblclick) and the duplicate-IC
@@ -1213,6 +1314,8 @@ async def _answer_pii_and_proceed(frame, note: str | None = None) -> dict:
             await checks.nth(i).check(timeout=3000)
         except Exception:
             await checks.nth(i).click(force=True)
+    rnd = await _answer_random_pii_questions(frame)
+    answered = _describe_pii_answers(n, rnd)
     try:
         await frame.locator(_PROCEED_BTN).first.click(timeout=8000)
     except Exception as e:  # noqa: BLE001
@@ -1220,7 +1323,7 @@ async def _answer_pii_and_proceed(frame, note: str | None = None) -> dict:
         return {"status": "error", "error": PII_VERIFICATION_REQUIRED,
                 "stage": "attach_customer",
                 "message": (f"The PII dialog's Proceed did not accept the click "
-                            f"({type(e).__name__}) after answering {n} question(s)."
+                            f"({type(e).__name__}) after answering {answered}."
                             + (f" Portal dialog: {text}" if text else ""))}
 
     # Verify. A PII dialog still up means Proceed refused what was answered —
@@ -1233,7 +1336,7 @@ async def _answer_pii_and_proceed(frame, note: str | None = None) -> dict:
         text = await _pii_dialog_text(frame)
         return {"status": "error", "error": PII_VERIFICATION_REQUIRED,
                 "stage": "attach_customer",
-                "message": (f"Answered {n} PII question(s) and pressed Proceed, but "
+                "message": (f"Answered {answered} and pressed Proceed, but "
                             f"the portal kept the identity check open."
                             + (f" Portal dialog: {text}" if text else ""))}
 
