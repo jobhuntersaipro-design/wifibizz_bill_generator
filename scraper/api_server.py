@@ -704,6 +704,10 @@ def _run_order_job_inner(job_id: str, payload: dict, dry_run: bool, user_key: st
 
     Batch members pass None: the batch summary covers them, and one email per
     order inside a batch is exactly what the summary exists to avoid.
+
+    `live_view` attaches the admin's watch-only screencast to this run (via
+    `enter_full_order`'s `live_view_job_id`) and feeds it every stage
+    milestone; default off, so an ordinary agent submit is unchanged.
     """
     import asyncio
 
