@@ -1,7 +1,7 @@
 # Admin Live Submit — submit an order as admin and watch the browser as it runs
 
 **Date:** 2026-09-16
-**Status:** SPEC APPROVED, NOT BUILT
+**Status:** CODE COMPLETE, VERIFIED IN BROWSER AGAINST THE DEMO (branch feature/admin-live-submit, not merged)
 **Touches:** scraper (droplet, container recreated) + Vercel. No migration.
 
 ## Problem

@@ -2,7 +2,8 @@
 
 ## Status
 
-SPEC APPROVED, NOT BUILT (2026-09-16). Scraper + Vercel, no migration. Branch not yet created.
+CODE COMPLETE, VERIFIED IN BROWSER AGAINST THE DEMO (branch feature/admin-live-submit, not merged).
+Scraper + Vercel, no migration. Needs a droplet deploy (container recreated) before Vercel.
 Full spec: [context/features/admin-live-submit.md](features/admin-live-submit.md).
 
 ## Goals
@@ -25,6 +26,53 @@ in-flight run is a follow-up.
 
 Vercel env `NEXT_PUBLIC_SCRAPER_API_URL`; droplet env `LIVE_VIEW_ORIGIN`; Dockerfile `--threads 16`;
 droplet deployed BEFORE Vercel (an old droplet ignores `live_view` and degrades to "not enabled").
+
+## Verified
+
+2026-09-16, dev database, against `scraper/devtools/live_view_demo.py` — an in-process api_server on :5000
+screencasting example.com through a fake live-view job (8 stages, 6 s apart). No dealer session, no portal.
+BizzFlow ran as `next dev -p 3001` (:3000 on this machine is another project), so the demo ran with
+`LIVE_VIEW_ORIGIN=http://localhost:3001`. Admin session minted locally; ORD-0002 pointed at the demo job
+(`status submitting`) and ORD-0003 set to `failed` for the dialog, both restored exactly afterwards
+(draft / warning, job_id NULL, `updated_at` and 0 status events unchanged).
+
+- **Order page:** `submitting` + job id renders **Watch live ↗** (`target=_blank`); **Submit as…** on it reads
+  *"A run is already in flight for this order."*
+- **Live page, success run:** chip Connecting… → Live in ~160 ms; frames painted and repainted per stage
+  (7 distinct frames across 14 samples, colour and "Step N" heading visible in the frame); the checklist
+  advanced Step 1 → 8 of 17; Stages filled with 8 rows and times (`18:54:16 validating_draft — detail 0` …);
+  the log box held the 8 `stage …` lines scrolled to the bottom; at the end the chip read **Finished**, the
+  checklist *All 17 steps complete*, *"The run finished. Portal order 2609000000000000."*, and the last frame
+  stayed up. Zero console errors.
+- **Failure run** (`--fail`): *"The run ended with an error: demo refusal"*, chip Finished.
+- **Bad token:** the first probe rewritten to a bogus token → one 401, the page minted a fresh token, probe 200,
+  stream 200, Live. The 401 is the only console error (the browser's own resource log).
+- **Demo stopped:** *"Could not reach the order service."* (`ERR_CONNECTION_REFUSED` on the probe).
+- **`--no-live`:** *"Live view was not enabled for this run."*, no Stop button.
+- **Viewer cap** (`--slow`): tabs 1-3 Live, tab 4 *"Three viewers are already watching runs on the order
+  service — close one and reload."* A slot frees only when the server next WRITES to the dead stream
+  (a frame, stage or the 15 s ping): reloading tab 4 straight after closing a tab was still refused; ~15 s
+  later a new tab went Live.
+- **Dialog on a `failed` order:** the real-order warning, 3 accounts with labels (*Never connected* ×2,
+  *Expired 762h 56m ago*) all disabled so **Start and watch** is disabled, the Stop-before-Pay help text, the
+  retry line; Cancel closes it. **Start and watch was never pressed.** A `submitted` order has no button.
+- **375 px:** one column (frame above the checklist), document width 375 = viewport, no horizontal overflow.
+- `npm run build` clean; vitest 989 passed (the 4 failing files are the Playwright e2e specs); scraper suite
+  456 passed + 1 skipped.
+
+Screenshots in the session scratchpad, not the repo.
+
+## NOT verified
+
+- A real admin submit against the Unifi portal (it mints a real order).
+- The screencast on the real portal page — the demo streams example.com.
+- Stop against a real run (it calls the same cancel route `adminReleaseJob` uses).
+- An account in the dialog that IS connected (every dev account is expired or never connected).
+- The droplet deploy (`LIVE_VIEW_ORIGIN`, `--threads 16`), Vercel `NEXT_PUBLIC_SCRAPER_API_URL`, production.
+
+Observed, not changed: on the viewer-cap message the Stop button still shows; "Frame N s ago" counts up
+between repaints because Chromium only sends a frame when the page changes, so a still portal page will
+read as a stale frame (amber past 10 s); stage times are shown in UTC.
 
 # Current Feature: Pay tail waits for a slow Pay page instead of pressing a Next it lacks
 
