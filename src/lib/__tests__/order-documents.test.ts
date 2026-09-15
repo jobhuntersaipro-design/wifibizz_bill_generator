@@ -10,6 +10,8 @@ import {
   isServerDocType,
   missingFieldsFor,
   slugFromFilename,
+  safeUploadFilename,
+  documentSlotName,
   type GeneratorSource,
 } from "../order-documents";
 import { IDENTITY_DOC_TYPES, hasIdentityDocument, hasSupportingDocument } from "../order-types";
@@ -424,5 +426,32 @@ describe("generatableDocTypes", () => {
 
   it("returns empty when nothing can run at all", () => {
     expect(generatableDocTypes({}, [], 10)).toEqual([]);
+  });
+});
+
+describe("uploads keep their original filename", () => {
+  it("keeps an ordinary phone filename as-is", () => {
+    expect(safeUploadFilename("WhatsApp Image 2026-09-15 at 10.22.11.jpeg")).toBe(
+      "WhatsApp Image 2026-09-15 at 10.22.11.jpeg",
+    );
+    expect(safeUploadFilename("IC (front).PNG")).toBe("IC (front).png");
+  });
+
+  it("drops the path and anything a header or key cannot carry", () => {
+    expect(safeUploadFilename("C:\\fakepath\\bil elektrik.pdf")).toBe("bil elektrik.pdf");
+    expect(safeUploadFilename('a"b\\c/../客户.jpg')).toBe("_.jpg");
+    expect(safeUploadFilename("x..y.pdf")).not.toContain("..");
+    expect(safeUploadFilename(".pdf")).toBe("document.pdf");
+  });
+
+  it("reads the slot from the folder of an original-name key", () => {
+    const doc = { key: "orders/u1/920505034434_utilitybill_1/my bill.pdf", filename: "my bill.pdf" };
+    expect(documentSlotName(doc)).toBe("920505034434_utilitybill_1");
+    expect(isDocTypeAttached("utility_bill", [doc])).toBe(true);
+  });
+
+  it("still reads a flat key by its filename", () => {
+    const doc = { key: "orders/u1/920505034434_internetbill_1.pdf", filename: "920505034434_internetbill_1.pdf" };
+    expect(documentSlotName(doc)).toBe("920505034434_internetbill_1.pdf");
   });
 });

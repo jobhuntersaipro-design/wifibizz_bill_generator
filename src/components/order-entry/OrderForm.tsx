@@ -739,6 +739,7 @@ export function OrderForm({
     const fd = new FormData();
     if (side) fd.append("side", side);
     fd.append("file", file);
+    fd.append("keepOriginalName", "1");
     fd.append("idNumber", idNumber);
     fd.append("idType", idType);
     fd.append("docType", type);

@@ -314,7 +314,7 @@ export async function adminCloneOrder(sourceId: string, targetUserId: string) {
     for (const doc of sourceDocs) {
       const bytes = doc?.key?.startsWith("orders/") ? await getBytesFromR2(doc.key) : null;
       if (!bytes) { missing.push(doc?.filename ?? "a document"); continue; }
-      const { key, filename } = cloneDocumentKey(doc.filename, target.id, tag);
+      const { key, filename } = cloneDocumentKey(doc, target.id, tag);
       await uploadToR2(key, bytes, documentContentType(filename));
       documents.push({
         type: doc.type, key, filename,

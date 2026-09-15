@@ -99,7 +99,10 @@ def download_many(keys: list[str], dest_dir: str | None = None,
                   f"skipping {len(keys) - i} remaining document(s)")
             break
         try:
-            paths.append(download_r2_object(k, dest_dir))
+            # One folder per key: uploads keep their original names, so two
+            # documents can share a basename ("IMG_0001.jpg") and would
+            # otherwise overwrite each other in a shared folder.
+            paths.append(download_r2_object(k, os.path.join(dest_dir, str(i))))
         except Exception as e:  # noqa: BLE001
             print(f"  ⚠ R2 download failed for {k}: {e}")
     return paths
