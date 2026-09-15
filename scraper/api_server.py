@@ -24,6 +24,7 @@ from dotenv import find_dotenv, load_dotenv
 from flask import Flask, jsonify, request
 
 from job_logging import install as _install_job_logging, job_log
+import live_view
 
 # Route stdout/stderr per THREAD before anything can print. Every job used to
 # swap the global sys.stdout for its own log file, which two concurrent runs
@@ -661,7 +662,7 @@ def _run_order_job(job_id: str, payload: dict, dry_run: bool, user_key: str = No
                    stop_after_customer_fill: bool = False,
                    stop_after_customer_create: bool = False,
                    full_order: bool = False, do_pay: bool = False,
-                   notify_order_id: str = None):
+                   notify_order_id: str = None, live_view: bool = False):
     """Guarded entry point for one order run.
 
     Everything the runner does before it sets status="running" — the imports,
@@ -679,6 +680,7 @@ def _run_order_job(job_id: str, payload: dict, dry_run: bool, user_key: str = No
         _run_order_job_inner(
             job_id, payload, dry_run, user_key, stop_after_customer_fill,
             stop_after_customer_create, full_order, do_pay, notify_order_id,
+            live_view=live_view,
         )
     except BaseException as e:
         _fail_job_now(
@@ -693,7 +695,7 @@ def _run_order_job_inner(job_id: str, payload: dict, dry_run: bool, user_key: st
                          stop_after_customer_fill: bool = False,
                          stop_after_customer_create: bool = False,
                          full_order: bool = False, do_pay: bool = False,
-                         notify_order_id: str = None):
+                         notify_order_id: str = None, live_view: bool = False):
     """Background runner for enter_order()/enter_full_order(); logs to logs/<job_id>.log.
 
     `notify_order_id` is BizzFlow's own Order id. When set, this job POSTs an
@@ -738,15 +740,29 @@ def _run_order_job_inner(job_id: str, payload: dict, dry_run: bool, user_key: st
             job["stage"] = name
             stages = job.setdefault("stages", [])
             if len(stages) < 200:
-                stages.append({
-                    "name": name,
-                    "detail": detail,
-                    # Explicitly UTC. utcnow().isoformat() alone has no offset,
-                    # and JS Date() reads a bare timestamp as LOCAL time — which
-                    # would shift every step in the timeline by the viewer's
-                    # timezone.
-                    "at": datetime.utcnow().isoformat() + "Z",
-                })
+                # Explicitly UTC. utcnow().isoformat() alone has no offset,
+                # and JS Date() reads a bare timestamp as LOCAL time — which
+                # would shift every step in the timeline by the viewer's
+                # timezone.
+                entry = {"name": name, "detail": detail,
+                         "at": datetime.utcnow().isoformat() + "Z"}
+                stages.append(entry)
+                # Feeds a live viewer, if any. No-op for every other job.
+                #
+                # This function's own `live_view` PARAMETER shadows the
+                # module-level `import live_view` for every closure defined
+                # in its body (this one included), so the bare name `live_view`
+                # here would resolve to a bool, not the module. Importing it
+                # fresh under its own name sidesteps that shadow rather than
+                # relying on the (shadowed) outer binding.
+                try:
+                    import live_view as _live_view_mod
+                    _live_view_mod.publish_stage(job_id, entry)
+                except Exception as e:
+                    # publish_stage() is documented as never raising, but this
+                    # step runs on EVERY stage of every order — a live view
+                    # defect must never cost an order, so belt and suspenders.
+                    print(f"  ⚠ live view: publish_stage failed ({type(e).__name__}: {e})", flush=True)
             JOBS[job_id] = job
 
     async def _cancellable():
@@ -767,7 +783,8 @@ def _run_order_job_inner(job_id: str, payload: dict, dry_run: bool, user_key: st
             from oe_feasibility import enter_full_order
             return await asyncio.wait_for(
                 enter_full_order(payload, user_key=user_key, dry_run=dry_run,
-                                 submit=True, do_pay=do_pay, on_stage=_set_stage),
+                                 submit=True, do_pay=do_pay, on_stage=_set_stage,
+                                 live_view_job_id=job_id if live_view else None),
                 timeout=OVERALL_ORDER_TIMEOUT,
             )
         return await asyncio.wait_for(
@@ -953,6 +970,9 @@ def create_order():
     # Real, billable Pay/Submit at the end of the full flow (default False = stop
     # at the Pay gate). BizzFlow's submitOrder sends do_pay=true for real orders.
     do_pay = bool(data.get("do_pay", False))
+    # Admin's watch-only live view. Only a job created with this flag ever
+    # attaches a screencast; an agent's run sends nothing and is unchanged.
+    live_view_on = bool(data.get("live_view", False))
     # Catalogue discovery: drive the flow only as far as the device Offer dialog,
     # read the package's mandatory groups, and stop. It still MINTS AN ORDER —
     # the dialog does not exist before Order is clicked — so the caller is
@@ -978,6 +998,7 @@ def create_order():
             # agent's run from another's.
             "params": {"dry_run": dry_run, "kind": "order_entry",
                        "user_key": user_key},
+            "live_view": live_view_on,
         }
 
     # Report this run's completion to BizzFlow so the result email arrives with
@@ -992,6 +1013,7 @@ def create_order():
             target=_run_order_job,
             args=(job_id, payload, dry_run, user_key, stop_after_customer_fill,
                   stop_after_customer_create, full_order, do_pay, notify_order_id),
+            kwargs={"live_view": live_view_on},
             daemon=True,
         ).start()
     except Exception as e:  # noqa: BLE001 — the entry is already registered

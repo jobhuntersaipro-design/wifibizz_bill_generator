@@ -1610,7 +1610,7 @@ async def _capture_dialog_message(page) -> str | None:
 
 async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = False,
                            submit: bool = True, do_pay: bool = False,
-                           on_stage=None) -> dict:
+                           on_stage=None, live_view_job_id: str | None = None) -> dict:
     """The full per-order flow in ONE dealer session:
         create the customer profile -> feasibility -> Order -> attach -> order id
         -> New Connection detail (contact/account/winback/device/sub-tabs/
@@ -1662,9 +1662,16 @@ async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = 
 
     session_path = f"sessions/dealer_{dealer_login_service._safe_key(user_key)}.json"
     pw = browser = context = page = None
+    live_session = None
     try:
         pw, browser, context, page = await dealer_web_login.open_context_from_session(
             session_path, landing_url=ORDER_ENTRY_URL)
+        # Admin's watch-only live view, only for a job created with it. Attached
+        # as early as possible — right after the page exists — so a login bounce
+        # or an early portal refusal is visible too, not just a healthy run.
+        if live_view_job_id:
+            import live_view
+            live_session = await live_view.attach(page, live_view_job_id)
         await ensure_on_order_entry(page)
         frame = _frame(page)
 
@@ -1732,6 +1739,12 @@ async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = 
         await capture_failure(page, payload, outcome, stage)
         return outcome
     finally:
+        # Detached whenever it was requested, whether or not attach() actually
+        # produced a session — detach() tolerates None, and a store created by
+        # a failed attach still needs to be torn down.
+        if live_view_job_id:
+            import live_view
+            await live_view.detach(live_view_job_id, live_session)
         await dealer_web_login.safe_teardown(pw, browser, context)
 
 
