@@ -1,3 +1,44 @@
+# Current Feature: Admin "Clone & retry" — replicate a failed order by hand
+
+## Status
+
+CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/admin-clone-and-retry`, not committed).
+Vercel-only, no scraper change. **Migration `20260915120000_order_auto_retry_disabled`** — Vercel's
+build applies it.
+
+## Goals
+
+- `/admin/orders/[id]` has **Clone & retry**: pick an Order Entry account, get a new `ORD-` draft
+  with the order's customer, package and **documents**
+- Nothing is submitted — the person submits the draft from that account's Order Entry
+- The clone's runs are never retried automatically (one Submit = one run = at most one real order)
+
+## Built
+
+- `orders.auto_retry_disabled`; `retryVerdict` refuses with *"automatic retry is off for this
+  replication clone"*, passed at every finalization point and in `maybeAutoRetry`. A busy droplet
+  refusal on a clone is filed as `service_busy` with no deferred start (the deferred start IS the
+  retry sweep, which would refuse it after promising "will start again shortly").
+- `adminCloneTargets()` (order-entry users only; no password columns) and `adminCloneOrder()` —
+  admin-gated, copies every readable document to a NEW key (`cloneDocumentKey`: tags the trailing
+  segment, so cloning into the SAME account cannot overwrite the source's file, and `slugFromFilename`
+  still reads the kind), writes the draft only after the copies, audits `order_cloned`. A document no
+  longer in R2 is named in the result rather than failing the clone.
+- `autoRetryDisabled` joins `NEVER_CLONED` — an ordinary clone of a clone gets normal retry.
+
+## Verified
+
+Dev, admin session minted locally: the dialog lists the 3 Order Entry accounts (superadmin first) and
+the real-order warning; cloning ORD-0003 into its OWN account created ORD-0026 — draft, attempt 0,
+`auto_retry_disabled` true, same customer and offer, 3 documents at new `-c<tag>` keys with bytes
+identical to the source and the source keys untouched, audit row written. The draft opens in Order
+Entry with the customer filled, "Attached ✓" and "Update Draft". Zero console errors. The test clone
+and its 3 copies were deleted afterwards. 6 new vitest (957 passing), build clean, lint clean, `tsc`
+unchanged.
+
+**NOT verified:** submitting a clone (it would mint a real order), the missing-document branch, and
+production.
+
 # Current Feature: Every failed attempt keeps its error code (no more "Unclassified")
 
 ## Status

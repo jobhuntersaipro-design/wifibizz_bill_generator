@@ -296,7 +296,7 @@ async function applyResult(
       attempt: true, stage: true, offerName: true, deviceName: true,
       // Needed to judge, in the SAME write that files the outcome, whether this
       // failure is one an automatic retry will come back for.
-      autoRetries: true,
+      autoRetries: true, autoRetryDisabled: true,
     },
   });
   const attempt = current?.attempt ?? 1;
@@ -349,6 +349,7 @@ async function applyResult(
           errorMessage: data.errorMessage ?? null,
           autoRetries: current?.autoRetries ?? 0,
           attempt,
+          autoRetryDisabled: current?.autoRetryDisabled,
         }),
       },
     });
@@ -483,7 +484,7 @@ const JOB_LOST = "job_lost";
 async function finalizeMissingJob(id: string): Promise<ProgressState> {
   const before = await prisma.order.findUnique({
     where: { id },
-    select: { autoRetries: true, attempt: true },
+    select: { autoRetries: true, attempt: true, autoRetryDisabled: true },
   });
   const errorMessage =
     "The submit run was lost (the order service restarted). Check the portal " +
@@ -504,6 +505,7 @@ async function finalizeMissingJob(id: string): Promise<ProgressState> {
         errorMessage,
         autoRetries: before?.autoRetries ?? 0,
         attempt: before?.attempt ?? 1,
+        autoRetryDisabled: before?.autoRetryDisabled,
       }),
     },
   });
@@ -583,6 +585,7 @@ export async function pollOrderProgress(id: string): Promise<ProgressState | nul
           errorMessage,
           autoRetries: order.autoRetries,
           attempt: order.attempt,
+          autoRetryDisabled: order.autoRetryDisabled,
         }),
       },
     });

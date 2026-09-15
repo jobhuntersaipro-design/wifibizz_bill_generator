@@ -113,6 +113,11 @@ model Order {
   // requests, so "shortly" has to be a row somebody sweeps.
   autoRetryAt DateTime? @map("auto_retry_at")
 
+  // Set on a clone admin made to replicate a failure. Every run then happens
+  // once per Submit: an automatic retry would mint extra real Unifi orders for
+  // a run that exists only to be watched. Never cloned onward.
+  autoRetryDisabled Boolean @default(false) @map("auto_retry_disabled")
+
   // Whose dealer session ran the last submit. A submit runs under the session of
   // whoever pressed the button — a superadmin submits another agent's draft
   // under their OWN session — and an automatic retry has none to read.

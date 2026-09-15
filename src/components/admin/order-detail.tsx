@@ -1,6 +1,7 @@
 import type { AttemptView } from "@/lib/order-history";
 import { isFailureStatus } from "@/lib/admin-order-stats";
 import { AdminAttemptEvents } from "@/components/admin/admin-attempt-events";
+import { CloneOrderButton } from "@/components/admin/clone-order-button";
 
 export interface AdminOrderView {
   id: string;
@@ -69,6 +70,7 @@ export function AdminOrderDetail({
             <span className="rounded-full bg-[#F1F3F6] px-2.5 py-1 text-xs text-[#425466]">
               {order.status}
             </span>
+            <CloneOrderButton orderId={order.id} label={order.reference ?? order.fullName} />
             {order.deletedAt && (
               <span className="rounded-full bg-[#FEF3F2] px-2.5 py-1 text-xs text-[#B42318]">
                 Deleted {order.deletedAt.slice(0, 10)}

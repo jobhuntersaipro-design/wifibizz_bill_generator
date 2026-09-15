@@ -50,6 +50,9 @@ export const NEVER_CLONED = [
   "errorMessage", "errorCode", "jobId", "stage", "stageAt", "screenshotUrl",
   "documents", "notifiedAt", "outcomeSeenAt", "deletedAt", "lastSubmitUserId",
   "userId", "createdAt", "updatedAt",
+  // Replication clones set it deliberately; an ordinary clone of one must not
+  // inherit a policy nobody chose for it.
+  "autoRetryDisabled",
 ] as const;
 
 export function cloneOrderInput<T extends Record<string, unknown>>(
@@ -60,4 +63,36 @@ export function cloneOrderInput<T extends Record<string, unknown>>(
     if (f in source) out[f] = source[f];
   }
   return out as Pick<T, Extract<keyof T, ClonedField>>;
+}
+
+/**
+ * The R2 key for a document COPIED into a replication clone.
+ *
+ * Deliberately not the key the order form would mint: that one is
+ * `{idNumber}_{slug}_{n}` in the owner's namespace, so cloning into the SAME
+ * account would write over the source order's own file (the trap above). The
+ * copy keeps `{idNumber}_{slug}_` intact — `slugFromFilename` is how the form
+ * knows which kinds are attached — and tags only the trailing segment.
+ */
+export function cloneDocumentKey(
+  sourceFilename: string,
+  targetUserId: string,
+  tag: string,
+): { key: string; filename: string } {
+  const dot = sourceFilename.lastIndexOf(".");
+  const stem = dot > 0 ? sourceFilename.slice(0, dot) : sourceFilename;
+  const ext = dot > 0 ? sourceFilename.slice(dot) : "";
+  const filename = `${stem}-c${tag}${ext}`;
+  return { key: `orders/${targetUserId}/${filename}`, filename };
+}
+
+const CONTENT_TYPES: Record<string, string> = {
+  pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+  jfif: "image/jpeg", webp: "image/webp", bmp: "image/bmp",
+};
+
+/** Content type for a stored document, from its extension. */
+export function documentContentType(filename: string): string {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  return CONTENT_TYPES[ext] ?? "application/octet-stream";
 }
