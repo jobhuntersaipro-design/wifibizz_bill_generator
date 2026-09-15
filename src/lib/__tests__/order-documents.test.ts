@@ -450,6 +450,11 @@ describe("uploads keep their original filename", () => {
     expect(isDocTypeAttached("utility_bill", [doc])).toBe(true);
   });
 
+  it("reads the kind through the random tag on the slot folder", () => {
+    const doc = { key: "orders/u1/920505034434_mykad_1-a1b2c3/IC back.jpg", filename: "IC back.jpg" };
+    expect(slugFromFilename(documentSlotName(doc))).toBe("mykad");
+  });
+
   it("still reads a flat key by its filename", () => {
     const doc = { key: "orders/u1/920505034434_internetbill_1.pdf", filename: "920505034434_internetbill_1.pdf" };
     expect(documentSlotName(doc)).toBe("920505034434_internetbill_1.pdf");
