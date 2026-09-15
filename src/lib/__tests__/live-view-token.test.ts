@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   LIVE_VIEW_TOKEN_TTL_MS,
-  liveViewUrl,
   mintLiveViewToken,
   verifyLiveViewToken,
 } from "@/lib/live-view-token";
@@ -34,10 +33,5 @@ describe("live view token", () => {
     expect(verifyLiveViewToken("job123.abc.def", "job123", SECRET)).toBe(false);
     expect(verifyLiveViewToken("", "job123", SECRET)).toBe(false);
     expect(verifyLiveViewToken(VECTOR, "job123", "", 1899999000 * 1000)).toBe(false);
-  });
-
-  it("builds the droplet URL with the token encoded", () => {
-    expect(liveViewUrl("https://scraper.example", "j1", "a.b.c")).toBe("https://scraper.example/jobs/j1/live?token=a.b.c");
-    expect(liveViewUrl("https://scraper.example/", "j 1", "x", true)).toBe("https://scraper.example/jobs/j%201/live?token=x&probe=1");
   });
 });

@@ -2,6 +2,8 @@ import { createHash, createHmac, timingSafeEqual } from "crypto";
 
 /**
  * The token an admin's browser presents to the droplet's live-view route.
+ * This module imports Node.js crypto and is server-only; browser code should
+ * import `liveViewUrl` from @/lib/live-view-url instead.
  *
  * That route cannot check X-Internal-Token (EventSource sends no headers), so
  * this is the whole gate: an HMAC under a key DERIVED from the internal token
@@ -47,11 +49,4 @@ export function verifyLiveViewToken(
   const expected = sign(jobId, exp, secret);
   if (sig.length !== expected.length) return false;
   return timingSafeEqual(Buffer.from(sig, "utf8"), Buffer.from(expected, "utf8"));
-}
-
-/** The droplet URL the browser opens. `probe` asks for a JSON verdict instead of the stream. */
-export function liveViewUrl(scraperUrl: string, jobId: string, token: string, probe = false): string {
-  const base = scraperUrl.replace(/\/+$/, "");
-  const q = `token=${encodeURIComponent(token)}${probe ? "&probe=1" : ""}`;
-  return `${base}/jobs/${encodeURIComponent(jobId)}/live?${q}`;
 }
