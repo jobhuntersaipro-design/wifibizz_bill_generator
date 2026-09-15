@@ -65,10 +65,16 @@ function tokenFor(jobId: string) {
 export async function adminSubmitOrder(
   orderId: string,
   targetUserId: string,
-  opts: { stopBeforePay: boolean },
+  opts?: { stopBeforePay?: boolean },
 ) {
   const denied = await requireAdmin();
   if (denied) return denied;
+
+  // A direct POST with no body (or a body missing the field) must never fall
+  // through to a real Pay click. `=== false` is the only spelling of "opt in
+  // to a full Pay run" — anything else (undefined, missing, truthy) stops
+  // before Pay.
+  const doPay = opts?.stopBeforePay === false;
 
   const order = await prisma.order.findFirst({ where: { id: orderId, ...ACTIVE_ORDER } });
   if (!order) return { success: false as const, error: "Order not found." };
@@ -87,15 +93,21 @@ export async function adminSubmitOrder(
   // would mint more unpaid orders.
   await prisma.order.update({ where: { id: orderId }, data: { autoRetryDisabled: true } });
 
-  const started = await startSubmitRun(order, {
-    userKey: targetUserId, doPay: !opts.stopBeforePay, liveView: true, startedBy: "admin",
+  // startSubmitRun's own `fail()` reads `order.autoRetryDisabled` straight off
+  // the object we pass it, not off the DB — the write above happened in a
+  // separate round trip this in-memory copy never saw. Passing the stale
+  // `order` here would let a 409/503/timeout refusal stamp `autoRetryAt` and
+  // promise "this submit will start again shortly", exactly the silent-retry
+  // outcome the write above exists to prevent.
+  const started = await startSubmitRun({ ...order, autoRetryDisabled: true }, {
+    userKey: targetUserId, doPay, liveView: true, startedBy: "admin",
   });
   if (!started.ok) return { success: false as const, error: started.error };
 
   const who = `${target.email ?? target.id}${target.dealerAccount?.staffCode ? ` (${target.dealerAccount.staffCode})` : ""}`;
   await recordAudit({
     actor: ADMIN_ACTOR, action: "order_admin_submitted", targetOrder: orderId,
-    detail: `Submitted ${order.reference ?? order.id} as ${who}${opts.stopBeforePay ? ", stopping before Pay" : ""} — job ${started.jobId}.`,
+    detail: `Submitted ${order.reference ?? order.id} as ${who}${!doPay ? ", stopping before Pay" : ""} — job ${started.jobId}.`,
   });
   return { success: true as const, ...tokenFor(started.jobId) };
 }

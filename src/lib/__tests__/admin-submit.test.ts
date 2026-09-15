@@ -94,7 +94,10 @@ describe("adminSubmitOrder happy path", () => {
     orderFindFirst.mockResolvedValue(base);
     const res = await adminSubmitOrder("ord_1", "u2", { stopBeforePay: false });
     expect(orderUpdate).toHaveBeenCalledWith({ where: { id: "ord_1" }, data: { autoRetryDisabled: true } });
-    expect(startSubmitRun).toHaveBeenCalledWith(base, { userKey: "u2", doPay: true, liveView: true, startedBy: "admin" });
+    expect(startSubmitRun).toHaveBeenCalledWith(
+      { ...base, autoRetryDisabled: true },
+      { userKey: "u2", doPay: true, liveView: true, startedBy: "admin" },
+    );
     expect(recordAudit).toHaveBeenCalledWith(expect.objectContaining({
       actor: "admin", action: "order_admin_submitted", targetOrder: "ord_1",
       detail: "Submitted ORD-0001 as b@x (TMRS00517) — job job_9.",
@@ -110,7 +113,10 @@ describe("adminSubmitOrder happy path", () => {
   it("Stop before Pay sends doPay:false and says so in the audit", async () => {
     orderFindFirst.mockResolvedValue(base);
     await adminSubmitOrder("ord_1", "u2", { stopBeforePay: true });
-    expect(startSubmitRun).toHaveBeenCalledWith(base, { userKey: "u2", doPay: false, liveView: true, startedBy: "admin" });
+    expect(startSubmitRun).toHaveBeenCalledWith(
+      { ...base, autoRetryDisabled: true },
+      { userKey: "u2", doPay: false, liveView: true, startedBy: "admin" },
+    );
     expect(recordAudit.mock.calls[0][0].detail).toBe("Submitted ORD-0001 as b@x (TMRS00517), stopping before Pay — job job_9.");
   });
 
@@ -120,6 +126,25 @@ describe("adminSubmitOrder happy path", () => {
     const res = await adminSubmitOrder("ord_1", "u2", { stopBeforePay: false });
     expect(res).toEqual({ success: false, error: "All 4 submit slots are busy." });
     expect(recordAudit).not.toHaveBeenCalled();
+  });
+
+  it("a busy refusal does not promise a retry — the order passed to startSubmitRun already carries autoRetryDisabled", async () => {
+    orderFindFirst.mockResolvedValue(base);
+    startSubmitRun.mockResolvedValue({ ok: false, busy: true, error: "busy" });
+    const res = await adminSubmitOrder("ord_1", "u2", { stopBeforePay: false });
+    expect(startSubmitRun.mock.calls[0][0]).toMatchObject({ autoRetryDisabled: true });
+    expect(res).toEqual({ success: false, error: "busy" });
+    expect(recordAudit).not.toHaveBeenCalled();
+  });
+
+  it("opts undefined (a direct POST with no body) stops before Pay rather than defaulting to a real charge", async () => {
+    orderFindFirst.mockResolvedValue(base);
+    await adminSubmitOrder("ord_1", "u2", undefined as never);
+    expect(startSubmitRun).toHaveBeenCalledWith(
+      { ...base, autoRetryDisabled: true },
+      { userKey: "u2", doPay: false, liveView: true, startedBy: "admin" },
+    );
+    expect(recordAudit.mock.calls[0][0].detail).toContain("stopping before Pay");
   });
 });
 
