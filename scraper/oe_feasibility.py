@@ -14,6 +14,7 @@ Returns dicts, never raises for expected flow errors; InfraError only on lost
 session. dry_run=True is the safety gate — it never clicks Order (no order created).
 """
 import asyncio
+import time
 import contextvars
 import json
 import os
@@ -5755,6 +5756,40 @@ async def _read_advance_payment(frame) -> str | None:
     return m.group(1) if m else None
 
 
+_PAY_SELECTOR = '.js-btn-pay:visible, .js-pay:visible, button:has-text("Pay"):visible'
+
+
+async def _wait_for_pay_or_next(page, timeout_s: float = 30) -> str:
+    """Wait for the pay tail's current page to settle: 'pay' once a Pay button
+    is visible, 'next' once a New Connection Next is, 'none' if neither appears
+    within timeout_s (checked at least once, so timeout_s=0 is a single look).
+
+    Pay wins a tie. The single look this replaced failed order 2609000125372808
+    (2026-09-15): the Pay page of a broadband + voice + TV order was still
+    loading after the T&C Next, showed neither button, and the loop pressed for
+    a Next the Pay page does not have."""
+    pay_loc = _frame(page).locator(_PAY_SELECTOR)
+    deadline = time.monotonic() + timeout_s
+    while True:
+        if await pay_loc.count():
+            return "pay"
+        try:
+            has_next = await page.evaluate(_NEXT_VISIBLE_JS)
+        except Exception:  # noqa: BLE001 — iframe mid-navigation
+            has_next = False
+        if has_next:
+            return "next"
+        if time.monotonic() >= deadline:
+            return "none"
+        await asyncio.sleep(0.5)
+
+
+_NEXT_VISIBLE_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return false;
+  return [...d.querySelectorAll('.js-btn-next')].some(e=>e.offsetParent!==null);
+})()"""
+
+
 async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
                          payload: dict = None, on_stage=None,
                          known_order_id: str = None,
@@ -5773,8 +5808,7 @@ async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
     frame = _frame(page)
 
     # Advance until a Pay button is visible (Customer Order Info -> T&C -> Pay).
-    pay_loc = frame.locator(
-        '.js-btn-pay:visible, .js-pay:visible, button:has-text("Pay"):visible')
+    pay_loc = frame.locator(_PAY_SELECTOR)
     captured_terms = False
     # The appointment slot is re-validated server-side on the way to Pay, and
     # another dealer can take it between our booking and this Next (live,
@@ -5785,7 +5819,9 @@ async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
     rebooks = 0
     step = 0
     while step < max_next:
-        if await pay_loc.count():
+        # Wait for the page to settle rather than looking once: a slow Pay page
+        # shows neither Pay nor Next for several seconds after the T&C Next.
+        if await _wait_for_pay_or_next(page) == "pay":
             break
         on_terms = await _ensure_bypass_acknowledge(page)  # False unless on T&C
         if on_terms and not captured_terms:
