@@ -63,16 +63,25 @@ export function LiveRunViewer({ orderId, label, jobId, token: initialToken, expi
   useEffect(() => {
     let es: EventSource | null = null;
     let stopped = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     const open = async () => {
       if (stopped) return;
       if (cred.current.expiresAt - Date.now() < REFRESH_BEFORE_MS) await refreshToken();
+      // A component unmount can land while the refresh above is still in
+      // flight; re-check before doing anything the resumed continuation
+      // would otherwise do unsupervised.
+      if (stopped) return;
       // Probe first: EventSource cannot read a status code, and 401/404/429
       // each deserve their own sentence rather than an endless "Reconnecting…".
       try {
         const p = await fetch(liveViewUrl(scraperUrl, jobId, cred.current.token, true), { cache: "no-store" });
+        if (stopped) return;
         if (p.status === 401) {
-          if (failures.current++ === 0 && (await refreshToken())) return open();
+          if (failures.current++ === 0 && (await refreshToken())) {
+            if (stopped) return;
+            return open();
+          }
           setConn("unreachable"); return;
         }
         if (p.status === 404) { const b = await p.json().catch(() => ({})); setConn(b.error === "no_live_view" ? "no_live_view" : "unreachable"); return; }
@@ -83,6 +92,14 @@ export function LiveRunViewer({ orderId, label, jobId, token: initialToken, expi
       es = new EventSource(liveViewUrl(scraperUrl, jobId, cred.current.token));
       es.onopen = () => { failures.current = 0; setConn("live"); };
       es.addEventListener("hello", (e) => {
+        // The droplet replays the whole stage history and log tail on every
+        // new connection (api_server.py), so a reconnect must clear local
+        // state before that replay lands or the panels grow duplicate rows.
+        // The last frame and any outcome already recorded are left alone —
+        // neither is replayed, and the frame is the thing worth keeping on
+        // screen through a reconnect.
+        setStages([]);
+        setLog([]);
         const d = JSON.parse((e as MessageEvent).data) as { status: string };
         // The `status` event that follows carries the real outcome; this only
         // flips the connection chip so a reconnect into an already-finished
@@ -110,11 +127,15 @@ export function LiveRunViewer({ orderId, label, jobId, token: initialToken, expi
         if (stopped) return;
         es?.close();
         setConn((c) => (c === "finished" ? c : "reconnecting"));
-        setTimeout(open, 2000);
+        reconnectTimer = setTimeout(open, 2000);
       };
     };
     void open();
-    return () => { stopped = true; es?.close(); };
+    return () => {
+      stopped = true;
+      es?.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+    };
   }, [jobId, scraperUrl, refreshToken]);
 
   // Autoscroll the log unless the pointer is over it.
