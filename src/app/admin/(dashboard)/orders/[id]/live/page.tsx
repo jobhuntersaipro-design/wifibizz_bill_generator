@@ -23,7 +23,7 @@ export default async function AdminLiveRunPage({
   const order = res.data.order;
   const label = `${order.reference ?? order.fullName} · ${order.fullName}`;
 
-  const scraperUrl = process.env.NEXT_PUBLIC_SCRAPER_API_URL ?? "http://localhost:5000";
+  const scraperUrl = process.env.NEXT_PUBLIC_SCRAPER_API_URL ?? process.env.SCRAPER_API_URL ?? "http://localhost:5000";
   const jobId = job || order.jobId;
   const minted = jobId ? await adminLiveViewToken(id) : null;
 

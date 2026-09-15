@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { adminLiveViewToken, adminStopJob } from "@/actions/admin-submit";
+import { liveRunVerdict } from "@/lib/live-run-verdict";
 import { liveViewUrl } from "@/lib/live-view-url";
 import { SUBMIT_STEPS, progressReading } from "@/lib/order-types";
 
@@ -15,10 +16,18 @@ interface Outcome {
   order_id?: string | null;
   result_status?: string | null;
   message?: string | null;
+  warning?: string | null;
+  erf?: boolean;
 }
 
 const MAX_LOG_LINES = 500;
 const REFRESH_BEFORE_MS = 2 * 60 * 1000;
+
+/** Stage times in Malaysia time — the portal's and the agents' clock. */
+function formatStageTime(at: string): string {
+  const d = new Date(at);
+  return Number.isNaN(d.getTime()) ? at : d.toLocaleTimeString("en-GB", { timeZone: "Asia/Kuala_Lumpur", hour12: false });
+}
 
 const CONN_LABEL: Record<Conn, string> = {
   connecting: "Connecting…", live: "Live", reconnecting: "Reconnecting…", finished: "Finished",
@@ -145,11 +154,10 @@ export function LiveRunViewer({ orderId, label, jobId, token: initialToken, expi
 
   const lastStage = stages[stages.length - 1]?.name ?? null;
   // Job status "done" is not itself success: a run the portal refused still
-  // finishes as job status "done" with result_status "error" — the terminal
-  // outcome BizzFlow actually recorded is result_status, not the job's own
-  // done/error split (which only means "the browser stopped one way or another").
-  const succeeded = outcome?.status === "done" && (outcome.result_status === "submitted" || outcome.result_status === "success");
-  const status = outcome ? (succeeded ? "submitted" : "failed") : "submitting";
+  // finishes "done". The verdict mirrors what applyResult records, so the
+  // panel's colour agrees with the order's status.
+  const verdict = outcome ? liveRunVerdict(outcome) : null;
+  const status = verdict === "succeeded" ? "submitted" : verdict === "attention" ? "warning" : verdict === "failed" ? "failed" : "submitting";
   const reading = progressReading(lastStage, status, stages.map((s) => s.name));
   const frameAge = frame ? Math.max(0, Math.round((now - frame.at) / 1000)) : null;
 
@@ -172,7 +180,9 @@ export function LiveRunViewer({ orderId, label, jobId, token: initialToken, expi
           <span className={`rounded-full px-2.5 py-1 text-xs ${conn === "live" ? "bg-[#ECFDF3] text-[#027A48]" : conn === "finished" ? "bg-[#F1F3F6] text-[#425466]" : "bg-[#FFFAEB] text-[#B54708]"}`}>
             {CONN_LABEL[conn]}
           </span>
-          {conn !== "finished" && conn !== "no_live_view" && conn !== "unreachable" && (
+          {/* Stop goes through Vercel, not the stream — so it stays available
+              when the stream is unreachable or capped. */}
+          {!outcome && (
             <button type="button" onClick={() => setConfirmStop(true)} disabled={stopping}
               className="min-h-9 rounded-md border border-[#FDA29B] bg-white px-3 py-1.5 text-sm font-medium text-[#B42318] hover:bg-[#FEF3F2] disabled:opacity-50">
               Stop this run
@@ -206,9 +216,11 @@ export function LiveRunViewer({ orderId, label, jobId, token: initialToken, expi
               ))}
             </ol>
             {outcome && (
-              <p className={`mt-3 rounded-md px-3 py-2 text-xs ${succeeded ? "bg-[#ECFDF3] text-[#027A48]" : "bg-[#FEF3F2] text-[#B42318]"}`}>
-                {succeeded
+              <p className={`mt-3 rounded-md px-3 py-2 text-xs ${verdict === "succeeded" ? "bg-[#ECFDF3] text-[#027A48]" : verdict === "attention" ? "bg-[#FFFAEB] text-[#B54708]" : "bg-[#FEF3F2] text-[#B42318]"}`}>
+                {verdict === "succeeded"
                   ? "The run finished."
+                  : verdict === "attention"
+                  ? `The run needs attention: ${outcome.message ?? outcome.warning ?? outcome.error ?? "check the order"}`
                   : `The run ended with an error${outcome.error_kind ? ` (${outcome.error_kind})` : ""}: ${outcome.message ?? outcome.error ?? "no message"}`}
                 {outcome.order_id ? ` Portal order ${outcome.order_id}.` : ""}{" "}
                 <a href={`/admin/orders/${orderId}`} className="underline">Open the order</a>
@@ -221,7 +233,7 @@ export function LiveRunViewer({ orderId, label, jobId, token: initialToken, expi
             <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto text-xs text-[#425466]">
               {stages.length === 0 && <li className="text-[#98A2B3]">Nothing reported yet.</li>}
               {stages.map((s, i) => (
-                <li key={`${s.at}-${i}`}><span className="font-mono text-[#98A2B3]">{s.at.slice(11, 19)}</span> {s.name}{s.detail ? ` — ${s.detail}` : ""}</li>
+                <li key={`${s.at}-${i}`}><span className="font-mono text-[#98A2B3]">{formatStageTime(s.at)}</span> {s.name}{s.detail ? ` — ${s.detail}` : ""}</li>
               ))}
             </ul>
           </section>
