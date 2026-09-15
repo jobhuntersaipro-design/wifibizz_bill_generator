@@ -17,5 +17,7 @@ EXPOSE 5000
 # SINGLE worker on purpose: the service keeps job state + dealer-login sessions
 # in memory, so it must not be replicated across workers. Threads give
 # concurrency within the one process. Long timeout for slow AJAX order flows.
-CMD ["gunicorn", "-w", "1", "-k", "gthread", "--threads", "8", \
+# 16 threads: each open live-view stream holds one for the length of a run
+# (capped at 3 by live_view.LIVE_VIEW_MAX_VIEWERS).
+CMD ["gunicorn", "-w", "1", "-k", "gthread", "--threads", "16", \
      "--timeout", "600", "-b", "0.0.0.0:5000", "api_server:app"]

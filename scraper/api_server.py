@@ -16,6 +16,7 @@ unauthenticated route here.
 """
 
 import os
+import time
 import uuid
 from datetime import datetime
 from threading import Lock, Thread
@@ -602,6 +603,115 @@ def get_job_log(job_id):
     # Stream back as text/plain
     with open(log_path, "r") as f:
         return app.response_class(f.read(), mimetype="text/plain")
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Live view — admin watches a run's browser. NOT gated by X-Internal-Token:
+# EventSource cannot send headers, so the gate is the viewer token Vercel
+# mints (HMAC under a key derived from ORDER_ENTRY_API_TOKEN, 30 min, one job).
+# CORS is granted to ONE origin on THIS route only.
+# ───────────────────────────────────────────────────────────────────────────
+LIVE_VIEW_PING_S = 15
+LIVE_VIEW_LOG_TAIL_BYTES = 4096
+
+
+def _live_headers():
+    origin = os.environ.get("LIVE_VIEW_ORIGIN", "")
+    return {"Access-Control-Allow-Origin": origin} if origin else {}
+
+
+def _sse(event: str, data) -> str:
+    import json
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+@app.route("/jobs/<job_id>/live", methods=["GET"])
+def job_live(job_id):
+    token = request.args.get("token", "")
+    if not live_view.verify_viewer_token(token, job_id, os.environ.get("ORDER_ENTRY_API_TOKEN", "")):
+        return jsonify({"error": "unauthorized"}), 401, _live_headers()
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+    if not job:
+        return jsonify({"error": "unknown_job"}), 404, _live_headers()
+    if not job.get("live_view"):
+        return jsonify({"error": "no_live_view"}), 404, _live_headers()
+    if not live_view.acquire_viewer_slot():
+        return jsonify({"error": "too_many_viewers"}), 429, _live_headers()
+    if request.args.get("probe") == "1":
+        live_view.release_viewer_slot()
+        return jsonify({"ok": True}), 200, _live_headers()
+
+    store = live_view.get_store(job_id, create=True)
+    sub = store.subscribe()
+
+    def _terminal():
+        with JOBS_LOCK:
+            j = JOBS.get(job_id) or {}
+        if j.get("status") in ("done", "error"):
+            res = j.get("result")
+            res_is_dict = isinstance(res, dict)
+            return {"status": j["status"], "error": j.get("error"),
+                    "error_kind": j.get("error_kind"),
+                    "order_id": res.get("order_id") if res_is_dict else None,
+                    "result_status": res.get("status") if res_is_dict else None,
+                    "message": res.get("message") if res_is_dict else None}
+        return None
+
+    def gen():
+        last_sent = time.time()
+        log_pos = 0
+        try:
+            yield _sse("hello", {"job_id": job_id, "status": job.get("status"),
+                                 "stage": job.get("stage"), "started_at": job.get("started_at"),
+                                 "live_view": True})
+            if store.latest:
+                yield _sse("frame", store.latest)
+            for st in list(job.get("stages") or []):
+                yield _sse("stage", st)
+            # Log tail on connect, then follow.
+            log_path = job.get("log_path")
+            if log_path and os.path.exists(log_path):
+                with open(log_path, "rb") as f:
+                    f.seek(0, os.SEEK_END)
+                    size = f.tell()
+                    f.seek(max(0, size - LIVE_VIEW_LOG_TAIL_BYTES))
+                    tail = f.read().decode("utf-8", "replace")
+                    log_pos = size
+                if tail:
+                    yield _sse("log", {"line": tail})
+            while True:
+                term = _terminal()
+                item = sub.get(0.25)
+                sent = False
+                while item is not None:
+                    kind, data = item
+                    yield _sse(kind, data)
+                    sent = True
+                    item = sub.get(0)
+                # Follow the log file.
+                if log_path and os.path.exists(log_path):
+                    with open(log_path, "rb") as f:
+                        f.seek(log_pos)
+                        chunk = f.read()
+                    if chunk:
+                        log_pos += len(chunk)
+                        yield _sse("log", {"line": chunk.decode("utf-8", "replace")})
+                        sent = True
+                if term is not None:
+                    yield _sse("status", term)
+                    return
+                if sent:
+                    last_sent = time.time()
+                elif time.time() - last_sent >= LIVE_VIEW_PING_S:
+                    yield _sse("ping", {})
+                    last_sent = time.time()
+        finally:
+            store.unsubscribe(sub)
+            live_view.release_viewer_slot()
+
+    headers = {"Cache-Control": "no-store", "X-Accel-Buffering": "no", **_live_headers()}
+    return app.response_class(gen(), mimetype="text/event-stream", headers=headers)
 
 
 # ───────────────────────────────────────────────────────────────────────────
