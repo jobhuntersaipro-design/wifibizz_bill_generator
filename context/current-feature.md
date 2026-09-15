@@ -82,6 +82,146 @@ Pass `{ preview: true }` on the utility iframe (same as internet). Explicit Down
 
 MERGED TO MAIN 2026-09-12 (`f7d76a8`, squash merge `07a0162`, PR #24).
 
+# Current Feature: PII dialog — answer a "Random N questions" block via Show Answer
+
+## Status
+
+In Progress (branch `fix/pii-random-question`). Scraper-only, no migration. Needs a droplet deploy
+with the container recreated.
+
+## Goals
+
+- A PII dialog whose Questions tab carries a **Random N questions must be correct** block is answered:
+  click **Show Answer** on the first N random questions, tick the box each reveals, then Proceed
+- The mandatory block keeps being ticked exactly as today
+- A dialog with only the mandatory block (the fixture the earlier fix was built on) is unchanged
+- The run log prints the random block's markup on the first live run, so the real DOM is recorded
+- ORD-0168's clone submits past the identity check (the live proof)
+
+## Built
+
+- **`random_questions_needed(text)`** — pure; reads N from the heading *"Random N questions must be
+  correct"*, None when the block is absent. Pinned against ORD-0168's verbatim dialog text.
+- **`_answer_random_pii_questions(frame)`** — after the mandatory boxes are ticked: prints the block's
+  markup to the run log (never captured before), clicks the FIRST N **Show Answer** links (stamped
+  after the click, so a re-resolving locator cannot skip to the next one — an earlier draft did exactly
+  that and every test still passed), and after each reveal ticks any visible unticked checkbox in the
+  dialog outside the mandatory form. Never raises; a dialog with no random block is untouched.
+- Both refusal messages now say what was done: *"3 mandatory question(s) and 1 of 1 random answer(s)
+  revealed, 1 ticked"* instead of a bare count.
+
+## Verified
+
+**Tests:** 6 new in `test_pii_verification.py` — the ORD-0168 screen answered (with a control proving
+the fixture's Proceed really stays disabled on the mandatory ticks alone), click ORDER pinned to the
+first question, "Random 2" revealing two, a block that will not release named in the refusal, the
+block behind the inactive OTP tab reached, and the heading parser on the live text. 16 in the file.
+Run locally in a Python 3.12 venv (the system 3.9 cannot import the scraper's `X | None` hints).
+
+**Live, 2026-09-14, deployed as `scraper-v2026.09.14-1`** (container recreated, code confirmed
+inside it). The clone of ORD-0168 was submitted by the user; job `b45812a9…` reached the dialog,
+printed the block, and the run log reads `PII random questions: revealed 1, ticked 1 (needed 1)`
+followed by `submit_new_connection stage: new_connection_page1` — Proceed took. **The real markup,
+captured by that run:** `form.form-horizontal.js-random-question-form`, one `.form-group` per
+question, the link is `<label class="ui-nav-button js-show-answer" name="<qid>">Show Answer</label>`
+inside `div.js-show-answer-<qid>`, and the reveal is `div.js-answer-<qid>` (`display:none` until
+clicked) holding `label.js-answer-content-<qid>` plus
+`<input type="checkbox" name="answerCheck" questiontype="O" questionid="<qid>">`. So the boxes ARE
+`answerCheck` — just never inside `form.js-mandatory-question-form`, which is why the old selector
+missed them. The fixture's guessed shape matches.
+
+**Formerly unverified, now settled:** the random block's real markup (above).
+
+**The run then died elsewhere, and that is a different bug.** It was ORD-0168 itself resubmitted
+(attempt 2, captures `submit-2-*`). After the PII dialog it attached the customer, filled page 1
+(account 7040070265 selected, winback HSBA Wireless Access), finished the Broadband tab (username
+LCC1333480, device Premium Value Samsung TV 43inch), then failed on the Voice tab with
+`voice_no_numbers` / *"number cards did not load after Query"* — the Voice number picker, the area
+`scraper-v2026.09.11-2` last touched. The portal had already minted **order 2609000125132463**, so
+ORD-0168 is now stranded (`warning`) and that order needs voiding or a resubmit that re-attaches.
+Failure frame: `order-screenshots/cmrabw266000104ldltneycfy/cmu0n5e69000204iclsssotat/submit-2-failure.jpg`.
+The automatic retry (attempt 3, job `befba38d…`) passed the PII dialog again — a second live
+confirmation of the fix — and failed identically on the Voice tab, minting a **second** order,
+**2609000125133066**. Attempt 4 (job `9aee8161…`) started at 03:26:31; a cancel from
+here was refused by the tool permission layer, so it ran. It passed the PII dialog too and failed identically on Voice, minting a third order. Attempt 5 (job `8d80743a…`, "Automatic retry 3 of 3", the last) did the same. **Four orders to void at Unifi: 2609000125132463, 2609000125133066, 2609000125133637 and 2609000125134084.** The PII dialog was passed on all four runs. The Voice failure is
+non-transient here and retrying it only multiplies stranded orders; not investigated in this branch. The first live run prints the block verbatim to the job log, so if the
+Show Answer reveals something other than a checkbox the log says so and the refusal names what was
+ticked. ORD-0168 itself failed before the Order click, so nothing was minted and its clone is safe to
+submit — a success mints a REAL order for LIN CHIN CHEAN at the Eco Majestic test address.
+
+## Notes
+
+Reported 2026-09-14 off ORD-0168 (`cmu0n5e69000204iclsssotat`, agent aiboot1, customer LIN CHIN
+CHEAN 940728065051, customer code 235202609535). Failed before the Order click — nothing minted at
+Unifi. The droplet log (`a7f37e12…`) records the whole dialog text: three Mandatory Questions
+(ticked by the run) and then *"Random 1 questions must be correct"* with nine questions each
+carrying **Show Answer** — Offer Name, Credit Limit, Billing Cycle Type, Alternative contact
+number, Last payment method, Last payment amount, Registered billing address, Registered email
+address, Number of active subscriptions. `_answer_pii_and_proceed` ticks only
+`form.js-mandatory-question-form input[name="answerCheck"]`, so Proceed stays disabled and the
+click times out — the message it reported. A second order the evening before (`4bcfc71b…`,
+101005873152) failed identically. The random block's markup has never been captured; the user's
+rule (2026-09-14): click Show Answer, tick it, Proceed. The dialog has Proceed/Cancel, no Next.
+
+# Current Feature (2): Voice tab — open the right `···`, and select the Agreement
+
+## Status
+
+In Progress (same branch `fix/pii-random-question`). Scraper-only, no migration. Needs a droplet
+deploy with the container recreated.
+
+## Goals
+
+- The Voice number picker opens from the **Service Number** row's `···`, never from another row's
+- A Voice tab whose **Agreement** field is empty gets one selected: `···` → Select Agreement →
+  the offered card → OK, verified by reading the field back
+- A tab whose Agreement is already filled (Broadband: "unifi Home") is left alone
+- The Select Agreement dialog's markup is printed to the run log on the first live run
+- ORD-0168's plan (`… Premium Value MAX With Device (36M)`) gets past the Voice tab
+
+## Built
+
+- **`_SERVICE_NUMBER_DOTS_JS` / `_click_service_number_dots(page)`** — the `···` whose row (its
+  `.form-group`, walking out until text appears) says *Service Number*; else any `···` whose row
+  does not say *Agreement*; else the old last-dots rule. The run log names which. If the dialog that
+  opened is titled *Agreement* anyway it is **cancelled** (never OK'd) and reported as
+  `voice_dots_opened_agreement` instead of Query being pressed in it.
+- **`ensure_agreement(frame, page)`** — on every sub-product tab after the service number: an
+  Agreement row with an empty field gets `···` → the dialog titled *Agreement* (tagged by identity,
+  `data-bf-agreement`) → a real click on the first card (card-like nodes first, else the smallest
+  node reading like *"… (24 Months)"*) → that dialog's OK → the field **read back**. Empty field
+  afterwards is `agreement_not_selected`, with the dialog cancelled. A filled field (Broadband's
+  *unifi Home*) and a tab with no Agreement row are skipped. The row's and the dialog's markup are
+  printed for the first live run.
+- The tab loop returns `error` codes from the service-number and agreement steps (it used to drop
+  the code and pass only the message).
+
+## Verified
+
+**Tests:** 6 new in `test_voice_agreement.py` — the picker opening from the Service Number `···`
+with the Agreement `···` last in the DOM, **a control proving the shipped last-dots rule opens Select
+Agreement on that fixture**, an empty Agreement selected and read back, a filled one left alone, no
+row skipped, and an OK that does not fill the field reported rather than called ok.
+
+**NOT verified: the live portal.** The Select Agreement card's real class is unknown (the frame
+shows a bordered card; the fixture uses one) — the card finder falls back to text shape and the log
+prints the dialog body either way. Whether ORD-0168's Voice tab needs anything after the agreement
+is unknown too; the Next will say.
+
+## Notes
+
+Reported 2026-09-14 off ORD-0168 attempts 2–5, all `voice_no_numbers` / *"number cards did not
+load after Query"* with the failure frame showing the **Select Agreement** dialog (one card,
+*Residential Voice Basic (24 Months)*) over the Voice tab. Mechanism, from evidence rather than a
+probe (the OrderDetails URL is a summary card, not the form): `_open_voice_number_picker` clicks
+the LAST visible `span.icon-option-horizontal` on the page; ORD-0168's Broadband frame shows its
+Agreement row carrying its own `···` beside the trash, so on the Voice tab the Agreement row's
+`···` — later in the DOM than the Service Number's — took the click, `_TAG_PICKER_JS` tagged that
+dialog as the picker, Query was pressed in it, and 25 s of waiting for number cards followed. Every
+other Voice submit since 2026-09-11 succeeded with the same code, and none of them was a MAX plan;
+their Voice tabs evidently had no second `···` after the Service Number's. The user's rule: select
+the agreement and click Next.
+
 # Previous Feature: Long-window crawls (6m / 1y) actually finish and save
 
 ## Status

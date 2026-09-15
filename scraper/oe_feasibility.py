@@ -1157,6 +1157,107 @@ async def _pii_otp_target(frame) -> str | None:
     return None
 
 
+_RANDOM_NEEDED_RE = re.compile(r"Random\s+(\d+)\s+questions?\s+must\s+be\s+correct", re.I)
+
+
+def random_questions_needed(dialog_text: str) -> int | None:
+    """How many of the "Random N questions" the dialog wants answered, from its
+    own heading; None when there is no such block. Pure, so it is testable
+    without a browser and the heading's wording is pinned in one place."""
+    m = _RANDOM_NEEDED_RE.search(dialog_text or "")
+    return int(m.group(1)) if m else None
+
+
+async def _answer_random_pii_questions(frame) -> dict:
+    """ORD-0168 (2026-09-14): beneath the Mandatory Questions the portal can put
+    a second block — "Random N questions must be correct" — where each question
+    shows only a **Show Answer** link, and Proceed stays disabled until N of the
+    answers it reveals are ticked. Ticking the mandatory boxes alone leaves the
+    dialog exactly where the live run left it: three boxes ticked, Proceed grey.
+
+    The user's rule: click Show Answer, tick the box it reveals, Proceed. This
+    reveals the FIRST N answers (the portal orders them; nobody here can judge
+    which is "correct") and ticks whatever confirm box each reveal exposes.
+
+    The block's markup has never been captured, so it is printed to the run log
+    the first time this runs live — the same "one run answers it" pattern the
+    appointment reader and the Add Account form used. Returns what it did, for
+    the caller's message; never raises.
+    """
+    out = {"needed": 0, "offered": 0, "shown": 0, "ticked": 0}
+    try:
+        dlg = frame.locator(".ui-dialog:visible, .modal.in:visible").filter(
+            has_text="Proceed").last
+        if not await dlg.count():
+            return out
+        text = " ".join((await dlg.inner_text(timeout=3000)).split())
+        links = dlg.get_by_text("Show Answer", exact=True)
+        offered = await links.count()
+        needed = random_questions_needed(text)
+        if needed is None and not offered:
+            return out  # no random block on this dialog
+        needed = needed if needed is not None else 1
+        out.update(needed=needed, offered=offered)
+
+        # Record the real markup before touching it.
+        try:
+            html = await links.first.evaluate(
+                "el => (el.closest('form') || el.closest('.tab-pane') || el.parentElement).outerHTML")
+            print(f"  ↳ PII random block ({needed} required, {offered} offered): "
+                  f"{' '.join(html.split())[:3000]}", flush=True)
+        except Exception:  # noqa: BLE001
+            print(f"  ↳ PII random block ({needed} required, {offered} offered)", flush=True)
+
+        for _ in range(min(needed, offered)):
+            # A revealed link may stay put or be replaced by the answer, so
+            # each click is stamped and the next pick skips stamped ones.
+            link = dlg.locator(':text-is("Show Answer"):not([data-bf-shown])').first
+            handle = await link.element_handle(timeout=2000) if await link.count() else None
+            if handle is None:
+                break
+            await handle.click(timeout=5000)
+            out["shown"] += 1
+            try:  # the reveal may replace the link; a stamp on a gone node is fine
+                await handle.evaluate("el => el.setAttribute('data-bf-shown', '1')")
+            except Exception:  # noqa: BLE001
+                pass
+            await asyncio.sleep(0.8)
+            # Tick what the reveal exposed: any visible, unticked box in the
+            # dialog outside the mandatory form (those are ticked already).
+            boxes = dlg.locator('input[type="checkbox"]:visible')
+            for i in range(await boxes.count()):
+                box = boxes.nth(i)
+                try:
+                    if await box.is_checked():
+                        continue
+                    if await box.evaluate(
+                            "el => !!el.closest('form.js-mandatory-question-form')"):
+                        continue
+                    try:
+                        await box.check(timeout=3000)
+                    except Exception:  # noqa: BLE001
+                        await box.click(force=True)
+                    out["ticked"] += 1
+                except Exception:  # noqa: BLE001
+                    continue
+        print(f"  ↳ PII random questions: revealed {out['shown']}, ticked {out['ticked']} "
+              f"(needed {needed})", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  ↳ PII random questions: gave up ({type(e).__name__}: "
+              f"{' '.join(str(e).split())[:400]})", flush=True)
+    return out
+
+
+def _describe_pii_answers(n: int, rnd: dict) -> str:
+    """"3 mandatory question(s)" or "3 mandatory question(s) and 1 of 1 random
+    answer(s) revealed, 1 ticked" — what the run actually did, for the message."""
+    s = f"{n} mandatory question(s)"
+    if rnd.get("needed"):
+        s += (f" and {rnd['shown']} of {rnd['needed']} random answer(s) revealed, "
+              f"{rnd['ticked']} ticked")
+    return s
+
+
 async def _answer_pii_and_proceed(frame, note: str | None = None) -> dict:
     """Answer the PII identity check and click Proceed. Shared by the
     search-attach path (after the result-row dblclick) and the duplicate-IC
@@ -1213,6 +1314,8 @@ async def _answer_pii_and_proceed(frame, note: str | None = None) -> dict:
             await checks.nth(i).check(timeout=3000)
         except Exception:
             await checks.nth(i).click(force=True)
+    rnd = await _answer_random_pii_questions(frame)
+    answered = _describe_pii_answers(n, rnd)
     try:
         await frame.locator(_PROCEED_BTN).first.click(timeout=8000)
     except Exception as e:  # noqa: BLE001
@@ -1220,7 +1323,7 @@ async def _answer_pii_and_proceed(frame, note: str | None = None) -> dict:
         return {"status": "error", "error": PII_VERIFICATION_REQUIRED,
                 "stage": "attach_customer",
                 "message": (f"The PII dialog's Proceed did not accept the click "
-                            f"({type(e).__name__}) after answering {n} question(s)."
+                            f"({type(e).__name__}) after answering {answered}."
                             + (f" Portal dialog: {text}" if text else ""))}
 
     # Verify. A PII dialog still up means Proceed refused what was answered —
@@ -1233,7 +1336,7 @@ async def _answer_pii_and_proceed(frame, note: str | None = None) -> dict:
         text = await _pii_dialog_text(frame)
         return {"status": "error", "error": PII_VERIFICATION_REQUIRED,
                 "stage": "attach_customer",
-                "message": (f"Answered {n} PII question(s) and pressed Proceed, but "
+                "message": (f"Answered {answered} and pressed Proceed, but "
                             f"the portal kept the identity check open."
                             + (f" Portal dialog: {text}" if text else ""))}
 
@@ -3028,20 +3131,214 @@ _PICKER_OPEN_JS = r"""(() => {
 })()"""
 
 
-async def _open_voice_number_picker(frame, page) -> dict:
-    """3-dots -> Query -> confirm popup OK -> wait for the number cards."""
-    opened = await page.evaluate(r"""(() => {
-      const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
-      const vis=e=>e&&e.offsetParent!==null;
-      const dots=[...d.querySelectorAll('span.icon-option-horizontal')].filter(vis);
-      if(!dots.length) return 'nodots';
-      dots[dots.length-1].click(); return 'ok';
-    })()""")
-    if opened != "ok":
+# Which `···` opens the Select Number picker. It used to be "the last visible
+# one on the page" — and on ORD-0168 (2026-09-14, a Premium Value MAX plan) the
+# Voice tab's Agreement row carries its own `···` AFTER the Service Number's,
+# so that click opened Select Agreement, the picker tagger tagged it, Query was
+# pressed in it and the run waited 25 s for number cards. Four runs, four
+# stranded orders. Prefer the `···` whose own row says Service Number; failing
+# that, any `···` whose row does NOT say Agreement; failing that, the old rule.
+_SERVICE_NUMBER_DOTS_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return {status:'nodoc'};
+  const vis=e=>e&&e.offsetParent!==null;
+  // The label lives on the .form-group; the .input-group inside it holds only
+  // the read-only field and the icons, whose text is empty. Walk out until
+  // some text appears, four levels at most.
+  const rowText=e=>{ let g=e.closest('.form-group')||e.closest('.input-group, .field')||e.parentElement;
+    for(let i=0;g&&i<4;i++){ const t=((g.innerText)||'').replace(/\s+/g,' ').trim(); if(t) return t; g=g.parentElement; }
+    return ''; };
+  const dots=[...d.querySelectorAll('span.icon-option-horizontal')].filter(vis);
+  if(!dots.length) return {status:'nodots'};
+  const rows=dots.map(rowText);
+  let i=rows.findIndex(t=>/service\s*number/i.test(t)), how='service-number row';
+  if(i<0){ const ok=rows.map((t,k)=>/agreement/i.test(t)?-1:k).filter(k=>k>=0);
+           i=ok.length?ok[ok.length-1]:-1; how='last non-agreement row'; }
+  if(i<0){ i=dots.length-1; how='last dots (fallback)'; }
+  dots[i].click();
+  return {status:'ok', how, row:rows[i].slice(0,60), rows:rows.map(t=>t.slice(0,40))};
+})()"""
+
+
+async def _click_service_number_dots(page) -> dict:
+    """Open the Service Number's `···` and say which one was pressed. Never the
+    Agreement row's. If the dialog that opened is still an Agreement one, it is
+    cancelled and reported, because pressing Query in it is the live failure."""
+    r = await page.evaluate(_SERVICE_NUMBER_DOTS_JS)
+    if r.get("status") != "ok":
         return {"status": "error", "error": "voice_dots_failed",
-                "stage": "voice_number", "message": opened}
+                "stage": "voice_number", "message": r.get("status")}
+    print(f"  ↳ voice `···` pressed: {r.get('how')} ({r.get('row')!r}; "
+          f"rows seen {r.get('rows')})", flush=True)
     await asyncio.sleep(2)
+    title = await _topmost_dialog_title(page)
+    if title and re.search(r"agreement", title, re.I):
+        await _cancel_topmost_dialog(page)
+        return {"status": "error", "error": "voice_dots_opened_agreement",
+                "stage": "voice_number",
+                "message": (f"The `···` pressed for the Service Number opened {title!r} "
+                            f"instead of the number picker (pressed {r.get('how')}).")}
+    return {"status": "ok", "how": r.get("how"), "dialog": title}
+
+
+_TOPMOST_DIALOG_TITLE_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return null;
+  const vis=e=>e&&e.offsetParent!==null;
+  const dl=[...d.querySelectorAll('.ui-dialog, .modal.in')].filter(vis).pop(); if(!dl) return null;
+  return ((dl.querySelector('.ui-dialog-title,.modal-title')||{}).innerText||'').replace(/\s+/g,' ').trim();
+})()"""
+
+
+async def _topmost_dialog_title(page) -> str | None:
+    try:
+        return await page.evaluate(_TOPMOST_DIALOG_TITLE_JS)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _cancel_topmost_dialog(page) -> str:
+    """Press Cancel/Close on the topmost dialog — never OK. Best-effort."""
+    try:
+        return await page.evaluate(r"""(() => {
+          const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
+          const vis=e=>e&&e.offsetParent!==null;
+          const dl=[...d.querySelectorAll('.ui-dialog, .modal.in')].filter(vis).pop(); if(!dl) return 'nodialog';
+          const b=dl.querySelector('.js-cancel')
+            || [...dl.querySelectorAll('button, a.btn')].find(x=>/^\s*(cancel|close)\s*$/i.test((x.innerText||'').trim()))
+            || dl.querySelector('.close');
+          if(!b) return 'nobutton'; b.click(); return 'ok';
+        })()""")
+    except Exception:  # noqa: BLE001
+        return "error"
+
+
+async def _open_voice_number_picker(frame, page) -> dict:
+    """Service Number `···` -> Query -> confirm popup OK -> wait for the cards."""
+    opened = await _click_service_number_dots(page)
+    if opened.get("status") != "ok":
+        return opened
     return await _query_voice_numbers(frame, page)
+
+
+# ── Agreement ────────────────────────────────────────────────────────────────
+# A sub-product tab can carry a mandatory Agreement row (`*Agreement`, a
+# read-only field, a `···` and a trash). Broadband arrives with it filled
+# ("unifi Home"); ORD-0168's Voice tab arrived with it EMPTY, and its `···`
+# opens a Select Agreement dialog offering one card — "Residential Voice Basic
+# (24 Months)". The user's rule (2026-09-14): select the agreement, then Next.
+_AGREEMENT_ROW_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return {status:'nodoc'};
+  const vis=e=>e&&e.offsetParent!==null;
+  const T=e=>((e&&e.innerText)||'').replace(/\s+/g,' ').trim();
+  const groups=[...d.querySelectorAll('.form-group, .input-group, .field')].filter(vis)
+    .filter(g=>/agreement/i.test(T(g.querySelector('label, .control-label')||g).slice(0,40)) && g.querySelector('input'));
+  const g=groups.find(x=>x.querySelector('span.icon-option-horizontal')) || groups[0];
+  if(!g) return {status:'absent'};
+  const inp=g.querySelector('input');
+  const dots=g.querySelector('span.icon-option-horizontal');
+  return {status:'ok', value:(inp.value||'').trim(), hasDots:!!dots,
+          html:g.outerHTML.replace(/\s+/g,' ').slice(0,1200)};
+})()"""
+
+_AGREEMENT_DOTS_CLICK_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
+  const vis=e=>e&&e.offsetParent!==null;
+  const T=e=>((e&&e.innerText)||'').replace(/\s+/g,' ').trim();
+  const groups=[...d.querySelectorAll('.form-group, .input-group, .field')].filter(vis)
+    .filter(g=>/agreement/i.test(T(g.querySelector('label, .control-label')||g).slice(0,40)));
+  const g=groups.find(x=>x.querySelector('span.icon-option-horizontal')); if(!g) return 'nodots';
+  g.querySelector('span.icon-option-horizontal').click(); return 'ok';
+})()"""
+
+_AGREEMENT_DIALOG_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return {status:'nodoc'};
+  const vis=e=>e&&e.offsetParent!==null;
+  const T=e=>((e&&e.innerText)||'').replace(/\s+/g,' ').trim();
+  const dls=[...d.querySelectorAll('.ui-dialog, .modal.in')].filter(vis)
+    .filter(dl=>/agreement/i.test(T(dl.querySelector('.ui-dialog-title,.modal-title'))));
+  const dl=dls.pop(); if(!dl) return {status:'nodialog'};
+  dl.setAttribute('data-bf-agreement','1');
+  // Card candidates: anything card-like first, else the smallest visible node
+  // whose text reads like an agreement ("… (24 Months)").
+  let cards=[...dl.querySelectorAll('.number-card, [class*="card"], .js-item, li.list-group-item')].filter(vis);
+  if(!cards.length){
+    const all=[...dl.querySelectorAll('div, span, b, td, li, p')].filter(vis)
+      .filter(e=>/\(\s*\d+\s*months?\s*\)/i.test(T(e)) && !e.querySelector('input, button'));
+    // smallest = the one none of the others contains
+    cards=all.filter(e=>!all.some(o=>o!==e && e.contains(o)));
+  }
+  cards.forEach((c,i)=>c.setAttribute('data-bf-agreement-card', String(i)));
+  return {status:'ok', title:T(dl.querySelector('.ui-dialog-title,.modal-title')),
+          cards:cards.map(c=>T(c).slice(0,80)),
+          html:((dl.querySelector('.modal-body')||dl).outerHTML||'').replace(/\s+/g,' ').slice(0,2500)};
+})()"""
+
+_AGREEMENT_OK_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
+  const dl=d.querySelector('[data-bf-agreement]'); if(!dl) return 'nodialog';
+  const b=dl.querySelector('.js-ok')
+    || [...dl.querySelectorAll('button, a.btn')].find(x=>/^\s*ok\s*$/i.test((x.innerText||'').trim()));
+  if(!b) return 'nobutton'; b.click(); return 'ok';
+})()"""
+
+
+async def ensure_agreement(frame, page) -> dict:
+    """If the active tab's Agreement field is empty, select one: `···` ->
+    Select Agreement -> the first offered card -> OK -> read the field back.
+
+    A filled field (Broadband's "unifi Home") is left alone, and a tab with no
+    Agreement row is skipped. Verified by the field's value, never by the
+    dialog closing — the rule the appointment and billing-account steps paid
+    for. Never raises; the markup is printed so the first live run records it.
+    """
+    try:
+        row = await page.evaluate(_AGREEMENT_ROW_JS)
+    except Exception as e:  # noqa: BLE001
+        return {"status": "skipped", "reason": f"unreadable: {e}"}
+    if row.get("status") != "ok":
+        return {"status": "skipped", "reason": row.get("status", "absent")}
+    if row.get("value"):
+        return {"status": "skipped", "reason": "already set", "agreement": row["value"]}
+    print(f"  ↳ Agreement row is empty: {row.get('html')}", flush=True)
+    if not row.get("hasDots"):
+        return {"status": "error", "error": "agreement_not_selected", "stage": "agreement",
+                "message": "The Agreement field is empty and its row has no `···` to open."}
+    if await page.evaluate(_AGREEMENT_DOTS_CLICK_JS) != "ok":
+        return {"status": "error", "error": "agreement_not_selected", "stage": "agreement",
+                "message": "Could not press the Agreement row's `···`."}
+    await asyncio.sleep(2.5)
+    dlg = await page.evaluate(_AGREEMENT_DIALOG_JS)
+    if dlg.get("status") != "ok":
+        return {"status": "error", "error": "agreement_not_selected", "stage": "agreement",
+                "message": (f"Pressed the Agreement `···` but no Select Agreement dialog "
+                            f"opened ({dlg.get('status')}; topmost: "
+                            f"{await _topmost_dialog_title(page)!r}).")}
+    print(f"  ↳ {dlg.get('title')}: cards {dlg.get('cards')} — {dlg.get('html')}", flush=True)
+    if not dlg.get("cards"):
+        await _cancel_topmost_dialog(page)
+        return {"status": "error", "error": "agreement_not_selected", "stage": "agreement",
+                "message": f"{dlg.get('title')} offered no agreement to select."}
+    # A REAL click: the portal marks the chosen card on a pointer event, the
+    # same way the number cards do (a JS click never adds `selected`).
+    try:
+        await frame.locator('[data-bf-agreement-card="0"]').first.click(timeout=6000)
+    except Exception as e:  # noqa: BLE001
+        await _cancel_topmost_dialog(page)
+        return {"status": "error", "error": "agreement_not_selected", "stage": "agreement",
+                "message": f"Could not click the agreement card ({type(e).__name__})."}
+    await asyncio.sleep(0.8)
+    ok = await page.evaluate(_AGREEMENT_OK_JS)
+    await asyncio.sleep(2)
+    after = await page.evaluate(_AGREEMENT_ROW_JS)
+    value = (after or {}).get("value") or ""
+    if not value:
+        text = await _topmost_dialog_title(page)
+        await _cancel_topmost_dialog(page)
+        return {"status": "error", "error": "agreement_not_selected", "stage": "agreement",
+                "message": (f"Selected {dlg['cards'][0]!r} in {dlg.get('title')!r} and pressed "
+                            f"OK ({ok}), but the Agreement field stayed empty"
+                            + (f" (dialog still up: {text!r})." if text else "."))}
+    print(f"  ↳ Agreement selected: {value!r}", flush=True)
+    return {"status": "ok", "stage": "agreement", "agreement": value}
 
 
 async def _query_voice_numbers(frame, page, query: str | None = None,
@@ -3366,7 +3663,16 @@ async def fill_subproduct_tabs(page, payload: dict, on_stage=None) -> dict:
                         **({"stray_dialog": stray} if stray else {})}
         if sn.get("status") != "ok":
             return {"status": "error", "stage": "subproduct_tab",
-                    "tab": txt, "message": sn.get("message"), "tabs": results}
+                    "tab": txt, "error": sn.get("error"),
+                    "message": sn.get("message"), "tabs": results}
+        # A mandatory Agreement left empty is refused at the Next with a
+        # sentence naming neither the tab nor the field (ORD-0168's plan).
+        agr = await ensure_agreement(frame, page)
+        results[txt]["agreement"] = agr
+        if agr.get("status") == "error":
+            return {"status": "error", "stage": "subproduct_tab",
+                    "tab": txt, "error": agr.get("error"),
+                    "message": agr.get("message"), "tabs": results}
         # Device selection lives on the BROADBAND tab only (verified live) — its
         # "Select Offer" opens the 126-row device picker. Voice/TV have no device.
         if "Broadband" in txt:

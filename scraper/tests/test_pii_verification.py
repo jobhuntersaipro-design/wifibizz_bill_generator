@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from oe_errors import (  # noqa: E402
     BLACKLISTED_IC, DEVICE_OUT_OF_STOCK, PII_VERIFICATION_REQUIRED, map_error)
-from oe_feasibility import _answer_pii_and_proceed  # noqa: E402
+from oe_feasibility import _answer_pii_and_proceed, random_questions_needed  # noqa: E402
 
 # ── The dialog, parameterised by which tab holds what ────────────────────────
 #
@@ -59,6 +59,7 @@ DIALOG = """
   </div>
   <div id="questions" class="tab-pane Q_ACTIVE">
     QUESTIONS_BODY
+    RANDOM_BODY
   </div>
   <button type="button" class="js-proceed" DISABLED>Proceed</button>
   <button type="button" class="js-cancel">Cancel</button>
@@ -67,10 +68,14 @@ DIALOG = """
   window.__proceedClicks = 0;
   window.__tabClicks = 0;
   var proceed = document.querySelector('.js-proceed');
+  window.__randomTicked = 0;
   proceed.addEventListener('click', function () {
     // A disabled button fires nothing in a real browser either; counted here so
     // a test can prove the dead click was never even attempted.
     window.__proceedClicks++;
+    // Snapshot what was ticked BEFORE the dialog goes, so a test can read it.
+    window.__randomTicked = document.querySelectorAll(
+      'form.js-random-question-form input[name="answerCheck"]:checked').length;
     document.querySelector('.ui-dialog').remove();
   });
   [].forEach.call(document.querySelectorAll('.nav-tabs a'), function (a) {
@@ -83,10 +88,37 @@ DIALOG = """
       document.getElementById(a.getAttribute('data-tab')).className += ' active';
     });
   });
-  // The portal's own gate: Proceed lights up once a question is answered.
+  // The portal's own gate: Proceed lights up once a mandatory question is
+  // answered AND, when a "Random N questions" block is present, N of its
+  // revealed answers are ticked too. ORD-0168 (2026-09-14) is the screen where
+  // the first half was satisfied and the second was not.
+  window.__showAnswerClicks = 0;
+  function randomNeeded() {
+    var h = document.querySelector('.js-random-title');
+    if (!h) return 0;
+    var m = /Random\s+(\d+)\s+questions?/.exec(h.textContent);
+    return m ? parseInt(m[1], 10) : 0;
+  }
+  function refresh() {
+    var m = document.querySelectorAll('form.js-mandatory-question-form input[name="answerCheck"]:checked').length;
+    var r = document.querySelectorAll('form.js-random-question-form input[name="answerCheck"]:checked').length;
+    if (m > 0 && r >= randomNeeded()) proceed.removeAttribute('disabled');
+    else proceed.setAttribute('disabled', 'disabled');
+  }
   [].forEach.call(document.querySelectorAll('input[name="answerCheck"]'), function (c) {
-    c.addEventListener('change', function () { proceed.removeAttribute('disabled'); });
-    c.addEventListener('click', function () { proceed.removeAttribute('disabled'); });
+    c.addEventListener('change', refresh);
+    c.addEventListener('click', refresh);
+  });
+  [].forEach.call(document.querySelectorAll('.js-show-answer'), function (a) {
+    a.addEventListener('click', function (e) {
+      e.preventDefault();
+      window.__showAnswerClicks++;
+      (window.__shownOrder = window.__shownOrder || []).push(
+        a.parentNode.querySelector('span').textContent.trim());
+      // The portal reveals the answer (and its confirm box) in place; the link
+      // itself stays where it was.
+      a.parentNode.querySelector('.js-answer').style.display = 'block';
+    });
   });
 </script>
 """
@@ -99,10 +131,35 @@ QUESTIONS = """
 """
 
 
-def build(*, questions: str, active: str) -> str:
+# ORD-0168's second block, in miniature: each question offers only a "Show
+# Answer" link, and the confirm box is hidden until it is clicked. The nine
+# questions on the live screen are cut to three; the shape is the same.
+RANDOM_ITEM = """
+      <div class="js-random-q">
+        <span>{i}. Q: {q}</span>
+        <a href="javascript:void(0)" class="js-show-answer">Show Answer</a>
+        <div class="js-answer" style="display:none">
+          A: {a} <input type="checkbox" name="answerCheck" value="r{i}">
+        </div>
+      </div>
+"""
+
+
+def random_block(needed: int) -> str:
+    items = [("Offer Name", "Unifi Home 300Mbps Premium Value MAX With Device (36M)"),
+             ("Credit Limit", "500.00"),
+             ("Billing Cycle Type (eg. BC02)", "BC08")]
+    body = "".join(RANDOM_ITEM.format(i=i + 1, q=q, a=a) for i, (q, a) in enumerate(items))
+    return (f'<form class="js-random-question-form">'
+            f'<div class="js-random-title">Random {needed} questions must be correct</div>'
+            f'{body}</form>')
+
+
+def build(*, questions: str, active: str, random: str = "") -> str:
     """`active` is the tab the dialog opens on: "otp" or "questions"."""
     return (DIALOG
             .replace("QUESTIONS_BODY", questions)
+            .replace("RANDOM_BODY", random)
             .replace("OTP_ACTIVE", "active" if active == "otp" else "")
             .replace("Q_ACTIVE", "active" if active == "questions" else "")
             .replace("OTP_LI", "active" if active == "otp" else "")
@@ -141,6 +198,9 @@ def _counters(page):
     return page.evaluate("""(() => {
       const w = document.querySelector('#myIframe').contentWindow;
       return {proceed: w.__proceedClicks, tabs: w.__tabClicks,
+              shown: w.__showAnswerClicks, shownOrder: w.__shownOrder || [],
+              randomTicked: Math.max(w.__randomTicked, w.document.querySelectorAll(
+                'form.js-random-question-form input[name="answerCheck"]:checked').length),
               dialogUp: !!w.document.querySelector('.ui-dialog')};
     })""")
 
@@ -281,6 +341,108 @@ def test_no_dialog_at_all_is_its_own_answer():
     assert r["status"] == "error"
     assert r["error"] == "pii_dialog_not_found"
     assert r["error"] != PII_VERIFICATION_REQUIRED
+
+
+
+# ── ORD-0168: the "Random N questions" block ─────────────────────────────────
+
+def test_ord_0168_the_random_block_is_answered_via_show_answer():
+    """Live 2026-09-14: three mandatory questions ticked, then "Random 1
+    questions must be correct" with nine Show Answer links, Proceed disabled.
+    The rule: click Show Answer, tick the box it reveals, Proceed."""
+    html = build(questions=QUESTIONS, active="questions", random=random_block(1))
+
+    async def go(page, frame):
+        return await _answer_pii_and_proceed(frame), await _counters(page)
+
+    r, c = _run(html, go)
+    assert r["status"] == "ok", r
+    assert c["shown"] == 1, "one required, so exactly one Show Answer is clicked"
+    # The FIRST question, not whichever one a re-resolving locator lands on —
+    # an earlier draft of the loop stamped the link before clicking and so
+    # clicked the second every time, and every test still passed.
+    assert c["shownOrder"] == ["1. Q: Offer Name"]
+    assert c["randomTicked"] == 1
+    assert c["proceed"] == 1
+    assert c["dialogUp"] is False
+
+
+def test_ord_0168_mandatory_only_genuinely_does_not_release_proceed():
+    """Control for the test above: the fixture's gate must really hold Proceed
+    against the mandatory ticks alone, or the success proves nothing."""
+    html = build(questions=QUESTIONS, active="questions", random=random_block(1))
+
+    async def go(page, frame):
+        checks = frame.locator('form.js-mandatory-question-form input[name="answerCheck"]')
+        for i in range(await checks.count()):
+            await checks.nth(i).check()
+        proceed = frame.locator('button:has-text("Proceed"):visible').first
+        try:
+            await proceed.click(timeout=1500)
+        except Exception:  # noqa: BLE001
+            pass
+        return await _counters(page)
+
+    c = _run(html, go)
+    assert c["proceed"] == 0
+    assert c["dialogUp"] is True, "ORD-0168's screen — every mandatory box ticked, still stuck"
+
+
+def test_the_random_count_is_read_from_the_heading():
+    """"Random 2 questions must be correct" reveals and ticks two, not one."""
+    html = build(questions=QUESTIONS, active="questions", random=random_block(2))
+
+    async def go(page, frame):
+        return await _answer_pii_and_proceed(frame), await _counters(page)
+
+    r, c = _run(html, go)
+    assert r["status"] == "ok", r
+    assert c["shown"] == 2
+    assert c["shownOrder"] == ["1. Q: Offer Name", "2. Q: Credit Limit"]
+    assert c["randomTicked"] == 2
+
+
+def test_a_random_block_that_will_not_release_is_named_in_the_refusal():
+    """More required than offered: the run must say what it revealed and
+    ticked, so the next reader does not start from a bare timeout again."""
+    html = build(questions=QUESTIONS, active="questions", random=random_block(9))
+
+    async def go(page, frame):
+        return await _answer_pii_and_proceed(frame), await _counters(page)
+
+    r, c = _run(html, go)
+    assert r["status"] == "error"
+    assert r["error"] == PII_VERIFICATION_REQUIRED
+    assert "random" in r["message"].lower()
+    assert c["shown"] == 3, "every offered Show Answer was tried"
+    assert c["proceed"] == 0
+
+
+def test_the_random_block_behind_the_otp_tab_is_still_reached():
+    """The tab activation from the earlier fix and the random block compose:
+    a dialog opening on OTP whose Questions tab carries both blocks."""
+    html = build(questions=QUESTIONS, active="otp", random=random_block(1))
+
+    async def go(page, frame):
+        return await _answer_pii_and_proceed(frame), await _counters(page)
+
+    r, c = _run(html, go)
+    assert r["status"] == "ok", r
+    assert c["tabs"] == 1
+    assert c["shown"] == 1
+    assert c["dialogUp"] is False
+
+def test_the_random_count_parses_the_live_heading():
+    """The live dialog text, verbatim from ORD-0168's run log."""
+    live = ("PII ( ******: 235202609535) OTP Questions Mandatory Questions 1. Q: "
+            "Registered Customer Full Name A: LIN CHIN CHEAN 2. Q: Identification "
+            "Card Number A: 940728065051 3. Q: Identification Card Type A: MyKad "
+            "Random 1 questions must be correct 1. Q: Offer Name Show Answer 2. Q: "
+            "Credit Limit Show Answer Proceed Cancel")
+    assert random_questions_needed(live) == 1
+    assert random_questions_needed("Random 2 questions must be correct") == 2
+    assert random_questions_needed("Mandatory Questions 1. Q: Name A: X Proceed") is None
+    assert random_questions_needed("") is None
 
 
 # ── The classification ───────────────────────────────────────────────────────
