@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { verifyAdminSession } from "@/lib/admin-auth";
+import { requireAdmin } from "@/lib/admin-gate";
 import { SCRAPER_API_URL, ORDER_TOKEN } from "@/lib/order-start";
 import { describeConnection, isConnected, type ConnectionView } from "@/lib/agent-connection";
 import { ADMIN_ACTOR, recordAudit } from "@/lib/audit";
@@ -34,12 +34,6 @@ import {
  * Gated by the admin JWT (`verifyAdminSession`), NOT by `auth()` — `/admin` is a
  * separate identity from a signed-in agent.
  */
-
-async function requireAdmin(): Promise<{ success: false; error: string } | null> {
-  const isAdmin = await verifyAdminSession();
-  if (!isAdmin) return { success: false, error: "Unauthorized" };
-  return null;
-}
 
 /** Clamp a requested window to something sane, and never let `to` precede `from`. */
 function resolveRange(fromISO?: string, toISO?: string): { from: Date; to: Date } {

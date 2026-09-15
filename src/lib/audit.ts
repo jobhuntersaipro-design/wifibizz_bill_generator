@@ -23,6 +23,7 @@ export type AuditAction =
   | "order_restored"
   | "order_purged"
   | "order_cloned"
+  | "order_admin_submitted"
   | "job_released"
   | "invite_created"
   | "password_changed"
