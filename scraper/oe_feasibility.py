@@ -2927,6 +2927,20 @@ def is_login_taken(message: str | None) -> bool:
     return bool(message) and bool(_LOGIN_TAKEN_RE.search(message))
 
 
+# The Check popup's refusal of the name's SHAPE, not its availability:
+#   "The format is illegal, cannot contain special characters, and the length
+#    cannot exceed 21"   (live 2026-09-15, order 2609000125316868)
+_LOGIN_FORMAT_RE = re.compile(r"format\s+is\s+illegal|length\s+cannot\s+exceed", re.I)
+
+# The portal's own limit on a Broadband/TV service username, from that popup.
+SERVICE_USERNAME_MAX = 21
+
+
+def is_login_format_invalid(message: str | None) -> bool:
+    """True when the Check popup refuses a service username's format or length."""
+    return bool(message) and bool(_LOGIN_FORMAT_RE.search(message))
+
+
 def taken_login_id(message: str | None) -> str | None:
     """The rejected LOGIN_ID (e.g. 'tklee812@iptv') named in the popup, if any."""
     m = _LOGIN_ID_RE.search(message or "")
@@ -2944,6 +2958,11 @@ def _service_username(email: str, exclude: set | None = None) -> str:
     """
     local = (email or "user").split("@")[0]
     local = "".join(ch for ch in local if ch.isalnum()).upper() or "USER"
+    # Room for the 3 digits inside the portal's limit. An email local part of 19+
+    # characters used to produce a name the Check refuses outright, and the run
+    # carried on to a Next that blocked with "Please check the service number
+    # first." after the order number was already minted.
+    local = local[:SERVICE_USERNAME_MAX - 3]
     exclude = exclude or set()
     for _ in range(40):
         name = f"{local}{_random.randint(100, 999)}"
@@ -2992,6 +3011,13 @@ async def _set_service_number_username(frame, page, email: str,
             return {"status": "ok", "stage": "service_number", "username": uname,
                     "attempts": attempt + 1}
         last_msg = msg
+        if is_login_format_invalid(msg):
+            # The portal refused the name itself, so the number was never checked
+            # and the Next WILL block. Carrying on as "ok" is what stranded order
+            # 2609000125316868; try another name, and fail loudly if none passes.
+            print(f"  ↳ service username {uname} refused by Check: {msg!r} — retrying "
+                  f"({attempt + 1}/{attempts})", flush=True)
+            continue
         if not is_login_taken(msg):
             # Some other popup. The order id is already minted by this point, so
             # failing here strands it — and before this change the Check result
@@ -3003,6 +3029,12 @@ async def _set_service_number_username(frame, page, email: str,
         print(f"  ↳ service username {uname} already in use — retrying "
               f"({attempt + 1}/{attempts})", flush=True)
 
+    if is_login_format_invalid(last_msg):
+        return {"status": "error", "error": "login_id_invalid",
+                "stage": "service_number",
+                "message": (f"The portal refused every service username as invalid "
+                            f"(tried {sorted(tried)}): {last_msg}"),
+                "tried": sorted(tried)}
     return {"status": "error", "error": "service_number_all_taken",
             "stage": "service_number",
             "message": (f"The portal rejected {attempts} service usernames as already "

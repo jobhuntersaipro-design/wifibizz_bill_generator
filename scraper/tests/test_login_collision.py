@@ -22,6 +22,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from oe_feasibility import (  # noqa: E402
     _service_username,
+    is_login_format_invalid,
     is_login_taken,
     taken_login_id,
 )
@@ -79,6 +80,25 @@ check("exclude is honoured", excluded in seen, False)
 allnames = {f"TKLEE{n}" for n in range(100, 1000)}
 check("exhausted pool still returns a name",
       bool(_service_username("tklee@gmail.com", exclude=allnames)), True)
+
+# ── the 21-character limit (live 2026-09-15, order 2609000125316868) ─────────
+# Email local part `faizdarwisybinsuhaimi123` produced FAIZDARWISYBINSUHAIMI123393
+# (27 chars); the portal's Check refused it and the Next then blocked with
+# "Please check the service number first."
+long_name = _service_username("faizdarwisybinsuhaimi123@gmail.com")
+check("a long email never exceeds the portal's 21 characters", len(long_name) <= 21, True)
+check("a long email keeps its leading letters", long_name.startswith("FAIZDARWISYBINSUHA"), True)
+check("a long email still ends in the 3 random digits", long_name[-3:].isdigit(), True)
+check("a short email is unchanged in shape", len(_service_username("tklee@gmail.com")), 8)
+
+LIVE_FORMAT = "The format is illegal, cannot contain special characters, and the length cannot exceed 21"
+check("the live format refusal is recognised", is_login_format_invalid(LIVE_FORMAT), True)
+check("a format refusal is not a collision", is_login_taken(LIVE_FORMAT), False)
+check("a collision is not a format refusal",
+      is_login_format_invalid("RESERVELOGIN error. LOGIN_ID [x@iptv] is already in use"), False)
+check("unrelated warnings are not format refusals",
+      is_login_format_invalid("Please check the service number first."), False)
+check("None is not a format refusal", is_login_format_invalid(None), False)
 
 if FAILED:
     print(f"✗ {len(FAILED)}/{CHECKS} failed")
