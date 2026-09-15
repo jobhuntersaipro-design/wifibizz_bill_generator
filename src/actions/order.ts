@@ -1071,11 +1071,11 @@ export async function startBatchSubmit(ids: string[]) {
     for (const order of targets) {
       await prisma.order.update({
         where: { id: order.id },
-        data: { status: "failed", jobId: null, errorMessage: message },
+        data: { status: "failed", jobId: null, errorMessage: message, errorCode: "batch_start_failed" },
       });
       await recordEvent({
         orderId: order.id, attempt: order.attempt + 1, status: "failed",
-        stage: "creating_customer", message,
+        stage: "creating_customer", message, errorCode: "batch_start_failed",
       });
     }
     await prisma.batchRun.update({

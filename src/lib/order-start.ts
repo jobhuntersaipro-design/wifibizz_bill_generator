@@ -123,6 +123,13 @@ export type StartRunResult =
  * portal session. It is recorded on the order so an automatic retry can run
  * under the same session rather than guessing.
  */
+/** Failure codes raised by BizzFlow itself, before the droplet runs anything. */
+const SESSION_EXPIRED = "session_expired";
+/** The droplet was busy or unreachable — not this order's failure. */
+const SERVICE_BUSY = "service_busy";
+/** The droplet answered, but refused to start the job. */
+const START_REFUSED = "start_refused";
+
 export async function startSubmitRun(
   order: Prisma.OrderGetPayload<object>,
   opts: { userKey: string; auto?: boolean; batchOf?: number },
@@ -148,6 +155,7 @@ export async function startSubmitRun(
       data: {
         status: "failed",
         errorMessage: message,
+        errorCode: opts_.busy ? SERVICE_BUSY : START_REFUSED,
         // A busy refusal (409 at capacity, 503 low memory, or an unreachable
         // box) is the DROPLET's state, not this order's failure — so the same
         // write that files it as failed leaves a due date for the retry sweep.
@@ -164,6 +172,13 @@ export async function startSubmitRun(
         attempt,
         status: "info",
         message: "The order service was busy with another job — this submit will start again shortly.",
+      });
+    } else {
+      // Every attempt that ends must say how in the history, or it vanishes
+      // from the admin record: this refusal used to write the row and no event.
+      await recordEvent({
+        orderId: order.id, attempt, status: "failed",
+        stage: "creating_customer", message, errorCode: START_REFUSED,
       });
     }
     return { ok: false as const, busy: !!opts_.busy, error: message };
@@ -214,11 +229,14 @@ export async function startSubmitRun(
   if (!(await dealerSessionLive(opts.userKey))) {
     await prisma.order.update({
       where: { id: order.id },
-      data: { status: "failed", stage: "checking_session", errorMessage: SESSION_EXPIRED_MSG },
+      data: {
+        status: "failed", stage: "checking_session",
+        errorMessage: SESSION_EXPIRED_MSG, errorCode: SESSION_EXPIRED,
+      },
     });
     await recordEvent({
       orderId: order.id, attempt, status: "failed",
-      stage: "checking_session", message: SESSION_EXPIRED_MSG,
+      stage: "checking_session", message: SESSION_EXPIRED_MSG, errorCode: SESSION_EXPIRED,
     });
     return { ok: false, busy: false, error: SESSION_EXPIRED_MSG };
   }
