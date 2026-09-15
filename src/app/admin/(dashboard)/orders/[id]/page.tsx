@@ -72,6 +72,7 @@ export default async function AdminOrderDetailPage({
           deletedAt: order.deletedAt ? order.deletedAt.toISOString() : null,
           agentEmail: order.user.email,
           documentCount: Array.isArray(order.documents) ? order.documents.length : 0,
+          jobId: order.jobId,
         }}
         attempts={groupByAttempt(views)}
       />
