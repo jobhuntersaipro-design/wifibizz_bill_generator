@@ -132,7 +132,17 @@ const START_REFUSED = "start_refused";
 
 export async function startSubmitRun(
   order: Prisma.OrderGetPayload<object>,
-  opts: { userKey: string; auto?: boolean; batchOf?: number },
+  opts: {
+    userKey: string;
+    auto?: boolean;
+    batchOf?: number;
+    /** Overrides ORDER_ENTRY_DO_PAY for this run only (admin's Stop before Pay). */
+    doPay?: boolean;
+    /** Ask the droplet to attach a screencast so admin can watch the run. */
+    liveView?: boolean;
+    /** Names admin in the history event; changes nothing else. */
+    startedBy?: "admin";
+  },
 ): Promise<StartRunResult> {
   if (!ORDER_TOKEN) {
     return { ok: false, busy: false, error: "Order service is not configured." };
@@ -226,7 +236,11 @@ export async function startSubmitRun(
       ? `Submit started (batch of ${opts.batchOf}).`
       : opts.auto
         ? "Automatic retry started."
-        : "Submit started.",
+        : opts.startedBy === "admin"
+          ? submitter?.staffCode?.trim()
+            ? `Submit started by admin under ${submitter.staffCode.trim()}.`
+            : "Submit started by admin."
+          : "Submit started.",
   });
 
   // Read the stored expiry rather than calling the portal: it costs nothing and
@@ -285,9 +299,11 @@ export async function startSubmitRun(
         // Real submit: the scraper defaults dry_run=true, so opt OUT explicitly to
         // actually click Order + drive the whole New Connection flow through Pay.
         dry_run: false,
-        // do_pay clicks the REAL, billable Pay button. Default false (stops at the
-        // Pay gate). Enable per-environment via ORDER_ENTRY_DO_PAY=true.
-        do_pay: process.env.ORDER_ENTRY_DO_PAY === "true",
+        // do_pay clicks the REAL, billable Pay button. Per-run override first
+        // (admin's Stop before Pay), else the environment decides as before.
+        do_pay: opts.doPay ?? (process.env.ORDER_ENTRY_DO_PAY === "true"),
+        // Only an admin live submit sets this; the droplet attaches a screencast.
+        live_view: opts.liveView === true,
       }),
     });
     const start = (await startRes.json().catch(() => ({}))) as {
