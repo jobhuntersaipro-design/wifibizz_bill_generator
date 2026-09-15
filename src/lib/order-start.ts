@@ -150,6 +150,10 @@ export async function startSubmitRun(
   // running" from "this order is wrong", without that distinction having to
   // survive in the row.
   const fail = async (message: string, opts_: { busy?: boolean } = {}) => {
+    // A replication clone is never started again behind the agent's back — that
+    // deferred start is the retry sweep, which refuses it. Filed as a plain
+    // refusal instead, so the history does not promise a start that never comes.
+    const deferred = !!opts_.busy && !order.autoRetryDisabled;
     await prisma.order.update({
       where: { id: order.id },
       data: {
@@ -163,10 +167,10 @@ export async function startSubmitRun(
         // row reads Failed with nothing owed, which is the live incident this
         // exists to close (a manual submit refused at capacity stranded as
         // "unclassified failure" until a human resubmitted).
-        ...(opts_.busy ? { autoRetryAt: new Date(Date.now() + BUSY_RETRY_DELAY_MS) } : {}),
+        ...(deferred ? { autoRetryAt: new Date(Date.now() + BUSY_RETRY_DELAY_MS) } : {}),
       },
     });
-    if (opts_.busy) {
+    if (deferred) {
       await recordEvent({
         orderId: order.id,
         attempt,
@@ -178,7 +182,8 @@ export async function startSubmitRun(
       // from the admin record: this refusal used to write the row and no event.
       await recordEvent({
         orderId: order.id, attempt, status: "failed",
-        stage: "creating_customer", message, errorCode: START_REFUSED,
+        stage: "creating_customer", message,
+        errorCode: opts_.busy ? SERVICE_BUSY : START_REFUSED,
       });
     }
     return { ok: false as const, busy: !!opts_.busy, error: message };
