@@ -1,3 +1,31 @@
+# Current Feature: Admin Live Submit — submit an order as admin and watch the browser as it runs
+
+## Status
+
+SPEC APPROVED, NOT BUILT (2026-09-16). Scraper + Vercel, no migration. Branch not yet created.
+Full spec: [context/features/admin-live-submit.md](features/admin-live-submit.md).
+
+## Goals
+
+- `/admin/orders/[id]` gets **Submit as…**: pick an Order Entry account (session state shown), tick
+  **Stop before Pay** if wanted, confirm — a new tab opens at `/admin/orders/[id]/live` and the run starts
+- The live tab streams the droplet's Chromium screen (CDP screencast, ~4 fps JPEG) over SSE straight from
+  `scraper.bizzflow.top`, beside the step-of-17, the stage list and the job log tail, with a Stop button
+- Agent-started runs are untouched: the screencast only starts for jobs created with `live_view: true`
+
+## Decisions
+
+Run uses the chosen agent's dealer session and staff code (no admin dealer login). Watch-only, no remote
+desktop. Real submit by default; Stop before Pay = the existing `do_pay: false`. Direct SSE with a
+30-minute HMAC viewer token derived from `ORDER_ENTRY_API_TOKEN` (no new secret). Admin submit switches
+`autoRetryDisabled` on for the order. Nothing recorded — frames are discarded. Attaching to an agent's
+in-flight run is a follow-up.
+
+## Needs
+
+Vercel env `NEXT_PUBLIC_SCRAPER_API_URL`; droplet env `LIVE_VIEW_ORIGIN`; Dockerfile `--threads 16`;
+droplet deployed BEFORE Vercel (an old droplet ignores `live_view` and degrades to "not enabled").
+
 # Current Feature: Pay tail waits for a slow Pay page instead of pressing a Next it lacks
 
 ## Status
