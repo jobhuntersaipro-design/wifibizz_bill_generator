@@ -80,3 +80,13 @@ def test_viewer_slots_are_capped():
     live_view.release_viewer_slot()
     assert live_view.acquire_viewer_slot() is True
     assert live_view.viewer_count() == live_view.LIVE_VIEW_MAX_VIEWERS
+
+
+def test_get_store_sweeps_another_jobs_expired_store():
+    live_view.get_store("old", create=True)
+    live_view.detach_store("old", now=1000.0)
+    live_view.get_store("fresh", create=True)  # never detached: must survive
+    # Any call — for ANY job — sweeps stores past their linger.
+    live_view.get_store("unrelated", now=1000.0 + live_view.LIVE_VIEW_LINGER_S + 1)
+    assert "old" not in live_view._STORES
+    assert "fresh" in live_view._STORES

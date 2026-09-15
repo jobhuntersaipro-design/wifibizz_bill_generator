@@ -273,6 +273,10 @@ def _evict_finished_jobs_locked(now=None):
             continue
         JOBS.pop(job_id, None)
         JOB_TASKS.pop(job_id, None)
+        try:
+            live_view.remove_store(job_id)
+        except Exception:  # noqa: BLE001 — eviction must never fail on a diagnostic
+            pass
         dropped += 1
     return dropped
 
@@ -627,6 +631,10 @@ def _sse(event: str, data) -> str:
 
 @app.route("/jobs/<job_id>/live", methods=["GET"])
 def job_live(job_id):
+    # Flask routes HEAD to every GET view. A HEAD response never runs the
+    # stream generator, so nothing would release a viewer slot — refuse it.
+    if request.method != "GET":
+        return jsonify({"error": "method_not_allowed"}), 405, _live_headers()
     token = request.args.get("token", "")
     if not live_view.verify_viewer_token(token, job_id, os.environ.get("ORDER_ENTRY_API_TOKEN", "")):
         return jsonify({"error": "unauthorized"}), 401, _live_headers()
@@ -636,14 +644,17 @@ def job_live(job_id):
         return jsonify({"error": "unknown_job"}), 404, _live_headers()
     if not job.get("live_view"):
         return jsonify({"error": "no_live_view"}), 404, _live_headers()
-    if not live_view.acquire_viewer_slot():
-        return jsonify({"error": "too_many_viewers"}), 429, _live_headers()
     if request.args.get("probe") == "1":
+        if not live_view.acquire_viewer_slot():
+            return jsonify({"error": "too_many_viewers"}), 429, _live_headers()
         live_view.release_viewer_slot()
         return jsonify({"ok": True}), 200, _live_headers()
+    if live_view.viewer_count() >= live_view.LIVE_VIEW_MAX_VIEWERS:
+        return jsonify({"error": "too_many_viewers"}), 429, _live_headers()
 
-    store = live_view.get_store(job_id, create=True)
-    sub = store.subscribe()
+    # Only a run still in flight gets a store made for it; a finished job with
+    # none streams without frames rather than leaving an un-expiring store.
+    store = live_view.get_store(job_id, create=job.get("status") in ("queued", "running"))
 
     def _terminal():
         with JOBS_LOCK:
@@ -655,17 +666,26 @@ def job_live(job_id):
                     "error_kind": j.get("error_kind"),
                     "order_id": res.get("order_id") if res_is_dict else None,
                     "result_status": res.get("status") if res_is_dict else None,
-                    "message": res.get("message") if res_is_dict else None}
+                    "message": res.get("message") if res_is_dict else None,
+                    "warning": res.get("warning") if res_is_dict else None,
+                    "erf": bool(res.get("erf_key")) if res_is_dict else False}
         return None
 
     def gen():
+        # The slot and the subscription are taken HERE, inside the generator
+        # whose `finally` releases them — so no response path can hold a slot
+        # without the code that gives it back. The count check above answers
+        # the ordinary 429; losing a race to the last slot just ends the stream.
+        if not live_view.acquire_viewer_slot():
+            return
+        sub = store.subscribe() if store is not None else None
         last_sent = time.time()
         log_pos = 0
         try:
             yield _sse("hello", {"job_id": job_id, "status": job.get("status"),
                                  "stage": job.get("stage"), "started_at": job.get("started_at"),
                                  "live_view": True})
-            if store.latest:
+            if store is not None and store.latest:
                 yield _sse("frame", store.latest)
             for st in list(job.get("stages") or []):
                 yield _sse("stage", st)
@@ -682,14 +702,22 @@ def job_live(job_id):
                     yield _sse("log", {"line": tail})
             while True:
                 term = _terminal()
-                item = sub.get(0.25)
+                if sub is not None:
+                    item = sub.get(0.25)
+                else:
+                    time.sleep(0.25)
+                    item = None
                 sent = False
                 while item is not None:
                     kind, data = item
                     yield _sse(kind, data)
                     sent = True
                     item = sub.get(0)
-                # Follow the log file.
+                # Follow the log file. A job can be streamed before its log
+                # is opened, so pick the path up once it appears.
+                if not log_path:
+                    with JOBS_LOCK:
+                        log_path = (JOBS.get(job_id) or {}).get("log_path")
                 if log_path and os.path.exists(log_path):
                     with open(log_path, "rb") as f:
                         f.seek(log_pos)
@@ -707,7 +735,8 @@ def job_live(job_id):
                     yield _sse("ping", {})
                     last_sent = time.time()
         finally:
-            store.unsubscribe(sub)
+            if sub is not None:
+                store.unsubscribe(sub)
             live_view.release_viewer_slot()
 
     headers = {"Cache-Control": "no-store", "X-Accel-Buffering": "no", **_live_headers()}

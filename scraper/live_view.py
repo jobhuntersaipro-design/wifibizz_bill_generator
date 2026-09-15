@@ -12,6 +12,7 @@ Three parts, none of which touch Flask or the JOBS registry:
 
 Everything here is best-effort: the live view must never cost an order.
 """
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -150,10 +151,12 @@ _VIEWERS_LOCK = threading.Lock()
 def get_store(job_id: str, create: bool = False, now: float | None = None):
     now = time.time() if now is None else now
     with _STORES_LOCK:
+        # Sweep EVERY store past its linger, not just this job's: nothing asks
+        # for a finished job's store again, so a per-job check never fires.
+        for jid, st in list(_STORES.items()):
+            if st.detached_at is not None and now - st.detached_at > LIVE_VIEW_LINGER_S:
+                del _STORES[jid]
         s = _STORES.get(job_id)
-        if s is not None and s.detached_at is not None and now - s.detached_at > LIVE_VIEW_LINGER_S:
-            del _STORES[job_id]
-            s = None
         if s is None and create:
             s = FrameStore()
             _STORES[job_id] = s
@@ -209,12 +212,21 @@ async def attach(page, job_id: str):
         store = get_store(job_id, create=True)
         session = await page.context.new_cdp_session(page)
 
+        last_ack = [0.0]
+
         async def on_frame(params):
             try:
                 store.publish_frame(params.get("data", ""))
+                # Pace at the source: Chromium encodes the next frame only
+                # after this ack, so delaying it caps the screencast's CPU
+                # cost at ~4 fps for the whole run, watched or not.
+                wait = MIN_FRAME_INTERVAL_S - (time.monotonic() - last_ack[0])
+                if wait > 0:
+                    await asyncio.sleep(wait)
             finally:
                 # The ack is what lets Chromium send the next frame — sent
                 # whether or not this frame was forwarded to anyone.
+                last_ack[0] = time.monotonic()
                 try:
                     await session.send("Page.screencastFrameAck",
                                        {"sessionId": params["sessionId"]})

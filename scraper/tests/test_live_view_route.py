@@ -256,7 +256,8 @@ def test_done_job_with_error_result_reports_result_status():
     evs = _events(rv)
     assert evs[-1] == ("status", {"status": "done", "error": None, "error_kind": None,
                                   "order_id": "2609000000000001",
-                                  "result_status": "error", "message": "portal said no"})
+                                  "result_status": "error", "message": "portal said no",
+                                  "warning": None, "erf": False})
 
 
 def test_running_job_forwards_a_new_frame_then_closes_on_finish(tmp_path):
@@ -285,4 +286,55 @@ def test_running_job_forwards_a_new_frame_then_closes_on_finish(tmp_path):
     assert "frame" in kinds and "log" in kinds
     assert evs[-1] == ("status", {"status": "error", "error": "boom",
                                   "error_kind": "unexpected", "order_id": None,
-                                  "result_status": None, "message": None})
+                                  "result_status": None, "message": None,
+                                  "warning": None, "erf": False})
+
+
+def test_head_requests_never_leak_a_viewer_slot():
+    _reset()
+    _job("jh")
+    c = _client()
+    for _ in range(3):
+        rv = c.head("/jobs/jh/live?token=" + _mint("jh"))
+        assert rv.status_code == 405
+    assert live_view.viewer_count() == 0
+    assert c.get("/jobs/jh/live?probe=1&token=" + _mint("jh")).status_code == 200
+
+
+def test_get_stream_releases_its_slot():
+    _reset()
+    _job("jg", status="done")
+    rv = _client().get("/jobs/jg/live?token=" + _mint("jg"))
+    _events(rv)
+    assert live_view.viewer_count() == 0
+
+
+def test_status_event_carries_warning_and_erf():
+    _reset()
+    _job("jw", status="done")
+    with api_server.JOBS_LOCK:
+        api_server.JOBS["jw"]["result"] = {"status": "submitted", "order_id": "2609000000000002",
+                                           "warning": "check it", "erf_key": "k/erf.pdf"}
+    evs = _events(_client().get("/jobs/jw/live?token=" + _mint("jw")))
+    assert evs[-1][1]["warning"] == "check it" and evs[-1][1]["erf"] is True
+
+
+def test_streaming_a_finished_job_with_no_store_creates_none():
+    _reset()
+    _job("jf", status="done")
+    evs = _events(_client().get("/jobs/jf/live?token=" + _mint("jf")))
+    assert [e for e, _ in evs][0] == "hello" and evs[-1][0] == "status"
+    assert "frame" not in [e for e, _ in evs]
+    assert live_view.get_store("jf") is None
+
+
+def test_evicting_a_finished_job_removes_its_store():
+    _reset()
+    _job("je", status="done")
+    with api_server.JOBS_LOCK:
+        api_server.JOBS["je"]["finished_at"] = "2020-01-01T00:00:00"
+    live_view.get_store("je", create=True)
+    with api_server.JOBS_LOCK:
+        api_server._evict_finished_jobs_locked()
+    assert "je" not in api_server.JOBS
+    assert "je" not in live_view._STORES
