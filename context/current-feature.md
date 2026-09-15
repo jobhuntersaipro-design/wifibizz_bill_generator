@@ -38,7 +38,7 @@ BizzFlow ran as `next dev -p 3001` (:3000 on this machine is another project), s
 
 - **Order page:** `submitting` + job id renders **Watch live ↗** (`target=_blank`); **Submit as…** on it reads
   *"A run is already in flight for this order."*
-- **Live page, success run:** chip Connecting… → Live in ~160 ms; frames painted and repainted per stage
+- **Live page, success run:** chip Connecting… → Live; frames painted and repainted per stage
   (7 distinct frames across 14 samples, colour and "Step N" heading visible in the frame); the checklist
   advanced Step 1 → 8 of 17; Stages filled with 8 rows and times (`18:54:16 validating_draft — detail 0` …);
   the log box held the 8 `stage …` lines scrolled to the bottom; at the end the chip read **Finished**, the
@@ -46,7 +46,7 @@ BizzFlow ran as `next dev -p 3001` (:3000 on this machine is another project), s
   stayed up. Zero console errors.
 - **Failure run** (`--fail`): *"The run ended with an error: demo refusal"*, chip Finished.
 - **Bad token:** the first probe rewritten to a bogus token → one 401, the page minted a fresh token, probe 200,
-  stream 200, Live. The 401 is the only console error (the browser's own resource log).
+  stream 200, Live in ~160 ms. The 401 is the only console error (the browser's own resource log).
 - **Demo stopped:** *"Could not reach the order service."* (`ERR_CONNECTION_REFUSED` on the probe).
 - **`--no-live`:** *"Live view was not enabled for this run."*, no Stop button.
 - **Viewer cap** (`--slow`): tabs 1-3 Live, tab 4 *"Three viewers are already watching runs on the order

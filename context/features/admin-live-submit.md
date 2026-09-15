@@ -85,7 +85,8 @@ In a new `src/actions/admin-submit.ts` (with `adminSubmitTargets`, `adminLiveVie
    order as `failed`; the dialog's refusal must leave the order untouched.)
 3. Set `autoRetryDisabled: true` on the order. Precedent: clones. An admin watching a run does not want
    three silent retries after it, and a Stop-before-Pay run retried automatically would mint more
-   unpaid orders.
+   unpaid orders. The flag stays set afterwards: a later agent submit of the same order also gets no
+   automatic retry (the clone precedent).
 4. Call `startSubmitRun(order, { userKey: targetUserId, doPay: !stopBeforePay, liveView: true,
    startedBy: "admin" })`.
 5. On `ok`, write `recordAudit({ action: "order_admin_submitted", targetOrder: orderId, detail:
@@ -132,9 +133,11 @@ the live view must never cost an order.
 
 - `attach(page, job_id)`: `session = await page.context.new_cdp_session(page)`, then
   `Page.startScreencast` with `format: "jpeg"`, `quality: 50`, `maxWidth: 1280`, `maxHeight: 800`,
-  `everyNthFrame: 1`. On each `Page.screencastFrame` event: store the frame, then
-  `Page.screencastFrameAck` with the frame's `sessionId`. The ack is what lets Chromium send the next
-  frame; it is sent whether or not the frame is forwarded.
+  `everyNthFrame: 1`. On each `Page.screencastFrame` event: store the frame, wait out whatever remains of
+  `MIN_FRAME_INTERVAL_S` since the previous ack, then `Page.screencastFrameAck` with the frame's
+  `sessionId`. The ack is what lets Chromium send the next frame, so delaying it paces the screencast at
+  the source (~4 fps) and Chromium does not encode every repaint of a run nobody is watching; the ack is
+  always sent (unless the session is gone), whether or not the frame is forwarded.
 - `FrameStore` (one per job, in a module dict guarded by a lock): `latest` (bytes + timestamp),
   `subscribers` (bounded queues), `last_sent_at`. `publish_frame` forwards a frame to subscribers only
   when at least `MIN_FRAME_INTERVAL_S = 0.25` has passed since the last forwarded one; otherwise it
@@ -231,8 +234,9 @@ sentence, which is the honest state.
 - Droplet `.env`: `LIVE_VIEW_ORIGIN`.
 - Dockerfile: `--threads 16`.
 - Droplet deploy with the container recreated (new route, new module, gunicorn flag). Deploy the
-  droplet first: an older droplet ignores `live_view` and the page reports no live view, which
-  degrades cleanly; an older Vercel never sends it.
+  droplet first: an older droplet ignores `live_view` and has no live route, so the page reads
+  "Could not reach the order service." — Stop still works, because it goes through Vercel; an older
+  Vercel never sends it.
 
 ## Error handling
 
