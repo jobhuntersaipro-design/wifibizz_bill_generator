@@ -196,3 +196,52 @@ def release_viewer_slot() -> None:
 def viewer_count() -> int:
     with _VIEWERS_LOCK:
         return _VIEWERS[0]
+
+
+# ── screencast ──────────────────────────────────────────────────────────────
+async def attach(page, job_id: str):
+    """Start Chromium's screencast on `page`, feeding the job's FrameStore.
+
+    Best-effort: returns the CDP session, or None if anything failed. The
+    caller carries on either way — a diagnostic must never break the run.
+    """
+    try:
+        store = get_store(job_id, create=True)
+        session = await page.context.new_cdp_session(page)
+
+        async def on_frame(params):
+            try:
+                store.publish_frame(params.get("data", ""))
+            finally:
+                # The ack is what lets Chromium send the next frame — sent
+                # whether or not this frame was forwarded to anyone.
+                try:
+                    await session.send("Page.screencastFrameAck",
+                                       {"sessionId": params["sessionId"]})
+                except Exception:  # noqa: BLE001 — session gone; the run's own teardown handles it
+                    pass
+
+        session.on("Page.screencastFrame", on_frame)
+        await session.send("Page.startScreencast", {
+            "format": "jpeg", "quality": 50,
+            "maxWidth": 1280, "maxHeight": 800, "everyNthFrame": 1,
+        })
+        print(f"  live view: screencast attached for job {job_id}", flush=True)
+        return session
+    except Exception as e:  # noqa: BLE001
+        print(f"  ⚠ live view: attach failed ({type(e).__name__}: {e}) — run continues", flush=True)
+        return None
+
+
+async def detach(job_id: str, session) -> None:
+    try:
+        if session is not None:
+            try:
+                await session.send("Page.stopScreencast")
+            except Exception:  # noqa: BLE001 — page already closed
+                pass
+    finally:
+        try:
+            detach_store(job_id)
+        except Exception:  # noqa: BLE001
+            pass
