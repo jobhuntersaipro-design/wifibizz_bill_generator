@@ -47,9 +47,9 @@ export async function GET(request: Request) {
     if (!stream) {
       return NextResponse.json({ success: false, error: "Not found" }, { status: 404 });
     }
-    // Quotes/backslashes stripped so the filename cannot break out of the
+    // The last path segment — an uploaded file's original name. Quotes/backslashes stripped so the filename cannot break out of the
     // header value (same rule the screenshot route applies).
-    const filename = key.slice(prefix.length).replace(/["\\]/g, "");
+    const filename = (key.split("/").pop() || "").replace(/["\\]/g, "");
     return new Response(stream, {
       headers: {
         "Content-Type": contentType,

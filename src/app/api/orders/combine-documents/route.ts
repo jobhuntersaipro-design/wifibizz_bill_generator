@@ -68,7 +68,7 @@ export async function POST(request: Request) {
     const prefix = `orders/${session.user.id}/`;
 
     for (const key of uniqueKeys) {
-      const filename = key.slice(prefix.length);
+      const filename = key.slice(prefix.length).split("/").pop() || key;
       const bytes = await getBytesFromR2(key);
       if (!bytes || bytes.byteLength === 0) {
         missing.push(filename);

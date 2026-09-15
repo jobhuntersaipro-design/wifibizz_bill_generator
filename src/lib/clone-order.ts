@@ -75,13 +75,22 @@ export function cloneOrderInput<T extends Record<string, unknown>>(
  * knows which kinds are attached — and tags only the trailing segment.
  */
 export function cloneDocumentKey(
-  sourceFilename: string,
+  source: { key: string; filename: string },
   targetUserId: string,
   tag: string,
 ): { key: string; filename: string } {
-  const dot = sourceFilename.lastIndexOf(".");
-  const stem = dot > 0 ? sourceFilename.slice(0, dot) : sourceFilename;
-  const ext = dot > 0 ? sourceFilename.slice(dot) : "";
+  // An uploaded file keeps its original name under a slot folder — tag the
+  // folder so the name the agent chose survives the copy.
+  const parts = source.key.split("/");
+  if (parts.length >= 4) {
+    const slot = parts[parts.length - 2];
+    const filename = parts[parts.length - 1];
+    return { key: `orders/${targetUserId}/${slot}-c${tag}/${filename}`, filename };
+  }
+  const name = source.filename;
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : "";
   const filename = `${stem}-c${tag}${ext}`;
   return { key: `orders/${targetUserId}/${filename}`, filename };
 }

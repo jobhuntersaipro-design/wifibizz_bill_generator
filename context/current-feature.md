@@ -1,3 +1,34 @@
+# Current Feature: Uploaded order documents keep their original filename
+
+## Status
+
+CODE COMPLETE, NOT VERIFIED IN BROWSER (branch `feature/order-doc-original-filename`, not committed).
+Vercel + one scraper line, no migration.
+
+## Goals
+
+- A file uploaded on Order Entry (ID card or Supporting Documents) is named as it was on the agent's
+  device — in the tray, the download, and the portal attachment
+- Two uploads with the same name never overwrite each other
+- Generated and combined documents keep their `{id}_{slug}_{n}` names
+
+## Built
+
+- `safeUploadFilename()` keeps the original name, dropping the path and anything outside
+  `[A-Za-z0-9 ._()-]` (Content-Disposition cannot carry non-Latin-1; the routes refuse `..`).
+- Uploads are stored at `orders/{user}/{id}_{slug}_{n}/{original name}` — the old slot name becomes the
+  folder, so keys stay unique and `documentSlotName()` still tells `isDocTypeAttached` which kinds are on
+  the order. The form sends `keepOriginalName=1`; the generate runner does not.
+- Document download and combine read the key's last segment; admin clone tags the slot folder and keeps
+  the name; `r2_download.download_many` puts each key in its own temp folder so same-named files don't
+  clobber each other before the portal upload.
+- Existing flat keys are untouched and still work.
+
+## Not verified
+
+A real upload in the browser, and a live submit (does the portal accept spaces/parentheses in
+attachment names?). Scraper change needs a droplet deploy.
+
 # Current Feature: Admin "Clone & retry" — replicate a failed order by hand
 
 ## Status

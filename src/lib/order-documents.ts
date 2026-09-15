@@ -204,6 +204,46 @@ export function generatedFilename(type: GeneratedDocType, seed: string): string 
   return `${type}_${seed || "order"}.${spec.ext}`;
 }
 
+type StoredDocName = { filename: string; key?: string };
+
+/**
+ * An uploaded file's own name, made safe to store and to hand to the portal.
+ *
+ * A file the agent uploads keeps the name it had on their device — that is what
+ * the tray, the download and the portal attachment show. Only the path is
+ * dropped and anything outside `[A-Za-z0-9 ._()-]` becomes `_`: the name ends up
+ * in a Content-Disposition header, which cannot carry non-Latin-1 text, and the
+ * document routes refuse any key containing `..`.
+ */
+export function safeUploadFilename(name: string): string {
+  const base = name.split(/[\\/]/).pop() ?? "";
+  const dot = base.lastIndexOf(".");
+  const ext = dot >= 0 ? base.slice(dot + 1).toLowerCase().replace(/[^a-z0-9]/g, "") : "";
+  const stem = (dot >= 0 ? base.slice(0, dot) : base)
+    .replace(/[^A-Za-z0-9 ._()-]+/g, "_")
+    .replace(/\.{2,}/g, ".")
+    .replace(/_{2,}/g, "_")
+    .replace(/\s+/g, " ")
+    .replace(/^[\s.]+|[\s.]+$/g, "")
+    .slice(0, 100)
+    .trim();
+  return `${stem || "document"}${ext ? `.${ext}` : ""}`;
+}
+
+/**
+ * The `{idNumber}_{slug}_{suffix}` name that identifies a document's slot.
+ *
+ * A file uploaded under its original name is stored at
+ * `orders/{user}/{idNumber}_{slug}_{suffix}/{original name}`, so the slot lives
+ * in the folder and the filename is free to be whatever the agent's file was
+ * called. Generated and combined documents are still stored flat, where the
+ * filename IS the slot.
+ */
+export function documentSlotName(doc: StoredDocName): string {
+  const parts = (doc.key ?? "").split("/");
+  return parts.length >= 4 ? parts[parts.length - 2] : doc.filename;
+}
+
 /**
  * The slug in a stored document's filename, or null if it is not shaped like one.
  *
@@ -235,10 +275,10 @@ export function slugFromFilename(filename: string): string | null {
  */
 export function isDocTypeAttached(
   type: GeneratedDocType,
-  docs: readonly { filename: string }[],
+  docs: readonly StoredDocName[],
 ): boolean {
   const slug = docSpec(type).slug;
-  return docs.some((d) => slugFromFilename(d.filename) === slug);
+  return docs.some((d) => slugFromFilename(documentSlotName(d)) === slug);
 }
 
 /**
@@ -262,7 +302,7 @@ export function isBusinessOrder(source: Partial<GeneratorSource>): boolean {
 
 export function generatableDocTypes(
   source: Partial<GeneratorSource>,
-  docs: readonly { filename: string }[],
+  docs: readonly StoredDocName[],
   slotsLeft: number,
 ): GeneratedDocType[] {
   return GENERATED_DOCS.filter(

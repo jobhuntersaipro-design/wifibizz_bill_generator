@@ -5,6 +5,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { ACTIVE_ORDER } from "@/lib/order-scope";
 import { Prisma } from "@/generated/prisma/client";
+import { safeUploadFilename } from "@/lib/order-documents";
 import { uploadToR2 } from "@/lib/r2";
 import {
   MAX_DOCS,
@@ -160,10 +161,17 @@ export async function uploadOrderDocument(formData: FormData) {
   if (!idNumber) return { success: false as const, error: "Enter the ID number first." };
 
   const suffix = side === "front" || side === "back" ? side : String(seq);
-  const filename = `${idNumber}_${docSlug(docType, idType, otherLabel)}_${suffix}.${ext}`;
+  const slot = `${idNumber}_${docSlug(docType, idType, otherLabel)}_${suffix}`;
+  // A file the agent uploaded keeps its original name; the slot becomes its
+  // folder, so two files both called "IMG_0001.jpg" still land on different
+  // keys. Generated documents send no flag and stay flat ({slot}.{ext}).
+  const keepName = formData.get("keepOriginalName") === "1";
+  const filename = keepName ? safeUploadFilename(file.name) : `${slot}.${ext}`;
   // Keys are namespaced per user so the authenticated proxy can scope access to
   // the owner and MyKad-based filenames can't be enumerated across tenants.
-  const key = `orders/${session.user.id}/${filename}`;
+  const key = keepName
+    ? `orders/${session.user.id}/${slot}/${filename}`
+    : `orders/${session.user.id}/${filename}`;
 
   try {
     const buf = Buffer.from(await file.arrayBuffer());
