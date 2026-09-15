@@ -744,6 +744,23 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
   },
 };
 
+/**
+ * The code to STORE for a failed run — whether or not this build has copy for it.
+ *
+ * Copy decides how a failure is RENDERED; it must never decide whether the code
+ * is kept. Keeping only codes with copy is what filed ~65 of the scraper's ~90
+ * codes as Unclassified on the admin page (`next_blocked` on order
+ * 2609000125212018 among them), and what let `post_pay_not_confirmed` — terminal
+ * in retry-policy, but copy-less — arrive as null and be retried.
+ *
+ * Only a slug is accepted: some paths carry a sentence in the same field, and a
+ * sentence stored as a code would open a new admin bucket per wording.
+ */
+export function storedErrorCode(raw: string | null | undefined): string | null {
+  const code = raw?.trim();
+  return code && /^[a-z][a-z0-9_]{1,63}$/.test(code) ? code : null;
+}
+
 export function submitErrorCopy(code: string | null | undefined): SubmitErrorCopy | null {
   return (code && SUBMIT_ERROR_CODES[code]) || null;
 }

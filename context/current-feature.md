@@ -1,3 +1,43 @@
+# Current Feature: Every failed attempt keeps its error code (no more "Unclassified")
+
+## Status
+
+CODE COMPLETE (branch `fix/record-every-error-code`, not committed). Vercel-only, no migration,
+no scraper change.
+
+## Notes
+
+Reported 2026-09-15 off `/admin/orders/cmu1eq7qf000204k1cp7uzx8t`: *"creating_customer : Order
+2609000125212018 was created but the flow didn't finish: Please check the service number first.."*
+filed as Unclassified. The droplet log for that job (`72a49792…`) shows the scraper DID classify it:
+`{'status': 'error', 'stage': 'customer_order_info', 'error': 'next_blocked', …}`. BizzFlow lost both:
+
+1. **The code.** `applyResult` kept `result.error` only when `SUBMIT_ERROR_CODES` had copy for it
+   (~25 of the scraper's ~90 codes), so every other code was stored as null, which the admin page reads as Unclassified.
+   Side effect: `post_pay_not_confirmed` is terminal in retry-policy but copy-less, so it arrived as
+   null and was **retried** — on a run that may already have charged the customer.
+2. **The stage.** The terminal event used the order's stage pointer, which only moves on polls; a run
+   the webhook finalizes still reads `creating_customer` (set when the run starts).
+
+## Built
+
+- `storedErrorCode()` — any slug is stored; copy only decides how it renders.
+- `applyResult` stores the code on all three error/warning branches and files the event (and the
+  pointer, milestones only) under the scraper's reported `stage`.
+- A run that died on the droplet stores its `error_kind` (portal_timeout / infra / abandoned /
+  unexpected …); a lost job stores `job_lost`; an expired session `session_expired`; a busy droplet
+  `service_busy`; a refused start `start_refused` — which also now writes the history event it never
+  had; a failed batch start `batch_start_failed`.
+
+## Verified
+
+5 new cases in `retry-pending-write.test.ts` built from the live result, all failing before the fix.
+951 vitest passing (4 failing files are the pre-existing e2e specs), `npm run build` clean, lint clean
+on touched files, `tsc` unchanged (3 pre-existing errors).
+
+**NOT done:** rows already stored stay Unclassified — their codes were never written. **NOT verified**
+on production (nothing deployed).
+
 # Current Feature: Record the submitting staff code on every order + filter by it
 
 ## Status

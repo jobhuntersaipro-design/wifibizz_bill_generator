@@ -143,3 +143,63 @@ describe("a run somebody stopped", () => {
     expect(data.errorMessage).toBe("The portal did not respond in time.");
   });
 });
+
+describe("every failed attempt keeps the code it failed with", () => {
+  // Verbatim from the droplet log for order 2609000125212018 (job 72a49792…),
+  // which the admin page listed as Unclassified under `creating_customer`.
+  const LIVE_NEXT_BLOCKED = {
+    status: "error",
+    stage: "customer_order_info",
+    error: "next_blocked",
+    message: "Please check the service number first.",
+    order_id: "2609000125212018",
+  };
+
+  it("stores a scraper code this build has no copy for", async () => {
+    jobAnswers({ status: "done", result: LIVE_NEXT_BLOCKED });
+    await pollOrderProgress("ord_1");
+    const data = finalWrite();
+    expect(data.status).toBe("warning");
+    expect(data.errorCode).toBe("next_blocked");
+    // No copy, so the message still explains the stranded order in full.
+    expect(data.errorMessage).toBe(
+      "Order 2609000125212018 was created but the flow didn't finish: " +
+        "Please check the service number first.. Verify in the portal before retrying.",
+    );
+  });
+
+  it("files the event under the stage the run died at, not the stale pointer", async () => {
+    jobAnswers({ status: "done", result: LIVE_NEXT_BLOCKED });
+    await pollOrderProgress("ord_1");
+    const failed = recordEvent.mock.calls
+      .map((c) => c[0] as { status: string; stage: string; errorCode: string })
+      .find((e) => e.status === "warning");
+    expect(failed?.stage).toBe("customer_order_info");
+    expect(failed?.errorCode).toBe("next_blocked");
+  });
+
+  it("stores the job's error_kind when the run itself died", async () => {
+    jobAnswers({ status: "error", error_kind: "portal_timeout", error: "Timed out." });
+    await pollOrderProgress("ord_1");
+    expect(finalWrite().errorCode).toBe("portal_timeout");
+  });
+
+  it("stores a code for a run the order service lost", async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 404, json: async () => ({}) });
+    await pollOrderProgress("ord_1");
+    expect(finalWrite().errorCode).toBe("job_lost");
+  });
+
+  it("makes post_pay_not_confirmed terminal, as the policy always intended", async () => {
+    // It had no copy, so it used to be stored as null — and null RETRIES, which
+    // for a run that may already have charged the customer is the worst case.
+    jobAnswers({
+      status: "done",
+      result: { status: "error", error: "post_pay_not_confirmed", message: "x", order_id: "1" },
+    });
+    await pollOrderProgress("ord_1");
+    const data = finalWrite();
+    expect(data.errorCode).toBe("post_pay_not_confirmed");
+    expect(data.autoRetryAt).toBeNull();
+  });
+});
