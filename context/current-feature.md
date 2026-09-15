@@ -35,8 +35,17 @@ filed as Unclassified. The droplet log for that job (`72a49792…`) shows the sc
 951 vitest passing (4 failing files are the pre-existing e2e specs), `npm run build` clean, lint clean
 on touched files, `tsc` unchanged (3 pre-existing errors).
 
-**NOT done:** rows already stored stay Unclassified — their codes were never written. **NOT verified**
-on production (nothing deployed).
+**Merged to main and pushed 2026-09-15** (`a2080da`, with `fix/delivery-checkbox-absent`).
+
+**Production backfilled 2026-09-15** — all 314 unclassified failure events (2026-08-31 onward) now
+carry a code. 210 matched to the droplet job logs' `enter_order result` lines (verbatim message,
+portal order number when present, 2–142 s after the log line, 0 ambiguous), and their stage was
+corrected to the logged one (183 changed). 104 were classified from source, where a message has exactly one
+emitter: `runner_died` 46, `voice_no_numbers` 53 (the tab loop used to drop that code),
+`order_id_not_found` 2, `portal_timeout` 1, `job_lost` 1, `voice_no_free_numbers` 1. Orders took
+the code of their latest matching event; ORD-0055 (old busy refusal, no event) set to `service_busy`.
+0 unclassified events and 0 unclassified failed orders remain. Backup of the prior values is in the
+session scratchpad, not the repo.
 
 # Current Feature: Record the submitting staff code on every order + filter by it
 
