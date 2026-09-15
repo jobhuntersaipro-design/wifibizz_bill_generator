@@ -1,5 +1,6 @@
 "use server";
 
+import { randomBytes } from "crypto";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
@@ -163,14 +164,14 @@ export async function uploadOrderDocument(formData: FormData) {
   const suffix = side === "front" || side === "back" ? side : String(seq);
   const slot = `${idNumber}_${docSlug(docType, idType, otherLabel)}_${suffix}`;
   // A file the agent uploaded keeps its original name; the slot becomes its
-  // folder, so two files both called "IMG_0001.jpg" still land on different
-  // keys. Generated documents send no flag and stay flat ({slot}.{ext}).
+  // folder, tagged with a random suffix so no two uploads can ever share a key —
+  // not even two files both called "image.jpeg" given the same sequence number. Generated documents send no flag and stay flat ({slot}.{ext}).
   const keepName = formData.get("keepOriginalName") === "1";
   const filename = keepName ? safeUploadFilename(file.name) : `${slot}.${ext}`;
   // Keys are namespaced per user so the authenticated proxy can scope access to
   // the owner and MyKad-based filenames can't be enumerated across tenants.
   const key = keepName
-    ? `orders/${session.user.id}/${slot}/${filename}`
+    ? `orders/${session.user.id}/${slot}-${randomBytes(3).toString("hex")}/${filename}`
     : `orders/${session.user.id}/${filename}`;
 
   try {
