@@ -1,3 +1,30 @@
+# Current Feature: Pay tail waits for a slow Pay page instead of pressing a Next it lacks
+
+## Status
+
+CODE COMPLETE (branch `fix/pay-page-slow-load`, not committed). Scraper-only, no migration. Needs a
+droplet deploy (container recreated).
+
+## Notes
+
+Reported 2026-09-15 off `/admin/orders/cmu2ivic6000009gmh403spt0` ("Pay button is not clicked").
+Job `0c2311f3…`: every step ok through Customer Order Information, then `pay tail blocked at Next #3`
+with `nextVisible: 0`, no headings → `next_click_failed` / `nonext`. Its debug screenshot shows the
+Pay page fully rendered with Pay on screen. `pay_and_submit` looked for Pay ONCE after the T&C Next
+(3 s + 2 s sleeps); this broadband + voice + TV order's Pay page was still loading, so it saw neither
+button and pressed for a Next the Pay page does not have. 7 droplet logs carry that identical state
+(same selector passed 65 submitted runs, so not a selector bug). The retry at 10:33 (`7f67d006…`)
+failed identically — **two unpaid portal orders to handle: 2609000125372808 and 2609000125373417.**
+
+## Built
+
+`_wait_for_pay_or_next(page, timeout_s=30)` polls until Pay (wins) or a visible `.js-btn-next`, and the
+loop uses it in place of the single `pay_loc.count()`. A T&C page returns immediately. 4 tests in
+`test_pay_tail_slow_pay_page.py`, including a control proving a single look misses the late Pay button.
+430 scraper passed + 1 skipped.
+
+**NOT verified live.**
+
 # Current Feature: Uploaded order documents keep their original filename
 
 ## Status
