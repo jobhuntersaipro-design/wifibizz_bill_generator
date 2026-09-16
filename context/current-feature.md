@@ -1,3 +1,51 @@
+# Current Feature: Bizz Chat numbers its fields, the way the Conversation Chat already does
+
+## Status
+
+CODE COMPLETE, VERIFIED IN BROWSER (branch `feature/bizz-chat-numbered-fields`).
+Vercel-only, no migration, no scraper change.
+
+## Goals
+
+- The Bizz Chat closing script prints its ten fields numbered `1.` … `10.`
+- The numbering is identical in form to the Conversation Chat's, not a second spelling of it
+- The row button reads **Bizz Chat**, not `bizz chat`
+
+## Built
+
+- Each of the ten labels in `buildBizzChatScript` carries its number plus `⁠ ⁠` — a word
+  joiner either side of the space. That is what stops the rasterised chat bubble wrapping between the
+  number and the field name, leaving a bare `7.` at the end of a line. **The joiner sequence is
+  byte-for-byte the one `chat-script.ts` already ships** (checked, not assumed), so the two scripts
+  cannot drift into two spellings of the same convention.
+- `CaseManagementSection`'s row label `bizz chat` → `Bizz Chat`, matching its own `title` and the
+  "Generate Bizz Chat" toolbar button two references away.
+
+## Verified
+
+Nothing in production reads a line back by its label — `ChatImageGenerator` renders `label` + `value`
+generically — so the prefix is inert outside the printed text; the only label lookups are in the tests,
+which were updated with it. The `GenerateDocRunner` test still passes untouched because it asserts with
+`toContain`, and the numbered label still contains the sentence it looks for.
+
+**The rendered image, not merely the strings.** A throwaway `/bizz-chat-preview` route (deleted
+afterwards) mounted `WhatsAppChat` in the `bizz` variant and ran the same `toPng` capture the real
+generator does. Measured off the live DOM with ranges rather than read off a picture: for all ten
+lines the number and the field name share a line box, with a **4px gap — one space**. That width is
+the evidence the joiners are zero-width; a font falling back to tofu would draw two boxes and a far
+wider gap. The rasterised 828x1366 PNG was then looked at: `1.` through `10.` all present, and the
+two lines long enough to wrap (Customer Name, Installation Address) break **after** the field name,
+never after a number, which is the whole point of the joiners.
+
+`npm run build` clean, lint clean on the three touched files, **996 vitest passing** (the 4 failing
+files are the pre-existing Playwright e2e specs vitest collects).
+
+## NOT verified
+
+A Bizz Chat generated from a real business case through the actual row button — the preview fed
+`WhatsAppChat` a hand-built `CaseRow`, so the numbering is proven and the case-to-script wiring is
+unchanged rather than re-checked. Production, where nothing is deployed.
+
 # Current Feature: Admin Live Submit — submit an order as admin and watch the browser as it runs
 
 ## Status
