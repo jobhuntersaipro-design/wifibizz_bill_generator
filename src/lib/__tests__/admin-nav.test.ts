@@ -60,3 +60,13 @@ describe("routes nobody has mapped", () => {
     expect(adminNavContext("/admin/landlord-signature").title).toBe("landlord signature");
   });
 });
+
+describe("the live run page", () => {
+  it("is named Live run and goes back to its order", () => {
+    expect(adminNavContext("/admin/orders/abc123/live")).toEqual({ title: "Live run", back: "/admin/orders/abc123" });
+    expect(adminNavContext("/admin/orders/abc123/live/")).toEqual({ title: "Live run", back: "/admin/orders/abc123" });
+  });
+  it("does not change the order page itself", () => {
+    expect(adminNavContext("/admin/orders/abc123")).toEqual({ title: "Order", back: "/admin/orders" });
+  });
+});

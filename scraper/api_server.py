@@ -16,6 +16,7 @@ unauthenticated route here.
 """
 
 import os
+import time
 import uuid
 from datetime import datetime
 from threading import Lock, Thread
@@ -24,6 +25,7 @@ from dotenv import find_dotenv, load_dotenv
 from flask import Flask, jsonify, request
 
 from job_logging import install as _install_job_logging, job_log
+import live_view
 
 # Route stdout/stderr per THREAD before anything can print. Every job used to
 # swap the global sys.stdout for its own log file, which two concurrent runs
@@ -271,6 +273,10 @@ def _evict_finished_jobs_locked(now=None):
             continue
         JOBS.pop(job_id, None)
         JOB_TASKS.pop(job_id, None)
+        try:
+            live_view.remove_store(job_id)
+        except Exception:  # noqa: BLE001 — eviction must never fail on a diagnostic
+            pass
         dropped += 1
     return dropped
 
@@ -604,6 +610,140 @@ def get_job_log(job_id):
 
 
 # ───────────────────────────────────────────────────────────────────────────
+# Live view — admin watches a run's browser. NOT gated by X-Internal-Token:
+# EventSource cannot send headers, so the gate is the viewer token Vercel
+# mints (HMAC under a key derived from ORDER_ENTRY_API_TOKEN, 30 min, one job).
+# CORS is granted to ONE origin on THIS route only.
+# ───────────────────────────────────────────────────────────────────────────
+LIVE_VIEW_PING_S = 15
+LIVE_VIEW_LOG_TAIL_BYTES = 4096
+
+
+def _live_headers():
+    origin = os.environ.get("LIVE_VIEW_ORIGIN", "")
+    return {"Access-Control-Allow-Origin": origin} if origin else {}
+
+
+def _sse(event: str, data) -> str:
+    import json
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+@app.route("/jobs/<job_id>/live", methods=["GET"])
+def job_live(job_id):
+    # Flask routes HEAD to every GET view. A HEAD response never runs the
+    # stream generator, so nothing would release a viewer slot — refuse it.
+    if request.method != "GET":
+        return jsonify({"error": "method_not_allowed"}), 405, _live_headers()
+    token = request.args.get("token", "")
+    if not live_view.verify_viewer_token(token, job_id, os.environ.get("ORDER_ENTRY_API_TOKEN", "")):
+        return jsonify({"error": "unauthorized"}), 401, _live_headers()
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+    if not job:
+        return jsonify({"error": "unknown_job"}), 404, _live_headers()
+    if not job.get("live_view"):
+        return jsonify({"error": "no_live_view"}), 404, _live_headers()
+    if request.args.get("probe") == "1":
+        if not live_view.acquire_viewer_slot():
+            return jsonify({"error": "too_many_viewers"}), 429, _live_headers()
+        live_view.release_viewer_slot()
+        return jsonify({"ok": True}), 200, _live_headers()
+    if live_view.viewer_count() >= live_view.LIVE_VIEW_MAX_VIEWERS:
+        return jsonify({"error": "too_many_viewers"}), 429, _live_headers()
+
+    # Only a run still in flight gets a store made for it; a finished job with
+    # none streams without frames rather than leaving an un-expiring store.
+    store = live_view.get_store(job_id, create=job.get("status") in ("queued", "running"))
+
+    def _terminal():
+        with JOBS_LOCK:
+            j = JOBS.get(job_id) or {}
+        if j.get("status") in ("done", "error"):
+            res = j.get("result")
+            res_is_dict = isinstance(res, dict)
+            return {"status": j["status"], "error": j.get("error"),
+                    "error_kind": j.get("error_kind"),
+                    "order_id": res.get("order_id") if res_is_dict else None,
+                    "result_status": res.get("status") if res_is_dict else None,
+                    "message": res.get("message") if res_is_dict else None,
+                    "warning": res.get("warning") if res_is_dict else None,
+                    "erf": bool(res.get("erf_key")) if res_is_dict else False}
+        return None
+
+    def gen():
+        # The slot and the subscription are taken HERE, inside the generator
+        # whose `finally` releases them — so no response path can hold a slot
+        # without the code that gives it back. The count check above answers
+        # the ordinary 429; losing a race to the last slot just ends the stream.
+        if not live_view.acquire_viewer_slot():
+            return
+        sub = store.subscribe() if store is not None else None
+        last_sent = time.time()
+        log_pos = 0
+        try:
+            yield _sse("hello", {"job_id": job_id, "status": job.get("status"),
+                                 "stage": job.get("stage"), "started_at": job.get("started_at"),
+                                 "live_view": True})
+            if store is not None and store.latest:
+                yield _sse("frame", store.latest)
+            for st in list(job.get("stages") or []):
+                yield _sse("stage", st)
+            # Log tail on connect, then follow.
+            log_path = job.get("log_path")
+            if log_path and os.path.exists(log_path):
+                with open(log_path, "rb") as f:
+                    f.seek(0, os.SEEK_END)
+                    size = f.tell()
+                    f.seek(max(0, size - LIVE_VIEW_LOG_TAIL_BYTES))
+                    tail = f.read().decode("utf-8", "replace")
+                    log_pos = size
+                if tail:
+                    yield _sse("log", {"line": tail})
+            while True:
+                term = _terminal()
+                if sub is not None:
+                    item = sub.get(0.25)
+                else:
+                    time.sleep(0.25)
+                    item = None
+                sent = False
+                while item is not None:
+                    kind, data = item
+                    yield _sse(kind, data)
+                    sent = True
+                    item = sub.get(0)
+                # Follow the log file. A job can be streamed before its log
+                # is opened, so pick the path up once it appears.
+                if not log_path:
+                    with JOBS_LOCK:
+                        log_path = (JOBS.get(job_id) or {}).get("log_path")
+                if log_path and os.path.exists(log_path):
+                    with open(log_path, "rb") as f:
+                        f.seek(log_pos)
+                        chunk = f.read()
+                    if chunk:
+                        log_pos += len(chunk)
+                        yield _sse("log", {"line": chunk.decode("utf-8", "replace")})
+                        sent = True
+                if term is not None:
+                    yield _sse("status", term)
+                    return
+                if sent:
+                    last_sent = time.time()
+                elif time.time() - last_sent >= LIVE_VIEW_PING_S:
+                    yield _sse("ping", {})
+                    last_sent = time.time()
+        finally:
+            if sub is not None:
+                store.unsubscribe(sub)
+            live_view.release_viewer_slot()
+
+    headers = {"Cache-Control": "no-store", "X-Accel-Buffering": "no", **_live_headers()}
+    return app.response_class(gen(), mimetype="text/event-stream", headers=headers)
+
+
+# ───────────────────────────────────────────────────────────────────────────
 # Order Entry (Unifi eSales) — AUTH-GATED, unlike the open scrape routes.
 #
 # This submits real, billable orders, so it does NOT inherit the "NO
@@ -661,7 +801,7 @@ def _run_order_job(job_id: str, payload: dict, dry_run: bool, user_key: str = No
                    stop_after_customer_fill: bool = False,
                    stop_after_customer_create: bool = False,
                    full_order: bool = False, do_pay: bool = False,
-                   notify_order_id: str = None):
+                   notify_order_id: str = None, live_view: bool = False):
     """Guarded entry point for one order run.
 
     Everything the runner does before it sets status="running" — the imports,
@@ -679,6 +819,7 @@ def _run_order_job(job_id: str, payload: dict, dry_run: bool, user_key: str = No
         _run_order_job_inner(
             job_id, payload, dry_run, user_key, stop_after_customer_fill,
             stop_after_customer_create, full_order, do_pay, notify_order_id,
+            live_view=live_view,
         )
     except BaseException as e:
         _fail_job_now(
@@ -693,7 +834,7 @@ def _run_order_job_inner(job_id: str, payload: dict, dry_run: bool, user_key: st
                          stop_after_customer_fill: bool = False,
                          stop_after_customer_create: bool = False,
                          full_order: bool = False, do_pay: bool = False,
-                         notify_order_id: str = None):
+                         notify_order_id: str = None, live_view: bool = False):
     """Background runner for enter_order()/enter_full_order(); logs to logs/<job_id>.log.
 
     `notify_order_id` is BizzFlow's own Order id. When set, this job POSTs an
@@ -702,6 +843,10 @@ def _run_order_job_inner(job_id: str, payload: dict, dry_run: bool, user_key: st
 
     Batch members pass None: the batch summary covers them, and one email per
     order inside a batch is exactly what the summary exists to avoid.
+
+    `live_view` attaches the admin's watch-only screencast to this run (via
+    `enter_full_order`'s `live_view_job_id`) and feeds it every stage
+    milestone; default off, so an ordinary agent submit is unchanged.
     """
     import asyncio
 
@@ -738,15 +883,29 @@ def _run_order_job_inner(job_id: str, payload: dict, dry_run: bool, user_key: st
             job["stage"] = name
             stages = job.setdefault("stages", [])
             if len(stages) < 200:
-                stages.append({
-                    "name": name,
-                    "detail": detail,
-                    # Explicitly UTC. utcnow().isoformat() alone has no offset,
-                    # and JS Date() reads a bare timestamp as LOCAL time — which
-                    # would shift every step in the timeline by the viewer's
-                    # timezone.
-                    "at": datetime.utcnow().isoformat() + "Z",
-                })
+                # Explicitly UTC. utcnow().isoformat() alone has no offset,
+                # and JS Date() reads a bare timestamp as LOCAL time — which
+                # would shift every step in the timeline by the viewer's
+                # timezone.
+                entry = {"name": name, "detail": detail,
+                         "at": datetime.utcnow().isoformat() + "Z"}
+                stages.append(entry)
+                # Feeds a live viewer, if any. No-op for every other job.
+                #
+                # This function's own `live_view` PARAMETER shadows the
+                # module-level `import live_view` for every closure defined
+                # in its body (this one included), so the bare name `live_view`
+                # here would resolve to a bool, not the module. Importing it
+                # fresh under its own name sidesteps that shadow rather than
+                # relying on the (shadowed) outer binding.
+                try:
+                    import live_view as _live_view_mod
+                    _live_view_mod.publish_stage(job_id, entry)
+                except Exception as e:
+                    # publish_stage() is documented as never raising, but this
+                    # step runs on EVERY stage of every order — a live view
+                    # defect must never cost an order, so belt and suspenders.
+                    print(f"  ⚠ live view: publish_stage failed ({type(e).__name__}: {e})", flush=True)
             JOBS[job_id] = job
 
     async def _cancellable():
@@ -767,7 +926,8 @@ def _run_order_job_inner(job_id: str, payload: dict, dry_run: bool, user_key: st
             from oe_feasibility import enter_full_order
             return await asyncio.wait_for(
                 enter_full_order(payload, user_key=user_key, dry_run=dry_run,
-                                 submit=True, do_pay=do_pay, on_stage=_set_stage),
+                                 submit=True, do_pay=do_pay, on_stage=_set_stage,
+                                 live_view_job_id=job_id if live_view else None),
                 timeout=OVERALL_ORDER_TIMEOUT,
             )
         return await asyncio.wait_for(
@@ -953,6 +1113,9 @@ def create_order():
     # Real, billable Pay/Submit at the end of the full flow (default False = stop
     # at the Pay gate). BizzFlow's submitOrder sends do_pay=true for real orders.
     do_pay = bool(data.get("do_pay", False))
+    # Admin's watch-only live view. Only a job created with this flag ever
+    # attaches a screencast; an agent's run sends nothing and is unchanged.
+    live_view_on = bool(data.get("live_view", False))
     # Catalogue discovery: drive the flow only as far as the device Offer dialog,
     # read the package's mandatory groups, and stop. It still MINTS AN ORDER —
     # the dialog does not exist before Order is clicked — so the caller is
@@ -978,6 +1141,7 @@ def create_order():
             # agent's run from another's.
             "params": {"dry_run": dry_run, "kind": "order_entry",
                        "user_key": user_key},
+            "live_view": live_view_on,
         }
 
     # Report this run's completion to BizzFlow so the result email arrives with
@@ -992,6 +1156,7 @@ def create_order():
             target=_run_order_job,
             args=(job_id, payload, dry_run, user_key, stop_after_customer_fill,
                   stop_after_customer_create, full_order, do_pay, notify_order_id),
+            kwargs={"live_view": live_view_on},
             daemon=True,
         ).start()
     except Exception as e:  # noqa: BLE001 — the entry is already registered

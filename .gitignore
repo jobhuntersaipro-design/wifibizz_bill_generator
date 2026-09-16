@@ -35,6 +35,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# .env.example is the template and is tracked on purpose — it must never contain values
+!.env.example
 
 # bill generator output
 bill_generator/output/

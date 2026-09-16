@@ -2,6 +2,7 @@ import type { AttemptView } from "@/lib/order-history";
 import { isFailureStatus } from "@/lib/admin-order-stats";
 import { AdminAttemptEvents } from "@/components/admin/admin-attempt-events";
 import { CloneOrderButton } from "@/components/admin/clone-order-button";
+import { SubmitAsAdminButton } from "@/components/admin/submit-as-admin-button";
 
 export interface AdminOrderView {
   id: string;
@@ -32,6 +33,7 @@ export interface AdminOrderView {
   deletedAt: string | null;
   agentEmail: string | null;
   documentCount: number;
+  jobId: string | null;
 }
 
 /**
@@ -70,6 +72,14 @@ export function AdminOrderDetail({
             <span className="rounded-full bg-[#F1F3F6] px-2.5 py-1 text-xs text-[#425466]">
               {order.status}
             </span>
+            {order.status === "submitting" && order.jobId && (
+              <a href={`/admin/orders/${order.id}/live`} target="_blank" rel="noreferrer"
+                className="text-xs font-medium text-[#635BFF] hover:underline">Watch live ↗</a>
+            )}
+            {!order.deletedAt && (
+              <SubmitAsAdminButton orderId={order.id} label={order.reference ?? order.fullName}
+                status={order.status} portalOrderNo={order.orderId} />
+            )}
             <CloneOrderButton orderId={order.id} label={order.reference ?? order.fullName} />
             {order.deletedAt && (
               <span className="rounded-full bg-[#FEF3F2] px-2.5 py-1 text-xs text-[#B42318]">
