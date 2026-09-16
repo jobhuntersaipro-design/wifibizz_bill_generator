@@ -220,13 +220,20 @@ async def attach(page, job_id: str):
                 # Pace at the source: Chromium encodes the next frame only
                 # after this ack, so delaying it caps the screencast's CPU
                 # cost at ~4 fps for the whole run, watched or not.
-                wait = MIN_FRAME_INTERVAL_S - (time.monotonic() - last_ack[0])
-                if wait > 0:
-                    await asyncio.sleep(wait)
+                #
+                # The slot is RESERVED before the await, not measured after it.
+                # Chromium keeps several frames unacknowledged at once and each
+                # handler runs as its own task, so handlers that all read the
+                # same last_ack sleep together and ack together — which paced
+                # bursts rather than frames and measured ~12.5 fps instead of 4.
+                now = time.monotonic()
+                slot = max(now, last_ack[0] + MIN_FRAME_INTERVAL_S)
+                last_ack[0] = slot
+                if slot > now:
+                    await asyncio.sleep(slot - now)
             finally:
                 # The ack is what lets Chromium send the next frame — sent
                 # whether or not this frame was forwarded to anyone.
-                last_ack[0] = time.monotonic()
                 try:
                     await session.send("Page.screencastFrameAck",
                                        {"sessionId": params["sessionId"]})
