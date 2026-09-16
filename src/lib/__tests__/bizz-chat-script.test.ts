@@ -41,16 +41,16 @@ describe("buildBizzChatScript", () => {
   it("prints the ticket's template word for word from a full case", () => {
     expect(asChatText(buildBizzChatScript(CASE, 3))).toBe(
       [
-        "Customer Name (as per NRIC/Passport) : MONBLEU CAFE(JM0920662-D)",
-        "Contact Number : 60148893212",
-        "Customer ID ( i.e BRN): JM0920662-D",
-        "Business Owner Name: TIAN ZI XUAN",
-        "Email Address : phong@example.com",
-        "Installation Address: C-30-11 JALAN ECO MAJESTIC 3A/5, 43500 SEMENYIH, SELANGOR",
-        "Billing Address : SAME AS ABOVE",
-        "Package to be subscribed : Unifi Biz 100Mbps",
-        "Preferred Installation Date : 31/03/2026",
-        "Representative Name ( if any) : -",
+        "1.\u2060 \u2060Customer Name (as per NRIC/Passport) : MONBLEU CAFE(JM0920662-D)",
+        "2.\u2060 \u2060Contact Number : 60148893212",
+        "3.\u2060 \u2060Customer ID ( i.e BRN): JM0920662-D",
+        "4.\u2060 \u2060Business Owner Name: TIAN ZI XUAN",
+        "5.\u2060 \u2060Email Address : phong@example.com",
+        "6.\u2060 \u2060Installation Address: C-30-11 JALAN ECO MAJESTIC 3A/5, 43500 SEMENYIH, SELANGOR",
+        "7.\u2060 \u2060Billing Address : SAME AS ABOVE",
+        "8.\u2060 \u2060Package to be subscribed : Unifi Biz 100Mbps",
+        "9.\u2060 \u2060Preferred Installation Date : 31/03/2026",
+        "10.\u2060 \u2060Representative Name ( if any) : -",
         "",
         "Terms & Conditions:",
         "✅ I hereby consent to subscribed the service with subscription contract of 24/36months.",
@@ -72,16 +72,16 @@ describe("buildBizzChatScript", () => {
 
   it("dashes what the case lacks, and never the billing or representative lines", () => {
     expect(buildBizzChatScript(EMPTY, 0).lines.map((l) => l.label + l.value)).toEqual([
-      "Customer Name (as per NRIC/Passport) : —",
-      "Contact Number : —",
-      "Customer ID ( i.e BRN): —",
-      "Business Owner Name: —",
-      "Email Address : —",
-      "Installation Address: —",
-      "Billing Address : SAME AS ABOVE",
-      "Package to be subscribed : —",
-      "Preferred Installation Date : 28/03/2026",
-      "Representative Name ( if any) : -",
+      "1.\u2060 \u2060Customer Name (as per NRIC/Passport) : —",
+      "2.\u2060 \u2060Contact Number : —",
+      "3.\u2060 \u2060Customer ID ( i.e BRN): —",
+      "4.\u2060 \u2060Business Owner Name: —",
+      "5.\u2060 \u2060Email Address : —",
+      "6.\u2060 \u2060Installation Address: —",
+      "7.\u2060 \u2060Billing Address : SAME AS ABOVE",
+      "8.\u2060 \u2060Package to be subscribed : —",
+      "9.\u2060 \u2060Preferred Installation Date : 28/03/2026",
+      "10.\u2060 \u2060Representative Name ( if any) : -",
     ]);
   });
 
@@ -91,10 +91,10 @@ describe("buildBizzChatScript", () => {
       0,
     ).lines;
     const value = (label: string) => lines.find((l) => l.label === label)?.value;
-    expect(value("Customer Name (as per NRIC/Passport) : ")).toBe("—");
-    expect(value("Business Owner Name: ")).toBe("—");
-    expect(value("Contact Number : ")).toBe("—");
-    expect(value("Package to be subscribed : ")).toBe("—");
+    expect(value("1.\u2060 \u2060Customer Name (as per NRIC/Passport) : ")).toBe("—");
+    expect(value("4.\u2060 \u2060Business Owner Name: ")).toBe("—");
+    expect(value("2.\u2060 \u2060Contact Number : ")).toBe("—");
+    expect(value("8.\u2060 \u2060Package to be subscribed : ")).toBe("—");
   });
 
   it("never prints NRIC as Customer ID or the company as Business Owner", () => {
@@ -107,10 +107,10 @@ describe("buildBizzChatScript", () => {
       3,
     ).lines;
     const value = (label: string) => lines.find((l) => l.label === label)?.value;
-    expect(value("Customer ID ( i.e BRN): ")).toBe("JM0920662-D");
-    expect(value("Business Owner Name: ")).toBe("—");
-    expect(value("Customer ID ( i.e BRN): ")).not.toBe("981020016087");
-    expect(value("Business Owner Name: ")).not.toBe("MONBLEU CAFE(JM0920662-D)");
+    expect(value("3.\u2060 \u2060Customer ID ( i.e BRN): ")).toBe("JM0920662-D");
+    expect(value("4.\u2060 \u2060Business Owner Name: ")).toBe("—");
+    expect(value("3.\u2060 \u2060Customer ID ( i.e BRN): ")).not.toBe("981020016087");
+    expect(value("4.\u2060 \u2060Business Owner Name: ")).not.toBe("MONBLEU CAFE(JM0920662-D)");
   });
 
   it("decodes HTML entities in the printed customer and owner names", () => {
@@ -124,9 +124,9 @@ describe("buildBizzChatScript", () => {
       3,
     ).lines;
     const value = (label: string) => lines.find((l) => l.label === label)?.value;
-    expect(value("Customer Name (as per NRIC/Passport) : ")).toBe("SITI AYESAH BINTI YA'ASAK");
-    expect(value("Business Owner Name: ")).toBe('ALI "DIN" & CO');
-    expect(value("Customer ID ( i.e BRN): ")).toBe("JM1");
+    expect(value("1.\u2060 \u2060Customer Name (as per NRIC/Passport) : ")).toBe("SITI AYESAH BINTI YA'ASAK");
+    expect(value("4.\u2060 \u2060Business Owner Name: ")).toBe('ALI "DIN" & CO');
+    expect(value("3.\u2060 \u2060Customer ID ( i.e BRN): ")).toBe("JM1");
   });
 
   describe("preferred installation date", () => {
@@ -138,7 +138,7 @@ describe("buildBizzChatScript", () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date(2026, 8, 10, 12, 0, 0));
       const line = buildBizzChatScript({ ...CASE, case_created_at: null }, 5).lines[8];
-      expect(line).toEqual({ label: "Preferred Installation Date : ", value: "15/09/2026" });
+      expect(line).toEqual({ label: "9.\u2060 \u2060Preferred Installation Date : ", value: "15/09/2026" });
     });
 
     it("rolls over the month end", () => {

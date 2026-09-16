@@ -1112,7 +1112,7 @@ export default function CaseManagementSection() {
                             {chatBusy(c.case_no, "bizz")
                               ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#0D9488] border-t-transparent animate-spin" />
                               : <MessageSquareIcon className="w-4 h-4" />}
-                            <span className="text-[10px] leading-none font-medium text-[#697386] text-center">bizz chat</span>
+                            <span className="text-[10px] leading-none font-medium text-[#697386] text-center">Bizz Chat</span>
                           </button>
                           )}
                           <button
