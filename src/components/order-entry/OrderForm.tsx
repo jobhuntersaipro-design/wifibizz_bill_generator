@@ -66,7 +66,7 @@ import {
   variantLabel,
 } from "@/lib/device-catalog";
 import { MALAYSIA_STATES } from "@/lib/malaysia-states";
-import { validateMalaysianAddress, parseMalaysianAddress } from "@/lib/malaysia-address";
+import { parseMalaysianAddress } from "@/lib/malaysia-address";
 
 // Shared field styles — light border + hover to signal clickability.
 const inputCls =
@@ -939,12 +939,12 @@ export function OrderForm({
       toast.error("Contact number is required.");
       return;
     }
-    // The address is required — an empty or half-typed one is what makes the
-    // portal reject the customer profile as "data incomplete", so block it here.
-    const addrCheck = validateMalaysianAddress(street);
-    if (!addrCheck.ok) {
-      setAddrError(addrCheck.reason);
-      toast.error(addrCheck.reason);
+    // The address is required, but its content is not checked: the agent pastes
+    // it from the portal and owns its accuracy, and a format check here refused
+    // real portal addresses (e.g. "30 LALUAN PRISMA 4 - METRO MAYA BATU GAJAH …").
+    if (!street.trim()) {
+      setAddrError("Enter the installation address.");
+      toast.error("Enter the installation address.");
       return;
     }
     if (!/^\d{5}$/.test(postcode.trim())) {
