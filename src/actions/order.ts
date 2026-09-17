@@ -23,7 +23,7 @@ import {
 import { MALAYSIA_STATES } from "@/lib/malaysia-states";
 import { ID_TYPES } from "@/lib/dealer-offers";
 import MY_POSTCODES from "@/lib/malaysia-postcodes.json";
-import { addressKey, validateMalaysianAddress } from "@/lib/malaysia-address";
+import { addressKey } from "@/lib/malaysia-address";
 import { reconcileStaleSubmits } from "@/lib/order-submit";
 import { fillMissingInstallationDates } from "@/lib/installation-date";
 import { batchOrderIds, finishBatch, reconcileBatch } from "@/lib/batch-submit";
@@ -355,12 +355,10 @@ export async function saveOrder(rawInput: OrderInput) {
   }
   const input = parsed.data;
 
-  // Mirror the client's Full Address check — the client can be bypassed, and a
-  // half-typed address is what makes the portal reject the customer profile as
-  // "data incomplete" later, far from where it could still be fixed.
-  const addrCheck = validateMalaysianAddress(input.street ?? "");
-  if (!addrCheck.ok) {
-    return { success: false as const, error: `Installation address — ${addrCheck.reason}` };
+  // Mirror the client: the Full Address is required but its content is not
+  // validated — the agent pastes it from the portal and owns its accuracy.
+  if (!input.street?.trim()) {
+    return { success: false as const, error: "Installation address — Enter the installation address." };
   }
 
   // Server-side half of the "cancelled is terminal / submitted is a portal

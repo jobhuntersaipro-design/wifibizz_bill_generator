@@ -1,3 +1,22 @@
+# Current Feature: Full Address is no longer validated
+
+## Status
+
+CODE COMPLETE (branch `fix/full-address-no-validation`, not committed). Vercel-only, no migration.
+
+## Notes
+
+Reported 2026-09-17: a real portal address, `30 LALUAN PRISMA 4 -  METRO MAYA BATU GAJAH PERAK MALAYSIA 31000`,
+was refused with *"Include the street / unit (e.g. A-07-15 PERSIARAN …)."* — `LALUAN` is not in the
+street-word list. The user's call: remove the checking on the Full Address field entirely.
+
+`validateMalaysianAddress` is no longer called by `OrderForm.handleSave` or `saveOrder`; both only require
+the field to be non-empty. Postcode / State / City are still derived as the agent types and still
+required on their own. `scripts/bulk_create_order` and `scripts/seed-orders` still use the validator.
+
+Verified: build clean, lint clean on both files, vitest 992 passed, `tsc` unchanged (4 pre-existing
+test-file errors). NOT verified in the browser.
+
 # Current Feature: Bizz Chat numbers its fields, the way the Conversation Chat already does
 
 ## Status
