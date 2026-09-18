@@ -201,8 +201,8 @@ describe("attach mapping", () => {
 });
 
 describe("server vs client documents", () => {
-  it("routes the five PDFs to the server and the chats to the client", () => {
-    expect(SERVER_DOC_TYPES).toHaveLength(5);
+  it("routes the six PDFs to the server and the chats to the client", () => {
+    expect(SERVER_DOC_TYPES).toHaveLength(6);
     expect(isServerDocType("chat")).toBe(false);
     expect(isServerDocType("bizz_chat")).toBe(false);
     for (const t of SERVER_DOC_TYPES) expect(isServerDocType(t)).toBe(true);
@@ -381,14 +381,16 @@ describe("generatableDocTypes", () => {
     ]);
   });
 
-  it("includes Bizz Chat and hides Conversation Chat for a business offer", () => {
+  // Both XORs at once: the business offer swaps Conversation Chat for Bizz Chat
+  // AND the residential Auth Letter for the Biz Auth Letter.
+  it("includes Bizz Chat and the Biz Auth Letter for a business offer", () => {
     const biz = { ...FULL, offerName: "Unifi Business 300Mbps (MESH6)" };
     expect(generatableDocTypes(biz, [], 10)).toEqual([
       "bizz_chat",
       "internet_bill",
       "utility_bill",
       "tenancy_agreement",
-      "authorization_letter",
+      "biz_authorization_letter",
       "time_invoice",
     ]);
   });

@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { buildInternetBillPdf } from "@/lib/bill-generator/umobile-modem";
 import { generateUtilityBill } from "@/lib/bill-generator/utility-bill";
 import { generateAuthorizationLetter } from "@/lib/bill-generator/authorization-letter";
+import { generateBizAuthorizationLetter } from "@/lib/bill-generator/biz-authorization-letter";
 import { generateTimeInvoice } from "@/lib/bill-generator/time-invoice";
 import { generateTenancyAgreement } from "@/lib/bill-generator/tenancy-agreement";
 import { createTaAuthContext } from "@/lib/bill-generator/landlord-signature";
@@ -58,6 +59,13 @@ export async function POST(request: Request) {
       fullAddress: String(body?.fullAddress ?? "").trim(),
       mobile: String(body?.mobile ?? "").trim(),
       offerName: String(body?.offerName ?? "").trim(),
+      // Business identity. Optional everywhere: the order form has no company
+      // fields, so these arrive only from a case row whose WifiBizz detail page
+      // has been read. Absent, the letter falls back to the `COMPANY(REG)` shape
+      // the crawler stores in the customer name, then prints blank.
+      companyName: String(body?.companyName ?? "").trim(),
+      companyReg: String(body?.companyReg ?? "").trim(),
+      directorName: String(body?.directorName ?? "").trim(),
     };
 
     // The same rule the form's buttons use, re-run here because the route is
@@ -113,6 +121,18 @@ export async function POST(request: Request) {
             });
         break;
       }
+      case "biz_authorization_letter":
+        pdf = await generateBizAuthorizationLetter({
+          full_name: source.fullName,
+          company_name: source.companyName,
+          company_reg: source.companyReg,
+          director_name: source.directorName,
+          id_no: source.idNumber,
+          full_address: source.fullAddress,
+          package: source.offerName,
+          mobile: source.mobile,
+        });
+        break;
       case "time_invoice":
         pdf = await generateTimeInvoice(caseData);
         break;

@@ -20,6 +20,7 @@ export type GeneratedDocType =
   | "utility_bill"
   | "tenancy_agreement"
   | "authorization_letter"
+  | "biz_authorization_letter"
   | "time_invoice";
 
 export const SERVER_DOC_TYPES = [
@@ -27,6 +28,7 @@ export const SERVER_DOC_TYPES = [
   "utility_bill",
   "tenancy_agreement",
   "authorization_letter",
+  "biz_authorization_letter",
   "time_invoice",
 ] as const;
 
@@ -47,6 +49,8 @@ export interface GeneratorSource {
   serviceCategory?: string;
   companyName?: string;
   companyReg?: string;
+  /** WifiBizz Customer-tab Name — the director, not the company. */
+  directorName?: string;
 }
 
 export interface GeneratedDocSpec {
@@ -143,6 +147,23 @@ export const GENERATED_DOCS: GeneratedDocSpec[] = [
     attachAs: "other",
     attachLabel: "authorizationletter",
     slug: "authorizationletter",
+    ext: "pdf",
+  },
+  {
+    // The business letter. A different document from the residential Auth Letter
+    // above, not a relabelling of it, and the two are mutually exclusive: plan
+    // type picks one, and `generatableDocTypes` never offers both.
+    //
+    // Company name, BRN and the director are read from the case rather than the
+    // form, so its `requires` cannot name them — a business order whose detail
+    // page has not been fetched prints those lines blank rather than being
+    // refused, which is the brief's rule.
+    type: "biz_authorization_letter",
+    label: "Biz Auth Letter",
+    requires: [NAME, ID, ADDR],
+    attachAs: "other",
+    attachLabel: "bizauthorizationletter",
+    slug: "bizauthorizationletter",
     ext: "pdf",
   },
   {
@@ -310,7 +331,11 @@ export function generatableDocTypes(
       !isDocTypeAttached(g.type, docs) &&
       missingFieldsFor(g.type, source).length === 0 &&
       (g.type !== "bizz_chat" || isBusinessOrder(source)) &&
-      (g.type !== "chat" || !isBusinessOrder(source)),
+      (g.type !== "chat" || !isBusinessOrder(source)) &&
+      // Same XOR as the two chats: the business letter only for a business
+      // order, the residential one only for a normal order. Never both.
+      (g.type !== "biz_authorization_letter" || isBusinessOrder(source)) &&
+      (g.type !== "authorization_letter" || !isBusinessOrder(source)),
   )
     .slice(0, Math.max(0, slotsLeft))
     .map((g) => g.type);
