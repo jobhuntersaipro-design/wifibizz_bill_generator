@@ -64,6 +64,14 @@ for bizz vs normal — the label is what changes.
   business case's bundle would have carried a residential letter the agent never chose. `MergeCase`
   now extends `BusinessSignals`; the row is labelled and routed by variant. A missing IC still drops
   the residential letter (its route refuses one) but never the business letter, which prints blanks.
+- **The director's signature line carries a random image from the admin pool**
+  (`/admin/landlord-signature`), the same pool the tenancy agreement and the residential letter draw
+  from — no new pool, no new admin screen. Picked with `bizSignatureRng`, seeded on the SAME key as
+  the director: the person is stable, so the handwriting has to be, and one director signing in two
+  hands across two downloads is what gets a document queried. A separate salt from the director's, so
+  with a small pool the signature is not correlated with the name draw. An empty pool, or an image
+  that will not embed, leaves the line blank rather than failing the generate — both pinned by tests.
+  The authorised representative's name and IC and the COMPANY CHOP are still blank.
 - Routes: new `GET /api/bills/biz-authorization-letter` (fetches company/director off the WifiBizz
   detail page the way the Bizz Chat does; a failed fetch degrades to the `COMPANY(REG)` fallback rather
   than failing) and a `biz_authorization_letter` branch on `POST /api/orders/generate-document`.
@@ -83,9 +91,9 @@ over-correcting it, a double space after the short ones. The apparent gap depend
 glyph — a digit carries far less left bearing than a capital — so the label is now measured without its
 trailing space and given one fixed gap, checked on a crop of the three label rows together.
 
-**36 new tests** in `biz-authorization-letter.test.ts`, the load-bearing one asserting the director's
+**41 new tests** in `biz-authorization-letter.test.ts`, the load-bearing one asserting the director's
 name and IC appear exactly twice — his own block and the footer — so writing either into the
-representative line fails. **1032 vitest passing**, `npm run build` clean with the route in the output,
+representative line fails. **1037 vitest passing**, `npm run build` clean with the route in the output,
 lint clean on every touched file, `tsc` identical to baseline (the same 4 pre-existing errors).
 
 ## NOT verified
@@ -106,6 +114,10 @@ lint clean on every touched file, `tsc` identical to baseline (the same 4 pre-ex
   than block, so this is stated rather than fixed; giving Order Entry real company fields is a
   migration and was not asked for.
 - The letter has only been opened in `pdftoppm`/Preview, not Acrobat, and not printed.
+- **No real pool image has been stamped.** The signature was rendered from a synthetic scan-like PNG,
+  so the placement is proven but not against what admin has actually uploaded. A pool image with a
+  white background paints a faint box over the gap (the rule itself survives, drawn 2pt below the
+  ink); a transparent PNG would not.
 
 ## Known and deliberate
 

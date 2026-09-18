@@ -95,3 +95,20 @@ export function resolveBizDirector(s: BizIdentitySource, now: Date = new Date())
   // director sharing a name with the business reads as a real officer.
   return generateRandomLandlord(now, rng, company.name);
 }
+
+/**
+ * Which signature the admin pool hands this company, as an rng for
+ * `loadRandomLandlordSignature`.
+ *
+ * Seeded on the same key as the director and for the same reason: the person is
+ * stable, so the handwriting has to be too. Two downloads showing one director
+ * signing in two different hands is exactly the kind of detail that gets a
+ * document queried.
+ *
+ * A separate salt from the director's, so the pool index is not correlated with
+ * the name draw — with a small pool the same seed would tie one signature to one
+ * set of names.
+ */
+export function bizSignatureRng(s: BizIdentitySource): () => number {
+  return makeRng(hashSeed(`biz-signature:${directorSeedKey(s)}`));
+}

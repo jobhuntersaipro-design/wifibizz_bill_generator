@@ -9,9 +9,14 @@
  * owner confirming that somebody lives at an address. The two are selected by
  * plan type and never both offered: see `generatableDocTypes`.
  *
- * Four values are left visually empty on purpose — the authorised
- * representative's name and IC, the signature line, and the company chop. The
- * agent is not pre-assigned and nothing is auto-signed or auto-stamped.
+ * Three values are left visually empty on purpose — the authorised
+ * representative's name and IC, and the company chop. The agent is never
+ * pre-assigned and no chop is stamped.
+ *
+ * The DIRECTOR's signature line is the exception: it carries a random image
+ * from the admin pool at /admin/landlord-signature, the same pool the tenancy
+ * agreement and the residential letter draw from. An empty pool leaves the line
+ * blank rather than failing the generate.
  */
 
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
@@ -22,6 +27,7 @@ import { sanitize } from './address-parts';
 import { wrapToWidth } from './authorization-letter';
 import { longDate } from './letter-dates';
 import { formatIcDashed } from './owner-identity';
+import type { SignatureImage } from './landlord-signature';
 
 // Re-exported because the letter is where callers and tests already import it
 // from; the rule itself is shared with the Bizz Chat and lives in biz-director.
@@ -38,6 +44,11 @@ const CONTENT_W = PAGE_W - MARGIN * 2;
 const FONT_SIZE = 10.5;
 const LINE_H = 13.5;
 const BULLET_INDENT = 18;
+// The footer leaves three blank lines (40.5pt) above the signature rule, so the
+// ink is bounded to sit inside that gap rather than climbing into "Yours
+// faithfully," above it.
+const SIGNATURE_MAX_W = 160;
+const SIGNATURE_MAX_H = 36;
 
 const TITLE = 'LETTER OF AUTHORISATION FOR TM UNIFI BUSINESS APPLICATION';
 
@@ -204,9 +215,19 @@ function labelled(
   page.drawText(value, { x, y, size: FONT_SIZE, font: bold, color: rgb(0, 0, 0) });
 }
 
+export interface BizLetterExtras {
+  /**
+   * A signature from the admin pool (/admin/landlord-signature), stamped on the
+   * director's line. Null or omitted leaves that line blank, which is what an
+   * empty pool must produce — a missing signature never fails a generate.
+   */
+  signature?: SignatureImage | null;
+}
+
 export async function generateBizAuthorizationLetter(
   source: BizLetterSource,
   now: Date = new Date(),
+  extras?: BizLetterExtras,
 ): Promise<Uint8Array> {
   const f = resolveBizLetterFields(source, now);
 
@@ -294,9 +315,16 @@ export async function generateBizAuthorizationLetter(
   cur.gap(1);
   cur.text('Yours faithfully,');
 
-  // ── Footer: the signature line stays blank, and so does the chop ─
+  // ── Footer: the director signs, the chop stays blank ─────────────
   cur.gap(3);
+  const signatureBaseline = cur.y;
   cur.text('_________________');
+  // Drawn AFTER the rule so the ink sits on the line rather than under it, and
+  // only if the pool had one — an empty pool leaves the blank line the letter
+  // shipped with rather than failing the generate.
+  if (extras?.signature) {
+    await drawPoolSignature(pdfDoc, page, extras.signature, signatureBaseline);
+  }
   if (f.directorName) cur.text(f.directorName, { font: bold });
   cur.text('DIRECTOR');
   if (f.companyLine) cur.lines(wrapToWidth(f.companyLine, bold, FONT_SIZE, CONTENT_W), { font: bold });
@@ -304,4 +332,43 @@ export async function generateBizAuthorizationLetter(
   cur.text('COMPANY CHOP : ');
 
   return pdfDoc.save();
+}
+
+/**
+ * Stamp a pool signature on the director's rule.
+ *
+ * Scaled DOWN only — blowing a small scan up to fill the box turns a signature
+ * into a blur — and inset slightly from the margin so it reads as written on the
+ * line rather than starting exactly at its left end. A failure here is logged
+ * and swallowed: a bad image in the pool must not cost the agent the letter.
+ */
+async function drawPoolSignature(
+  pdfDoc: PDFDocument,
+  page: PDFPage,
+  image: SignatureImage,
+  ruleBaseline: number,
+): Promise<boolean> {
+  try {
+    const embedded = image.mime === 'image/png'
+      ? await pdfDoc.embedPng(image.bytes)
+      : await pdfDoc.embedJpg(image.bytes);
+    const scale = Math.min(
+      SIGNATURE_MAX_W / embedded.width,
+      SIGNATURE_MAX_H / embedded.height,
+      1,
+    );
+    page.drawImage(embedded, {
+      x: MARGIN + 8,
+      y: ruleBaseline + 2,
+      width: embedded.width * scale,
+      height: embedded.height * scale,
+    });
+    return true;
+  } catch (error) {
+    console.error(
+      'biz auth letter signature skipped:',
+      error instanceof Error ? error.message : error,
+    );
+    return false;
+  }
 }
