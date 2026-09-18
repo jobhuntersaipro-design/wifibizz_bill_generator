@@ -3,6 +3,8 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { neon } from "@neondatabase/serverless";
 import { generateBizAuthorizationLetter } from "@/lib/bill-generator/biz-authorization-letter";
+import { loadRandomLandlordSignature } from "@/lib/bill-generator/landlord-signature";
+import { bizSignatureRng } from "@/lib/biz-director";
 import { fetchBizzDetailFields, fillMissingAddresses } from "@/lib/crawler/lazy-address";
 
 /**
@@ -94,7 +96,7 @@ export async function GET(request: Request) {
       console.error("Biz letter detail fetch failed:", err);
     }
 
-    const pdf = await generateBizAuthorizationLetter({
+    const letterSource = {
       case_no: caseData.case_no,
       full_name: caseData.full_name,
       company_name: companyName,
@@ -105,7 +107,14 @@ export async function GET(request: Request) {
       package: (row.package as string) || "",
       provider: (row.provider as string) || "",
       mobile: (row.mobile as string) || "",
-    });
+    };
+
+    // Seeded on the same key as the director, so one company's letters always
+    // show that director signing in the same hand. An empty pool returns null
+    // and the line stays blank.
+    const signature = await loadRandomLandlordSignature(bizSignatureRng(letterSource));
+
+    const pdf = await generateBizAuthorizationLetter(letterSource, new Date(), { signature });
 
     return new NextResponse(Buffer.from(pdf), {
       status: 200,

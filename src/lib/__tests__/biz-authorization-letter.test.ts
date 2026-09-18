@@ -11,6 +11,7 @@ import { authLetterVariant, AUTH_LETTER_LABEL } from "@/lib/case-kind";
 import { generatableDocTypes } from "@/lib/order-documents";
 import { buildMergeItems, mergeItemUrl } from "@/lib/bill-generator/merge-plan";
 import { buildBizzChatScript } from "@/lib/bizz-chat-script";
+import { bizSignatureRng } from "@/lib/biz-director";
 
 /** Every drawn text run, in the order the page draws them. */
 async function letterRuns(bytes: Uint8Array): Promise<string[]> {
@@ -44,6 +45,14 @@ const CASE = {
 };
 
 const WHEN = new Date(2026, 8, 18);
+
+/** A real 1x1 PNG — enough for pdf-lib to embed, so the stamp path runs. */
+const PNG_1PX = new Uint8Array(
+  Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  ),
+);
 
 describe("companyLine", () => {
   it("is NAME (BRN) when both are known", () => {
@@ -180,6 +189,22 @@ describe("the invented director", () => {
   });
 
   /**
+   * The person is stable, so the handwriting has to be. One director signing in
+   * two different hands across two downloads is what gets a document queried.
+   */
+  it("picks the same pool signature every time for the same company", () => {
+    const a = bizSignatureRng(CASE);
+    const b = bizSignatureRng(CASE);
+    expect([a(), a(), a()]).toEqual([b(), b(), b()]);
+  });
+
+  it("picks a different pool signature for a different company", () => {
+    const first = bizSignatureRng(CASE)();
+    const other = bizSignatureRng({ company_name: "OTHER SDN BHD", company_reg: "Z9" })();
+    expect(other).not.toBe(first);
+  });
+
+  /**
    * The reason the rule lives in one module. These two documents are generated
    * from one case and travel together in a Combine bundle, so naming two
    * different people would be visible side by side.
@@ -304,6 +329,42 @@ describe("the whole letter", () => {
     const runs = await letterRuns(await generateBizAuthorizationLetter(CASE, WHEN));
     expect(runs.filter((r) => r.trim() === "MONBLEU CAFE SDN BHD (JM0920662-D)").length,
     ).toBeGreaterThanOrEqual(2);
+  });
+
+  /**
+   * The pool is admin-managed and can be empty, and a bad image can be uploaded
+   * to it. Neither may cost the agent their letter.
+   */
+  it("still produces the letter when the signature pool is empty", async () => {
+    const doc = await PDFDocument.load(
+      await generateBizAuthorizationLetter(CASE, WHEN, { signature: null }),
+    );
+    expect(doc.getPageCount()).toBe(1);
+  });
+
+  it("still produces the letter when the pool image will not embed", async () => {
+    const bytes = await generateBizAuthorizationLetter(CASE, WHEN, {
+      signature: { bytes: new Uint8Array([1, 2, 3]), mime: "image/png" },
+    });
+    const doc = await PDFDocument.load(bytes);
+    expect(doc.getPageCount()).toBe(1);
+    // The text is untouched — only the stamp is skipped.
+    const runs = await letterRuns(bytes);
+    expect(runs[runs.length - 1].trim()).toBe("COMPANY CHOP :");
+  });
+
+  it("stamps a pool signature on the page without moving the text", async () => {
+    const plain = await generateBizAuthorizationLetter(CASE, WHEN);
+    const signed = await generateBizAuthorizationLetter(CASE, WHEN, {
+      signature: { bytes: PNG_1PX, mime: "image/png" },
+    });
+    const doc = await PDFDocument.load(signed);
+    expect(doc.getPageCount()).toBe(1);
+    // An XObject is only present on the signed one, and every text run matches:
+    // the stamp is drawn into the gap the footer already reserved.
+    expect(Buffer.from(signed).toString("latin1")).toContain("/XObject");
+    expect(Buffer.from(plain).toString("latin1")).not.toContain("/XObject");
+    expect(await letterRuns(signed)).toEqual(await letterRuns(plain));
   });
 
   // The brief: incomplete data still produces a letter, with blanks.

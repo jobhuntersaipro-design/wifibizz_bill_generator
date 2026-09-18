@@ -4,6 +4,8 @@ import { buildInternetBillPdf } from "@/lib/bill-generator/umobile-modem";
 import { generateUtilityBill } from "@/lib/bill-generator/utility-bill";
 import { generateAuthorizationLetter } from "@/lib/bill-generator/authorization-letter";
 import { generateBizAuthorizationLetter } from "@/lib/bill-generator/biz-authorization-letter";
+import { loadRandomLandlordSignature } from "@/lib/bill-generator/landlord-signature";
+import { bizSignatureRng } from "@/lib/biz-director";
 import { generateTimeInvoice } from "@/lib/bill-generator/time-invoice";
 import { generateTenancyAgreement } from "@/lib/bill-generator/tenancy-agreement";
 import { createTaAuthContext } from "@/lib/bill-generator/landlord-signature";
@@ -121,8 +123,8 @@ export async function POST(request: Request) {
             });
         break;
       }
-      case "biz_authorization_letter":
-        pdf = await generateBizAuthorizationLetter({
+      case "biz_authorization_letter": {
+        const bizSource = {
           case_no: seed,
           full_name: source.fullName,
           company_name: source.companyName,
@@ -132,8 +134,13 @@ export async function POST(request: Request) {
           full_address: source.fullAddress,
           package: source.offerName,
           mobile: source.mobile,
-        });
+        };
+        // Same pool and the same seed as the Case List path, so one company's
+        // letters sign identically whichever surface generated them.
+        const signature = await loadRandomLandlordSignature(bizSignatureRng(bizSource));
+        pdf = await generateBizAuthorizationLetter(bizSource, new Date(), { signature });
         break;
+      }
       case "time_invoice":
         pdf = await generateTimeInvoice(caseData);
         break;
