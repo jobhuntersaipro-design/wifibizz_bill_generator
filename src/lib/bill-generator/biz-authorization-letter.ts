@@ -15,12 +15,17 @@
  */
 
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
-import { parseCompanyPair, resolveBizzChatFields, type BusinessSignals } from '../case-kind';
+import type { BusinessSignals } from '../case-kind';
+import { companyLine, resolveBizCompany, resolveBizDirector } from '../biz-director';
 import { decodeCustomerName } from '../html-entities';
 import { sanitize } from './address-parts';
 import { wrapToWidth } from './authorization-letter';
 import { longDate } from './letter-dates';
-import { formatIcDashed, generateRandomLandlord, hashSeed, makeRng } from './owner-identity';
+import { formatIcDashed } from './owner-identity';
+
+// Re-exported because the letter is where callers and tests already import it
+// from; the rule itself is shared with the Bizz Chat and lives in biz-director.
+export { companyLine };
 
 // ── Page geometry (A4) ─────────────────────────────────────────────
 // Tighter than the residential letter's: this template carries roughly fifty
@@ -73,16 +78,6 @@ export interface BizLetterFields {
 const present = (v: string | null | undefined): string => (v ?? '').trim();
 
 /**
- * `NAME (BRN)` — the one string the letterhead, both body paragraphs and the
- * footer print, built once so they cannot disagree. A company with no BRN prints
- * its name alone rather than an empty bracket.
- */
-export function companyLine(name: string, reg: string): string {
-  if (!name) return reg ? `(${reg})` : '';
-  return reg ? `${name} (${reg})` : name;
-}
-
-/**
  * The contact in the template's `+601…` style.
  *
  * A Malaysian number is normalised to `+60…` whether it was stored bare, with a
@@ -120,22 +115,13 @@ export function formatContactNumber(raw: string | null | undefined): string {
  * same director however many cases it has, falling back to the case identity.
  */
 export function resolveBizLetterFields(s: BizLetterSource, now: Date = new Date()): BizLetterFields {
-  const pair = parseCompanyPair(s.full_name);
-  const bizz = resolveBizzChatFields(s);
-  const companyName = sanitize(decodeCustomerName(present(s.company_name) || pair?.companyName || '')).toUpperCase();
-  const companyReg = sanitize(present(bizz.customerId));
-  const line = companyLine(companyName, companyReg);
-
-  const rng = makeRng(hashSeed(`biz-director:${line || present(s.case_no) || present(s.full_name)}`));
-  // The company name is passed where the TA passes the tenant's, so the father's
-  // name is redrawn if it already appears in the company — an invented director
-  // who shares a name with the business reads as a real officer, not a stand-in.
-  const director = generateRandomLandlord(now, rng, companyName);
+  const company = resolveBizCompany(s);
+  const director = resolveBizDirector(s, now);
 
   return {
-    companyName,
-    companyReg,
-    companyLine: line,
+    companyName: company.name,
+    companyReg: company.reg,
+    companyLine: company.line,
     directorName: director.name,
     directorIc: formatIcDashed(director.ic),
     packageName: sanitize(decodeCustomerName(present(s.package))),

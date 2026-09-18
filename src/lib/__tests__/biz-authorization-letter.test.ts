@@ -10,6 +10,7 @@ import {
 import { authLetterVariant, AUTH_LETTER_LABEL } from "@/lib/case-kind";
 import { generatableDocTypes } from "@/lib/order-documents";
 import { buildMergeItems, mergeItemUrl } from "@/lib/bill-generator/merge-plan";
+import { buildBizzChatScript } from "@/lib/bizz-chat-script";
 
 /** Every drawn text run, in the order the page draws them. */
 async function letterRuns(bytes: Uint8Array): Promise<string[]> {
@@ -176,6 +177,26 @@ describe("the invented director", () => {
     const f = resolveBizLetterFields(CASE);
     expect(f.directorName).not.toBe("TAN WEI MING");
     expect(f.directorIc.replace(/\D/g, "")).not.toBe("940811034224");
+  });
+
+  /**
+   * The reason the rule lives in one module. These two documents are generated
+   * from one case and travel together in a Combine bundle, so naming two
+   * different people would be visible side by side.
+   */
+  it("is the same person the Bizz Chat prints as Business Owner", () => {
+    const owner = (c: Partial<typeof CASE> & { case_no?: string }) =>
+      buildBizzChatScript(
+        { ...c, full_name: c.full_name ?? null, mobile: null, id_no: null, email: null,
+          full_address: null, package: null, case_created_at: null },
+        3,
+      ).lines.find((l) => l.label.includes("Business Owner Name"))?.value;
+
+    expect(owner(CASE)).toBe(resolveBizLetterFields(CASE).directorName);
+
+    // And for a case with no company at all, where both fall back to case_no.
+    const bare = { ...CASE, company_name: "", company_reg: "", full_name: "", case_no: "202661159" };
+    expect(owner(bare)).toBe(resolveBizLetterFields(bare).directorName);
   });
 });
 
