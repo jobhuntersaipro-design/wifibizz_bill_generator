@@ -95,6 +95,7 @@ export async function GET(request: Request) {
     }
 
     const pdf = await generateBizAuthorizationLetter({
+      case_no: caseData.case_no,
       full_name: caseData.full_name,
       company_name: companyName,
       company_reg: companyReg,

@@ -41,8 +41,16 @@ for bizz vs normal — the label is what changes.
 ## Built
 
 - **`src/lib/bill-generator/biz-authorization-letter.ts`** — the letter, drawn with `pdf-lib` like
-  every other official document here. `resolveBizLetterFields` routes company / BRN / director through
+  every other official document here. `resolveBizLetterFields` routes company and BRN through
   `resolveBizzChatFields`, so the letter and the Bizz Chat cannot name two different companies.
+- **The director is invented, not read off the case** (user's call, 2026-09-18): a Malay name and a
+  MyKad-shaped number from `generateRandomLandlord`, the same pools the tenancy agreement's landlord
+  comes from, so there is one generator for invented Malaysians rather than two that can drift. The
+  IC's final-digit parity already matches the name's BIN/BINTI, and it prints dashed.
+  **Seeded, unlike that landlord** — the TA is deliberately a fresh person per click, but this letter
+  names an officer of a real, named company, and two downloads handing back two directors would let an
+  agent submit both. The seed is the company itself, so every letter for that company names the same
+  director however many cases it has.
 - **`letterheadLines()` splits the address on its own commas and parses nothing.** The first render
   went through `buildLetterAddress` and came back with `81200 BAHRU JOHOR` and a `SELANGOR DARUL EHSAN`
   that had lost its state — the documented state-matcher bug, which removes the first state name found
@@ -69,21 +77,25 @@ block, both IC labels, the three permission bullets, PACKAGE, SERVICE ADDRESS an
 the template's structure, and the agent name, agent IC, signature line and COMPANY CHOP are empty on
 every one.
 
-Two defects were found by looking at the render rather than by reading the code: the mangled letterhead
-above, and a one-space gap after the longer labels that reads as none at all against a value starting
-with a digit (Helvetica's figures have far tighter side bearings than its capitals — measured, not
-guessed: the trailing space is 2.4pt at 10.5pt). Both fixed and re-rendered.
+Three defects were found by looking at the render rather than by reading the code: the mangled
+letterhead above; a one-space gap after the longer labels that read as none at all; and then, after
+over-correcting it, a double space after the short ones. The apparent gap depends on the value's first
+glyph — a digit carries far less left bearing than a capital — so the label is now measured without its
+trailing space and given one fixed gap, checked on a crop of the three label rows together.
 
-**31 new tests** in `biz-authorization-letter.test.ts`, the load-bearing one asserting the director's
+**35 new tests** in `biz-authorization-letter.test.ts`, the load-bearing one asserting the director's
 name and IC appear exactly twice — his own block and the footer — so writing either into the
-representative line fails. **1027 vitest passing**, `npm run build` clean with the route in the output,
+representative line fails. **1031 vitest passing**, `npm run build` clean with the route in the output,
 lint clean on every touched file, `tsc` identical to baseline (the same 4 pre-existing errors).
 
 ## NOT verified
 
 - **The browser, and any live case.** Nothing has been generated from a real business case, so the
-  detail-page fetch for company / BRN / director has not run against the portal on this path — it is
-  the same call the Bizz Chat already makes, but that is an argument, not a check.
+  detail-page fetch for company and BRN has not run against the portal on this path — it is the same
+  call the Bizz Chat already makes, but that is an argument, not a check.
+- **The Bizz Chat and this letter now name different people, by design.** The chat prints the case's
+  REAL Business Owner Name; the letter prints an invented director. Both can land in one Combine
+  bundle. That follows from the decision to generate the director and is recorded rather than fixed.
 - **Order Entry will usually print the company lines blank.** The order form has no company, BRN or
   director fields and `Order` has no columns for them, so a business order only fills them when the
   agent typed the customer name in the `COMPANY(REG)` shape. The brief's rule is to print blanks rather
