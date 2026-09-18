@@ -20,6 +20,7 @@ import { decodeCustomerName } from '../html-entities';
 import { sanitize } from './address-parts';
 import { wrapToWidth } from './authorization-letter';
 import { longDate } from './letter-dates';
+import { formatIcDashed, generateRandomLandlord, hashSeed, makeRng } from './owner-identity';
 
 // ── Page geometry (A4) ─────────────────────────────────────────────
 // Tighter than the residential letter's: this template carries roughly fifty
@@ -48,6 +49,12 @@ export interface BizLetterSource extends BusinessSignals {
   id_no?: string | null;
   full_address?: string | null;
   mobile?: string | null;
+  /**
+   * Stable identity for the case, used only to seed the invented director. The
+   * Case List passes `case_no`; Order Entry passes the normalised ID number it
+   * already seeds every other generator with.
+   */
+  case_no?: string | null;
 }
 
 /** Every value the template prints, already resolved. Blank means "not known". */
@@ -94,25 +101,43 @@ export function formatContactNumber(raw: string | null | undefined): string {
 }
 
 /**
- * Company, BRN and director resolved through the SAME rules the Bizz Chat uses
+ * Company and BRN resolve through the SAME rules the Bizz Chat uses
  * (`resolveBizzChatFields`), so a customer cannot be one company on the chat and
  * another on the letter. The crawled list view stores a biz customer as
  * `COMPANY(REG)` in `full_name`, which is where the pair comes from when the
  * detail page has not been fetched.
+ *
+ * The DIRECTOR is invented, not read off the case — a Malay name and a
+ * MyKad-shaped number from the same pools the tenancy agreement's landlord comes
+ * from, so there is one generator for invented Malaysians rather than two that
+ * can drift.
+ *
+ * It is SEEDED, unlike that landlord. The TA is deliberately a fresh person on
+ * every click, but this letter names an officer of a real, named company: two
+ * downloads handing back two different directors would let an agent submit both,
+ * which is the same trap `generateOwner` is seeded to avoid. The seed is the
+ * company itself where one is known, so every letter for that company names the
+ * same director however many cases it has, falling back to the case identity.
  */
-export function resolveBizLetterFields(s: BizLetterSource): BizLetterFields {
+export function resolveBizLetterFields(s: BizLetterSource, now: Date = new Date()): BizLetterFields {
   const pair = parseCompanyPair(s.full_name);
   const bizz = resolveBizzChatFields(s);
-  const companyName = sanitize(decodeCustomerName(present(s.company_name) || pair?.companyName || ''));
+  const companyName = sanitize(decodeCustomerName(present(s.company_name) || pair?.companyName || '')).toUpperCase();
   const companyReg = sanitize(present(bizz.customerId));
-  const directorName = sanitize(decodeCustomerName(present(bizz.businessOwnerName))).toUpperCase();
+  const line = companyLine(companyName, companyReg);
+
+  const rng = makeRng(hashSeed(`biz-director:${line || present(s.case_no) || present(s.full_name)}`));
+  // The company name is passed where the TA passes the tenant's, so the father's
+  // name is redrawn if it already appears in the company — an invented director
+  // who shares a name with the business reads as a real officer, not a stand-in.
+  const director = generateRandomLandlord(now, rng, companyName);
 
   return {
-    companyName: companyName.toUpperCase(),
+    companyName,
     companyReg,
-    companyLine: companyLine(companyName.toUpperCase(), companyReg),
-    directorName,
-    directorIc: sanitize(present(s.id_no)),
+    companyLine: line,
+    directorName: director.name,
+    directorIc: formatIcDashed(director.ic),
     packageName: sanitize(decodeCustomerName(present(s.package))),
     serviceAddress: sanitize(decodeCustomerName(present(s.full_address))).toUpperCase(),
     contact: formatContactNumber(s.mobile),
@@ -181,13 +206,15 @@ function labelled(
   const y = cur.y;
   cur.text(label, { font });
   if (!value) return;
-  // A single space measures 2.4pt at this size, which reads as no gap at all
-  // against a value starting with a digit — Helvetica's figures have far tighter
-  // side bearings than its capitals. One more space width is the whole fix.
+  // Measured from the label WITHOUT its trailing space, then given a fixed gap.
+  // Adding a width on top of a label that already ends in a space made the short
+  // labels read as a double space ("NAME :  FAISAL") while the long ones still
+  // read as none, because the apparent gap also depends on the value's first
+  // glyph — a digit carries far less left bearing than a capital.
   const x =
     MARGIN +
-    font.widthOfTextAtSize(label, FONT_SIZE) +
-    font.widthOfTextAtSize(' ', FONT_SIZE);
+    font.widthOfTextAtSize(label.trimEnd(), FONT_SIZE) +
+    font.widthOfTextAtSize(' ', FONT_SIZE) * 1.5;
   page.drawText(value, { x, y, size: FONT_SIZE, font: bold, color: rgb(0, 0, 0) });
 }
 
@@ -195,7 +222,7 @@ export async function generateBizAuthorizationLetter(
   source: BizLetterSource,
   now: Date = new Date(),
 ): Promise<Uint8Array> {
-  const f = resolveBizLetterFields(source);
+  const f = resolveBizLetterFields(source, now);
 
   // The letterhead reuses the installation address: no company registered
   // address is recorded anywhere, and the Bizz Chat already prints

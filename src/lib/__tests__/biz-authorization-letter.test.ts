@@ -83,13 +83,15 @@ describe("formatContactNumber", () => {
   });
 });
 
+/** `940811-03-4224` → the parts the format guarantees. */
+const MALAY_NAME = /^[A-Z]+ [A-Z]+ (BIN|BINTI) [A-Z]+$/;
+const DASHED_IC = /^(\d{2})(\d{2})(\d{2})-(\d{2})-(\d{3})(\d)$/;
+
 describe("resolveBizLetterFields", () => {
-  it("takes the company, BRN and director off the detail-page fields", () => {
+  it("takes the company and BRN off the detail-page fields", () => {
     const f = resolveBizLetterFields(CASE);
     expect(f.companyName).toBe("MONBLEU CAFE SDN BHD");
     expect(f.companyReg).toBe("JM0920662-D");
-    expect(f.directorName).toBe("TAN WEI MING");
-    expect(f.directorIc).toBe("940811034224");
   });
 
   // The crawler's list view stores a biz customer as COMPANY(REG); a case whose
@@ -106,23 +108,74 @@ describe("resolveBizLetterFields", () => {
 
   // The BRN goes in the company line and the NRIC in the director's — swapping
   // them is the one mistake that would look plausible on the page.
-  it("never puts the director's NRIC where the BRN belongs", () => {
+  it("never puts a NRIC where the BRN belongs", () => {
     const f = resolveBizLetterFields(CASE);
     expect(f.companyReg).not.toBe(f.directorIc);
-    expect(f.companyLine).not.toContain("940811034224");
+    expect(f.companyLine).not.toMatch(DASHED_IC);
   });
 
-  it("leaves every field blank rather than guessing when nothing is known", () => {
+  it("leaves the company fields blank rather than guessing when nothing is known", () => {
     const f = resolveBizLetterFields({});
     expect(f).toMatchObject({
       companyName: "",
       companyReg: "",
       companyLine: "",
-      directorName: "",
-      directorIc: "",
       packageName: "",
       contact: "",
     });
+  });
+});
+
+describe("the invented director", () => {
+  it("is a Malay name with the right particle for its IC's gender", () => {
+    // Across many companies, not one: the gender is drawn per seed, so a single
+    // sample would pass with the parity rule broken half the time.
+    for (let i = 0; i < 40; i++) {
+      const f = resolveBizLetterFields({ company_name: `TEST COMPANY ${i} SDN BHD`, company_reg: "X1" });
+      expect(f.directorName).toMatch(MALAY_NAME);
+
+      const m = DASHED_IC.exec(f.directorIc);
+      expect(m, `bad IC ${f.directorIc}`).not.toBeNull();
+      const [, , mm, dd, pb, , last] = m!;
+      expect(Number(mm)).toBeGreaterThanOrEqual(1);
+      expect(Number(mm)).toBeLessThanOrEqual(12);
+      expect(Number(dd)).toBeGreaterThanOrEqual(1);
+      expect(Number(dd)).toBeLessThanOrEqual(28);
+      // MyKad birth-state codes 01-16: the 13 states plus KL, Labuan, Putrajaya.
+      expect(Number(pb)).toBeGreaterThanOrEqual(1);
+      expect(Number(pb)).toBeLessThanOrEqual(16);
+      // Final digit odd = male, even = female. The name must not contradict it.
+      const male = Number(last) % 2 === 1;
+      expect(f.directorName.includes(" BIN ")).toBe(male);
+      expect(f.directorName.includes(" BINTI ")).toBe(!male);
+    }
+  });
+
+  /**
+   * Nothing is stored, so an unseeded director would differ on every download
+   * and an agent could submit two letters naming two directors of one company.
+   */
+  it("is the same person every time for the same company", () => {
+    const a = resolveBizLetterFields(CASE);
+    const b = resolveBizLetterFields(CASE);
+    expect(b.directorName).toBe(a.directorName);
+    expect(b.directorIc).toBe(a.directorIc);
+  });
+
+  it("is a different person for a different company", () => {
+    const names = new Set(
+      Array.from({ length: 12 }, (_, i) =>
+        resolveBizLetterFields({ company_name: `COMPANY ${i}`, company_reg: `R${i}` }).directorName,
+      ),
+    );
+    expect(names.size).toBeGreaterThan(6);
+  });
+
+  // The whole point of the change: the case's own person is not the director.
+  it("ignores the director and IC recorded on the case", () => {
+    const f = resolveBizLetterFields(CASE);
+    expect(f.directorName).not.toBe("TAN WEI MING");
+    expect(f.directorIc.replace(/\D/g, "")).not.toBe("940811034224");
   });
 });
 
@@ -185,10 +238,14 @@ describe("the whole letter", () => {
   });
 
   it("fills the company, director, package, service address, date and contact", async () => {
+    const f = resolveBizLetterFields(CASE, WHEN);
     const text = (await letterRuns(await generateBizAuthorizationLetter(CASE, WHEN))).join("\n");
     expect(text).toContain("MONBLEU CAFE SDN BHD (JM0920662-D)");
-    expect(text).toContain("TAN WEI MING");
-    expect(text).toContain("940811034224");
+    expect(text).toContain(f.directorName);
+    expect(text).toContain(f.directorIc);
+    // The case's own person never reaches the page.
+    expect(text).not.toContain("TAN WEI MING");
+    expect(text).not.toContain("940811034224");
     expect(text).toContain("Unifi Biz 300Mbps Broadband");
     // The letterhead keeps the city intact, not the parser's "81200 BAHRU JOHOR".
     expect(text).toContain("81200 JOHOR BAHRU");
@@ -203,13 +260,14 @@ describe("the whole letter", () => {
    * two IC labels sit eight lines apart and read almost alike.
    */
   it("leaves the agent name, agent IC, signature and chop empty", async () => {
+    const f = resolveBizLetterFields(CASE, WHEN);
     const runs = await letterRuns(await generateBizAuthorizationLetter(CASE, WHEN));
     const text = runs.join("\n");
 
-    // The director appears exactly twice — his own block and the footer. A third
-    // would mean he had been written into the representative line.
-    expect(runs.filter((r) => r.trim() === "TAN WEI MING")).toHaveLength(2);
-    expect(runs.filter((r) => r.trim() === "940811034224")).toHaveLength(2);
+    // The director appears exactly twice — their own block and the footer. A
+    // third would mean they had been written into the representative line.
+    expect(runs.filter((r) => r.trim() === f.directorName)).toHaveLength(2);
+    expect(runs.filter((r) => r.trim() === f.directorIc)).toHaveLength(2);
 
     // Labels present, values absent.
     expect(text).toContain("AUTHORISED REPRESENTATIVE :");

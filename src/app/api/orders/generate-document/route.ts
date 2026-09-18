@@ -123,6 +123,7 @@ export async function POST(request: Request) {
       }
       case "biz_authorization_letter":
         pdf = await generateBizAuthorizationLetter({
+          case_no: seed,
           full_name: source.fullName,
           company_name: source.companyName,
           company_reg: source.companyReg,
