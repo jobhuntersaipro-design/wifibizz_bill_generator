@@ -1912,6 +1912,11 @@ export function OrderForm({
                 {GENERATED_DOCS.filter((g) => {
                   if (g.type === "bizz_chat") return isBusinessOrder(genSource);
                   if (g.type === "chat") return !isBusinessOrder(genSource);
+                  // The two letters are the same XOR as the two chats: a business
+                  // order gets the Biz Auth Letter, a normal one the residential
+                  // Auth Letter, and never a card for both.
+                  if (g.type === "biz_authorization_letter") return isBusinessOrder(genSource);
+                  if (g.type === "authorization_letter") return !isBusinessOrder(genSource);
                   return true;
                 }).map((g) => {
                   const missing = missingFieldsFor(g.type, genSource);

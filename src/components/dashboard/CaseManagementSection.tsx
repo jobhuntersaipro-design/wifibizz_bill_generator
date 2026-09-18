@@ -19,7 +19,7 @@ import {
 } from "./icons";
 import ChatImageGenerator from "./ChatImageGenerator";
 import type { ChatScriptVariant } from "@/lib/chat-script";
-import { closingScriptVariant } from "@/lib/case-kind";
+import { AUTH_LETTER_LABEL, authLetterVariant, closingScriptVariant } from "@/lib/case-kind";
 import MergePdfDialog from "./MergePdfDialog";
 import { syncCasesToSheet } from "@/actions/settings";
 import { billDownloadPath, revisionFromPublicUrl } from "@/lib/bill-object";
@@ -32,7 +32,7 @@ import {
 
 // ── Case Detail Panel ──
 
-function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatLoading, onGenerateLetter, letterLoading, onCombine }: { caseData: CaseRow; onClose: () => void; cacheBuster: number; onGenerateChat: (c: CaseRow, variant: ChatScriptVariant) => void; chatLoading: ChatScriptVariant | null; onGenerateLetter: (caseNo: string) => void; letterLoading: boolean; onCombine: (c: CaseRow) => void }) {
+function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatLoading, onGenerateLetter, letterLoading, onCombine }: { caseData: CaseRow; onClose: () => void; cacheBuster: number; onGenerateChat: (c: CaseRow, variant: ChatScriptVariant) => void; chatLoading: ChatScriptVariant | null; onGenerateLetter: (c: CaseRow) => void; letterLoading: boolean; onCombine: (c: CaseRow) => void }) {
   // The Sheet owns Escape, outside-click, the focus trap and scroll lock, all of
   // which the old hand-rolled panel declared via markup and never implemented.
   // It also owns the enter/exit transitions — but the parent mounts this panel
@@ -164,9 +164,9 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
           {/* Authorization Letter */}
           <div className="border-t border-[#E3E8EF] my-5 panel-item-in"  style={{ animationDelay: "780ms" }} />
           <div className="panel-item-in" style={{ animationDelay: "800ms" }}>
-            <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">Authorization Letter</h3>
+            <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">{AUTH_LETTER_LABEL[authLetterVariant(caseData)]}</h3>
             <button
-              onClick={() => onGenerateLetter(caseData.case_no)}
+              onClick={() => onGenerateLetter(caseData)}
               disabled={letterLoading}
               className="inline-flex items-center gap-2 text-sm font-medium text-[#0E9384] hover:text-[#0A2540] transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-70"
             >
@@ -177,7 +177,7 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
                 </>
               ) : (
                 <>
-                  <AuthLetterIcon className="w-3.5 h-3.5" />Download Authorization Letter
+                  <AuthLetterIcon className="w-3.5 h-3.5" />Download {AUTH_LETTER_LABEL[authLetterVariant(caseData)]}
                 </>
               )}
             </button>
@@ -672,15 +672,26 @@ export default function CaseManagementSection() {
     return String(taAuthSeeds.current[caseNo]);
   }
 
-  function handleAuthorizationLetter(caseNo: string) {
+  /**
+   * One button, two different letters. A business case gets the company
+   * authorisation letter and a normal one the residential letter — they share
+   * this handler only so the busy state and the download plumbing stay in one
+   * place; the documents themselves have nothing in common.
+   *
+   * The business letter takes no `partiesSeed`: that seed generates a property
+   * owner and witnesses, and this letter invents nobody — the director is the
+   * real one on the case, and the agent, signature and chop stay blank.
+   */
+  function handleAuthorizationLetter(c: CaseRow) {
+    const biz = authLetterVariant(c) === "biz";
     return downloadDocument({
-      caseNo,
-      endpoint: "/api/bills/authorization-letter",
-      filePrefix: "authorization_letter",
-      failureMessage: "Couldn't generate the authorization letter.",
+      caseNo: c.case_no,
+      endpoint: biz ? "/api/bills/biz-authorization-letter" : "/api/bills/authorization-letter",
+      filePrefix: biz ? "biz_authorization_letter" : "authorization_letter",
+      failureMessage: `Couldn't generate the ${AUTH_LETTER_LABEL[authLetterVariant(c)].toLowerCase()}.`,
       setBusy: setLetterCase,
       busy: letterCase,
-      extraQuery: { partiesSeed: partiesSeedFor(caseNo) },
+      ...(biz ? {} : { extraQuery: { partiesSeed: partiesSeedFor(c.case_no) } }),
     });
   }
 
@@ -1155,16 +1166,16 @@ export default function CaseManagementSection() {
                             <span className="text-[10px] leading-none font-medium text-[#697386]">TA</span>
                           </button>
                           <button
-                            title="Generate Auth Letter"
-                            aria-label={`Generate auth letter for ${c.case_no}`}
+                            title={`Generate ${AUTH_LETTER_LABEL[authLetterVariant(c)]}`}
+                            aria-label={`Generate ${AUTH_LETTER_LABEL[authLetterVariant(c)].toLowerCase()} for ${c.case_no}`}
                             disabled={letterCase === c.case_no}
-                            onClick={() => handleAuthorizationLetter(c.case_no)}
+                            onClick={() => handleAuthorizationLetter(c)}
                             className="w-14 flex flex-col items-center gap-0.5 rounded-md py-1 transition-colors text-[#0E9384] hover:bg-[#E6FAF7] disabled:cursor-not-allowed"
                           >
                             {letterCase === c.case_no
                               ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#0E9384] border-t-transparent animate-spin" />
                               : <AuthLetterIcon className="w-4 h-4" />}
-                            <span className="text-[10px] leading-none font-medium text-[#697386]">Auth Letter</span>
+                            <span className="text-[10px] leading-none font-medium text-[#697386]">{AUTH_LETTER_LABEL[authLetterVariant(c)]}</span>
                           </button>
                           <button
                             title="Generate TIME Invoice"

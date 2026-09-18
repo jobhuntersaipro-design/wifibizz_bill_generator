@@ -70,6 +70,17 @@ export default function GenerateDocRunner({ type, source, existingOfType, onDone
             fullAddress: source.fullAddress,
             mobile: source.mobile,
             offerName: source.offerName,
+            // Only the business letter reads these, and only a case row that has
+            // had its WifiBizz detail page fetched carries them. The order form
+            // has no company fields, so they are usually absent and the letter
+            // falls back to the `COMPANY(REG)` shape in the customer name.
+            ...(type === "biz_authorization_letter"
+              ? {
+                  companyName: source.companyName ?? "",
+                  companyReg: source.companyReg ?? "",
+                  directorName: source.directorName ?? "",
+                }
+              : {}),
             ...(type === "internet_bill" && umobileImageId
               ? { umobileImageId }
               : {}),

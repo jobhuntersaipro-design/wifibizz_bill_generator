@@ -1,3 +1,102 @@
+# Current Feature: Biz Auth Letter — a business authorisation letter for Bizz plans
+
+## Status
+
+CODE COMPLETE, NOT VERIFIED IN BROWSER (branch `feature/biz-auth-letter`, not committed).
+Vercel-only, no migration, no scraper change.
+
+## Goals
+
+- A **business** case/order gets **Biz Auth Letter**; a normal one keeps today's **Auth Letter**. Never both.
+- The letter follows the supplied `EXAMPLE - FORMAT AL` template: company letterhead, director block,
+  the TM Authorised Agent paragraph, the three permission bullets, PACKAGE / SERVICE ADDRESS, footer.
+- Agent name, agent IC, the signature line and COMPANY CHOP stay **visually empty**.
+- Missing data never blocks generation — the field prints blank.
+
+## Decisions (taken with the user, 2026-09-18)
+
+- **The existing residential Auth Letter is untouched.** It is a different letter (a property owner
+  confirming residence); the new one is a company authorising a TM agent. Applying the business
+  template to normal plans would print an empty letterhead on every residential case, so the two are
+  separate generators selected by plan type.
+- **Letterhead address = the installation address.** No company registered address exists anywhere —
+  the WifiBizz detail parser reads exactly four labels (`Address`, `Company Name`,
+  `Company Registration No`, `Name`) and that one `Address` IS the service address. Same convention as
+  the Bizz Chat's `Billing Address : SAME AS ABOVE`.
+- **PACKAGE prints the plan name only, no price.** There is no RM figure in the schema or the
+  catalogue: `DealerOffer` is `{category, name, bandwidth}`, `Plan` has no price column, and
+  `PlanOfferItem.monthly` is add-on rental rather than the plan's own price.
+- **Output stays PDF.** The spec suggested `.docx`, but it also says to match the current pipeline, and
+  this repo has no Word path at all — every official letter is drawn with `pdf-lib`.
+- Company / BRN / director resolve through `case-kind.ts`'s existing `resolveBizzChatFields`, so the
+  Biz Auth Letter and the Bizz Chat can never disagree about who the company and the director are.
+- `id_no` is the director's IC: it is `customer_id_no` from the portal list, paired with the same
+  Customer tab that supplies `director_name` (`Full Name (as per ID)`).
+
+## Not in scope
+
+TM's legal wording, pre-assigning an agent, auto-stamping a chop or e-signature, and a second template
+for bizz vs normal — the label is what changes.
+
+## Built
+
+- **`src/lib/bill-generator/biz-authorization-letter.ts`** — the letter, drawn with `pdf-lib` like
+  every other official document here. `resolveBizLetterFields` routes company / BRN / director through
+  `resolveBizzChatFields`, so the letter and the Bizz Chat cannot name two different companies.
+- **`letterheadLines()` splits the address on its own commas and parses nothing.** The first render
+  went through `buildLetterAddress` and came back with `81200 BAHRU JOHOR` and a `SELANGOR DARUL EHSAN`
+  that had lost its state — the documented state-matcher bug, which removes the first state name found
+  anywhere in the string and so eats the one inside a city. A mangled letterhead above a correct
+  SERVICE ADDRESS line on the same page is worse than either alone. Three tests pin the escape.
+- **The label follows plan type from one rule**: `authLetterVariant` + `AUTH_LETTER_LABEL` in
+  `case-kind.ts`, used by the Case List row, the detail panel, the Combine dialog and the order form.
+- **XOR in all three places that can offer a document**: `generatableDocTypes`, the order form's own
+  card filter (which is a separate list and would otherwise have shown both cards), and the Case List.
+- **Combine follows too.** `mergeItemUrl` pointed every letter at the residential endpoint, so a
+  business case's bundle would have carried a residential letter the agent never chose. `MergeCase`
+  now extends `BusinessSignals`; the row is labelled and routed by variant. A missing IC still drops
+  the residential letter (its route refuses one) but never the business letter, which prints blanks.
+- Routes: new `GET /api/bills/biz-authorization-letter` (fetches company/director off the WifiBizz
+  detail page the way the Bizz Chat does; a failed fetch degrades to the `COMPANY(REG)` fallback rather
+  than failing) and a `biz_authorization_letter` branch on `POST /api/orders/generate-document`.
+
+## Verified
+
+**Rendered and looked at**, through `pdftoppm`, for three records — a typical business case, a
+worst-case one (68-character company name, two-line address, long package) and one with nothing but a
+name. All three are single-page with the footer well clear of the bottom edge; the letterhead, director
+block, both IC labels, the three permission bullets, PACKAGE, SERVICE ADDRESS and the footer all match
+the template's structure, and the agent name, agent IC, signature line and COMPANY CHOP are empty on
+every one.
+
+Two defects were found by looking at the render rather than by reading the code: the mangled letterhead
+above, and a one-space gap after the longer labels that reads as none at all against a value starting
+with a digit (Helvetica's figures have far tighter side bearings than its capitals — measured, not
+guessed: the trailing space is 2.4pt at 10.5pt). Both fixed and re-rendered.
+
+**31 new tests** in `biz-authorization-letter.test.ts`, the load-bearing one asserting the director's
+name and IC appear exactly twice — his own block and the footer — so writing either into the
+representative line fails. **1027 vitest passing**, `npm run build` clean with the route in the output,
+lint clean on every touched file, `tsc` identical to baseline (the same 4 pre-existing errors).
+
+## NOT verified
+
+- **The browser, and any live case.** Nothing has been generated from a real business case, so the
+  detail-page fetch for company / BRN / director has not run against the portal on this path — it is
+  the same call the Bizz Chat already makes, but that is an argument, not a check.
+- **Order Entry will usually print the company lines blank.** The order form has no company, BRN or
+  director fields and `Order` has no columns for them, so a business order only fills them when the
+  agent typed the customer name in the `COMPANY(REG)` shape. The brief's rule is to print blanks rather
+  than block, so this is stated rather than fixed; giving Order Entry real company fields is a
+  migration and was not asked for.
+- The letter has only been opened in `pdftoppm`/Preview, not Acrobat, and not printed.
+
+## Known and deliberate
+
+The letter asserts a business authorisation and is handed to a third party. Package prints without a
+price and the letterhead repeats the installation address — both the user's explicit calls, recorded
+above under Decisions.
+
 # Current Feature: Full Address is no longer validated
 
 ## Status

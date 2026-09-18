@@ -1,3 +1,5 @@
+import { AUTH_LETTER_LABEL, authLetterVariant, type BusinessSignals } from "../case-kind";
+
 /**
  * Turning a case selection into an ordered list of documents to merge.
  *
@@ -19,8 +21,15 @@ export const MERGE_DOC_LABELS: Record<MergeDocType, string> = {
   chat: "Closing Script (Chat)",
 };
 
-/** The fields of a case row a merge plan actually depends on. */
-export interface MergeCase {
+/**
+ * The fields of a case row a merge plan actually depends on.
+ *
+ * It extends `BusinessSignals` because the letter row is one of two different
+ * documents — a business case bundles the Biz Auth Letter and a normal one the
+ * residential letter. Every signal is optional, so a caller that knows none of
+ * them still gets the residential letter, which is what shipped.
+ */
+export interface MergeCase extends BusinessSignals {
   case_no: string;
   full_name: string | null;
   id_no: string | null;
@@ -44,6 +53,12 @@ export interface MergeItem {
    * time, and possibly a case credit, but they end up in the PDF.
    */
   needsGeneration: boolean;
+  /**
+   * Set on the letter row of a BUSINESS case. It changes both which endpoint is
+   * fetched and whether a missing IC blocks the row, so it is recorded when the
+   * plan is built rather than re-derived from a case the item no longer holds.
+   */
+  bizLetter?: boolean;
 }
 
 export function mergeItemId(caseNo: string, type: MergeDocType): string {
@@ -63,7 +78,9 @@ export function mergeItemUrl(item: MergeItem): string | null {
     case "utility":
       return `/api/bills/download?${q}&type=utility`;
     case "letter":
-      return `/api/bills/authorization-letter?${q}`;
+      return item.bizLetter
+        ? `/api/bills/biz-authorization-letter?${q}`
+        : `/api/bills/authorization-letter?${q}`;
     case "time":
       return `/api/bills/time-invoice?${q}`;
     case "chat":
@@ -78,7 +95,13 @@ export function mergeItemUrl(item: MergeItem): string | null {
  * `needsGeneration`), which is why this no longer reports one.
  */
 function unavailableReason(c: MergeCase, type: MergeDocType): string | null {
-  if (type === "letter" && !(c.id_no || "").trim()) return "Case has no ID number";
+  // Only the RESIDENTIAL letter is refused without an IC: its route fails loudly
+  // because a residence letter naming nobody is not worth handing to TM. The
+  // business letter deliberately prints blanks instead, so a missing IC must not
+  // drop it from the bundle.
+  if (type === "letter" && authLetterVariant(c) === "residential" && !(c.id_no || "").trim()) {
+    return "Case has no ID number";
+  }
   return null;
 }
 
@@ -104,13 +127,18 @@ export function buildMergeItems(cases: MergeCase[], types: MergeDocType[]): Merg
   for (const c of cases) {
     for (const type of chosen) {
       const who = (c.full_name || "").trim();
+      const bizLetter = type === "letter" && authLetterVariant(c) === "biz";
+      // The letter row names the letter this case actually gets, so the dialog
+      // and the merged PDF cannot disagree about which document went in.
+      const docLabel = type === "letter" ? AUTH_LETTER_LABEL[authLetterVariant(c)] : MERGE_DOC_LABELS[type];
       items.push({
         id: mergeItemId(c.case_no, type),
         caseNo: c.case_no,
         type,
-        label: `${c.case_no}${who ? ` · ${who}` : ""} — ${MERGE_DOC_LABELS[type]}`,
+        label: `${c.case_no}${who ? ` · ${who}` : ""} — ${docLabel}`,
         unavailable: unavailableReason(c, type),
         needsGeneration: needsGeneration(c, type),
+        ...(bizLetter ? { bizLetter: true } : {}),
       });
     }
   }
