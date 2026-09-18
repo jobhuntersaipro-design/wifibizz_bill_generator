@@ -99,7 +99,15 @@ export const AUTH_LETTER_LABEL: Record<AuthLetterVariant, string> = {
 export interface BizzChatFields {
   /** Company Registration No / BRN. Never NRIC. */
   customerId: string | null;
-  /** Customer-tab Name / director. Never the company name. */
+  /**
+   * Customer-tab Name / director. Never the company name.
+   *
+   * NOT printed any more: since 2026-09-18 the Bizz Chat's Business Owner and
+   * the Biz Auth Letter's director are both the INVENTED person from
+   * `resolveBizDirector`, so the two documents cannot name different people.
+   * Kept because it is still the truthful answer to "who does the portal record
+   * as the owner", which is worth being able to ask.
+   */
   businessOwnerName: string | null;
 }
 

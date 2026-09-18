@@ -50,7 +50,10 @@ describe("GenerateDocRunner", () => {
     expect(text).toContain("Customer Name (as per NRIC/Passport) : PHONG KONE LEE");
     expect(text).toContain("Contact Number : 60148893212");
     expect(text).not.toContain("Customer ID ( i.e BRN): 920505034434");
-    expect(text).toContain("Business Owner Name: PHONG KONE LEE");
+    // The Business Owner is invented and seeded on the case, so it is never the
+    // customer's own name — and it is the same person the Biz Auth Letter names.
+    expect(text).toMatch(/Business Owner Name: [A-Z]+ [A-Z]+ (BIN|BINTI) [A-Z]+/);
+    expect(text).not.toContain("Business Owner Name: PHONG KONE LEE");
     expect(text).toContain("Billing Address : SAME AS ABOVE");
     expect(text).toContain("Package to be subscribed : Unifi Biz 100Mbps");
     expect(text).toContain("Representative Name ( if any) : -");

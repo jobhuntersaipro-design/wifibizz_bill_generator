@@ -83,9 +83,9 @@ over-correcting it, a double space after the short ones. The apparent gap depend
 glyph — a digit carries far less left bearing than a capital — so the label is now measured without its
 trailing space and given one fixed gap, checked on a crop of the three label rows together.
 
-**35 new tests** in `biz-authorization-letter.test.ts`, the load-bearing one asserting the director's
+**36 new tests** in `biz-authorization-letter.test.ts`, the load-bearing one asserting the director's
 name and IC appear exactly twice — his own block and the footer — so writing either into the
-representative line fails. **1031 vitest passing**, `npm run build` clean with the route in the output,
+representative line fails. **1032 vitest passing**, `npm run build` clean with the route in the output,
 lint clean on every touched file, `tsc` identical to baseline (the same 4 pre-existing errors).
 
 ## NOT verified
@@ -93,9 +93,13 @@ lint clean on every touched file, `tsc` identical to baseline (the same 4 pre-ex
 - **The browser, and any live case.** Nothing has been generated from a real business case, so the
   detail-page fetch for company and BRN has not run against the portal on this path — it is the same
   call the Bizz Chat already makes, but that is an argument, not a check.
-- **The Bizz Chat and this letter now name different people, by design.** The chat prints the case's
-  REAL Business Owner Name; the letter prints an invented director. Both can land in one Combine
-  bundle. That follows from the decision to generate the director and is recorded rather than fixed.
+- **The Bizz Chat's Business Owner is now the letter's director** (user's call, 2026-09-18). Both come
+  from `resolveBizDirector` in `src/lib/biz-director.ts`, which also owns the company resolution, so
+  the two documents cannot name different people — they are generated from one case and travel
+  together in a Combine bundle, where a mismatch would be visible side by side. A test asserts the
+  chat's line 4 equals the letter's director, including for a case with no company where both fall
+  back to `case_no`. Consequence: the chat no longer prints the portal's real owner anywhere.
+  `resolveBizzChatFields().businessOwnerName` is kept but is no longer read by production.
 - **Order Entry will usually print the company lines blank.** The order form has no company, BRN or
   director fields and `Order` has no columns for them, so a business order only fills them when the
   agent typed the customer name in the `COMPANY(REG)` shape. The brief's rule is to print blanks rather

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildBizzChatScript, type BizzChatSource } from "../bizz-chat-script";
+import { resolveBizDirector } from "../biz-director";
 import type { ChatScript } from "../chat-script";
 
 const CASE: BizzChatSource = {
@@ -44,7 +45,7 @@ describe("buildBizzChatScript", () => {
         "1.\u2060 \u2060Customer Name (as per NRIC/Passport) : MONBLEU CAFE(JM0920662-D)",
         "2.\u2060 \u2060Contact Number : 60148893212",
         "3.\u2060 \u2060Customer ID ( i.e BRN): JM0920662-D",
-        "4.\u2060 \u2060Business Owner Name: TIAN ZI XUAN",
+        `4.\u2060 \u2060Business Owner Name: ${resolveBizDirector(CASE).name}`,
         "5.\u2060 \u2060Email Address : phong@example.com",
         "6.\u2060 \u2060Installation Address: C-30-11 JALAN ECO MAJESTIC 3A/5, 43500 SEMENYIH, SELANGOR",
         "7.\u2060 \u2060Billing Address : SAME AS ABOVE",
@@ -75,7 +76,7 @@ describe("buildBizzChatScript", () => {
       "1.\u2060 \u2060Customer Name (as per NRIC/Passport) : —",
       "2.\u2060 \u2060Contact Number : —",
       "3.\u2060 \u2060Customer ID ( i.e BRN): —",
-      "4.\u2060 \u2060Business Owner Name: —",
+      `4.\u2060 \u2060Business Owner Name: ${resolveBizDirector(EMPTY).name}`,
       "5.\u2060 \u2060Email Address : —",
       "6.\u2060 \u2060Installation Address: —",
       "7.\u2060 \u2060Billing Address : SAME AS ABOVE",
@@ -92,12 +93,14 @@ describe("buildBizzChatScript", () => {
     ).lines;
     const value = (label: string) => lines.find((l) => l.label === label)?.value;
     expect(value("1.\u2060 \u2060Customer Name (as per NRIC/Passport) : ")).toBe("—");
-    expect(value("4.\u2060 \u2060Business Owner Name: ")).toBe("—");
+    // The Business Owner is invented, so it is never a dash — only the fields
+    // actually read off the case can be missing.
+    expect(value("4.\u2060 \u2060Business Owner Name: ")).toMatch(/^[A-Z]+ [A-Z]+ (BIN|BINTI) [A-Z]+$/);
     expect(value("2.\u2060 \u2060Contact Number : ")).toBe("—");
     expect(value("8.\u2060 \u2060Package to be subscribed : ")).toBe("—");
   });
 
-  it("never prints NRIC as Customer ID or the company as Business Owner", () => {
+  it("never prints NRIC as Customer ID, nor the company or its owner as Business Owner", () => {
     const lines = buildBizzChatScript(
       {
         ...CASE,
@@ -108,12 +111,12 @@ describe("buildBizzChatScript", () => {
     ).lines;
     const value = (label: string) => lines.find((l) => l.label === label)?.value;
     expect(value("3.\u2060 \u2060Customer ID ( i.e BRN): ")).toBe("JM0920662-D");
-    expect(value("4.\u2060 \u2060Business Owner Name: ")).toBe("—");
     expect(value("3.\u2060 \u2060Customer ID ( i.e BRN): ")).not.toBe("981020016087");
     expect(value("4.\u2060 \u2060Business Owner Name: ")).not.toBe("MONBLEU CAFE(JM0920662-D)");
+    expect(value("4.\u2060 \u2060Business Owner Name: ")).toMatch(/^[A-Z]+ [A-Z]+ (BIN|BINTI) [A-Z]+$/);
   });
 
-  it("decodes HTML entities in the printed customer and owner names", () => {
+  it("decodes HTML entities in the printed customer name", () => {
     const lines = buildBizzChatScript(
       {
         ...CASE,
@@ -125,8 +128,9 @@ describe("buildBizzChatScript", () => {
     ).lines;
     const value = (label: string) => lines.find((l) => l.label === label)?.value;
     expect(value("1.\u2060 \u2060Customer Name (as per NRIC/Passport) : ")).toBe("SITI AYESAH BINTI YA'ASAK");
-    expect(value("4.\u2060 \u2060Business Owner Name: ")).toBe('ALI "DIN" & CO');
     expect(value("3.\u2060 \u2060Customer ID ( i.e BRN): ")).toBe("JM1");
+    // The recorded owner is not printed at all now, entities or otherwise.
+    expect(value("4.\u2060 \u2060Business Owner Name: ")).not.toContain("DIN");
   });
 
   describe("preferred installation date", () => {
