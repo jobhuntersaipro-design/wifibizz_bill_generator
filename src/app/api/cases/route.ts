@@ -79,6 +79,7 @@ export async function GET(request: Request) {
     // Dynamic ORDER BY using sql.unsafe() — sortBy is validated against SORTABLE_COLUMNS whitelist
     const rows = await sql`
       SELECT case_no, case_url, full_name, full_address, mobile, email, id_no,
+             id_type, company_name, company_reg, director_name,
              provider, package, order_no, agent, agent_remark,
              status, internet_bill_url, utility_bill_url, case_created_at, updated_at
       FROM wifibizz_cases

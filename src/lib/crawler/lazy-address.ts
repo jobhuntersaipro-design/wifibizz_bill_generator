@@ -123,15 +123,25 @@ export async function fetchBizzDetailFields(
       withUrl.map((c) => ({ caseNo: c.case_no, caseUrl: c.case_url! })),
     );
 
+    // Persist what came back, so the next document for this case reads the stored
+    // row instead of fetching the same page again. An empty field is left alone
+    // rather than written as blank — COALESCE(NULLIF(…)) keeps whatever is there.
     const sql = neon(process.env.DATABASE_URL!);
     await Promise.all(
       Object.entries(details).map(([caseNo, fields]) => {
         const address = fields.address.trim();
         const row = withUrl.find((c) => c.case_no === caseNo);
-        if (!address || (row?.full_address && row.full_address.trim())) return Promise.resolve();
+        // Never overwrite an address the row already has — the crawl's own rule.
+        const keepAddress = !address || !!row?.full_address?.trim();
         return sql`
-          UPDATE wifibizz_cases
-          SET full_address = ${address}, updated_at = NOW()
+          UPDATE wifibizz_cases SET
+            full_address  = CASE WHEN ${keepAddress} THEN full_address ELSE ${address} END,
+            -- Written even when blank: this page HAS been read, and that is what
+            -- stops the crawl asking for it again (see casesNeedingDetail).
+            director_name = ${fields.customerName},
+            company_name  = COALESCE(NULLIF(${fields.companyName}, ''), company_name),
+            company_reg   = COALESCE(NULLIF(${fields.companyReg}, ''), company_reg),
+            updated_at    = NOW()
           WHERE case_no = ${caseNo} AND user_id = ${user.id}
         `;
       }),
