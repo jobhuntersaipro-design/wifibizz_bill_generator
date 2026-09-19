@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { unseenOutcomes } from "@/actions/order";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,9 +20,14 @@ import {
 } from "@/actions/dealer";
 import { toast } from "sonner";
 import LottieSpot from "./LottieSpot";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import {
-  DEALER_SESSION_EXPIRED_COPY,
-  shouldShowDealerSessionBanner,
+  ORDER_ENTRY_NEW_ORDER_PATH,
+  ORDER_ENTRY_RECONNECT_PATH,
+  RECONNECT_DEALER_ACCOUNT_TITLE,
+  forceDealerExpiredFromSearch,
+  shouldUseReconnectIA,
+  withForceDealerExpiredQuery,
 } from "@/lib/agent-connection";
 
 // "auto" = server is reading the OTP from Gmail in the background (tried for
@@ -61,6 +66,9 @@ export default function OrderEntryShell({
   isSuperAdmin?: boolean;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const forceExpired = forceDealerExpiredFromSearch(searchParams.toString());
 
   // Outcomes no signed-in eye has seen — the number on the Orders tab. Count
   // only, polled at the same 30s cadence style as the rest of the page's
@@ -406,19 +414,41 @@ export default function OrderEntryShell({
   // expired clock. `checking` keeps it shown (as "Verifying…") during a check.
   const isConnected =
     connection?.connected && (checking || sessionSecondsLeft > 0);
-  const sessionExpiredCopy =
-    !isConnected &&
-    (shouldShowDealerSessionBanner({
-      orderEntryEnabled: true,
-      sessionExpiresAt: connection?.sessionExpiresAt,
-    }) ||
-      !!connection?.lastConnectedAt);
+  const reconnectMode = shouldUseReconnectIA({
+    forceExpired,
+    connected: !!isConnected,
+    sessionExpiresAt: connection?.sessionExpiresAt,
+    lastConnectedAt: connection?.lastConnectedAt,
+  });
+  const onReconnectRoute = pathname?.endsWith("/reconnect") ?? false;
+  const showReconnectIA = onReconnectRoute || reconnectMode;
+
+  useEffect(() => {
+    if (loading) return;
+    if (reconnectMode && !isSuperAdmin && !onReconnectRoute) {
+      router.replace(
+        withForceDealerExpiredQuery(ORDER_ENTRY_RECONNECT_PATH, forceExpired),
+      );
+      return;
+    }
+    if (isConnected && !forceExpired && onReconnectRoute) {
+      router.replace(ORDER_ENTRY_NEW_ORDER_PATH);
+    }
+  }, [
+    loading,
+    reconnectMode,
+    isSuperAdmin,
+    onReconnectRoute,
+    isConnected,
+    forceExpired,
+    router,
+  ]);
 
   // One warning as the session enters its last five minutes — expiring silently
   // mid-form is how an agent loses a filled order. Re-arms after a reconnect.
   const expiryWarnedRef = useRef(false);
   useEffect(() => {
-    if (!isConnected || sessionSecondsLeft <= 0) {
+    if (!isConnected || forceExpired || sessionSecondsLeft <= 0) {
       expiryWarnedRef.current = false;
       return;
     }
@@ -428,24 +458,28 @@ export default function OrderEntryShell({
         "Your dealer session expires in under 5 minutes — reconnect soon to keep submitting.",
       );
     }
-  }, [isConnected, sessionSecondsLeft]);
+  }, [isConnected, forceExpired, sessionSecondsLeft]);
   // Superadmins may browse the drafts view without a live portal session
   // (view-only — submitting an order still needs a real connection).
-  const canView = isConnected || isSuperAdmin;
-  const viewOnly = isSuperAdmin && !isConnected;
+  const canView = (isConnected && !forceExpired) || isSuperAdmin;
+  const viewOnly = isSuperAdmin && (!isConnected || forceExpired);
 
   return (
-    <div className="space-y-6">
+    <div className={showReconnectIA ? "space-y-4" : "space-y-6"}>
       {/* Header */}
       <div className="animate-fade-in-up" style={{ animationDelay: "100ms" }}>
-        <h1 className="text-2xl font-semibold text-[#0A2540]">Order Entry</h1>
+        <h1 className="text-2xl font-semibold text-[#0A2540]">
+          {showReconnectIA ? RECONNECT_DEALER_ACCOUNT_TITLE : "Order Entry"}
+        </h1>
         <p className="text-sm text-[#697386] mt-1">
-          Connect your Unifi dealer account to key in broadband orders.
+          {showReconnectIA
+            ? "Log in with your own staff code, password, and OTP."
+            : "Connect your Unifi dealer account to key in broadband orders."}
         </p>
       </div>
 
       <div className="max-w-xl animate-fade-in-up" style={{ animationDelay: "200ms" }}>
-        {!loading && !loadError && isConnected ? (
+        {!loading && !loadError && isConnected && !forceExpired ? (
           /* ---------- Connected: a slim status strip instead of the card.
              Session plumbing matters when it is broken; once connected the
              agent's work is below, so ~300px of card collapses to one line. */
@@ -509,33 +543,39 @@ export default function OrderEntryShell({
           </div>
         ) : (
         <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden">
-          {/* Card header */}
-          <div className="px-6 py-4 border-b border-[#E3E8EF]">
+          {!loading && (
+          <div className={`px-6 border-b border-[#E3E8EF] ${showReconnectIA ? "py-3" : "py-4"}`}>
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-lg bg-[#F6F9FC] flex items-center justify-center">
                 <PortalIcon className="w-4 h-4 text-[#635BFF]" />
               </div>
               <div>
                 <h2 className="text-sm font-semibold text-[#0A2540]">
-                  {sessionExpiredCopy
-                    ? DEALER_SESSION_EXPIRED_COPY.title
+                  {showReconnectIA
+                    ? "Staff credentials"
                     : "Connect Unifi Dealer Account"}
                 </h2>
                 <p className="text-xs text-[#697386] mt-0.5">
-                  {sessionExpiredCopy
-                    ? DEALER_SESSION_EXPIRED_COPY.body
+                  {showReconnectIA
+                    ? "Send an OTP to reconnect this dealer account."
                     : "Log in with your own staff code, password, and OTP."}
                 </p>
               </div>
             </div>
           </div>
+          )}
 
-          <div className="p-6">
+          <div className={showReconnectIA ? "px-6 py-4" : "p-6"}>
             {loading ? (
               /* ---------- Initial load ---------- */
-              <div className="flex flex-col items-center gap-3 py-6">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />
-                <p className="text-sm text-[#697386]">Loading…</p>
+              <div className="flex flex-col items-center gap-3 py-10">
+                <div
+                  className="h-8 w-8 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent"
+                  aria-hidden="true"
+                />
+                <p className="text-sm text-[#697386]" role="status">
+                  Loading…
+                </p>
               </div>
             ) : loadError ? (
               /* ---------- Initial load failed ---------- */
@@ -555,7 +595,8 @@ export default function OrderEntryShell({
               </div>
             ) : step === "form" ? (
               /* ---------- Step 1: staff code + password + channel ---------- */
-              <form onSubmit={handleSendOtp} className="space-y-4">
+              <>
+              <form onSubmit={handleSendOtp} className={showReconnectIA ? "space-y-3" : "space-y-4"}>
                 {credentialsError && (
                   <div
                     role="alert"
@@ -620,7 +661,7 @@ export default function OrderEntryShell({
                     onChange={(e) => setChannel(e.target.value as "Email" | "SMS")}
                     className="w-full rounded-lg h-10 px-3 border border-[#E3E8EF] bg-white text-sm text-[#0A2540] focus:border-[#635BFF] focus:outline-none"
                   >
-                    <option value="Email">Email / 邮箱</option>
+                    <option value="Email">Email</option>
                     <option value="SMS">SMS</option>
                   </select>
                 </div>
@@ -637,47 +678,9 @@ export default function OrderEntryShell({
                       value={registeredEmail}
                       onChange={(e) => setRegisteredEmail(e.target.value)}
                       required
+                      aria-describedby="registered-email-hint"
                       className="rounded-lg h-10 border-[#E3E8EF] focus:border-[#635BFF]"
                     />
-                    <p className="text-[11px] text-[#697386]">
-                      The email address registered on this dealer account — needed
-                      so BizzFlow can read the OTP automatically instead of you
-                      typing it in.{" "}
-                      <button
-                        type="button"
-                        onClick={() => setShowForwardHelp((v) => !v)}
-                        className="text-[#635BFF] font-medium hover:underline"
-                      >
-                        {showForwardHelp ? "Hide instructions" : "How to set this up"}
-                      </button>
-                    </p>
-                    {showForwardHelp && (
-                      <div className="text-[11px] text-[#425466] bg-[#F6F9FC] rounded-lg px-3 py-2.5 space-y-1.5 leading-relaxed">
-                        <p>
-                          In the Gmail account above, go to{" "}
-                          <span className="font-medium">
-                            Settings → See all settings → Forwarding and POP/IMAP
-                          </span>{" "}
-                          → <span className="font-medium">Add a forwarding address</span> →
-                          enter{" "}
-                          <span className="font-mono font-medium">
-                            jobhunters.ai.pro@gmail.com
-                          </span>
-                          .
-                        </p>
-                        <p>
-                          Gmail will ask us to confirm on our end — once we do, enable
-                          forwarding for future messages. After that, OTP emails sent to
-                          this address arrive automatically and BizzFlow reads them for
-                          you.
-                        </p>
-                        <p className="text-[#697386]">
-                          Without forwarding set up, auto-read simply won&apos;t find
-                          anything and you&apos;ll fall back to entering the code
-                          manually — nothing breaks either way.
-                        </p>
-                      </div>
-                    )}
                   </div>
                 )}
 
@@ -697,7 +700,66 @@ export default function OrderEntryShell({
                     )}
                   </Button>
                 </div>
+
+                {channel === "Email" && (
+                  <p id="registered-email-hint" className="text-[11px] text-[#697386]">
+                    Needed so BizzFlow can read the OTP.{" "}
+                    <button
+                      type="button"
+                      onClick={() => setShowForwardHelp(true)}
+                      className="text-[#635BFF] font-medium hover:underline"
+                    >
+                      How to set this up
+                    </button>
+                  </p>
+                )}
               </form>
+              <Sheet open={showForwardHelp} onOpenChange={setShowForwardHelp}>
+                <SheetContent
+                  side="right"
+                  className="flex w-full flex-col gap-0 border-l border-[#E3E8EF] bg-white p-0 sm:max-w-md"
+                >
+                  <div className="border-b border-[#E3E8EF] px-6 py-4">
+                    <SheetTitle className="text-sm font-semibold text-[#0A2540]">
+                      How to set this up
+                    </SheetTitle>
+                    <SheetDescription className="mt-1 text-xs text-[#697386]">
+                      Forward Unifi OTP mail so BizzFlow can read the code for you.
+                    </SheetDescription>
+                  </div>
+                  <div className="space-y-3 px-6 py-4 text-[13px] leading-relaxed text-[#425466]">
+                    <p>
+                      Enter the email address registered on this dealer account
+                      so BizzFlow can read the OTP automatically instead of you
+                      typing it in.
+                    </p>
+                    <p>
+                      In the Gmail account above, go to{" "}
+                      <span className="font-medium">
+                        Settings → See all settings → Forwarding and POP/IMAP
+                      </span>{" "}
+                      → <span className="font-medium">Add a forwarding address</span> →
+                      enter{" "}
+                      <span className="font-mono font-medium">
+                        jobhunters.ai.pro@gmail.com
+                      </span>
+                      .
+                    </p>
+                    <p>
+                      Gmail will ask us to confirm on our end — once we do, enable
+                      forwarding for future messages. After that, OTP emails sent to
+                      this address arrive automatically and BizzFlow reads them for
+                      you.
+                    </p>
+                    <p className="text-[#697386]">
+                      Without forwarding set up, auto-read simply won&apos;t find
+                      anything and you&apos;ll fall back to entering the code
+                      manually — nothing breaks either way.
+                    </p>
+                  </div>
+                </SheetContent>
+              </Sheet>
+              </>
             ) : step === "auto" ? (
               /* ---------- Step 2 (auto): reading OTP from Gmail ---------- */
               <div className="space-y-4">

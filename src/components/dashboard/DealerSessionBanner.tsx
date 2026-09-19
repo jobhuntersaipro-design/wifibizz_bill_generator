@@ -10,6 +10,7 @@ import {
   DEALER_SESSION_RECONNECT_HREF,
   forceDealerExpiredFromSearch,
   shouldShowDealerSessionBanner,
+  withForceDealerExpiredQuery,
 } from "@/lib/agent-connection";
 
 export function DealerSessionBanner() {
@@ -52,7 +53,10 @@ export function DealerSessionBanner() {
         <p className="text-xs text-[#B54708]">{DEALER_SESSION_EXPIRED_COPY.body}</p>
       </div>
       <Link
-        href={DEALER_SESSION_RECONNECT_HREF}
+        href={withForceDealerExpiredQuery(
+          DEALER_SESSION_RECONNECT_HREF,
+          forced,
+        )}
         className="shrink-0 rounded-lg bg-[#B54708] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#93370D]"
       >
         {DEALER_SESSION_EXPIRED_COPY.cta}
