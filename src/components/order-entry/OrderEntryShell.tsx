@@ -465,7 +465,7 @@ export default function OrderEntryShell({
   const viewOnly = isSuperAdmin && (!isConnected || forceExpired);
 
   return (
-    <div className="space-y-6">
+    <div className={showReconnectIA ? "space-y-4" : "space-y-6"}>
       {/* Header */}
       <div className="animate-fade-in-up" style={{ animationDelay: "100ms" }}>
         <h1 className="text-2xl font-semibold text-[#0A2540]">
@@ -544,7 +544,7 @@ export default function OrderEntryShell({
         ) : (
         <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden">
           {!loading && (
-          <div className="px-6 py-4 border-b border-[#E3E8EF]">
+          <div className={`px-6 border-b border-[#E3E8EF] ${showReconnectIA ? "py-3" : "py-4"}`}>
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-lg bg-[#F6F9FC] flex items-center justify-center">
                 <PortalIcon className="w-4 h-4 text-[#635BFF]" />
@@ -565,7 +565,7 @@ export default function OrderEntryShell({
           </div>
           )}
 
-          <div className="p-6">
+          <div className={showReconnectIA ? "px-6 py-4" : "p-6"}>
             {loading ? (
               /* ---------- Initial load ---------- */
               <div className="flex flex-col items-center gap-3 py-10">
@@ -596,7 +596,7 @@ export default function OrderEntryShell({
             ) : step === "form" ? (
               /* ---------- Step 1: staff code + password + channel ---------- */
               <>
-              <form onSubmit={handleSendOtp} className="space-y-4">
+              <form onSubmit={handleSendOtp} className={showReconnectIA ? "space-y-3" : "space-y-4"}>
                 {credentialsError && (
                   <div
                     role="alert"
@@ -678,20 +678,9 @@ export default function OrderEntryShell({
                       value={registeredEmail}
                       onChange={(e) => setRegisteredEmail(e.target.value)}
                       required
+                      aria-describedby="registered-email-hint"
                       className="rounded-lg h-10 border-[#E3E8EF] focus:border-[#635BFF]"
                     />
-                    <p className="text-[11px] text-[#697386]">
-                      The email address registered on this dealer account — needed
-                      so BizzFlow can read the OTP automatically instead of you
-                      typing it in.{" "}
-                      <button
-                        type="button"
-                        onClick={() => setShowForwardHelp(true)}
-                        className="text-[#635BFF] font-medium hover:underline"
-                      >
-                        How to set this up
-                      </button>
-                    </p>
                   </div>
                 )}
 
@@ -711,6 +700,19 @@ export default function OrderEntryShell({
                     )}
                   </Button>
                 </div>
+
+                {channel === "Email" && (
+                  <p id="registered-email-hint" className="text-[11px] text-[#697386]">
+                    Needed so BizzFlow can read the OTP.{" "}
+                    <button
+                      type="button"
+                      onClick={() => setShowForwardHelp(true)}
+                      className="text-[#635BFF] font-medium hover:underline"
+                    >
+                      How to set this up
+                    </button>
+                  </p>
+                )}
               </form>
               <Sheet open={showForwardHelp} onOpenChange={setShowForwardHelp}>
                 <SheetContent
@@ -726,6 +728,11 @@ export default function OrderEntryShell({
                     </SheetDescription>
                   </div>
                   <div className="space-y-3 px-6 py-4 text-[13px] leading-relaxed text-[#425466]">
+                    <p>
+                      Enter the email address registered on this dealer account
+                      so BizzFlow can read the OTP automatically instead of you
+                      typing it in.
+                    </p>
                     <p>
                       In the Gmail account above, go to{" "}
                       <span className="font-medium">

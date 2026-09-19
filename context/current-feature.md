@@ -19,6 +19,11 @@ ClickUp z8v9xnfrhx. UI chrome / client routing only. Reuse `OrderEntryShell` OTP
 `?forceDealerExpired=1` must survive the index redirect and drive reconnect IA for QA.
 Must not break a live session on `/new-order` or manual Send OTP.
 
+Loom smoke at 1280×800 failed: Send OTP sat below the fold under the 3-line
+registered-email caption. Long caption now lives in the How-to-set-this-up
+drawer; Send OTP sits after the required fields; reconnect spacing is tighter
+so the button clears an 800px laptop with the G1 banner.
+
 # Previous Feature: Sticky dealer-session banner (unified copy)
 
 ## Status
