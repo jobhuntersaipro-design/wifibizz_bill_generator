@@ -203,13 +203,37 @@ describe("umobileBillCustomerName", () => {
     ).toBe("VSD AUTOMATION SDN. BHD.(510254-T)");
   });
 
-  it("keeps a letter BRN even on Business Fibre", () => {
+  it("strips a letter BRN / passport on Business Fibre", () => {
+    const biz = {
+      case_url: "https://wifibizz.com/applications/1?module=biz_fibre",
+      package: "Unifi Business Fibre 300Mbps",
+    };
+    expect(umobileBillCustomerName("MONBLEU CAFE(JM0920662-D)", biz)).toBe("MONBLEU CAFE");
+    // Case 202659425, as crawled.
     expect(
-      umobileBillCustomerName("MONBLEU CAFE(JM0920662-D)", {
-        case_url: "https://wifibizz.com/applications/1?module=biz_fibre",
-        package: "Unifi Business Fibre 300Mbps",
+      umobileBillCustomerName("XU QING(EC0606230)", {
+        provider: "Unifi Business With Device",
+        package: "Unifi Business Premium 2.0 300M with Device (MESH6) RM149 TV",
+        case_url:
+          "https://wifibizz.com/applications/201467?module=biz_fibre&application_no=202659425",
       }),
-    ).toBe("MONBLEU CAFE(JM0920662-D)");
+    ).toBe("XU QING");
+  });
+
+  it("strips the portal's nested reg and keeps a bracket inside the name", () => {
+    const biz = { case_url: "https://wifibizz.com/applications/1?module=biz_fibre" };
+    expect(
+      umobileBillCustomerName("Goldmate Corporation Sdn Bhd(198401017604 (130158-V))", biz),
+    ).toBe("Goldmate Corporation Sdn Bhd");
+    expect(umobileBillCustomerName("ABC (M) SDN BHD(123456-T)", biz)).toBe("ABC (M) SDN BHD");
+  });
+
+  it("keeps a letter ID on Home Fibre", () => {
+    expect(
+      umobileBillCustomerName("XU QING(EC0606230)", {
+        case_url: "https://wifibizz.com/applications/1?module=home_fibre",
+      }),
+    ).toBe("XU QING(EC0606230)");
   });
 
   it("leaves a plain name alone", () => {

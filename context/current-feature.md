@@ -1,3 +1,21 @@
+# Current Feature: Umobile bill drops the bracketed ID on business cases
+
+## Status
+
+CODE COMPLETE (branch `fix/umobile-strip-letter-brn`, not committed). Vercel-only, no migration.
+
+## Notes
+
+Reported 2026-09-19 off case 202659425 (`biz_fibre`): the Umobile bill printed
+`XU QING(EC0606230)`. It should print `XU QING`. `umobileBillCustomerName` stripped only a digits
+bracket (`510254-T`) and deliberately kept letter IDs. The user has now reversed that. On Business
+Fibre any trailing bracketed ID is dropped: letter BRNs, passport numbers, and the portal's nested
+`198401017604 (130158-V)`. A bracket inside the name itself survives (`ABC (M) SDN BHD`). Home Fibre
+is unchanged and still prints name+(ID).
+
+Verified: 1092 vitest (4 new/updated), including PDF-stream tests on the real case's fields;
+`npm run build` clean, lint clean, `tsc` 3 pre-existing errors. NOT verified in the browser.
+
 # Current Feature: The director on business documents is the real one
 
 ## Status
