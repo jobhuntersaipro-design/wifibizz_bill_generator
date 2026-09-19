@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   MAX_AUTO_RETRIES,
   MAX_TOTAL_ATTEMPTS,
+  NO_CREATE_RETRY_AFTER_MINT,
   TERMINAL_ERROR_CODES,
   isRetryPending,
   retryPendingAt,
@@ -100,6 +101,34 @@ describe("retryVerdict — what stops", () => {
     // The two must not be conflated: a slot another dealer took is worth
     // trying again for; a booking that never landed is not.
     expect(retryVerdict(failed({ errorCode: "appointment_slot_taken" })).retry).toBe(true);
+  });
+
+  it("refuses next_click_failed and pay_page_not_ready once a portal order exists", () => {
+    // ORD-0201: attempt 1 minted 2609000125814861 then died on the Pay shell;
+    // auto-retry minted a twin → address_already_has_service. After AC1 the
+    // none path is pay_page_not_ready; both codes must refuse create-retry.
+    for (const code of NO_CREATE_RETRY_AFTER_MINT) {
+      const v = retryVerdict(
+        failed({
+          status: "warning",
+          errorCode: code,
+          errorMessage: "The Pay page did not finish loading.",
+          orderId: "2609000125814861",
+        }),
+      );
+      expect(v.retry, code).toBe(false);
+      expect(v.reason, code).toMatch(/resume or void/i);
+    }
+  });
+
+  it("still retries those Pay-tail codes when no portal order was minted", () => {
+    for (const code of NO_CREATE_RETRY_AFTER_MINT) {
+      expect(retryVerdict(failed({ errorCode: code })).retry, code).toBe(true);
+      expect(
+        retryVerdict(failed({ errorCode: code, orderId: null })).retry,
+        code,
+      ).toBe(true);
+    }
   });
 
   it("refuses an expired dealer session, which carries no code", () => {

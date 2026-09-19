@@ -190,6 +190,45 @@ describe("every failed attempt keeps the code it failed with", () => {
     expect(finalWrite().errorCode).toBe("job_lost");
   });
 
+  it("does not mark pay_page_not_ready for retry once a portal order exists", async () => {
+    jobAnswers({
+      status: "done",
+      result: {
+        status: "error",
+        error: "pay_page_not_ready",
+        message: "The Pay page did not finish loading.",
+        order_id: "2609000125814861",
+        stage: "pay_tail",
+      },
+    });
+    await pollOrderProgress("ord_1");
+    const data = finalWrite();
+    expect(data.status).toBe("warning");
+    expect(data.errorCode).toBe("pay_page_not_ready");
+    expect(data.orderId).toBe("2609000125814861");
+    expect(data.autoRetryAt).toBeNull();
+  });
+
+  it("does not mark next_click_failed for retry once a portal order exists", async () => {
+    jobAnswers({
+      status: "done",
+      result: {
+        status: "error",
+        error: "next_click_failed",
+        message: "nonext",
+        order_id: "2609000125814861",
+        stage: "pay_tail",
+      },
+    });
+    await pollOrderProgress("ord_1");
+    const data = finalWrite();
+    expect(data.status).toBe("warning");
+    expect(data.errorCode).toBe("next_click_failed");
+    expect(data.orderId).toBe("2609000125814861");
+    expect(data.autoRetryAt).toBeNull();
+    expect(String(data.errorMessage).toLowerCase()).not.toContain("nonext");
+  });
+
   it("makes post_pay_not_confirmed terminal, as the policy always intended", async () => {
     // It had no copy, so it used to be stored as null — and null RETRIES, which
     // for a run that may already have charged the customer is the worst case.

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   ERF_NOT_DOWNLOADED,
   errorShortLabel,
+  humanizeScraperMessage,
   SUBMIT_ERROR_CODES,
   portalCodeFrom,
   submitErrorCopy,
@@ -128,6 +129,24 @@ describe("errorShortLabel", () => {
     expect(errorShortLabel(undefined)).toBeNull();
     expect(errorShortLabel("")).toBeNull();
     expect(errorShortLabel("__")).toBeNull();
+  });
+});
+
+describe("next_click_failed", () => {
+  it("has copy so the agent never sees a bare nonext", () => {
+    const copy = submitErrorCopy("next_click_failed");
+    expect(copy?.title).toMatch(/Next/i);
+    expect(copy?.action).toBe("check_portal");
+    expect(JSON.stringify(copy).toLowerCase()).not.toContain("nonext");
+  });
+
+  it("rewrites the scraper picker token before it is stored", () => {
+    expect(humanizeScraperMessage("nonext")).toBe(
+      "No Next button was visible on this page.",
+    );
+    expect(humanizeScraperMessage("nodoc")).toMatch(/iframe/i);
+    expect(humanizeScraperMessage("Please tick the box.")).toBe("Please tick the box.");
+    expect(humanizeScraperMessage(null)).toBeNull();
   });
 });
 

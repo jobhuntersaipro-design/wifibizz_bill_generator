@@ -79,6 +79,15 @@ export const TERMINAL_ERROR_CODES: ReadonlySet<string> = new Set([
   "submit_stopped",
 ]);
 
+/**
+ * Pay-tail codes that mean the portal already minted an order. A new
+ * `startSubmit` would mint a twin; resume or void first.
+ */
+export const NO_CREATE_RETRY_AFTER_MINT: ReadonlySet<string> = new Set([
+  "next_click_failed",
+  "pay_page_not_ready",
+]);
+
 /** Statuses that represent a finished, unsuccessful run. Nothing else retries —
  *  notably `submitted` (done) and `submitting` (still going). */
 const RETRYABLE_STATUSES: ReadonlySet<string> = new Set(["failed", "warning"]);
@@ -106,6 +115,8 @@ export interface RetryInput {
   attempt: number;
   /** A replication clone: every run is one run. */
   autoRetryDisabled?: boolean;
+  /** Portal Customer Order Number, when the failed run already minted one. */
+  orderId?: string | null;
 }
 
 export interface RetryVerdict {
@@ -143,6 +154,22 @@ export function retryVerdict(input: RetryInput): RetryVerdict {
 
   if (input.errorCode && TERMINAL_ERROR_CODES.has(input.errorCode)) {
     return { retry: false, reason: `${input.errorCode} will not fix itself` };
+  }
+
+  // After a minted portal order, another startSubmit creates a twin
+  // (ORD-0201: 2609000125814861 then 2609000125815472 →
+  // address_already_has_service). Both the old `none`→Next miss
+  // (`next_click_failed`) and the corrected `none` path (`pay_page_not_ready`)
+  // sit here. Resume or void the existing order first.
+  if (
+    input.errorCode &&
+    NO_CREATE_RETRY_AFTER_MINT.has(input.errorCode) &&
+    input.orderId
+  ) {
+    return {
+      retry: false,
+      reason: `${input.errorCode} after a portal order was minted — resume or void that order first`,
+    };
   }
 
   // Unrecognised, or a known-transient code. Retry: see TERMINAL_ERROR_CODES.
