@@ -1,4 +1,4 @@
-# Current Feature: Order Entry reconnect IA + OTP above fold
+# Current Feature: UX G2 Dashboard Case workbench; charts → Analytics
 
 ## Status
 
@@ -6,12 +6,23 @@ In Progress
 
 ## Goals
 
-- Expired or forced-expired dealer session lands on `/dashboard/order-entry/reconnect` with H1 `Reconnect dealer account` (not New Order)
-- One expiry message, same G1 copy (`Dealer session expired` / `Reconnect to submit orders`); no second overlapping pill on the form
-- Help “How to set this up” opens a Sheet so Send OTP stays above the fold
-- OTP channel labels are `Email` and `SMS` only
-- Loading shows a visible purple spinner; no “Connect Unifi Dealer Account” / “Not configured” flash on the expired path
-- No auto-send OTP; keep the existing password-used-once copy
+- `/dashboard` shows KPI strip + Case List + filters without four chart panels above the worklist
+- The four existing chart panels (Cases Over Time, Cases by State, By Status, By Provider) live on Analytics
+- Sidebar/nav link labeled **Analytics** opens `/dashboard/analytics`
+- Case List row actions, filters, and bill actions stay unchanged
+- KPI numbers stay the same sources (`totalCases`, Activated from `byStatus`, Cases Used)
+
+## Notes
+
+ClickUp [UX G2: Dashboard Case workbench; charts → Analytics](https://app.clickup.com/t/z8v9xnfrht). Option A. UI only. Move `AnalyticsSection` charts, do not rewrite them. Do not invent metrics. Do not mobile-redesign.
+
+`AnalyticsSection` already owns KPI + charts. `CaseManagementSection` is a sibling with no props. Placement is a `surface` flag (`workbench` | `analytics`), not a new analytics model.
+
+## History
+
+### Order Entry reconnect IA + OTP above fold
+
+Merged on main as PR #28. Expired dealer session lands on `/dashboard/order-entry/reconnect`.
 
 ## Notes
 
