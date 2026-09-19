@@ -118,6 +118,20 @@ describe("maybeAutoRetry", () => {
     expect(recordEvent.mock.calls[0][0].message).toMatch(/No automatic retry/);
   });
 
+  it("does not startSubmit after pay_page_not_ready once a portal order exists", async () => {
+    // AC1 remaps the none path to this code; create-retry would still mint a twin.
+    orderFindFirst.mockResolvedValue({
+      ...ORDER,
+      status: "warning",
+      errorCode: "pay_page_not_ready",
+      errorMessage: "The Pay page did not finish loading.",
+      orderId: "2609000125814861",
+    });
+    await expect(maybeAutoRetry("ord_1")).resolves.toBe("no");
+    expect(startSubmitRun).not.toHaveBeenCalled();
+    expect(recordEvent.mock.calls[0][0].message).toMatch(/No automatic retry/);
+  });
+
   it("says nothing at all about an order that succeeded", async () => {
     orderFindFirst.mockResolvedValue({ ...ORDER, status: "submitted" });
     await expect(maybeAutoRetry("ord_1")).resolves.toBe("no");

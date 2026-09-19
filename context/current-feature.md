@@ -7,14 +7,14 @@ IN PROGRESS (branch `cursor/oe-pay-none-no-twin-retry-d01f`). Scraper + retry po
 ## Goals
 
 - If `_wait_for_pay_or_next` returns `none`, do not call `click_next_newconn`. Return `pay_page_not_ready` (`check_portal`), not `next_click_failed` / `nonext`.
-- Do not auto-retry `next_click_failed` once a portal `order_id` exists — resume/void-first, not a new `startSubmit`.
+- Do not auto-retry `next_click_failed` or `pay_page_not_ready` once a portal `order_id` exists — resume/void-first, not a new `startSubmit`.
 - Human-readable copy for `next_click_failed` so the UI never shows bare `nonext`.
 
 ## Notes
 
 ORD-0201 (`cmu6qp1kq000404jkg5z5rm89`): wait `none` on the AJAX Pay shell → Next click → `nonext` → `next_click_failed` → auto-retry minted twin `2609000125815472` → `address_already_has_service`.
 
-Follow-up (not this cut): `pay_page_not_ready` is still auto-retried. After AC1 the live `none` path becomes that code, so a twin is still possible unless Probe also stops retrying it once a portal order exists.
+AC2 close (Atlas, same PR): `pay_page_not_ready` is gated the same as `next_click_failed` once a portal `order_id` exists — no auto-retry / no new `startSubmit`. Pre-mint still retries.
 
 # Current Feature: Biz Auth Letter letterhead on separate address lines
 
