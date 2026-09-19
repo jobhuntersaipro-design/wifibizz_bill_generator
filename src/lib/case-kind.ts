@@ -107,7 +107,10 @@ function isBusinessFibre(s: BusinessSignals): boolean {
   return false;
 }
 
-const TRAILING_BRN = /^(.*)\((\d+(?:-[A-Za-z])?)\)\s*$/;
+// A trailing bracketed ID of any shape — digits, `510254-T`, `JM0920662-D`,
+// a passport `EC0606230`, or the portal's nested `198401017604 (130158-V)`.
+// The lazy prefix keeps a bracket inside the name itself (`ABC (M) SDN BHD`).
+const TRAILING_BRN = /^(.*?)\((?:[^()]|\([^()]*\))+\)\s*$/;
 
 export function umobileBillCustomerName(
   fullName: string,
