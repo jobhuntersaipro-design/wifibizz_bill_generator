@@ -186,6 +186,23 @@ describe("umobileBillCustomerName", () => {
     ).toBe("TAN PEI SHAN");
   });
 
+  it("strips a trailing NNNNNN-T BRN on Business Fibre", () => {
+    expect(
+      umobileBillCustomerName("VSD AUTOMATION SDN. BHD.(510254-T)", {
+        case_url: "https://wifibizz.com/applications/1?module=biz_fibre&application_no=202672121",
+      }),
+    ).toBe("VSD AUTOMATION SDN. BHD.");
+  });
+
+  it("keeps a trailing NNNNNN-T pair on Home Fibre", () => {
+    expect(
+      umobileBillCustomerName("VSD AUTOMATION SDN. BHD.(510254-T)", {
+        case_url: "https://wifibizz.com/applications/1?module=home_fibre",
+        package: "Unifi Home 500Mbps",
+      }),
+    ).toBe("VSD AUTOMATION SDN. BHD.(510254-T)");
+  });
+
   it("keeps a letter BRN even on Business Fibre", () => {
     expect(
       umobileBillCustomerName("MONBLEU CAFE(JM0920662-D)", {

@@ -55,4 +55,13 @@ describe("U Mobile bill name overlay", () => {
     expect(stream).toContain("(TAN PEI SHAN) Tj");
     expect(stream).not.toContain("940924045066");
   });
+
+  it("strips a trailing NNNNNN-T BRN on a Business Fibre case", async () => {
+    const stream = await overlayStream("VSD AUTOMATION SDN. BHD.(510254-T)", {
+      case_url: "https://wifibizz.com/applications/1?module=biz_fibre&application_no=202672121",
+      package: "Unifi Business Fibre 300Mbps",
+    });
+    expect(stream).toContain("(VSD AUTOMATION SDN. BHD.) Tj");
+    expect(stream).not.toContain("510254");
+  });
 });
