@@ -104,6 +104,8 @@ export interface RetryInput {
   autoRetries: number;
   /** Total submit runs this draft has had, manual ones included. */
   attempt: number;
+  /** A replication clone: every run is one run. */
+  autoRetryDisabled?: boolean;
 }
 
 export interface RetryVerdict {
@@ -122,6 +124,9 @@ export interface RetryVerdict {
 export function retryVerdict(input: RetryInput): RetryVerdict {
   if (!RETRYABLE_STATUSES.has(input.status)) {
     return { retry: false, reason: `status is ${input.status}, not a failure` };
+  }
+  if (input.autoRetryDisabled) {
+    return { retry: false, reason: "automatic retry is off for this replication clone" };
   }
   if (input.autoRetries >= MAX_AUTO_RETRIES) {
     return { retry: false, reason: `all ${MAX_AUTO_RETRIES} automatic retries have been used` };

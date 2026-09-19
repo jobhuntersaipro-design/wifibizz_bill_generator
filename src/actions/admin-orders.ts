@@ -1,10 +1,15 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { verifyAdminSession } from "@/lib/admin-auth";
+import { requireAdmin } from "@/lib/admin-gate";
 import { SCRAPER_API_URL, ORDER_TOKEN } from "@/lib/order-start";
 import { describeConnection, isConnected, type ConnectionView } from "@/lib/agent-connection";
 import { ADMIN_ACTOR, recordAudit } from "@/lib/audit";
+import { resolveStaffCode, type OrderDocument } from "@/lib/order-types";
+import { cloneDocumentKey, cloneOrderInput, documentContentType } from "@/lib/clone-order";
+import { nextOrderReference } from "@/lib/order-history";
+import { getBytesFromR2, uploadToR2 } from "@/lib/r2";
+import { randomBytes } from "node:crypto";
 import {
   agentStats,
   errorBreakdown,
@@ -29,12 +34,6 @@ import {
  * Gated by the admin JWT (`verifyAdminSession`), NOT by `auth()` — `/admin` is a
  * separate identity from a signed-in agent.
  */
-
-async function requireAdmin(): Promise<{ success: false; error: string } | null> {
-  const isAdmin = await verifyAdminSession();
-  if (!isAdmin) return { success: false, error: "Unauthorized" };
-  return null;
-}
 
 /** Clamp a requested window to something sane, and never let `to` precede `from`. */
 function resolveRange(fromISO?: string, toISO?: string): { from: Date; to: Date } {
@@ -63,10 +62,10 @@ export interface AdminOrderRow {
   createdAt: Date;
   deletedAt: Date | null;
   agentEmail: string | null;
-  // Dealer staff code of the order's OWNER, read live from DealerAccount —
-  // nothing stamps a code onto the order, so this is what that agent is
-  // connected as today. Null = they have never connected.
+  // The staff code that submitted the order (frozen at submit time), else the
+  // owner's current code for a never-submitted row — see resolveStaffCode.
   agentStaffCode: string | null;
+  agentStaffCodeRecorded: boolean;
   agentId: string;
   documentCount: number;
 }
@@ -119,7 +118,10 @@ export async function adminListOrders(filters?: {
         createdAt: o.createdAt,
         deletedAt: o.deletedAt,
         agentEmail: o.user.email,
-        agentStaffCode: o.user.dealerAccount?.staffCode ?? null,
+        ...(() => {
+          const r = resolveStaffCode(o.submittedStaffCode, o.user.dealerAccount?.staffCode);
+          return { agentStaffCode: r.code, agentStaffCodeRecorded: r.recorded };
+        })(),
         agentId: o.user.id,
         documentCount: Array.isArray(o.documents) ? o.documents.length : 0,
       })),
@@ -251,6 +253,100 @@ export async function adminGetOrderDetail(id: string) {
   } catch (e) {
     console.error("[adminGetOrderDetail]", e);
     return { success: false as const, error: "Could not load the order.", data: null };
+  }
+}
+
+/**
+ * Accounts a replication clone can be placed in: order-entry users only, since
+ * the clone is submitted from that account's Order Entry under its own dealer
+ * session. A dedicated select, not `getUsers` — that one carries passwords.
+ */
+export async function adminCloneTargets() {
+  const denied = await requireAdmin();
+  if (denied) return { ...denied, data: [] };
+  const users = await prisma.user.findMany({
+    where: { orderEntryEnabled: true },
+    select: { id: true, email: true, name: true, isSuperAdmin: true },
+    orderBy: [{ isSuperAdmin: "desc" }, { email: "asc" }],
+  });
+  return { success: true as const, data: users };
+}
+
+/**
+ * Clone an order into a chosen account as a draft, so its failure can be run
+ * again by hand and watched.
+ *
+ * Nothing is submitted here: a run of a post-Order-click failure mints a real
+ * Unifi order, so the person submits it themselves. The clone never retries
+ * automatically, for the same reason — one Submit is one run.
+ *
+ * Documents are COPIED to new keys (see cloneDocumentKey): the draft needs them
+ * to be saved or submitted, and sharing the source's keys would let an upload
+ * on either order overwrite the other's file. The draft is written only after
+ * every readable file is copied, so a failure leaves no half-made clone.
+ */
+export async function adminCloneOrder(sourceId: string, targetUserId: string) {
+  const denied = await requireAdmin();
+  if (denied) return { ...denied, data: null };
+  try {
+    const [source, target] = await Promise.all([
+      prisma.order.findUnique({ where: { id: sourceId } }),
+      prisma.user.findUnique({
+        where: { id: targetUserId },
+        select: { id: true, email: true, orderEntryEnabled: true },
+      }),
+    ]);
+    if (!source) return { success: false as const, error: "Order not found.", data: null };
+    if (!target?.orderEntryEnabled) {
+      return { success: false as const, error: "That account does not have Order Entry.", data: null };
+    }
+
+    const tag = randomBytes(3).toString("hex");
+    const sourceDocs = (Array.isArray(source.documents) ? source.documents : []) as unknown as OrderDocument[];
+    const documents: OrderDocument[] = [];
+    const missing: string[] = [];
+    for (const doc of sourceDocs) {
+      const bytes = doc?.key?.startsWith("orders/") ? await getBytesFromR2(doc.key) : null;
+      if (!bytes) { missing.push(doc?.filename ?? "a document"); continue; }
+      const { key, filename } = cloneDocumentKey(doc, target.id, tag);
+      await uploadToR2(key, bytes, documentContentType(filename));
+      documents.push({
+        type: doc.type, key, filename,
+        url: `/api/orders/document?key=${encodeURIComponent(key)}`,
+      });
+    }
+
+    const clone = await prisma.order.create({
+      data: {
+        ...cloneOrderInput(source),
+        userId: target.id,
+        status: "draft",
+        reference: await nextOrderReference(),
+        documents: documents as unknown as object,
+        autoRetryDisabled: true,
+      },
+      select: { id: true, reference: true },
+    });
+
+    const from = source.reference ?? source.fullName;
+    await recordAudit({
+      actor: ADMIN_ACTOR,
+      action: "order_cloned",
+      targetUser: target.id,
+      targetOrder: clone.id,
+      detail:
+        `Cloned ${from} into ${clone.reference} for ${target.email} to replicate a failure ` +
+        `(${documents.length} document${documents.length === 1 ? "" : "s"} copied` +
+        `${missing.length ? `, ${missing.length} unreadable` : ""}; automatic retry off).`,
+    });
+
+    return {
+      success: true as const,
+      data: { id: clone.id, reference: clone.reference, targetEmail: target.email, copied: documents.length, missing },
+    };
+  } catch (e) {
+    console.error("[adminCloneOrder]", e);
+    return { success: false as const, error: "Could not clone the order.", data: null };
   }
 }
 

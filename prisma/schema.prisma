@@ -113,10 +113,22 @@ model Order {
   // requests, so "shortly" has to be a row somebody sweeps.
   autoRetryAt DateTime? @map("auto_retry_at")
 
+  // Set on a clone admin made to replicate a failure. Every run then happens
+  // once per Submit: an automatic retry would mint extra real Unifi orders for
+  // a run that exists only to be watched. Never cloned onward.
+  autoRetryDisabled Boolean @default(false) @map("auto_retry_disabled")
+
   // Whose dealer session ran the last submit. A submit runs under the session of
   // whoever pressed the button — a superadmin submits another agent's draft
   // under their OWN session — and an automatic retry has none to read.
   lastSubmitUserId String? @map("last_submit_user_id")
+
+  // The dealer staff code (e.g. TMRS00517) whose portal session ran the latest
+  // submit, FROZEN at submit time. Read live from DealerAccount it would re-label
+  // every past order when an agent reconnects under another code, and would name
+  // the draft's owner rather than the superadmin who actually submitted it.
+  // Null = never submitted since this column existed.
+  submittedStaffCode String? @map("submitted_staff_code")
 
   jobId   String?   @map("job_id") // Flask job id for the in-flight run
   stage   String? // last stage key seen (e.g. checking_address)
@@ -189,6 +201,7 @@ model Order {
   // Every agent-facing list filters on this; admin oversight is the only
   // reader that does not.
   @@index([deletedAt])
+  @@index([submittedStaffCode])
   @@map("orders")
 }
 

@@ -2,7 +2,10 @@
  * The clone's field line — everything is on one side of it on purpose.
  */
 import { describe, it, expect } from "vitest";
-import { CLONED_FIELDS, NEVER_CLONED, cloneOrderInput } from "@/lib/clone-order";
+import {
+  CLONED_FIELDS, NEVER_CLONED, cloneDocumentKey, cloneOrderInput, documentContentType,
+} from "@/lib/clone-order";
+import { slugFromFilename } from "@/lib/order-documents";
 
 describe("the clone line", () => {
   it("copies exactly the pinned fields and nothing else", () => {
@@ -31,5 +34,39 @@ describe("the clone line", () => {
   it("tolerates a source missing optional fields", () => {
     const out = cloneOrderInput({ idNumber: "x", fullName: "y" });
     expect(out).toEqual({ idNumber: "x", fullName: "y" });
+  });
+});
+
+describe("documents copied into a replication clone", () => {
+  it("never reuses the source key, even cloning into the same account", () => {
+    const source = "orders/u1/940728065051_mykad_front.png";
+    const { key } = cloneDocumentKey({ key: source, filename: "940728065051_mykad_front.png" }, "u1", "ab12");
+    expect(key).not.toBe(source);
+    expect(key).toBe("orders/u1/940728065051_mykad_front-cab12.png");
+  });
+
+  it("keeps the slug the form reads to know which kinds are attached", () => {
+    const { filename } = cloneDocumentKey({ key: "orders/u1/940728065051_internet_bill_2.pdf", filename: "940728065051_internet_bill_2.pdf" }, "u2", "zz");
+    expect(slugFromFilename(filename)).toBe("internet_bill");
+  });
+
+  it("keeps an uploaded file's original name and tags its slot folder", () => {
+    const source = { key: "orders/u1/940728065051_mykad_front/IC depan.jpg", filename: "IC depan.jpg" };
+    const out = cloneDocumentKey(source, "u1", "ab12");
+    expect(out).toEqual({ key: "orders/u1/940728065051_mykad_front-cab12/IC depan.jpg", filename: "IC depan.jpg" });
+  });
+
+  it("lands in the target account's namespace", () => {
+    expect(cloneDocumentKey({ key: "orders/u/x_a_1.pdf", filename: "x_a_1.pdf" }, "target", "t").key.startsWith("orders/target/")).toBe(true);
+  });
+
+  it("types documents from the extension", () => {
+    expect(documentContentType("a_b_1.JPG")).toBe("image/jpeg");
+    expect(documentContentType("a_b_1.pdf")).toBe("application/pdf");
+    expect(documentContentType("a_b_1")).toBe("application/octet-stream");
+  });
+
+  it("does not carry the no-retry flag onward through an ordinary clone", () => {
+    expect((NEVER_CLONED as readonly string[]).includes("autoRetryDisabled")).toBe(true);
   });
 });

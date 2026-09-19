@@ -75,10 +75,39 @@ export function closingScriptVariant(s: BusinessSignals): "bizz" | "conversation
   return isBusinessCase(s) ? "bizz" : "conversation";
 }
 
+export type AuthLetterVariant = "biz" | "residential";
+
+/**
+ * Which authorisation letter a case gets, by the same rule the chat uses.
+ *
+ * XOR, never both: a business case gets the Biz Auth Letter (a company
+ * authorising a TM agent) and a normal case gets the residential Auth Letter (a
+ * property owner confirming somebody lives there). They are different documents
+ * with different templates, so offering both would ask the agent to pick between
+ * two letters only one of which their customer can sign.
+ */
+export function authLetterVariant(s: BusinessSignals): AuthLetterVariant {
+  return isBusinessCase(s) ? "biz" : "residential";
+}
+
+/** The button label for each letter. One source, so the two render sites agree. */
+export const AUTH_LETTER_LABEL: Record<AuthLetterVariant, string> = {
+  biz: "Biz Auth Letter",
+  residential: "Auth Letter",
+};
+
 export interface BizzChatFields {
   /** Company Registration No / BRN. Never NRIC. */
   customerId: string | null;
-  /** Customer-tab Name / director. Never the company name. */
+  /**
+   * Customer-tab Name / director. Never the company name.
+   *
+   * NOT printed any more: since 2026-09-18 the Bizz Chat's Business Owner and
+   * the Biz Auth Letter's director are both the INVENTED person from
+   * `resolveBizDirector`, so the two documents cannot name different people.
+   * Kept because it is still the truthful answer to "who does the portal record
+   * as the owner", which is worth being able to ask.
+   */
   businessOwnerName: string | null;
 }
 

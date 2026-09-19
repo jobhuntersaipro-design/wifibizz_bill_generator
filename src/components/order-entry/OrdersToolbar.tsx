@@ -5,6 +5,8 @@ import {
   STATUS_FILTERS,
   STATUS_LABELS,
   activeFilterCount,
+  EMPTY_FILTERS,
+  NO_STAFF_CODE,
   submitBlockedReason,
   type OrderFilters,
 } from "@/lib/order-types";
@@ -70,6 +72,8 @@ export function OrdersToolbar({
   onChange,
   offers,
   devices,
+  staffCodes,
+  hasNoStaffCode,
   selectedCount,
   batchRunning,
   serverBusy,
@@ -86,6 +90,10 @@ export function OrdersToolbar({
   onChange: (next: OrderFilters) => void;
   offers: string[];
   devices: string[];
+  /** Distinct staff codes in the loaded rows. */
+  staffCodes: string[];
+  /** Whether any loaded row has no staff code, which earns a "No staff code" option. */
+  hasNoStaffCode: boolean;
   selectedCount: number;
   batchRunning: boolean;
   /** The droplet is running a browser job — anyone's. See submitBlockedReason. */
@@ -167,19 +175,23 @@ export function OrdersToolbar({
           allLabel="All devices"
           options={devices.map((d) => ({ value: d, label: d }))}
         />
+        <FilterSelect
+          id="drafts-staff-code"
+          label="Staff codes"
+          value={filters.staffCode}
+          onChange={(v) => set("staffCode", v)}
+          allLabel="All staff codes"
+          options={[
+            ...staffCodes.map((c) => ({ value: c, label: c })),
+            ...(hasNoStaffCode ? [{ value: NO_STAFF_CODE, label: "No staff code" }] : []),
+          ]}
+        />
 
         {active > 0 && (
           <button
             type="button"
             onClick={() =>
-              onChange({
-                query: "",
-                status: "all",
-                dateFrom: null,
-                dateTo: null,
-                offerName: "all",
-                deviceName: "all",
-              })
+              onChange(EMPTY_FILTERS)
             }
             className="inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium text-[#635BFF] transition-colors duration-150 hover:bg-[#EDEBFF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
           >

@@ -288,9 +288,25 @@ def test_a_refused_ok_is_an_error_that_names_the_field():
     assert st["street"] == ""
 
 
-def test_a_page_without_the_checkbox_is_an_error():
-    without = delivery_page().replace('name="defaultBillingAddress"', 'name="somethingElse"')
+def test_a_page_without_the_checkbox_skips_cleanly():
+    # Engineer Door-to-door: no Delivery Information / no checkbox. Installation
+    # already is delivery — do not fail the order (ORD-0135 attempts 9–12).
+    without = delivery_page().replace(
+        '<label><input type="checkbox" name="defaultBillingAddress" \n'
+        '                onchange="onDefaultToggle(this)"> Default From Billing Address</label>',
+        '')
+    assert "defaultBillingAddress" not in without
     res, st = run_step(without, _payload())
-    assert res["status"] == "error"
-    assert res["error"] == "delivery_address_checkbox_missing"
-    assert st["okCount"] == 0
+    assert res == {"status": "ok",
+                   "detail": "skipped (no Default From Billing Address control)"}
+    assert st["opened"] == 0 and st["okCount"] == 0
+
+
+def test_checkbox_found_by_label_when_name_differs():
+    # Live name may drift; the printed label is enough to open Enter Address.
+    renamed = delivery_page().replace('name="defaultBillingAddress"',
+                                      'name="somethingElse"')
+    res, st = run_step(renamed, _payload())
+    assert res["status"] == "ok"
+    assert st["street"] == INSTALL_STREET
+    assert st["opened"] == 1 and st["okCount"] == 1

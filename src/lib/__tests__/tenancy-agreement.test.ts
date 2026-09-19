@@ -763,8 +763,14 @@ describe("Bills column TA", () => {
     expect(src).toContain("flex-wrap");
     expect(src).toContain("w-[296px]");
     expect(src.indexOf('title="Generate Bizz Chat"')).toBeLessThan(src.indexOf('data-action="tenancy-agreement"'));
-    expect(src.indexOf("tenancy-agreement")).toBeLessThan(src.indexOf("Generate Auth Letter"));
-    expect(src).toContain(">Auth Letter<");
+    // The letter's label is chosen by plan type now (Auth Letter vs Biz Auth
+    // Letter), so the literal this used to grep for lives in AUTH_LETTER_LABEL.
+    // Both assertions stay scoped to the ROW button — the detail panel renders
+    // the same label expression earlier in the file.
+    expect(src.indexOf('data-action="tenancy-agreement"')).toBeLessThan(
+      src.indexOf("AUTH_LETTER_LABEL[authLetterVariant(c)]}</span>"),
+    );
+    expect(src).toContain("{AUTH_LETTER_LABEL[authLetterVariant(c)]}</span>");
     expect(src).toContain(">TA<");
   });
 });

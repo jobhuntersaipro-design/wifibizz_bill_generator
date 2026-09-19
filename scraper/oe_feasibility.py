@@ -14,6 +14,7 @@ Returns dicts, never raises for expected flow errors; InfraError only on lost
 session. dry_run=True is the safety gate — it never clicks Order (no order created).
 """
 import asyncio
+import time
 import contextvars
 import json
 import os
@@ -1157,6 +1158,107 @@ async def _pii_otp_target(frame) -> str | None:
     return None
 
 
+_RANDOM_NEEDED_RE = re.compile(r"Random\s+(\d+)\s+questions?\s+must\s+be\s+correct", re.I)
+
+
+def random_questions_needed(dialog_text: str) -> int | None:
+    """How many of the "Random N questions" the dialog wants answered, from its
+    own heading; None when there is no such block. Pure, so it is testable
+    without a browser and the heading's wording is pinned in one place."""
+    m = _RANDOM_NEEDED_RE.search(dialog_text or "")
+    return int(m.group(1)) if m else None
+
+
+async def _answer_random_pii_questions(frame) -> dict:
+    """ORD-0168 (2026-09-14): beneath the Mandatory Questions the portal can put
+    a second block — "Random N questions must be correct" — where each question
+    shows only a **Show Answer** link, and Proceed stays disabled until N of the
+    answers it reveals are ticked. Ticking the mandatory boxes alone leaves the
+    dialog exactly where the live run left it: three boxes ticked, Proceed grey.
+
+    The user's rule: click Show Answer, tick the box it reveals, Proceed. This
+    reveals the FIRST N answers (the portal orders them; nobody here can judge
+    which is "correct") and ticks whatever confirm box each reveal exposes.
+
+    The block's markup has never been captured, so it is printed to the run log
+    the first time this runs live — the same "one run answers it" pattern the
+    appointment reader and the Add Account form used. Returns what it did, for
+    the caller's message; never raises.
+    """
+    out = {"needed": 0, "offered": 0, "shown": 0, "ticked": 0}
+    try:
+        dlg = frame.locator(".ui-dialog:visible, .modal.in:visible").filter(
+            has_text="Proceed").last
+        if not await dlg.count():
+            return out
+        text = " ".join((await dlg.inner_text(timeout=3000)).split())
+        links = dlg.get_by_text("Show Answer", exact=True)
+        offered = await links.count()
+        needed = random_questions_needed(text)
+        if needed is None and not offered:
+            return out  # no random block on this dialog
+        needed = needed if needed is not None else 1
+        out.update(needed=needed, offered=offered)
+
+        # Record the real markup before touching it.
+        try:
+            html = await links.first.evaluate(
+                "el => (el.closest('form') || el.closest('.tab-pane') || el.parentElement).outerHTML")
+            print(f"  ↳ PII random block ({needed} required, {offered} offered): "
+                  f"{' '.join(html.split())[:3000]}", flush=True)
+        except Exception:  # noqa: BLE001
+            print(f"  ↳ PII random block ({needed} required, {offered} offered)", flush=True)
+
+        for _ in range(min(needed, offered)):
+            # A revealed link may stay put or be replaced by the answer, so
+            # each click is stamped and the next pick skips stamped ones.
+            link = dlg.locator(':text-is("Show Answer"):not([data-bf-shown])').first
+            handle = await link.element_handle(timeout=2000) if await link.count() else None
+            if handle is None:
+                break
+            await handle.click(timeout=5000)
+            out["shown"] += 1
+            try:  # the reveal may replace the link; a stamp on a gone node is fine
+                await handle.evaluate("el => el.setAttribute('data-bf-shown', '1')")
+            except Exception:  # noqa: BLE001
+                pass
+            await asyncio.sleep(0.8)
+            # Tick what the reveal exposed: any visible, unticked box in the
+            # dialog outside the mandatory form (those are ticked already).
+            boxes = dlg.locator('input[type="checkbox"]:visible')
+            for i in range(await boxes.count()):
+                box = boxes.nth(i)
+                try:
+                    if await box.is_checked():
+                        continue
+                    if await box.evaluate(
+                            "el => !!el.closest('form.js-mandatory-question-form')"):
+                        continue
+                    try:
+                        await box.check(timeout=3000)
+                    except Exception:  # noqa: BLE001
+                        await box.click(force=True)
+                    out["ticked"] += 1
+                except Exception:  # noqa: BLE001
+                    continue
+        print(f"  ↳ PII random questions: revealed {out['shown']}, ticked {out['ticked']} "
+              f"(needed {needed})", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  ↳ PII random questions: gave up ({type(e).__name__}: "
+              f"{' '.join(str(e).split())[:400]})", flush=True)
+    return out
+
+
+def _describe_pii_answers(n: int, rnd: dict) -> str:
+    """"3 mandatory question(s)" or "3 mandatory question(s) and 1 of 1 random
+    answer(s) revealed, 1 ticked" — what the run actually did, for the message."""
+    s = f"{n} mandatory question(s)"
+    if rnd.get("needed"):
+        s += (f" and {rnd['shown']} of {rnd['needed']} random answer(s) revealed, "
+              f"{rnd['ticked']} ticked")
+    return s
+
+
 async def _answer_pii_and_proceed(frame, note: str | None = None) -> dict:
     """Answer the PII identity check and click Proceed. Shared by the
     search-attach path (after the result-row dblclick) and the duplicate-IC
@@ -1213,6 +1315,8 @@ async def _answer_pii_and_proceed(frame, note: str | None = None) -> dict:
             await checks.nth(i).check(timeout=3000)
         except Exception:
             await checks.nth(i).click(force=True)
+    rnd = await _answer_random_pii_questions(frame)
+    answered = _describe_pii_answers(n, rnd)
     try:
         await frame.locator(_PROCEED_BTN).first.click(timeout=8000)
     except Exception as e:  # noqa: BLE001
@@ -1220,7 +1324,7 @@ async def _answer_pii_and_proceed(frame, note: str | None = None) -> dict:
         return {"status": "error", "error": PII_VERIFICATION_REQUIRED,
                 "stage": "attach_customer",
                 "message": (f"The PII dialog's Proceed did not accept the click "
-                            f"({type(e).__name__}) after answering {n} question(s)."
+                            f"({type(e).__name__}) after answering {answered}."
                             + (f" Portal dialog: {text}" if text else ""))}
 
     # Verify. A PII dialog still up means Proceed refused what was answered —
@@ -1233,7 +1337,7 @@ async def _answer_pii_and_proceed(frame, note: str | None = None) -> dict:
         text = await _pii_dialog_text(frame)
         return {"status": "error", "error": PII_VERIFICATION_REQUIRED,
                 "stage": "attach_customer",
-                "message": (f"Answered {n} PII question(s) and pressed Proceed, but "
+                "message": (f"Answered {answered} and pressed Proceed, but "
                             f"the portal kept the identity check open."
                             + (f" Portal dialog: {text}" if text else ""))}
 
@@ -1506,7 +1610,7 @@ async def _capture_dialog_message(page) -> str | None:
 
 async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = False,
                            submit: bool = True, do_pay: bool = False,
-                           on_stage=None) -> dict:
+                           on_stage=None, live_view_job_id: str | None = None) -> dict:
     """The full per-order flow in ONE dealer session:
         create the customer profile -> feasibility -> Order -> attach -> order id
         -> New Connection detail (contact/account/winback/device/sub-tabs/
@@ -1558,9 +1662,16 @@ async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = 
 
     session_path = f"sessions/dealer_{dealer_login_service._safe_key(user_key)}.json"
     pw = browser = context = page = None
+    live_session = None
     try:
         pw, browser, context, page = await dealer_web_login.open_context_from_session(
             session_path, landing_url=ORDER_ENTRY_URL)
+        # Admin's watch-only live view, only for a job created with it. Attached
+        # as early as possible — right after the page exists — so a login bounce
+        # or an early portal refusal is visible too, not just a healthy run.
+        if live_view_job_id:
+            import live_view
+            live_session = await live_view.attach(page, live_view_job_id)
         await ensure_on_order_entry(page)
         frame = _frame(page)
 
@@ -1628,6 +1739,12 @@ async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = 
         await capture_failure(page, payload, outcome, stage)
         return outcome
     finally:
+        # Detached whenever it was requested, whether or not attach() actually
+        # produced a session — detach() tolerates None, and a store created by
+        # a failed attach still needs to be torn down.
+        if live_view_job_id:
+            import live_view
+            await live_view.detach(live_view_job_id, live_session)
         await dealer_web_login.safe_teardown(pw, browser, context)
 
 
@@ -2824,6 +2941,20 @@ def is_login_taken(message: str | None) -> bool:
     return bool(message) and bool(_LOGIN_TAKEN_RE.search(message))
 
 
+# The Check popup's refusal of the name's SHAPE, not its availability:
+#   "The format is illegal, cannot contain special characters, and the length
+#    cannot exceed 21"   (live 2026-09-15, order 2609000125316868)
+_LOGIN_FORMAT_RE = re.compile(r"format\s+is\s+illegal|length\s+cannot\s+exceed", re.I)
+
+# The portal's own limit on a Broadband/TV service username, from that popup.
+SERVICE_USERNAME_MAX = 21
+
+
+def is_login_format_invalid(message: str | None) -> bool:
+    """True when the Check popup refuses a service username's format or length."""
+    return bool(message) and bool(_LOGIN_FORMAT_RE.search(message))
+
+
 def taken_login_id(message: str | None) -> str | None:
     """The rejected LOGIN_ID (e.g. 'tklee812@iptv') named in the popup, if any."""
     m = _LOGIN_ID_RE.search(message or "")
@@ -2841,6 +2972,11 @@ def _service_username(email: str, exclude: set | None = None) -> str:
     """
     local = (email or "user").split("@")[0]
     local = "".join(ch for ch in local if ch.isalnum()).upper() or "USER"
+    # Room for the 3 digits inside the portal's limit. An email local part of 19+
+    # characters used to produce a name the Check refuses outright, and the run
+    # carried on to a Next that blocked with "Please check the service number
+    # first." after the order number was already minted.
+    local = local[:SERVICE_USERNAME_MAX - 3]
     exclude = exclude or set()
     for _ in range(40):
         name = f"{local}{_random.randint(100, 999)}"
@@ -2889,6 +3025,13 @@ async def _set_service_number_username(frame, page, email: str,
             return {"status": "ok", "stage": "service_number", "username": uname,
                     "attempts": attempt + 1}
         last_msg = msg
+        if is_login_format_invalid(msg):
+            # The portal refused the name itself, so the number was never checked
+            # and the Next WILL block. Carrying on as "ok" is what stranded order
+            # 2609000125316868; try another name, and fail loudly if none passes.
+            print(f"  ↳ service username {uname} refused by Check: {msg!r} — retrying "
+                  f"({attempt + 1}/{attempts})", flush=True)
+            continue
         if not is_login_taken(msg):
             # Some other popup. The order id is already minted by this point, so
             # failing here strands it — and before this change the Check result
@@ -2900,6 +3043,12 @@ async def _set_service_number_username(frame, page, email: str,
         print(f"  ↳ service username {uname} already in use — retrying "
               f"({attempt + 1}/{attempts})", flush=True)
 
+    if is_login_format_invalid(last_msg):
+        return {"status": "error", "error": "login_id_invalid",
+                "stage": "service_number",
+                "message": (f"The portal refused every service username as invalid "
+                            f"(tried {sorted(tried)}): {last_msg}"),
+                "tried": sorted(tried)}
     return {"status": "error", "error": "service_number_all_taken",
             "stage": "service_number",
             "message": (f"The portal rejected {attempts} service usernames as already "
@@ -3028,20 +3177,214 @@ _PICKER_OPEN_JS = r"""(() => {
 })()"""
 
 
-async def _open_voice_number_picker(frame, page) -> dict:
-    """3-dots -> Query -> confirm popup OK -> wait for the number cards."""
-    opened = await page.evaluate(r"""(() => {
-      const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
-      const vis=e=>e&&e.offsetParent!==null;
-      const dots=[...d.querySelectorAll('span.icon-option-horizontal')].filter(vis);
-      if(!dots.length) return 'nodots';
-      dots[dots.length-1].click(); return 'ok';
-    })()""")
-    if opened != "ok":
+# Which `···` opens the Select Number picker. It used to be "the last visible
+# one on the page" — and on ORD-0168 (2026-09-14, a Premium Value MAX plan) the
+# Voice tab's Agreement row carries its own `···` AFTER the Service Number's,
+# so that click opened Select Agreement, the picker tagger tagged it, Query was
+# pressed in it and the run waited 25 s for number cards. Four runs, four
+# stranded orders. Prefer the `···` whose own row says Service Number; failing
+# that, any `···` whose row does NOT say Agreement; failing that, the old rule.
+_SERVICE_NUMBER_DOTS_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return {status:'nodoc'};
+  const vis=e=>e&&e.offsetParent!==null;
+  // The label lives on the .form-group; the .input-group inside it holds only
+  // the read-only field and the icons, whose text is empty. Walk out until
+  // some text appears, four levels at most.
+  const rowText=e=>{ let g=e.closest('.form-group')||e.closest('.input-group, .field')||e.parentElement;
+    for(let i=0;g&&i<4;i++){ const t=((g.innerText)||'').replace(/\s+/g,' ').trim(); if(t) return t; g=g.parentElement; }
+    return ''; };
+  const dots=[...d.querySelectorAll('span.icon-option-horizontal')].filter(vis);
+  if(!dots.length) return {status:'nodots'};
+  const rows=dots.map(rowText);
+  let i=rows.findIndex(t=>/service\s*number/i.test(t)), how='service-number row';
+  if(i<0){ const ok=rows.map((t,k)=>/agreement/i.test(t)?-1:k).filter(k=>k>=0);
+           i=ok.length?ok[ok.length-1]:-1; how='last non-agreement row'; }
+  if(i<0){ i=dots.length-1; how='last dots (fallback)'; }
+  dots[i].click();
+  return {status:'ok', how, row:rows[i].slice(0,60), rows:rows.map(t=>t.slice(0,40))};
+})()"""
+
+
+async def _click_service_number_dots(page) -> dict:
+    """Open the Service Number's `···` and say which one was pressed. Never the
+    Agreement row's. If the dialog that opened is still an Agreement one, it is
+    cancelled and reported, because pressing Query in it is the live failure."""
+    r = await page.evaluate(_SERVICE_NUMBER_DOTS_JS)
+    if r.get("status") != "ok":
         return {"status": "error", "error": "voice_dots_failed",
-                "stage": "voice_number", "message": opened}
+                "stage": "voice_number", "message": r.get("status")}
+    print(f"  ↳ voice `···` pressed: {r.get('how')} ({r.get('row')!r}; "
+          f"rows seen {r.get('rows')})", flush=True)
     await asyncio.sleep(2)
+    title = await _topmost_dialog_title(page)
+    if title and re.search(r"agreement", title, re.I):
+        await _cancel_topmost_dialog(page)
+        return {"status": "error", "error": "voice_dots_opened_agreement",
+                "stage": "voice_number",
+                "message": (f"The `···` pressed for the Service Number opened {title!r} "
+                            f"instead of the number picker (pressed {r.get('how')}).")}
+    return {"status": "ok", "how": r.get("how"), "dialog": title}
+
+
+_TOPMOST_DIALOG_TITLE_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return null;
+  const vis=e=>e&&e.offsetParent!==null;
+  const dl=[...d.querySelectorAll('.ui-dialog, .modal.in')].filter(vis).pop(); if(!dl) return null;
+  return ((dl.querySelector('.ui-dialog-title,.modal-title')||{}).innerText||'').replace(/\s+/g,' ').trim();
+})()"""
+
+
+async def _topmost_dialog_title(page) -> str | None:
+    try:
+        return await page.evaluate(_TOPMOST_DIALOG_TITLE_JS)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _cancel_topmost_dialog(page) -> str:
+    """Press Cancel/Close on the topmost dialog — never OK. Best-effort."""
+    try:
+        return await page.evaluate(r"""(() => {
+          const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
+          const vis=e=>e&&e.offsetParent!==null;
+          const dl=[...d.querySelectorAll('.ui-dialog, .modal.in')].filter(vis).pop(); if(!dl) return 'nodialog';
+          const b=dl.querySelector('.js-cancel')
+            || [...dl.querySelectorAll('button, a.btn')].find(x=>/^\s*(cancel|close)\s*$/i.test((x.innerText||'').trim()))
+            || dl.querySelector('.close');
+          if(!b) return 'nobutton'; b.click(); return 'ok';
+        })()""")
+    except Exception:  # noqa: BLE001
+        return "error"
+
+
+async def _open_voice_number_picker(frame, page) -> dict:
+    """Service Number `···` -> Query -> confirm popup OK -> wait for the cards."""
+    opened = await _click_service_number_dots(page)
+    if opened.get("status") != "ok":
+        return opened
     return await _query_voice_numbers(frame, page)
+
+
+# ── Agreement ────────────────────────────────────────────────────────────────
+# A sub-product tab can carry a mandatory Agreement row (`*Agreement`, a
+# read-only field, a `···` and a trash). Broadband arrives with it filled
+# ("unifi Home"); ORD-0168's Voice tab arrived with it EMPTY, and its `···`
+# opens a Select Agreement dialog offering one card — "Residential Voice Basic
+# (24 Months)". The user's rule (2026-09-14): select the agreement, then Next.
+_AGREEMENT_ROW_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return {status:'nodoc'};
+  const vis=e=>e&&e.offsetParent!==null;
+  const T=e=>((e&&e.innerText)||'').replace(/\s+/g,' ').trim();
+  const groups=[...d.querySelectorAll('.form-group, .input-group, .field')].filter(vis)
+    .filter(g=>/agreement/i.test(T(g.querySelector('label, .control-label')||g).slice(0,40)) && g.querySelector('input'));
+  const g=groups.find(x=>x.querySelector('span.icon-option-horizontal')) || groups[0];
+  if(!g) return {status:'absent'};
+  const inp=g.querySelector('input');
+  const dots=g.querySelector('span.icon-option-horizontal');
+  return {status:'ok', value:(inp.value||'').trim(), hasDots:!!dots,
+          html:g.outerHTML.replace(/\s+/g,' ').slice(0,1200)};
+})()"""
+
+_AGREEMENT_DOTS_CLICK_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
+  const vis=e=>e&&e.offsetParent!==null;
+  const T=e=>((e&&e.innerText)||'').replace(/\s+/g,' ').trim();
+  const groups=[...d.querySelectorAll('.form-group, .input-group, .field')].filter(vis)
+    .filter(g=>/agreement/i.test(T(g.querySelector('label, .control-label')||g).slice(0,40)));
+  const g=groups.find(x=>x.querySelector('span.icon-option-horizontal')); if(!g) return 'nodots';
+  g.querySelector('span.icon-option-horizontal').click(); return 'ok';
+})()"""
+
+_AGREEMENT_DIALOG_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return {status:'nodoc'};
+  const vis=e=>e&&e.offsetParent!==null;
+  const T=e=>((e&&e.innerText)||'').replace(/\s+/g,' ').trim();
+  const dls=[...d.querySelectorAll('.ui-dialog, .modal.in')].filter(vis)
+    .filter(dl=>/agreement/i.test(T(dl.querySelector('.ui-dialog-title,.modal-title'))));
+  const dl=dls.pop(); if(!dl) return {status:'nodialog'};
+  dl.setAttribute('data-bf-agreement','1');
+  // Card candidates: anything card-like first, else the smallest visible node
+  // whose text reads like an agreement ("… (24 Months)").
+  let cards=[...dl.querySelectorAll('.number-card, [class*="card"], .js-item, li.list-group-item')].filter(vis);
+  if(!cards.length){
+    const all=[...dl.querySelectorAll('div, span, b, td, li, p')].filter(vis)
+      .filter(e=>/\(\s*\d+\s*months?\s*\)/i.test(T(e)) && !e.querySelector('input, button'));
+    // smallest = the one none of the others contains
+    cards=all.filter(e=>!all.some(o=>o!==e && e.contains(o)));
+  }
+  cards.forEach((c,i)=>c.setAttribute('data-bf-agreement-card', String(i)));
+  return {status:'ok', title:T(dl.querySelector('.ui-dialog-title,.modal-title')),
+          cards:cards.map(c=>T(c).slice(0,80)),
+          html:((dl.querySelector('.modal-body')||dl).outerHTML||'').replace(/\s+/g,' ').slice(0,2500)};
+})()"""
+
+_AGREEMENT_OK_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
+  const dl=d.querySelector('[data-bf-agreement]'); if(!dl) return 'nodialog';
+  const b=dl.querySelector('.js-ok')
+    || [...dl.querySelectorAll('button, a.btn')].find(x=>/^\s*ok\s*$/i.test((x.innerText||'').trim()));
+  if(!b) return 'nobutton'; b.click(); return 'ok';
+})()"""
+
+
+async def ensure_agreement(frame, page) -> dict:
+    """If the active tab's Agreement field is empty, select one: `···` ->
+    Select Agreement -> the first offered card -> OK -> read the field back.
+
+    A filled field (Broadband's "unifi Home") is left alone, and a tab with no
+    Agreement row is skipped. Verified by the field's value, never by the
+    dialog closing — the rule the appointment and billing-account steps paid
+    for. Never raises; the markup is printed so the first live run records it.
+    """
+    try:
+        row = await page.evaluate(_AGREEMENT_ROW_JS)
+    except Exception as e:  # noqa: BLE001
+        return {"status": "skipped", "reason": f"unreadable: {e}"}
+    if row.get("status") != "ok":
+        return {"status": "skipped", "reason": row.get("status", "absent")}
+    if row.get("value"):
+        return {"status": "skipped", "reason": "already set", "agreement": row["value"]}
+    print(f"  ↳ Agreement row is empty: {row.get('html')}", flush=True)
+    if not row.get("hasDots"):
+        return {"status": "error", "error": "agreement_not_selected", "stage": "agreement",
+                "message": "The Agreement field is empty and its row has no `···` to open."}
+    if await page.evaluate(_AGREEMENT_DOTS_CLICK_JS) != "ok":
+        return {"status": "error", "error": "agreement_not_selected", "stage": "agreement",
+                "message": "Could not press the Agreement row's `···`."}
+    await asyncio.sleep(2.5)
+    dlg = await page.evaluate(_AGREEMENT_DIALOG_JS)
+    if dlg.get("status") != "ok":
+        return {"status": "error", "error": "agreement_not_selected", "stage": "agreement",
+                "message": (f"Pressed the Agreement `···` but no Select Agreement dialog "
+                            f"opened ({dlg.get('status')}; topmost: "
+                            f"{await _topmost_dialog_title(page)!r}).")}
+    print(f"  ↳ {dlg.get('title')}: cards {dlg.get('cards')} — {dlg.get('html')}", flush=True)
+    if not dlg.get("cards"):
+        await _cancel_topmost_dialog(page)
+        return {"status": "error", "error": "agreement_not_selected", "stage": "agreement",
+                "message": f"{dlg.get('title')} offered no agreement to select."}
+    # A REAL click: the portal marks the chosen card on a pointer event, the
+    # same way the number cards do (a JS click never adds `selected`).
+    try:
+        await frame.locator('[data-bf-agreement-card="0"]').first.click(timeout=6000)
+    except Exception as e:  # noqa: BLE001
+        await _cancel_topmost_dialog(page)
+        return {"status": "error", "error": "agreement_not_selected", "stage": "agreement",
+                "message": f"Could not click the agreement card ({type(e).__name__})."}
+    await asyncio.sleep(0.8)
+    ok = await page.evaluate(_AGREEMENT_OK_JS)
+    await asyncio.sleep(2)
+    after = await page.evaluate(_AGREEMENT_ROW_JS)
+    value = (after or {}).get("value") or ""
+    if not value:
+        text = await _topmost_dialog_title(page)
+        await _cancel_topmost_dialog(page)
+        return {"status": "error", "error": "agreement_not_selected", "stage": "agreement",
+                "message": (f"Selected {dlg['cards'][0]!r} in {dlg.get('title')!r} and pressed "
+                            f"OK ({ok}), but the Agreement field stayed empty"
+                            + (f" (dialog still up: {text!r})." if text else "."))}
+    print(f"  ↳ Agreement selected: {value!r}", flush=True)
+    return {"status": "ok", "stage": "agreement", "agreement": value}
 
 
 async def _query_voice_numbers(frame, page, query: str | None = None,
@@ -3366,7 +3709,16 @@ async def fill_subproduct_tabs(page, payload: dict, on_stage=None) -> dict:
                         **({"stray_dialog": stray} if stray else {})}
         if sn.get("status") != "ok":
             return {"status": "error", "stage": "subproduct_tab",
-                    "tab": txt, "message": sn.get("message"), "tabs": results}
+                    "tab": txt, "error": sn.get("error"),
+                    "message": sn.get("message"), "tabs": results}
+        # A mandatory Agreement left empty is refused at the Next with a
+        # sentence naming neither the tab nor the field (ORD-0168's plan).
+        agr = await ensure_agreement(frame, page)
+        results[txt]["agreement"] = agr
+        if agr.get("status") == "error":
+            return {"status": "error", "stage": "subproduct_tab",
+                    "tab": txt, "error": agr.get("error"),
+                    "message": agr.get("message"), "tabs": results}
         # Device selection lives on the BROADBAND tab only (verified live) — its
         # "Select Offer" opens the 126-row device picker. Voice/TV have no device.
         if "Broadband" in txt:
@@ -5417,6 +5769,40 @@ async def _read_advance_payment(frame) -> str | None:
     return m.group(1) if m else None
 
 
+_PAY_SELECTOR = '.js-btn-pay:visible, .js-pay:visible, button:has-text("Pay"):visible'
+
+
+async def _wait_for_pay_or_next(page, timeout_s: float = 30) -> str:
+    """Wait for the pay tail's current page to settle: 'pay' once a Pay button
+    is visible, 'next' once a New Connection Next is, 'none' if neither appears
+    within timeout_s (checked at least once, so timeout_s=0 is a single look).
+
+    Pay wins a tie. The single look this replaced failed order 2609000125372808
+    (2026-09-15): the Pay page of a broadband + voice + TV order was still
+    loading after the T&C Next, showed neither button, and the loop pressed for
+    a Next the Pay page does not have."""
+    pay_loc = _frame(page).locator(_PAY_SELECTOR)
+    deadline = time.monotonic() + timeout_s
+    while True:
+        if await pay_loc.count():
+            return "pay"
+        try:
+            has_next = await page.evaluate(_NEXT_VISIBLE_JS)
+        except Exception:  # noqa: BLE001 — iframe mid-navigation
+            has_next = False
+        if has_next:
+            return "next"
+        if time.monotonic() >= deadline:
+            return "none"
+        await asyncio.sleep(0.5)
+
+
+_NEXT_VISIBLE_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return false;
+  return [...d.querySelectorAll('.js-btn-next')].some(e=>e.offsetParent!==null);
+})()"""
+
+
 async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
                          payload: dict = None, on_stage=None,
                          known_order_id: str = None,
@@ -5435,8 +5821,7 @@ async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
     frame = _frame(page)
 
     # Advance until a Pay button is visible (Customer Order Info -> T&C -> Pay).
-    pay_loc = frame.locator(
-        '.js-btn-pay:visible, .js-pay:visible, button:has-text("Pay"):visible')
+    pay_loc = frame.locator(_PAY_SELECTOR)
     captured_terms = False
     # The appointment slot is re-validated server-side on the way to Pay, and
     # another dealer can take it between our booking and this Next (live,
@@ -5447,7 +5832,9 @@ async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
     rebooks = 0
     step = 0
     while step < max_next:
-        if await pay_loc.count():
+        # Wait for the page to settle rather than looking once: a slow Pay page
+        # shows neither Pay nor Next for several seconds after the T&C Next.
+        if await _wait_for_pay_or_next(page) == "pay":
             break
         on_terms = await _ensure_bypass_acknowledge(page)  # False unless on T&C
         if on_terms and not captured_terms:

@@ -123,9 +123,26 @@ export type StartRunResult =
  * portal session. It is recorded on the order so an automatic retry can run
  * under the same session rather than guessing.
  */
+/** Failure codes raised by BizzFlow itself, before the droplet runs anything. */
+const SESSION_EXPIRED = "session_expired";
+/** The droplet was busy or unreachable — not this order's failure. */
+const SERVICE_BUSY = "service_busy";
+/** The droplet answered, but refused to start the job. */
+const START_REFUSED = "start_refused";
+
 export async function startSubmitRun(
   order: Prisma.OrderGetPayload<object>,
-  opts: { userKey: string; auto?: boolean; batchOf?: number },
+  opts: {
+    userKey: string;
+    auto?: boolean;
+    batchOf?: number;
+    /** Overrides ORDER_ENTRY_DO_PAY for this run only (admin's Stop before Pay). */
+    doPay?: boolean;
+    /** Ask the droplet to attach a screencast so admin can watch the run. */
+    liveView?: boolean;
+    /** Names admin in the history event; changes nothing else. */
+    startedBy?: "admin";
+  },
 ): Promise<StartRunResult> {
   if (!ORDER_TOKEN) {
     return { ok: false, busy: false, error: "Order service is not configured." };
@@ -143,11 +160,16 @@ export async function startSubmitRun(
   // running" from "this order is wrong", without that distinction having to
   // survive in the row.
   const fail = async (message: string, opts_: { busy?: boolean } = {}) => {
+    // A replication clone is never started again behind the agent's back — that
+    // deferred start is the retry sweep, which refuses it. Filed as a plain
+    // refusal instead, so the history does not promise a start that never comes.
+    const deferred = !!opts_.busy && !order.autoRetryDisabled;
     await prisma.order.update({
       where: { id: order.id },
       data: {
         status: "failed",
         errorMessage: message,
+        errorCode: opts_.busy ? SERVICE_BUSY : START_REFUSED,
         // A busy refusal (409 at capacity, 503 low memory, or an unreachable
         // box) is the DROPLET's state, not this order's failure — so the same
         // write that files it as failed leaves a due date for the retry sweep.
@@ -155,19 +177,35 @@ export async function startSubmitRun(
         // row reads Failed with nothing owed, which is the live incident this
         // exists to close (a manual submit refused at capacity stranded as
         // "unclassified failure" until a human resubmitted).
-        ...(opts_.busy ? { autoRetryAt: new Date(Date.now() + BUSY_RETRY_DELAY_MS) } : {}),
+        ...(deferred ? { autoRetryAt: new Date(Date.now() + BUSY_RETRY_DELAY_MS) } : {}),
       },
     });
-    if (opts_.busy) {
+    if (deferred) {
       await recordEvent({
         orderId: order.id,
         attempt,
         status: "info",
         message: "The order service was busy with another job — this submit will start again shortly.",
       });
+    } else {
+      // Every attempt that ends must say how in the history, or it vanishes
+      // from the admin record: this refusal used to write the row and no event.
+      await recordEvent({
+        orderId: order.id, attempt, status: "failed",
+        stage: "creating_customer", message,
+        errorCode: opts_.busy ? SERVICE_BUSY : START_REFUSED,
+      });
     }
     return { ok: false as const, busy: !!opts_.busy, error: message };
   };
+
+  // The staff code this run submits under, frozen onto the order. Read from the
+  // SUBMITTER's dealer account (opts.userKey), not the draft owner's — a
+  // superadmin submitting another agent's draft does so under their own code.
+  const submitter = await prisma.dealerAccount.findUnique({
+    where: { userId: opts.userKey },
+    select: { staffCode: true },
+  });
 
   await prisma.order.update({
     where: { id: order.id },
@@ -175,6 +213,9 @@ export async function startSubmitRun(
       attempt,
       // Whose session this run uses — read back by the automatic retry.
       lastSubmitUserId: opts.userKey,
+      // Kept as-is when the submitter has no code, so a lookup miss cannot
+      // erase the record an earlier attempt left.
+      ...(submitter?.staffCode?.trim() ? { submittedStaffCode: submitter.staffCode.trim() } : {}),
       // A person pressing Submit is a new decision and hands back a full budget.
       // Held HERE, in the one place every start goes through, so the reset rule
       // cannot be forgotten by a new caller.
@@ -195,7 +236,11 @@ export async function startSubmitRun(
       ? `Submit started (batch of ${opts.batchOf}).`
       : opts.auto
         ? "Automatic retry started."
-        : "Submit started.",
+        : opts.startedBy === "admin"
+          ? submitter?.staffCode?.trim()
+            ? `Submit started by admin under ${submitter.staffCode.trim()}.`
+            : "Submit started by admin."
+          : "Submit started.",
   });
 
   // Read the stored expiry rather than calling the portal: it costs nothing and
@@ -203,11 +248,14 @@ export async function startSubmitRun(
   if (!(await dealerSessionLive(opts.userKey))) {
     await prisma.order.update({
       where: { id: order.id },
-      data: { status: "failed", stage: "checking_session", errorMessage: SESSION_EXPIRED_MSG },
+      data: {
+        status: "failed", stage: "checking_session",
+        errorMessage: SESSION_EXPIRED_MSG, errorCode: SESSION_EXPIRED,
+      },
     });
     await recordEvent({
       orderId: order.id, attempt, status: "failed",
-      stage: "checking_session", message: SESSION_EXPIRED_MSG,
+      stage: "checking_session", message: SESSION_EXPIRED_MSG, errorCode: SESSION_EXPIRED,
     });
     return { ok: false, busy: false, error: SESSION_EXPIRED_MSG };
   }
@@ -251,9 +299,11 @@ export async function startSubmitRun(
         // Real submit: the scraper defaults dry_run=true, so opt OUT explicitly to
         // actually click Order + drive the whole New Connection flow through Pay.
         dry_run: false,
-        // do_pay clicks the REAL, billable Pay button. Default false (stops at the
-        // Pay gate). Enable per-environment via ORDER_ENTRY_DO_PAY=true.
-        do_pay: process.env.ORDER_ENTRY_DO_PAY === "true",
+        // do_pay clicks the REAL, billable Pay button. Per-run override first
+        // (admin's Stop before Pay), else the environment decides as before.
+        do_pay: opts.doPay ?? (process.env.ORDER_ENTRY_DO_PAY === "true"),
+        // Only an admin live submit sets this; the droplet attaches a screencast.
+        live_view: opts.liveView === true,
       }),
     });
     const start = (await startRes.json().catch(() => ({}))) as {

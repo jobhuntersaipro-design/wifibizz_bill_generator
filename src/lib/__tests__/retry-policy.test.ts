@@ -273,3 +273,14 @@ describe("a PII identity check is not retried", () => {
     ).toBe(false);
   });
 });
+
+describe("a replication clone", () => {
+  it("is never retried automatically, whatever it failed with", () => {
+    const v = retryVerdict({
+      status: "failed", errorCode: null, errorMessage: "Timeout", autoRetries: 0, attempt: 1,
+      autoRetryDisabled: true,
+    });
+    expect(v.retry).toBe(false);
+    expect(v.reason).toMatch(/replication clone/);
+  });
+});

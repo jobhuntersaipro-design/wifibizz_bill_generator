@@ -66,7 +66,7 @@ import {
   variantLabel,
 } from "@/lib/device-catalog";
 import { MALAYSIA_STATES } from "@/lib/malaysia-states";
-import { validateMalaysianAddress, parseMalaysianAddress } from "@/lib/malaysia-address";
+import { parseMalaysianAddress } from "@/lib/malaysia-address";
 
 // Shared field styles — light border + hover to signal clickability.
 const inputCls =
@@ -720,25 +720,36 @@ export function OrderForm({
   // `type` is explicit rather than read from the `docType` select: the Identity
   // card has no select — it always uploads the ID copy for the chosen ID Type —
   // and the Supporting card passes whatever the select says.
-  async function addDoc(file: File | undefined, type: string, side?: "front" | "back") {
-    if (!file) return;
+  // `added` is what this same batch has already uploaded. `documents` is the
+  // render's snapshot and does not see those until the batch ends, so counting
+  // from it alone gave every file in a multi-select the same sequence number —
+  // and the same R2 key, the second silently overwriting the first (ORD-0183:
+  // MyKad front and back both stored as _mykad_1, only the back survived).
+  async function addDoc(
+    file: File | undefined,
+    type: string,
+    side?: "front" | "back",
+    added: readonly { type: string }[] = [],
+  ): Promise<{ type: string; url: string; key: string; filename: string } | null> {
+    if (!file) return null;
     if (!idNumber.trim()) {
       toast.error("Enter the ID number before uploading documents.");
-      return;
+      return null;
     }
     if (type === "other" && !otherLabel.trim()) {
       toast.error('Enter a document type name for "Other".');
-      return;
+      return null;
     }
-    if (documents.length >= MAX_DOCS) {
+    if (documents.length + added.length >= MAX_DOCS) {
       toast.error(`Up to ${MAX_DOCS} files only.`);
-      return;
+      return null;
     }
-    const seq = documents.filter((d) => d.type === type).length + 1;
+    const seq = [...documents, ...added].filter((d) => d.type === type).length + 1;
     setUploading(true);
     const fd = new FormData();
     if (side) fd.append("side", side);
     fd.append("file", file);
+    fd.append("keepOriginalName", "1");
     fd.append("idNumber", idNumber);
     fd.append("idType", idType);
     fd.append("docType", type);
@@ -752,13 +763,16 @@ export function OrderForm({
     try {
       const res = await uploadOrderDocument(fd);
       if (res.success) {
-        setDocuments((d) => [...d, { type: res.type, url: res.url, key: res.key, filename: res.filename }]);
+        const doc = { type: res.type, url: res.url, key: res.key, filename: res.filename };
+        setDocuments((d) => [...d, doc]);
         toast.success("Document uploaded.");
-      } else {
-        toast.error(res.error ?? "Upload failed");
+        return doc;
       }
+      toast.error(res.error ?? "Upload failed");
+      return null;
     } catch (e) {
       toast.error(e instanceof Error ? `Upload failed: ${e.message}` : "Upload failed. Try again.");
+      return null;
     } finally {
       setUploading(false);
     }
@@ -766,9 +780,11 @@ export function OrderForm({
 
   // Drag-and-drop: upload dropped files one at a time (respects MAX_DOCS).
   async function addDocs(files: FileList | File[], type: string) {
+    const added: { type: string }[] = [];
     for (const f of Array.from(files)) {
-      if (documents.length >= MAX_DOCS) break;
-      await addDoc(f, type);
+      if (documents.length + added.length >= MAX_DOCS) break;
+      const doc = await addDoc(f, type, undefined, added);
+      if (doc) added.push(doc);
     }
   }
 
@@ -923,12 +939,12 @@ export function OrderForm({
       toast.error("Contact number is required.");
       return;
     }
-    // The address is required — an empty or half-typed one is what makes the
-    // portal reject the customer profile as "data incomplete", so block it here.
-    const addrCheck = validateMalaysianAddress(street);
-    if (!addrCheck.ok) {
-      setAddrError(addrCheck.reason);
-      toast.error(addrCheck.reason);
+    // The address is required, but its content is not checked: the agent pastes
+    // it from the portal and owns its accuracy, and a format check here refused
+    // real portal addresses (e.g. "30 LALUAN PRISMA 4 - METRO MAYA BATU GAJAH …").
+    if (!street.trim()) {
+      setAddrError("Enter the installation address.");
+      toast.error("Enter the installation address.");
       return;
     }
     if (!/^\d{5}$/.test(postcode.trim())) {
@@ -1659,8 +1675,8 @@ export function OrderForm({
         <div className="p-6 space-y-4">
           <p className="text-[11px] text-[#697386]">
             Required — the portal will not accept the customer profile without a copy of the
-            customer&apos;s {idDocLabel}. Add both sides as two files if you have them.
-            Saved as {idNumber || "{id}"}_{isMykadLike ? "mykad" : idType.toLowerCase()}_n.
+            customer&apos;s {idDocLabel}. Add both sides as two files if you have them — you can
+            select several at once. Each file keeps its own filename.
           </p>
 
           <label
@@ -1896,6 +1912,11 @@ export function OrderForm({
                 {GENERATED_DOCS.filter((g) => {
                   if (g.type === "bizz_chat") return isBusinessOrder(genSource);
                   if (g.type === "chat") return !isBusinessOrder(genSource);
+                  // The two letters are the same XOR as the two chats: a business
+                  // order gets the Biz Auth Letter, a normal one the residential
+                  // Auth Letter, and never a card for both.
+                  if (g.type === "biz_authorization_letter") return isBusinessOrder(genSource);
+                  if (g.type === "authorization_letter") return !isBusinessOrder(genSource);
                   return true;
                 }).map((g) => {
                   const missing = missingFieldsFor(g.type, genSource);

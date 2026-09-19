@@ -23,6 +23,7 @@ import {
   isPortalOrderNumber,
   isScreenshotKey,
   movesStagePointer,
+  storedErrorCode,
   submitErrorCopy,
   type StageDetail,
   type StageDetails,
@@ -34,6 +35,8 @@ const ORDER_TOKEN = process.env.ORDER_ENTRY_API_TOKEN ?? "";
 
 export interface OrderJobResult {
   status?: string;
+  // The step the run ended on (e.g. customer_order_info).
+  stage?: string;
   order_id?: string;
   order_url?: string;
   advance_payment?: string;
@@ -293,7 +296,7 @@ async function applyResult(
       attempt: true, stage: true, offerName: true, deviceName: true,
       // Needed to judge, in the SAME write that files the outcome, whether this
       // failure is one an automatic retry will come back for.
-      autoRetries: true,
+      autoRetries: true, autoRetryDisabled: true,
     },
   });
   const attempt = current?.attempt ?? 1;
@@ -319,7 +322,13 @@ async function applyResult(
     orderId?: string | null;
     errorMessage?: string | null;
     errorCode?: string | null;
+    /** Where the run ended, as the scraper reported it. */
+    stage?: string | null;
   }): Promise<ProgressState> => {
+    // The pointer only moves on polls, so a run the webhook finalizes can still
+    // be sitting on `creating_customer` — which is where the admin page used to
+    // file a failure at Customer Order Information.
+    const stage = movesStagePointer(data.stage) ? data.stage! : null;
     const o = await prisma.order.update({
       where: { id: orderId },
       data: {
@@ -327,6 +336,7 @@ async function applyResult(
         ...(data.orderId !== undefined ? { orderId: data.orderId } : {}),
         errorMessage: data.errorMessage ?? null,
         errorCode: data.errorCode ?? null,
+        ...(stage ? { stage, stageAt: new Date() } : {}),
         jobId: null, // the run is over — nothing left to reconcile
         // Stamped in the same write as the outcome, deliberately. A second
         // write would leave a window where the row reads Failed with a live
@@ -339,6 +349,7 @@ async function applyResult(
           errorMessage: data.errorMessage ?? null,
           autoRetries: current?.autoRetries ?? 0,
           attempt,
+          autoRetryDisabled: current?.autoRetryDisabled,
         }),
       },
     });
@@ -393,24 +404,30 @@ async function applyResult(
     // explanation and remedy, so the message stays the portal's VERBATIM
     // wording. Wrapping it in our own prose here would put the explanation in
     // two voices and bury the sentence the agent can quote at Unifi support.
-    const code = submitErrorCopy(result.error) ? result.error! : null;
+    //
+    // The code itself is stored either way (see storedErrorCode): copy is how a
+    // failure reads, never whether it is recorded.
+    const code = storedErrorCode(result.error);
+    const hasCopy = !!submitErrorCopy(code);
     if (result.order_id) {
       // Order EXISTS in the portal despite the failure. Surface as a warning to
       // verify/complete by hand — a plain "failed" would re-enable submit and
       // invite a duplicate.
-      const msg = code
+      const msg = hasCopy
         ? result.message || "The portal returned an error."
         : `Order ${result.order_id} was created but the flow didn't finish: ${
             result.message || result.error || "error"
           }. Verify in the portal before retrying.`;
       return finish({
         status: "warning", orderId: result.order_id, errorMessage: msg, errorCode: code,
+        stage: result.stage,
       });
     }
     return finish({
       status: "failed",
       errorMessage: result.message || result.error || "The portal returned an error.",
       errorCode: code,
+      stage: result.stage,
     });
   }
 
@@ -421,6 +438,8 @@ async function applyResult(
       status: "warning",
       ...(result.order_id ? { orderId: result.order_id } : {}),
       errorMessage: result.warning,
+      errorCode: storedErrorCode(result.error),
+      stage: result.stage,
     });
   }
 
@@ -459,10 +478,13 @@ async function applyResult(
  * re-enable submit and risk a duplicate order, so it becomes a warning telling
  * the agent to check the portal.
  */
+/** The order service no longer knows the job — it restarted mid-run. */
+const JOB_LOST = "job_lost";
+
 async function finalizeMissingJob(id: string): Promise<ProgressState> {
   const before = await prisma.order.findUnique({
     where: { id },
-    select: { autoRetries: true, attempt: true },
+    select: { autoRetries: true, attempt: true, autoRetryDisabled: true },
   });
   const errorMessage =
     "The submit run was lost (the order service restarted). Check the portal " +
@@ -473,21 +495,23 @@ async function finalizeMissingJob(id: string): Promise<ProgressState> {
       status: "warning",
       jobId: null,
       errorMessage,
+      errorCode: JOB_LOST,
       // Same rule as every other finalization: if this is one the automatic
       // retry will come back for, the row must say so instead of offering a
       // Submit button that would start a second run against it.
       autoRetryAt: retryPendingAt({
         status: "warning",
-        errorCode: null,
+        errorCode: JOB_LOST,
         errorMessage,
         autoRetries: before?.autoRetries ?? 0,
         attempt: before?.attempt ?? 1,
+        autoRetryDisabled: before?.autoRetryDisabled,
       }),
     },
   });
   await recordEvent({
     orderId: id, attempt: o.attempt, status: "warning", stage: o.stage,
-    message: o.errorMessage,
+    message: o.errorMessage, errorCode: JOB_LOST,
   });
   return {
     status: o.status,
@@ -545,7 +569,9 @@ export async function pollOrderProgress(id: string): Promise<ProgressState | nul
     const errorMessage = stopped
       ? job.error || STOPPED_MSG
       : job.error || "The portal run failed.";
-    const errorCode = stopped ? SUBMIT_STOPPED : null;
+    // The droplet's own classification of how the run died (portal_timeout,
+    // infra, abandoned, unexpected …) — kept so it never reads Unclassified.
+    const errorCode = stopped ? SUBMIT_STOPPED : storedErrorCode(job.error_kind);
     const o = await prisma.order.update({
       where: { id },
       data: {
@@ -559,6 +585,7 @@ export async function pollOrderProgress(id: string): Promise<ProgressState | nul
           errorMessage,
           autoRetries: order.autoRetries,
           attempt: order.attempt,
+          autoRetryDisabled: order.autoRetryDisabled,
         }),
       },
     });

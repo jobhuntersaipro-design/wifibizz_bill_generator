@@ -10,6 +10,8 @@ import {
   isServerDocType,
   missingFieldsFor,
   slugFromFilename,
+  safeUploadFilename,
+  documentSlotName,
   type GeneratorSource,
 } from "../order-documents";
 import { IDENTITY_DOC_TYPES, hasIdentityDocument, hasSupportingDocument } from "../order-types";
@@ -199,8 +201,8 @@ describe("attach mapping", () => {
 });
 
 describe("server vs client documents", () => {
-  it("routes the five PDFs to the server and the chats to the client", () => {
-    expect(SERVER_DOC_TYPES).toHaveLength(5);
+  it("routes the six PDFs to the server and the chats to the client", () => {
+    expect(SERVER_DOC_TYPES).toHaveLength(6);
     expect(isServerDocType("chat")).toBe(false);
     expect(isServerDocType("bizz_chat")).toBe(false);
     for (const t of SERVER_DOC_TYPES) expect(isServerDocType(t)).toBe(true);
@@ -379,14 +381,16 @@ describe("generatableDocTypes", () => {
     ]);
   });
 
-  it("includes Bizz Chat and hides Conversation Chat for a business offer", () => {
+  // Both XORs at once: the business offer swaps Conversation Chat for Bizz Chat
+  // AND the residential Auth Letter for the Biz Auth Letter.
+  it("includes Bizz Chat and the Biz Auth Letter for a business offer", () => {
     const biz = { ...FULL, offerName: "Unifi Business 300Mbps (MESH6)" };
     expect(generatableDocTypes(biz, [], 10)).toEqual([
       "bizz_chat",
       "internet_bill",
       "utility_bill",
       "tenancy_agreement",
-      "authorization_letter",
+      "biz_authorization_letter",
       "time_invoice",
     ]);
   });
@@ -424,5 +428,37 @@ describe("generatableDocTypes", () => {
 
   it("returns empty when nothing can run at all", () => {
     expect(generatableDocTypes({}, [], 10)).toEqual([]);
+  });
+});
+
+describe("uploads keep their original filename", () => {
+  it("keeps an ordinary phone filename as-is", () => {
+    expect(safeUploadFilename("WhatsApp Image 2026-09-15 at 10.22.11.jpeg")).toBe(
+      "WhatsApp Image 2026-09-15 at 10.22.11.jpeg",
+    );
+    expect(safeUploadFilename("IC (front).PNG")).toBe("IC (front).png");
+  });
+
+  it("drops the path and anything a header or key cannot carry", () => {
+    expect(safeUploadFilename("C:\\fakepath\\bil elektrik.pdf")).toBe("bil elektrik.pdf");
+    expect(safeUploadFilename('a"b\\c/../客户.jpg')).toBe("_.jpg");
+    expect(safeUploadFilename("x..y.pdf")).not.toContain("..");
+    expect(safeUploadFilename(".pdf")).toBe("document.pdf");
+  });
+
+  it("reads the slot from the folder of an original-name key", () => {
+    const doc = { key: "orders/u1/920505034434_utilitybill_1/my bill.pdf", filename: "my bill.pdf" };
+    expect(documentSlotName(doc)).toBe("920505034434_utilitybill_1");
+    expect(isDocTypeAttached("utility_bill", [doc])).toBe(true);
+  });
+
+  it("reads the kind through the random tag on the slot folder", () => {
+    const doc = { key: "orders/u1/920505034434_mykad_1-a1b2c3/IC back.jpg", filename: "IC back.jpg" };
+    expect(slugFromFilename(documentSlotName(doc))).toBe("mykad");
+  });
+
+  it("still reads a flat key by its filename", () => {
+    const doc = { key: "orders/u1/920505034434_internetbill_1.pdf", filename: "920505034434_internetbill_1.pdf" };
+    expect(documentSlotName(doc)).toBe("920505034434_internetbill_1.pdf");
   });
 });

@@ -1,10 +1,12 @@
 "use server";
 
+import { randomBytes } from "crypto";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { ACTIVE_ORDER } from "@/lib/order-scope";
 import { Prisma } from "@/generated/prisma/client";
+import { safeUploadFilename } from "@/lib/order-documents";
 import { uploadToR2 } from "@/lib/r2";
 import {
   MAX_DOCS,
@@ -12,6 +14,7 @@ import {
   hasSupportingDocument,
   type OrderDocument,
   formatPhone,
+  resolveStaffCode,
   canSubmit,
   type OrderListItem,
   STOPPED_MSG,
@@ -20,7 +23,7 @@ import {
 import { MALAYSIA_STATES } from "@/lib/malaysia-states";
 import { ID_TYPES } from "@/lib/dealer-offers";
 import MY_POSTCODES from "@/lib/malaysia-postcodes.json";
-import { addressKey, validateMalaysianAddress } from "@/lib/malaysia-address";
+import { addressKey } from "@/lib/malaysia-address";
 import { reconcileStaleSubmits } from "@/lib/order-submit";
 import { fillMissingInstallationDates } from "@/lib/installation-date";
 import { batchOrderIds, finishBatch, reconcileBatch } from "@/lib/batch-submit";
@@ -159,10 +162,17 @@ export async function uploadOrderDocument(formData: FormData) {
   if (!idNumber) return { success: false as const, error: "Enter the ID number first." };
 
   const suffix = side === "front" || side === "back" ? side : String(seq);
-  const filename = `${idNumber}_${docSlug(docType, idType, otherLabel)}_${suffix}.${ext}`;
+  const slot = `${idNumber}_${docSlug(docType, idType, otherLabel)}_${suffix}`;
+  // A file the agent uploaded keeps its original name; the slot becomes its
+  // folder, tagged with a random suffix so no two uploads can ever share a key —
+  // not even two files both called "image.jpeg" given the same sequence number. Generated documents send no flag and stay flat ({slot}.{ext}).
+  const keepName = formData.get("keepOriginalName") === "1";
+  const filename = keepName ? safeUploadFilename(file.name) : `${slot}.${ext}`;
   // Keys are namespaced per user so the authenticated proxy can scope access to
   // the owner and MyKad-based filenames can't be enumerated across tenants.
-  const key = `orders/${session.user.id}/${filename}`;
+  const key = keepName
+    ? `orders/${session.user.id}/${slot}-${randomBytes(3).toString("hex")}/${filename}`
+    : `orders/${session.user.id}/${filename}`;
 
   try {
     const buf = Buffer.from(await file.arrayBuffer());
@@ -345,12 +355,10 @@ export async function saveOrder(rawInput: OrderInput) {
   }
   const input = parsed.data;
 
-  // Mirror the client's Full Address check — the client can be bypassed, and a
-  // half-typed address is what makes the portal reject the customer profile as
-  // "data incomplete" later, far from where it could still be fixed.
-  const addrCheck = validateMalaysianAddress(input.street ?? "");
-  if (!addrCheck.ok) {
-    return { success: false as const, error: `Installation address — ${addrCheck.reason}` };
+  // Mirror the client: the Full Address is required but its content is not
+  // validated — the agent pastes it from the portal and owns its accuracy.
+  if (!input.street?.trim()) {
+    return { success: false as const, error: "Installation address — Enter the installation address." };
   }
 
   // Server-side half of the "cancelled is terminal / submitted is a portal
@@ -515,12 +523,13 @@ function toOrderListItem(
       : [],
     createdAt: o.createdAt.toISOString(),
     createdByEmail: opts.superAdmin ? o.user?.email ?? null : null,
-    // The OWNING agent's dealer staff code, read live from their DealerAccount.
-    // Deliberately NOT superadmin-gated the way createdByEmail is: a
-    // non-superadmin only ever receives their own orders, so this is their own
-    // code. Null when that agent has never connected a dealer account — the
-    // column shows a dash rather than pretending to a code.
-    staffCode: o.user?.dealerAccount?.staffCode ?? null,
+    // The code recorded at submit time, else the owner's current code for a
+    // never-submitted row. Not superadmin-gated: a non-superadmin only ever
+    // receives their own orders.
+    ...(() => {
+      const r = resolveStaffCode(o.submittedStaffCode, o.user?.dealerAccount?.staffCode);
+      return { staffCode: r.code, staffCodeRecorded: r.recorded };
+    })(),
   };
 }
 
@@ -1069,11 +1078,11 @@ export async function startBatchSubmit(ids: string[]) {
     for (const order of targets) {
       await prisma.order.update({
         where: { id: order.id },
-        data: { status: "failed", jobId: null, errorMessage: message },
+        data: { status: "failed", jobId: null, errorMessage: message, errorCode: "batch_start_failed" },
       });
       await recordEvent({
         orderId: order.id, attempt: order.attempt + 1, status: "failed",
-        stage: "creating_customer", message,
+        stage: "creating_customer", message, errorCode: "batch_start_failed",
       });
     }
     await prisma.batchRun.update({

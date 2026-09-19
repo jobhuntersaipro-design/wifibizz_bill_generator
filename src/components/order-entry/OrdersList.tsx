@@ -631,7 +631,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
   // Options come from ALL loaded rows, not the filtered ones — deriving them
   // from `filtered` would make each choice erase the others, so picking a
   // package would empty the device list and strand the user.
-  const { offers, devices } = filterOptions(orders);
+  const { offers, devices, staffCodes, hasNoStaffCode } = filterOptions(orders);
 
   // Batch selection is scoped to the currently-filtered, submittable rows.
   const selectableIds = filtered.filter((o) => canSubmit(o)).map((o) => o.id);
@@ -675,6 +675,8 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
         onChange={setFilters}
         offers={offers}
         devices={devices}
+        staffCodes={staffCodes}
+        hasNoStaffCode={hasNoStaffCode}
         selectedCount={selectedCount}
         batchRunning={batchRunning}
         serverBusy={serverLock.busy}

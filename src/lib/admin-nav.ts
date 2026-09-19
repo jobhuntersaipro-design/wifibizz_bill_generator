@@ -45,6 +45,10 @@ export function adminNavContext(pathname: string): AdminNavContext {
   if (path === "/admin/landlord-signature") return { title: "landlord signature", back: null };
   if (path === "/admin") return { title: "Users", back: null };
 
+  // The live view of a run belongs to its order, not to the orders list.
+  const live = path.match(/^(\/admin\/orders\/[^/]+)\/live$/);
+  if (live) return { title: "Live run", back: live[1] };
+
   // An order's detail page belongs to the orders list.
   if (path.startsWith("/admin/orders/")) return { title: "Order", back: "/admin/orders" };
   // An agent's page has no list of its own — Users is where agents are listed.
