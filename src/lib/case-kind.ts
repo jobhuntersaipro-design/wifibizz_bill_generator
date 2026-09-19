@@ -100,7 +100,6 @@ export const UMOBILE_BILL_LABEL = "Umobile Bill";
 
 export const UMOBILE_BILL_SHORT = "Umobile";
 
-/** Product/module only. `isBusinessCase` also fires on COMPANY(REG) in the name. */
 function isBusinessFibre(s: BusinessSignals): boolean {
   const product = `${s.provider ?? ""} ${s.package ?? ""}`;
   if (/\bbusiness\s+fibre\b/i.test(product)) return true;
@@ -110,7 +109,6 @@ function isBusinessFibre(s: BusinessSignals): boolean {
 
 const TRAILING_BRN = /^(.*)\((\d+(?:-[A-Za-z])?)\)\s*$/;
 
-/** Business Fibre only: drop trailing `(digits)` or `(NNNNNN-T)`. Home Fibre is unchanged. */
 export function umobileBillCustomerName(
   fullName: string,
   signals: BusinessSignals = {},
