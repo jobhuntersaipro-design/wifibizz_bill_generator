@@ -25,33 +25,34 @@ describe("isMyKad", () => {
 });
 
 describe("directorIdNumber", () => {
-  it("an unrecognised type prints nothing rather than guessing", () => {
-    expect(directorIdNumber({ id_no: "940811034224", id_type: "" })).toBe("");
-    expect(directorIdNumber({ id_no: "940811034224", id_type: "army" })).toBe("");
-  });
-  it("reads the portal's own type label as well as the list's", () => {
-    expect(directorIdNumber({ id_no: "940811034224", id_type: "Malaysia NRIC" })).toBe("940811034224");
+  it("prints the ID as the case holds it, dashing only a real MyKad", () => {
+    expect(directorIdNumber({ id_no: "940811034224" })).toBe("940811-03-4224");
+    expect(directorIdNumber({ id_no: "JR0191646W" })).toBe("JR0191646W");
+    expect(directorIdNumber({ id_no: "202301024655" })).toBe("202301024655");
+    expect(directorIdNumber({ id_no: " qc9994653 " })).toBe("QC9994653");
+    expect(directorIdNumber({ id_no: null })).toBe("");
   });
 });
 
 describe("directorDisplay — what the Case List shows", () => {
-  it("dashes a MyKad and blanks what is not really an ID", () => {
+  it("shows the ID on file whatever it is, name or no name", () => {
     expect(CASES.map(directorDisplay)).toEqual([
       { name: "LEE KEE BENG", id: "070216-07-0387" },
-      { name: "RAHIMAH BINTI HABEEB RAHMAN", id: "" },
+      { name: "RAHIMAH BINTI HABEEB RAHMAN", id: "JR0191646W" },
       { name: "LOI TEE ZHEE", id: "960808-08-6675" },
       { name: "NAEEM ULLAH", id: "QC9994653" },
-      { name: "", id: "" },
+      { name: "", id: "070216-07-0387" },
     ]);
   });
 
   // The whole reason it exists: the screen must never promise a value the
-  // letter will leave blank, or print one the screen hid.
+  // letter will leave blank, or print one the screen hid. A missing name is the
+  // screen's dash and the letter's `-`.
   it("matches the Biz Auth Letter's director block on every real shape", () => {
     for (const c of CASES) {
       const shown = directorDisplay(c);
       const printed = resolveBizLetterFields(c);
-      expect(shown.name).toBe(printed.directorName);
+      expect(shown.name || "-").toBe(printed.directorName);
       expect(shown.id).toBe(printed.directorIc);
     }
   });

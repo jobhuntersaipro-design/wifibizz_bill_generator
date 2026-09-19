@@ -21,10 +21,15 @@ WifiBizz records instead of an invented one.
 
 ## Decisions (user, 2026-09-19)
 
-- ID that is really the company reg → IC **blank**.
-- Director Name blank or a bare dash → name **and** IC blank.
-- The Bizz Chat switches too (both share `resolveBizDirector`) — blank prints the chat's `—`.
-- Order Entry has no crawled director → blank (it never sets one, so no special case).
+- **Print the case's original data** (revised the same day — WifiBizz data is generated, not real).
+  Both IC / PASSPORT NUMBER lines print the ID field as the case holds it: a real MyKad dashed,
+  anything else as typed — including a company reg typed into the ID field (e.g. 202673024
+  `K5420310G`). A 12-digit SSM number is not dashed (`isMyKad` decides, not length).
+- Director Name blank or a bare dash → the letter prints `-` (the portal's own marker) in both name
+  lines, and the IC is still filled. 1,146 of 1,316 dev business cases are like this.
+- The pool signature only stamps above a real name (`directorNamed`); a `-` gets no signature.
+- The Bizz Chat shares `resolveBizDirector` — a missing name still prints the chat's `—`.
+- Order Entry sends no director name, so its letter prints `-` and the order's ID number.
 
 ## Built
 

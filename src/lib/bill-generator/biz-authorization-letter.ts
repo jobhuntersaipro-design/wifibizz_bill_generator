@@ -28,7 +28,6 @@ import { decodeCustomerName } from '../html-entities';
 import { sanitize } from './address-parts';
 import { wrapToWidth } from './authorization-letter';
 import { longDate } from './letter-dates';
-import { formatIcDashed } from './owner-identity';
 import type { SignatureImage } from './landlord-signature';
 
 // Re-exported because the letter is where callers and tests already import it
@@ -52,6 +51,9 @@ const BULLET_INDENT = 18;
 const SIGNATURE_MAX_W = 160;
 const SIGNATURE_MAX_H = 36;
 
+/** What the portal itself shows when an agent left the director's Name empty. */
+const NO_DIRECTOR = '-';
+
 const TITLE = 'LETTER OF AUTHORISATION FOR TM UNIFI BUSINESS APPLICATION';
 
 const PERMISSIONS = [
@@ -64,10 +66,8 @@ const VALIDITY = 'This authorisation is valid until the completion of the applic
 
 /** What the letter reads off a case row or an order draft. */
 export interface BizLetterSource extends BusinessSignals {
-  /** The portal's National ID No. — the director's, when it really is an ID. */
+  /** The portal's National ID No., printed as the director's IC as-is. */
   id_no?: string | null;
-  /** "mykad" / "passport" — decides whether `id_no` is an ID or a stray BRN. */
-  id_type?: string | null;
   full_address?: string | null;
   mobile?: string | null;
   /**
@@ -84,7 +84,10 @@ export interface BizLetterFields {
   companyReg: string;
   /** `NAME (BRN)`, or just the name, or blank — the header, body and footer all use it. */
   companyLine: string;
+  /** The portal's Name, or `-` (its own marker) when it has none. */
   directorName: string;
+  /** False when the portal has no name — nobody is named to sign. */
+  directorNamed: boolean;
   directorIc: string;
   packageName: string;
   serviceAddress: string;
@@ -120,7 +123,8 @@ export function formatContactNumber(raw: string | null | undefined): string {
  *
  * The DIRECTOR is the one WifiBizz records, through `resolveBizDirector` — the
  * same resolver the Bizz Chat uses, so the two cannot name different people.
- * Blank when the portal has none; never invented.
+ * The case's original data: a missing name prints the portal's `-`, and the IC
+ * prints whatever the case holds. Never invented.
  */
 export function resolveBizLetterFields(s: BizLetterSource): BizLetterFields {
   const company = resolveBizCompany(s);
@@ -130,8 +134,9 @@ export function resolveBizLetterFields(s: BizLetterSource): BizLetterFields {
     companyName: company.name,
     companyReg: company.reg,
     companyLine: company.line,
-    directorName: director.name,
-    directorIc: formatIcDashed(director.ic),
+    directorName: director.name || NO_DIRECTOR,
+    directorNamed: director.name !== '',
+    directorIc: director.ic,
     packageName: sanitize(decodeCustomerName(present(s.package))),
     serviceAddress: sanitize(decodeCustomerName(present(s.full_address))).toUpperCase(),
     contact: formatContactNumber(s.mobile),
@@ -317,11 +322,11 @@ export async function generateBizAuthorizationLetter(
   const signatureBaseline = cur.y;
   cur.text('_________________');
   // Drawn AFTER the rule so the ink sits on the line rather than under it, and
-  // only above a named director — a signature over a blank name signs for nobody.
-  if (extras?.signature && f.directorName) {
+  // only above a named director — a signature over a `-` signs for nobody.
+  if (extras?.signature && f.directorNamed) {
     await drawPoolSignature(pdfDoc, page, extras.signature, signatureBaseline);
   }
-  if (f.directorName) cur.text(f.directorName, { font: bold });
+  cur.text(f.directorName, { font: bold });
   cur.text('DIRECTOR');
   if (f.companyLine) cur.lines(wrapToWidth(f.companyLine, bold, FONT_SIZE, CONTENT_W), { font: bold });
   labelled(cur, page, font, bold, 'IC / PASSPORT NUMBER : ', f.directorIc);
