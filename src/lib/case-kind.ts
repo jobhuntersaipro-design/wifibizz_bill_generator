@@ -126,11 +126,9 @@ export interface BizzChatFields {
   /**
    * Customer-tab Name / director. Never the company name.
    *
-   * NOT printed any more: since 2026-09-18 the Bizz Chat's Business Owner and
-   * the Biz Auth Letter's director are both the INVENTED person from
-   * `resolveBizDirector`, so the two documents cannot name different people.
-   * Kept because it is still the truthful answer to "who does the portal record
-   * as the owner", which is worth being able to ask.
+   * NOT what the documents print: the Bizz Chat and the Biz Auth Letter take
+   * the director from `resolveBizDirector`, which is stricter — it uses the
+   * Customer-tab Name only and never falls back to `full_name`.
    */
   businessOwnerName: string | null;
 }

@@ -51,7 +51,8 @@ export async function GET(request: Request) {
 
     const sql = neon(process.env.DATABASE_URL!);
     const rows = await sql`
-      SELECT case_no, full_name, full_address, mobile, id_no, package, provider, case_url
+      SELECT case_no, full_name, full_address, mobile, id_no, id_type, package, provider, case_url,
+             company_name, company_reg, director_name
       FROM wifibizz_cases
       WHERE case_no = ${caseNo} AND user_id = ${wifibizzUser.id}
       LIMIT 1
@@ -77,23 +78,24 @@ export async function GET(request: Request) {
     const resolved = await fillMissingAddresses(wifibizzUser, [caseData]);
     const fullAddress = resolved[caseData.case_no] ?? caseData.full_address;
 
-    // Company name, BRN and the director live on the WifiBizz case DETAIL page
-    // and in no column here, so they are fetched the same way the Bizz Chat
-    // fetches them. A failed fetch is not fatal: `resolveBizLetterFields` falls
-    // back to the `COMPANY(REG)` shape the crawler stores in `full_name`.
-    let companyName = "";
-    let companyReg = "";
-    let directorName = "";
-    try {
-      const details = await fetchBizzDetailFields(wifibizzUser, [caseData]);
-      const d = details[caseData.case_no];
-      if (d) {
-        companyName = d.companyName;
-        companyReg = d.companyReg;
-        directorName = d.customerName;
+    // Company, BRN and director are CRAWLED now (company + BRN off the list
+    // row, the director off the detail page). The page is only fetched here for
+    // a case whose detail has never been read — director_name IS NULL — and that
+    // fetch saves what it finds, so it happens once per case, not per letter.
+    let companyName = (row.company_name as string) || "";
+    let companyReg = (row.company_reg as string) || "";
+    let directorName = (row.director_name as string | null) ?? null;
+    if (directorName === null) {
+      try {
+        const d = (await fetchBizzDetailFields(wifibizzUser, [caseData]))[caseData.case_no];
+        if (d) {
+          companyName ||= d.companyName;
+          companyReg ||= d.companyReg;
+          directorName = d.customerName;
+        }
+      } catch (err) {
+        console.error("Biz letter detail fetch failed:", err);
       }
-    } catch (err) {
-      console.error("Biz letter detail fetch failed:", err);
     }
 
     const letterSource = {
@@ -101,18 +103,19 @@ export async function GET(request: Request) {
       full_name: caseData.full_name,
       company_name: companyName,
       company_reg: companyReg,
-      director_name: directorName,
+      director_name: directorName ?? "",
       id_no: (row.id_no as string) || "",
+      id_type: (row.id_type as string) || "",
       full_address: fullAddress,
       package: (row.package as string) || "",
       provider: (row.provider as string) || "",
       mobile: (row.mobile as string) || "",
     };
 
-    // Seeded on the same key as the director, so one company's letters always
-    // show that director signing in the same hand. An empty pool returns null
-    // and the line stays blank.
-    const signature = await loadRandomLandlordSignature(bizSignatureRng(letterSource));
+    // The director signs with an admin-pool image, seeded on the director so
+    // they sign in one hand every time. No director or an empty pool → blank.
+    const rng = bizSignatureRng(letterSource);
+    const signature = rng ? await loadRandomLandlordSignature(rng) : null;
 
     const pdf = await generateBizAuthorizationLetter(letterSource, new Date(), { signature });
 
