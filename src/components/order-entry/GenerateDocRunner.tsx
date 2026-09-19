@@ -70,11 +70,14 @@ export default function GenerateDocRunner({ type, source, existingOfType, onDone
             fullAddress: source.fullAddress,
             mobile: source.mobile,
             offerName: source.offerName,
-            // Only the business letter reads these, and only a case row that has
-            // had its WifiBizz detail page fetched carries them. The order form
-            // has no company fields, so they are usually absent and the letter
-            // falls back to the `COMPANY(REG)` shape in the customer name.
-            ...(type === "biz_authorization_letter"
+            offerCategory: source.offerCategory ?? "",
+            // The business letter and the Umobile bill both need company /
+            // catalogue signals. Only a case row that has had its WifiBizz
+            // detail page fetched carries company fields. The order form has
+            // none, so they are usually absent: the letter falls back to the
+            // `COMPANY(REG)` shape in the customer name, and the bill strips
+            // a letter-BRN from that same shape.
+            ...((type === "biz_authorization_letter" || type === "internet_bill")
               ? {
                   companyName: source.companyName ?? "",
                   companyReg: source.companyReg ?? "",

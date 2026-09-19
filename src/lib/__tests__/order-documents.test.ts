@@ -233,6 +233,7 @@ describe("server vs client documents", () => {
   it("labels the cards TA and Auth Letter", () => {
     expect(docSpec("tenancy_agreement").label).toBe("TA");
     expect(docSpec("authorization_letter").label).toBe("Auth Letter");
+    expect(docSpec("internet_bill").label).toBe("Umobile Bill");
   });
 });
 

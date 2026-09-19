@@ -24,7 +24,7 @@ export function UmobileImagePreview({
       <div className="min-w-0 flex-1">
         <p className="text-[12px] font-medium text-[#0A2540]">UMobile image</p>
         <p className="truncate text-[11px] text-[#697386]" title={pick.filename}>
-          {pick.filename || "Selected at random. Internet Bill will add it as an extra page."}
+          {pick.filename || "Selected at random. Umobile Bill will add it as an extra page."}
         </p>
       </div>
       <button

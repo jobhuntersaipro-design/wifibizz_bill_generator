@@ -53,7 +53,8 @@ export async function GET(request: Request) {
     const billColumn = type === "internet" ? "internet_bill_url" : "utility_bill_url";
 
     const rows = await sql`
-      SELECT internet_bill_url, utility_bill_url, order_no, full_name, full_address, mobile
+      SELECT internet_bill_url, utility_bill_url, order_no, full_name, full_address, mobile,
+             case_url, provider, package
       FROM wifibizz_cases
       WHERE case_no = ${caseNo} AND user_id = ${wifibizzUser.id}
     `;
@@ -88,6 +89,9 @@ export async function GET(request: Request) {
         full_name: String(rows[0].full_name ?? ""),
         full_address: String(rows[0].full_address ?? ""),
         mobile: String(rows[0].mobile ?? ""),
+        case_url: String(rows[0].case_url ?? ""),
+        provider: String(rows[0].provider ?? ""),
+        package: String(rows[0].package ?? ""),
       });
       const stored = await persistBillPdf({
         userId: wifibizzUser.id,

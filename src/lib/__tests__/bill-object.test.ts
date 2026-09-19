@@ -78,7 +78,7 @@ describe("Case List generate overwrites the stored bill object", () => {
     expect(nextConfig).toContain("'/api/bills/download'");
 
     expect(caseList).toContain('handleGenerateSingle(c.case_no, "internet")');
-    expect(caseList).toContain("Building internet bill");
+    expect(caseList).toContain("Building Umobile bill");
     expect(caseList).toContain("a.download");
     const internetHandler = caseList.slice(
       caseList.indexOf("async function handleGenerateSingle"),

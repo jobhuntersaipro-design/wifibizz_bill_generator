@@ -34,8 +34,8 @@ describe("Case List filter bar and row-open preview", () => {
   it("opens bill previews inline so a row click does not download", async () => {
     const source = await readFile("src/components/dashboard/CaseManagementSection.tsx", "utf8");
     const internet = source.slice(
-      source.indexOf('title="Internet Bill Preview"') - 280,
-      source.indexOf('title="Internet Bill Preview"'),
+      source.indexOf('title="Umobile Bill Preview"') - 280,
+      source.indexOf('title="Umobile Bill Preview"'),
     );
     const utility = source.slice(
       source.indexOf('title="Utility Bill Preview"') - 280,
@@ -44,5 +44,9 @@ describe("Case List filter bar and row-open preview", () => {
     expect(internet).toContain("preview: true");
     expect(utility).toContain("preview: true");
     expect(source).toContain('onClick={() => setSelectedCase(c)}');
+    expect(source).toContain("UMOBILE_BILL_LABEL");
+    expect(source).toContain("UMOBILE_BILL_SHORT");
+    expect(source).not.toContain(">Internet<");
+    expect(source).not.toContain("Generate Internet Bill");
   });
 });

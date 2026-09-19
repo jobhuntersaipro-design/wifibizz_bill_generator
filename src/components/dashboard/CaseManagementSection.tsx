@@ -19,7 +19,7 @@ import {
 } from "./icons";
 import ChatImageGenerator from "./ChatImageGenerator";
 import type { ChatScriptVariant } from "@/lib/chat-script";
-import { AUTH_LETTER_LABEL, authLetterVariant, closingScriptVariant } from "@/lib/case-kind";
+import { AUTH_LETTER_LABEL, UMOBILE_BILL_LABEL, UMOBILE_BILL_SHORT, authLetterVariant, closingScriptVariant } from "@/lib/case-kind";
 import MergePdfDialog from "./MergePdfDialog";
 import { syncCasesToSheet } from "@/actions/settings";
 import { billDownloadPath, revisionFromPublicUrl } from "@/lib/bill-object";
@@ -128,18 +128,18 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
           {/* Internet Bill Preview */}
           <div className="border-t border-[#E3E8EF] my-5 panel-item-in"  style={{ animationDelay: "600ms" }} />
           <div className="panel-item-in" style={{ animationDelay: "650ms" }}>
-            <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">Internet Bill</h3>
+            <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">{UMOBILE_BILL_LABEL}</h3>
             {caseData.internet_bill_url ? (
               <div className="space-y-3">
                 <div className="rounded-lg border border-[#E3E8EF] overflow-hidden bg-[#F6F9FC]">
-                  <iframe src={billDownloadPath(caseData.case_no, "internet", `${revisionFromPublicUrl(caseData.internet_bill_url)}-${cacheBuster}`, { preview: true })} className="w-full h-100" title="Internet Bill Preview" />
+                  <iframe src={billDownloadPath(caseData.case_no, "internet", `${revisionFromPublicUrl(caseData.internet_bill_url)}-${cacheBuster}`, { preview: true })} className="w-full h-100" title="Umobile Bill Preview" />
                 </div>
                 <a href={billDownloadPath(caseData.case_no, "internet", `${revisionFromPublicUrl(caseData.internet_bill_url)}-${cacheBuster}`)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-[#635BFF] hover:text-[#0A2540] transition-colors duration-200">
-                  <DownloadIcon className="w-3.5 h-3.5" />Download Internet Bill
+                  <DownloadIcon className="w-3.5 h-3.5" />Download {UMOBILE_BILL_LABEL}
                 </a>
               </div>
             ) : (
-              <p className="text-sm text-[#697386]">No bill generated yet. Select this case and click &ldquo;Generate Internet Bill&rdquo;.</p>
+              <p className="text-sm text-[#697386]">No bill generated yet. Select this case and click &ldquo;Generate {UMOBILE_BILL_LABEL}&rdquo;.</p>
             )}
           </div>
 
@@ -489,7 +489,7 @@ export default function CaseManagementSection() {
     if (generatingCell || generating) return;
     setGeneratingCell(key);
     const toastId = toast.loading(
-      type === "internet" ? "Building internet bill…" : "Building utility bill…",
+      type === "internet" ? "Building Umobile bill…" : "Building utility bill…",
     );
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 45_000);
@@ -553,7 +553,7 @@ export default function CaseManagementSection() {
 
       setBillCacheBuster((prev) => prev + 1);
       window.dispatchEvent(new Event("usage-updated"));
-      toast.success(`${type === "internet" ? "Internet" : "Utility"} bill ready`, { id: toastId });
+      toast.success(`${type === "internet" ? "Umobile" : "Utility"} bill ready`, { id: toastId });
       void fetchCases();
     } catch (err) {
       console.error("Bill generation failed:", err);
@@ -898,7 +898,7 @@ export default function CaseManagementSection() {
           <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 sm:gap-3">
             <Button onClick={() => handleGenerateBills("internet")} disabled={generating || selectedCases.size === 0} className="bg-[#635BFF] hover:bg-[#5851DB] text-white rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all hover-glow press-effect disabled:opacity-50 disabled:cursor-not-allowed">
               <InternetBillIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
-              <span className="truncate">Generate Internet Bill{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
+              <span className="truncate">Generate {UMOBILE_BILL_LABEL}{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
             </Button>
             <Button onClick={() => handleGenerateBills("utility")} disabled={generating || selectedCases.size === 0} className="bg-[#FF6B35] hover:bg-[#E55A2B] text-white rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all hover-glow press-effect disabled:opacity-50 disabled:cursor-not-allowed">
               <UtilityBillIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
@@ -906,7 +906,7 @@ export default function CaseManagementSection() {
             </Button>
             <Button onClick={() => handleDownloadClick("internet")} disabled={downloading || generating || selectedCases.size === 0} className="bg-white border border-[#E3E8EF] text-[#425466] hover:text-[#0A2540] hover:border-[#635BFF] rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all press-effect disabled:opacity-50 disabled:cursor-not-allowed">
               <DownloadIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
-              <span className="truncate">Download Internet Bill{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
+              <span className="truncate">Download {UMOBILE_BILL_LABEL}{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
             </Button>
             <Button onClick={() => handleDownloadClick("utility")} disabled={downloading || generating || selectedCases.size === 0} className="bg-white border border-[#E3E8EF] text-[#425466] hover:text-[#0A2540] hover:border-[#FF6B35] rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all press-effect disabled:opacity-50 disabled:cursor-not-allowed">
               <DownloadIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
@@ -1022,7 +1022,7 @@ export default function CaseManagementSection() {
                     <DownloadIcon className="w-5 h-5 text-[#635BFF]" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-semibold text-[#0A2540]">Download {downloadConfirm.type === "internet" ? "Internet" : "Utility"} Bills</h3>
+                    <h3 className="text-sm font-semibold text-[#0A2540]">Download {downloadConfirm.type === "internet" ? "Umobile" : "Utility"} Bills</h3>
                     <p className="text-xs text-[#697386]">{downloadConfirm.total} case{downloadConfirm.total !== 1 ? "s" : ""} selected</p>
                   </div>
                 </div>
@@ -1127,8 +1127,8 @@ export default function CaseManagementSection() {
                           </button>
                           )}
                           <button
-                            title={c.internet_bill_url ? "Download Internet Bill" : "Generate Internet Bill"}
-                            aria-label={c.internet_bill_url ? `Download internet bill for ${c.case_no}` : `Generate internet bill for ${c.case_no}`}
+                            title={c.internet_bill_url ? `Download ${UMOBILE_BILL_LABEL}` : `Generate ${UMOBILE_BILL_LABEL}`}
+                            aria-label={c.internet_bill_url ? `Download umobile bill for ${c.case_no}` : `Generate umobile bill for ${c.case_no}`}
                             disabled={generatingCell === `${c.case_no}:internet`}
                             onClick={() => handleGenerateSingle(c.case_no, "internet")}
                             className={`w-14 flex flex-col items-center gap-0.5 rounded-md py-1 transition-colors disabled:cursor-not-allowed ${c.internet_bill_url ? "text-[#635BFF] hover:bg-[#F0EEFF]" : "text-[#9CA3AF] hover:text-[#635BFF] hover:bg-[#F0EEFF]"}`}
@@ -1136,7 +1136,7 @@ export default function CaseManagementSection() {
                             {generatingCell === `${c.case_no}:internet`
                               ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#635BFF] border-t-transparent animate-spin" />
                               : <InternetBillIcon className="w-4 h-4" />}
-                            <span className="text-[10px] leading-none font-medium text-[#697386]">Internet</span>
+                            <span className="text-[10px] leading-none font-medium text-[#697386]">{UMOBILE_BILL_SHORT}</span>
                           </button>
                           <button
                             title={c.utility_bill_url ? "Download Utility Bill" : "Generate Utility Bill"}

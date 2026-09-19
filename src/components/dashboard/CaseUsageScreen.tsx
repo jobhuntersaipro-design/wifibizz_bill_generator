@@ -219,7 +219,7 @@ export function CaseUsageScreen() {
                                 ? "bg-blue-50 text-blue-700"
                                 : "bg-gray-50 text-gray-400"
                             }`}>
-                              Internet
+                              Umobile
                             </span>
                             <span className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-md ${
                               entry.hasUtility
@@ -345,7 +345,7 @@ function UsageProgressCard({ usage }: { usage: UsageSummary }) {
               <p className="text-xl font-semibold text-[#0A2540] tabular-nums mt-1">{usage.remaining}</p>
             </div>
             <div className="text-center">
-              <p className="text-[11px] font-medium text-[#697386] uppercase tracking-wider">Internet</p>
+              <p className="text-[11px] font-medium text-[#697386] uppercase tracking-wider">Umobile</p>
               <p className="text-xl font-semibold text-[#635BFF] tabular-nums mt-1">{usage.internetBills}</p>
             </div>
             <div className="text-center">

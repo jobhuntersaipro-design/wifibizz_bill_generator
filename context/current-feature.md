@@ -1,17 +1,15 @@
-# Current Feature: Biz Auth Letter — a business authorisation letter for Bizz plans
+# Current Feature: Business Umobile bill — strip BRN; rename Internet → Umobile
 
 ## Status
 
-CODE COMPLETE, NOT VERIFIED IN BROWSER (branch `feature/biz-auth-letter`, not committed).
-Vercel-only, no migration, no scraper change.
+In Progress (branch `cursor/umobile-brn-labels-752c`). ClickUp [z8v9xng423](https://app.clickup.com/t/z8v9xng423).
 
 ## Goals
 
-- A **business** case/order gets **Biz Auth Letter**; a normal one keeps today's **Auth Letter**. Never both.
-- The letter follows the supplied `EXAMPLE - FORMAT AL` template: company letterhead, director block,
-  the TM Authorised Agent paragraph, the three permission bullets, PACKAGE / SERVICE ADDRESS, footer.
-- Agent name, agent IC, the signature line and COMPANY CHOP stay **visually empty**.
-- Missing data never blocks generation — the field prints blank.
+- Business U Mobile bill PDF customer name has no trailing `(BRN)` / `COMPANY(REG)` parenthetical.
+- Residential name+(NRIC) on that same line stays exactly as today (`TAN PEI SHAN(940924045066)`).
+- Every user-visible "Internet" label for this bill reads "Umobile" (Case List Bills, OE cards, Combine, toasts, usage).
+- API / DB / storage names stay `internet` unless a user-visible string cannot change without them.
 
 ## Decisions (taken with the user, 2026-09-18)
 

@@ -96,6 +96,48 @@ export const AUTH_LETTER_LABEL: Record<AuthLetterVariant, string> = {
   residential: "Auth Letter",
 };
 
+/** Long label for the U Mobile bill. Case List, OE, Combine, and toasts agree. */
+export const UMOBILE_BILL_LABEL = "Umobile Bill";
+
+/** Short row-chip label next to Utility / Chat. */
+export const UMOBILE_BILL_SHORT = "Umobile";
+
+/**
+ * Customer name printed on the U Mobile bill overlay.
+ *
+ * Business bills drop a trailing `(BRN)` pair (`MONBLEU CAFE(JM0920662-D)`
+ * becomes `MONBLEU CAFE`). Residential bills keep name+(NRIC) as stored
+ * (`TAN PEI SHAN(940924045066)` stays).
+ *
+ * Classification ignores `signals.full_name`. `isBusinessCase` treats any
+ * `NAME(anything)` pair as business, which would strip a residential NRIC.
+ * A parenthetical that contains a letter is a BRN (`JM0920662-D`, `223969-U`)
+ * and is stripped even when other signals were not passed through.
+ */
+export function umobileBillCustomerName(
+  fullName: string,
+  signals: BusinessSignals = {},
+): string {
+  const name = present(fullName);
+  const pair = parseCompanyPair(name);
+  if (!pair) return name;
+
+  const withoutName: BusinessSignals = {
+    provider: signals.provider,
+    package: signals.package,
+    case_url: signals.case_url,
+    company_name: signals.company_name,
+    company_reg: signals.company_reg,
+    director_name: signals.director_name,
+    offer_category: signals.offer_category,
+    tags: signals.tags,
+  };
+  if (isBusinessCase(withoutName) || /[A-Za-z]/.test(pair.companyReg)) {
+    return pair.companyName;
+  }
+  return name;
+}
+
 export interface BizzChatFields {
   /** Company Registration No / BRN. Never NRIC. */
   customerId: string | null;

@@ -901,7 +901,7 @@ function UserHistoryPanel({ user, onClose }: { user: UserRow; onClose: () => voi
                             <span className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-md ${
                               entry.billType === "internet" ? "bg-blue-50 text-blue-700" : "bg-amber-50 text-amber-700"
                             }`}>
-                              {entry.billType === "internet" ? "Internet" : "Utility"}
+                              {entry.billType === "internet" ? "Umobile" : "Utility"}
                             </span>
                           </td>
                           <td className="px-3 py-2.5 text-xs text-[#697386] tabular-nums">

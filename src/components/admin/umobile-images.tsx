@@ -75,7 +75,7 @@ export function UmobileImages({
           />
         </label>
         <p className="mt-2 text-[12px] text-[#697386]">
-          PNG or JPEG, max 5MB. Internet bills pick one at random from this pool.
+          PNG or JPEG, max 5MB. Umobile bills pick one at random from this pool.
         </p>
       </div>
 

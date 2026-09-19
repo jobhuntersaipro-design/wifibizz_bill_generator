@@ -10,11 +10,11 @@ function getHeaderCheckbox(page: Page) {
 }
 
 function getGenerateInternetBillButton(page: Page) {
-  return page.getByRole("button", { name: /Generate Internet Bill/i });
+  return page.getByRole("button", { name: /Generate Umobile Bill/i });
 }
 
 function getDownloadInternetBillButton(page: Page) {
-  return page.getByRole("button", { name: /Download Internet Bill/i });
+  return page.getByRole("button", { name: /Download Umobile Bill/i });
 }
 
 function getSelectAllCasesLink(page: Page) {
@@ -506,7 +506,7 @@ test.describe("Internet Bill Generation & Download", () => {
       await firstRow.click();
 
       // Detail panel should slide in
-      const detailPanel = page.locator("text=/Internet Bill/i").last();
+      const detailPanel = page.locator("text=/Umobile Bill/i").last();
       await expect(detailPanel).toBeVisible({ timeout: 5_000 });
     });
 
@@ -526,7 +526,7 @@ test.describe("Internet Bill Generation & Download", () => {
           await page.waitForTimeout(1_000);
 
           // Check for iframe with bill preview
-          const iframe = page.locator('iframe[title="Internet Bill Preview"]');
+          const iframe = page.locator('iframe[title="Umobile Bill Preview"]');
           await expect(iframe).toBeVisible({ timeout: 5_000 });
 
           // iframe src should point to download API
@@ -572,7 +572,7 @@ test.describe("Internet Bill Generation & Download", () => {
           await rows.nth(i).click();
           await page.waitForTimeout(1_000);
 
-          const downloadLink = page.locator("a", { hasText: /Download Internet Bill/i });
+          const downloadLink = page.locator("a", { hasText: /Download Umobile Bill/i });
           await expect(downloadLink).toBeVisible({ timeout: 5_000 });
 
           const href = await downloadLink.getAttribute("href");
@@ -650,7 +650,7 @@ test.describe("Internet Bill Generation & Download", () => {
       await page.waitForTimeout(500);
 
       // The slide-in panel uses a fixed overlay; check it's not there
-      const iframe = page.locator('iframe[title="Internet Bill Preview"]');
+      const iframe = page.locator('iframe[title="Umobile Bill Preview"]');
       const noPreview = page.locator('text=/No bill generated yet/i');
 
       // Neither should be visible from just checkbox click
@@ -673,7 +673,7 @@ test.describe("Internet Bill Generation & Download", () => {
       await page.waitForTimeout(500);
 
       // Detail panel should NOT have opened
-      const iframe = page.locator('iframe[title="Internet Bill Preview"]');
+      const iframe = page.locator('iframe[title="Umobile Bill Preview"]');
       await expect(iframe).not.toBeVisible({ timeout: 1_000 });
     });
   });
