@@ -71,13 +71,7 @@ export default function GenerateDocRunner({ type, source, existingOfType, onDone
             mobile: source.mobile,
             offerName: source.offerName,
             offerCategory: source.offerCategory ?? "",
-            // The business letter and the Umobile bill both need company /
-            // catalogue signals. Only a case row that has had its WifiBizz
-            // detail page fetched carries company fields. The order form has
-            // none, so they are usually absent: the letter falls back to the
-            // `COMPANY(REG)` shape in the customer name, and the bill strips
-            // a letter-BRN from that same shape.
-            ...((type === "biz_authorization_letter" || type === "internet_bill")
+            ...(type === "biz_authorization_letter"
               ? {
                   companyName: source.companyName ?? "",
                   companyReg: source.companyReg ?? "",

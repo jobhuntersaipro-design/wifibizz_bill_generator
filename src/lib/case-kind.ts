@@ -96,16 +96,11 @@ export const AUTH_LETTER_LABEL: Record<AuthLetterVariant, string> = {
   residential: "Auth Letter",
 };
 
-/** Long label for the U Mobile bill. Case List, OE, Combine, and toasts agree. */
 export const UMOBILE_BILL_LABEL = "Umobile Bill";
 
-/** Short row-chip label next to Utility / Chat. */
 export const UMOBILE_BILL_SHORT = "Umobile";
 
-/**
- * WifiBizz Business Fibre only. Not the wider `isBusinessCase` net
- * (company fields, Bizz tag, `COMPANY(REG)` in the name).
- */
+/** Product/module only. `isBusinessCase` also fires on COMPANY(REG) in the name. */
 function isBusinessFibre(s: BusinessSignals): boolean {
   const product = `${s.provider ?? ""} ${s.package ?? ""}`;
   if (/\bbusiness\s+fibre\b/i.test(product)) return true;
@@ -115,13 +110,7 @@ function isBusinessFibre(s: BusinessSignals): boolean {
 
 const TRAILING_DIGITS = /^(.*)\((\d+)\)\s*$/;
 
-/**
- * Customer name printed on the U Mobile bill overlay.
- *
- * Atlas lock: on Business Fibre only, drop a trailing `(digits)` pair
- * (`TAN PEI SHAN(940924045066)` → `TAN PEI SHAN`). Home Fibre and every
- * other case keep the stored name, including name+(NRIC) and letter BRNs.
- */
+/** Business Fibre only: drop a trailing `(digits)` pair. Home Fibre is unchanged. */
 export function umobileBillCustomerName(
   fullName: string,
   signals: BusinessSignals = {},

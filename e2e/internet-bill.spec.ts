@@ -186,7 +186,7 @@ test.describe("Internet Bill Generation & Download", () => {
       await btn.click();
 
       // Progress bar should appear
-      const progressText = page.locator("text=/Generating internet bills/i");
+      const progressText = page.locator("text=/Generating Umobile bills/i");
       await expect(progressText).toBeVisible({ timeout: 5_000 });
 
       // Wait for completion
@@ -288,7 +288,7 @@ test.describe("Internet Bill Generation & Download", () => {
       await btn.click();
 
       // Progress should appear
-      const progressText = page.locator("text=/Generating internet bills/i");
+      const progressText = page.locator("text=/Generating Umobile bills/i");
       await expect(progressText).toBeVisible({ timeout: 5_000 });
 
       // Wait for completion (may take longer with all cases)
@@ -418,7 +418,7 @@ test.describe("Internet Bill Generation & Download", () => {
       }
 
       // Download progress should NOT appear
-      const progressText = page.locator("text=/Downloading internet bills/i");
+      const progressText = page.locator("text=/Downloading Umobile bills/i");
       await expect(progressText).not.toBeVisible({ timeout: 2_000 });
     });
 
@@ -454,7 +454,7 @@ test.describe("Internet Bill Generation & Download", () => {
       await confirmBtn.click();
 
       // Progress bar should appear
-      const progressText = page.locator("text=/Downloading internet bills|Download complete!/i");
+      const progressText = page.locator("text=/Downloading Umobile bills|Download complete!/i");
       await expect(progressText).toBeVisible({ timeout: 10_000 });
 
       // Wait for completion

@@ -125,7 +125,6 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
             );
           })}
 
-          {/* Internet Bill Preview */}
           <div className="border-t border-[#E3E8EF] my-5 panel-item-in"  style={{ animationDelay: "600ms" }} />
           <div className="panel-item-in" style={{ animationDelay: "650ms" }}>
             <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">{UMOBILE_BILL_LABEL}</h3>
@@ -464,7 +463,7 @@ export default function CaseManagementSection() {
       } else if (totalFailed > 0) {
         toast.error(`${totalFailed} bill(s) failed to generate`);
       } else {
-        toast.success(`Generated ${totalGenerated} ${type} bill(s)`);
+        toast.success(`Generated ${totalGenerated} ${type === "internet" ? "Umobile" : type} bill(s)`);
       }
 
       setBillCacheBuster((prev) => prev + 1);
@@ -772,7 +771,7 @@ export default function CaseManagementSection() {
       URL.revokeObjectURL(url);
 
       await new Promise((resolve) => setTimeout(resolve, 800));
-      toast.success(`Downloaded ${type} bills as ZIP`);
+      toast.success(`Downloaded ${type === "internet" ? "Umobile" : type} bills as ZIP`);
     } catch (err) {
       console.error("Bulk download failed:", err);
       toast.error("Download failed. Please try again.");
@@ -979,7 +978,7 @@ export default function CaseManagementSection() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   {isComplete ? (<CheckCircleIcon className="w-4 h-4 text-[#09825D]" />) : (<span className="h-4 w-4 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />)}
-                  <span className="text-sm font-medium text-[#0A2540]">{isComplete ? "Generation complete!" : `Generating ${generateProgress.type} bills...`}</span>
+                  <span className="text-sm font-medium text-[#0A2540]">{isComplete ? "Generation complete!" : `Generating ${generateProgress.type === "internet" ? "Umobile" : generateProgress.type} bills...`}</span>
                 </div>
                 <span className="text-xs tabular-nums font-semibold text-[#0A2540]">{pct}%</span>
               </div>
@@ -1000,7 +999,7 @@ export default function CaseManagementSection() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   {isComplete ? (<CheckCircleIcon className="w-4 h-4 text-[#09825D]" />) : (<span className="h-4 w-4 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />)}
-                  <span className="text-sm font-medium text-[#0A2540]">{isComplete ? "Download complete!" : `Downloading ${downloadProgress.type} bills...`}</span>
+                  <span className="text-sm font-medium text-[#0A2540]">{isComplete ? "Download complete!" : `Downloading ${downloadProgress.type === "internet" ? "Umobile" : downloadProgress.type} bills...`}</span>
                 </div>
                 <span className="text-xs tabular-nums font-semibold text-[#0A2540]">{pct}%</span>
               </div>

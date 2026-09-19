@@ -8,7 +8,7 @@ export default async function AdminUmobileImagePage() {
       <div>
         <h1 className="text-2xl font-semibold text-[#0A2540]">umobile image</h1>
         <p className="text-sm text-[#697386] mt-1">
-          Modem photos for UMobile internet bills. Generation picks one at random.
+          Modem photos for Umobile bills. Generation picks one at random.
         </p>
       </div>
       <UmobileImages initialImages={res.success ? res.images : []} />

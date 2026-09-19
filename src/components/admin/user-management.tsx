@@ -856,7 +856,7 @@ function UserHistoryPanel({ user, onClose }: { user: UserRow; onClose: () => voi
                 </div>
                 <div>
                   <p className="text-[11px] font-medium text-[#697386] uppercase tracking-wider">Bills</p>
-                  <p className="text-sm text-[#425466] tabular-nums">{data.summary.internetBills} internet, {data.summary.utilityBills} utility</p>
+                  <p className="text-sm text-[#425466] tabular-nums">{data.summary.internetBills} Umobile, {data.summary.utilityBills} utility</p>
                 </div>
               </div>
             </div>
