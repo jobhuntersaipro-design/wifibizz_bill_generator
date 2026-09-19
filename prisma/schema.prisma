@@ -463,6 +463,12 @@ model WifibizzCase {
   mobile          String?
   email           String?
   idNo            String?       @map("id_no")
+  /// Passport / MyKad / … — says what idNo actually is on a business case.
+  idType          String?       @map("id_type")
+  companyName     String?       @map("company_name")
+  companyReg      String?       @map("company_reg")
+  /// Customer-tab Name — the director, never the company. Detail page only.
+  directorName    String?       @map("director_name")
   provider        String?
   package         String?
   orderNo         String?       @map("order_no")

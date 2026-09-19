@@ -1,4 +1,117 @@
-# Current Feature: UX G2 Dashboard Case workbench; charts → Analytics
+# Current Feature: Business cases carry their own company, director and address
+
+## Status
+
+CODE COMPLETE, VERIFIED AGAINST THE LIVE PORTAL, NOT VERIFIED IN THE BROWSER
+(branch `feature/crawl-business-case-fields`, not committed).
+Vercel-only, no scraper change. **Migration `20260919120000_wifibizz_case_business_fields`**
+(`company_name`, `company_reg`, `id_type`, `director_name`) — applied to dev, Vercel's build
+applies it on deploy.
+
+## Goals
+
+For a business (`biz_fibre`) case the crawl records Company Name, Company Registration No,
+Name (the director), Mobile No, Email, National ID No and Installation Address — so the case
+list, Bizz Chat and Biz Auth Letter read stored facts instead of re-deriving or re-fetching them.
+
+## What was actually missing (probed live 2026-09-19, not inferred)
+
+Dumped one real `biz_fibre` list row and the detail page for case 202655047.
+
+**The list API already returns three fields `extractCases` throws away** — `company_name`,
+`company_reg` and `customer_id_type`. Storing them costs no extra requests.
+
+**Not in the list row at all** (`application_detail` carries no address either, checked):
+the Customer-tab **Name** (the director) and the **Installation Address**. Both are detail-page only.
+
+Already crawled and correct: mobile, email, id_no.
+
+### Three findings that shaped the work
+
+1. **The company derivation in place today fails for 42% of business cases.** Nothing is stored,
+   so `parseCompanyPair` splits `full_name` on its trailing bracket — and the portal nests the old
+   registration number inside the new one: `Goldmate Corporation Sdn Bhd(198401017604 (130158-V))`.
+   **545 of 1,299** business rows do not match that regex (also an unbalanced
+   `…(20230102465591518578-U))` and a bare `-`), so they render a **blank BRN**. Reading
+   `company_reg` off the list row fixes every one of them.
+2. **`id_no` is not reliably a person's IC**, which contradicts the note in the Biz Auth Letter
+   entry below. It follows `customer_id_type`: case 202655047 is type **Passport** and its `id_no`
+   is the company reg (`JR0191646W`) with no director IC anywhere on the page, while 202670732 is a
+   MyKad and its `id_no` is the director's. Storing `id_type` is what makes that readable.
+3. **1,115 of 1,299 business cases (86%) have no address** — it only lands when somebody happens to
+   generate a document for that case.
+
+## Decisions (taken with the user, 2026-09-19)
+
+- **The detail page is fetched during the crawl, for `biz_fibre` only, and only for cases still
+  missing the address or the director.** The first crawl backfills the ~1,299 existing rows; later
+  crawls touch only new cases. The alternatives — refetching every business case every crawl, or a
+  separate one-off backfill script — were declined.
+- **`scraper.ts` stays database-free.** "Which cases still need a detail page" arrives as a
+  `needsDetail` callback supplied by the caller, so the crawler keeps taking a sink rather than
+  growing a DB import.
+- **A list-only re-crawl must never blank a detail-sourced field.** `director_name` gets the same
+  don't-clobber rule `full_address` already has in `upsertCases`.
+
+## Built
+
+- **`extractCases` reads the three keys the list row was already sending** — `company_name`,
+  `company_reg`, `customer_id_type`. No extra request, and it fixes the 545 nested-bracket rows
+  outright.
+- **`enrichWithDetail`** fetches the detail page for business cases only, at concurrency 6, before
+  the sink — so what gets persisted already carries the director and the address. A page that fails
+  leaves the case usable with its list-row values rather than failing the crawl, and the deadline
+  stops it starting new requests so a pass cannot overrun its budget.
+- **`casesNeedingDetail(userId, caseNos)`** in `db.ts` is what the route passes as `needsDetail`.
+- **`director_name` is nullable, and the NULL/`""` distinction is load-bearing.** The portal's Name
+  field is a **bare dash on 44 of this account's 51 business cases** — agents leave it that way. A
+  dash must not be stored as somebody's name, but storing `""` and then testing the name for
+  non-emptiness would re-fetch those 44 pages on **every crawl for ever**. So NULL means "no detail
+  page has been read for this case" and `""` means "read, and the portal had no name there";
+  `casesNeedingDetail` tests `director_name IS NOT NULL`. This also catches the legacy rows whose
+  address was lazily filled at bill time but whose director was never fetched.
+- **`parseCaseDetailFields` normalises the dash placeholder**, so the crawl and the bill-time lazy
+  path cannot disagree about what counts as a value. The lazy path now persists the director and
+  company too, so generating a second document for a case no longer refetches the same page.
+- `/api/cases` selects the new columns, so the case list reads them without a live fetch.
+
+## Verified
+
+**Against the live portal**, crawling into a THROWAWAY `wifibizz_users` row that was deleted
+afterwards — real list rows and real detail pages, no real case row touched. Over the account's
+full set of **51 business cases**: company name **51/51**, registration no **51/51**, address
+**50/51**, director **7/51** (the other 44 are the portal's bare dash), and mobile / email /
+national ID on every one. A second crawl of the same window asked for **0** detail pages — the
+skip-already-filled rule holding, including for the dashed ones.
+
+The one case re-asked for on a later pass is the one whose portal address is blank. Left as it is:
+it is 1 request in 51, and it self-heals the day the agent fills the address in.
+
+**Tests:** 20 in `business-fields.test.ts` — the three list keys read off a verbatim live row,
+`director_name` NULL from a list sweep, the real `<span>` detail markup, a control proving
+`parseCompanyPair` genuinely fails on the three real nested-bracket names, the dash read as no
+value while `SA0200695-U` and `10-G JALAN PJS 5/28` survive, non-business cases never fetched, only
+the named cases fetched, the sink receiving enriched rows, a failed page not failing the crawl, and
+the deadline stopping fetches. 8 more in `db-live.test.ts` (opt-in, `npm run test:db`, throwaway
+user) pinning the NULL/`""` rule against real Postgres. **1057 vitest passing**, `npm run build`
+clean, lint clean on every touched file, `tsc` unchanged (the same 4 pre-existing errors).
+
+## NOT verified
+
+- **The browser.** No crawl has been run from `/dashboard/crawl`, and the case list has not been
+  looked at with the new columns populated.
+- **A real crawl on real rows.** Everything above wrote to a throwaway user; the 1,299 existing
+  business rows still have NULL in the new columns until a real crawl runs.
+- **The first real crawl's cost.** It will fetch ~1,299 detail pages at concurrency 6 and may well
+  span several passes; the pass/cursor machinery is what carries it, but that has not been watched.
+
+## Not in scope
+
+Changing which fields the Bizz Chat or Biz Auth Letter print, the residential path, and the scraper.
+Worth deciding separately, now that `id_type` is recorded: the Biz Auth Letter entry below states
+"`id_no` is the director's IC", and case 202655047 shows that is not reliably true.
+
+# Current Feature: Order Entry reconnect IA + OTP above fold
 
 ## Status
 
@@ -6,23 +119,12 @@ In Progress
 
 ## Goals
 
-- `/dashboard` shows KPI strip + Case List + filters without four chart panels above the worklist
-- The four existing chart panels (Cases Over Time, Cases by State, By Status, By Provider) live on Analytics
-- Sidebar/nav link labeled **Analytics** opens `/dashboard/analytics`
-- Case List row actions, filters, and bill actions stay unchanged
-- KPI numbers stay the same sources (`totalCases`, Activated from `byStatus`, Cases Used)
-
-## Notes
-
-ClickUp [UX G2: Dashboard Case workbench; charts → Analytics](https://app.clickup.com/t/z8v9xnfrht). Option A. UI only. Move `AnalyticsSection` charts, do not rewrite them. Do not invent metrics. Do not mobile-redesign.
-
-`AnalyticsSection` already owns KPI + charts. `CaseManagementSection` is a sibling with no props. Placement is a `surface` flag (`workbench` | `analytics`), not a new analytics model.
-
-## History
-
-### Order Entry reconnect IA + OTP above fold
-
-Merged on main as PR #28. Expired dealer session lands on `/dashboard/order-entry/reconnect`.
+- Expired or forced-expired dealer session lands on `/dashboard/order-entry/reconnect` with H1 `Reconnect dealer account` (not New Order)
+- One expiry message, same G1 copy (`Dealer session expired` / `Reconnect to submit orders`); no second overlapping pill on the form
+- Help “How to set this up” opens a Sheet so Send OTP stays above the fold
+- OTP channel labels are `Email` and `SMS` only
+- Loading shows a visible purple spinner; no “Connect Unifi Dealer Account” / “Not configured” flash on the expired path
+- No auto-send OTP; keep the existing password-used-once copy
 
 ## Notes
 

@@ -39,12 +39,15 @@ export interface CaseRow {
   utility_bill_url: string | null;
   case_created_at: string | null;
   updated_at: string | null;
-  /** WifiBizz Company Name — filled at Bizz Chat generate time from the detail page. */
+  /** WifiBizz Company Name — crawled from the list row. */
   company_name?: string | null;
-  /** WifiBizz Company Registration No (BRN). */
+  /** WifiBizz Company Registration No (BRN) — crawled from the list row. */
   company_reg?: string | null;
-  /** Customer-tab Name / director, not the company. */
+  /** Customer-tab Name / director, not the company. Detail page only. */
   director_name?: string | null;
+  /** What `id_no` is on this case — "passport", "mykad", … On a business case it
+   *  is often the company registration number rather than a person's IC. */
+  id_type?: string | null;
 }
 
 export type SortDir = "asc" | "desc";
