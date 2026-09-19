@@ -4,7 +4,7 @@ import {
   type CrawlCursor,
   type CrawlProgress,
 } from "@/lib/crawler/scraper";
-import { upsertCases, updateLastCrawl, getUserPassword, casesNeedingDetail } from "@/lib/crawler/db";
+import { upsertCases, updateLastCrawl, getUserPassword, nextCasesNeedingDetail, saveCaseDetails } from "@/lib/crawler/db";
 import { prisma } from "@/lib/prisma";
 import { appendCasesToSheet, getSheetCaseNumbers, updateSheetAddresses } from "@/lib/google-sheets";
 import {
@@ -147,14 +147,13 @@ export async function POST(request: Request) {
                 updated += r.updated;
               },
               // Business cases carry two fields the list row cannot supply (the
-              // director's name and the installation address), each costing one
-              // detail-page request. Only rows that still lack them are fetched,
-              // so the first crawl backfills and later ones cost nothing.
-              needsDetail: async (candidates) =>
-                casesNeedingDetail(
-                  wifibizzUser.id,
-                  candidates.map((c) => c.case_no),
-                ),
+              // director's name and the installation address). They are read in
+              // a stage of their own after the list sweep, saved batch by batch,
+              // and the pass loop carries on until none in the window are left.
+              details: {
+                next: (q) => nextCasesNeedingDetail(wifibizzUser.id, q),
+                save: (rows) => saveCaseDetails(wifibizzUser.id, rows),
+              },
             }
           );
 

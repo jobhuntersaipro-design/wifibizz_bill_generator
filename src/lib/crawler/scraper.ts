@@ -222,13 +222,23 @@ export async function fetchCaseAddress(
   return fields.address;
 }
 
+/**
+ * A page that is actually a case detail page. An expired session does not return
+ * an error status — the portal redirects to /login and fetch follows it to a 200
+ * — so a status check alone would read the login form as "a case with no name"
+ * and mark it done for ever.
+ */
+function isCaseDetailPage(html: string): boolean {
+  return /<label[^>]*>\s*(Address|Name|Full Name \(as per ID\)|Company Name)\s*\*?\s*<\/label>/i.test(html);
+}
+
+/** Throws unless the portal genuinely returned this case's page. */
 async function fetchCaseDetail(
   baseUrl: string,
   session: LoginSession,
   caseId: number,
   module: string = "home_fibre",
 ): Promise<CaseDetailFields> {
-  const empty: CaseDetailFields = { address: "", companyName: "", companyReg: "", customerName: "" };
   const res = await fetch(`${baseUrl}/applications/${caseId}?module=${module}`, {
     headers: {
       Cookie: session.cookies,
@@ -237,22 +247,37 @@ async function fetchCaseDetail(
     signal: AbortSignal.timeout(30000),
   });
 
-  if (!res.ok) return empty;
-  return parseCaseDetailFields(await res.text());
+  // A failure must not come back as empty fields: the detail stage records an
+  // empty director as "read, and the portal has no name", which is final.
+  if (!res.ok) throw new Error(`case detail ${caseId} returned ${res.status}`);
+  const html = await res.text();
+  if (!isCaseDetailPage(html)) throw new Error(`case detail ${caseId} is not a case page`);
+  return parseCaseDetailFields(html);
 }
 
-// ── Step 3c: Detail enrichment for business cases ──
+// ── Step 3c: The business-details stage ──
 //
 // Two of the seven fields a business case needs are not in the list row at any
 // key — the Customer-tab Name (the list's `customer_name` is the COMPANY(REG)
 // string, never the person) and the installation address (`application_detail`
-// carries none either). Both cost one detail-page request per case, so only
-// business cases the caller says are still missing them are fetched.
+// carries none either). Both cost one detail-page request per case.
+//
+// They are fetched in a STAGE OF THEIR OWN after the list sweep, not inside it.
+// The first version fetched them inside each 1,000-row list page, which held the
+// whole page's save hostage to ~1,000 requests: on production a pass spent its
+// budget after 336 of them, saved the other 664 without detail, and moved past
+// them. Here each small batch is saved the moment it lands, and the stage keeps
+// the crawl going across passes until nothing is left.
 
 const DETAIL_CONCURRENCY = 6;
+/** How many cases to ask the source for at a time. */
+const DETAIL_FETCH_SIZE = 30;
+
+/** The cursor position of the business-details stage: after every module. */
+export const DETAIL_STAGE = CRAWL_MODULES.length;
 
 /** A business case, by the module its own portal URL names. */
-export function isBizFibreCase(c: CaseData): boolean {
+export function isBizFibreCase(c: Pick<CaseData, "case_url">): boolean {
   return /[?&]module=biz_fibre\b/i.test(c.case_url || "");
 }
 
@@ -261,45 +286,94 @@ function caseDetailRef(caseUrl: string): { id: number; module: string } | null {
   return m ? { id: Number(m[1]), module: m[2] } : null;
 }
 
+/** What one detail page yielded, ready to save. */
+export interface CaseDetailRow {
+  case_no: string;
+  full_address: string;
+  /** "" = the page was read and the portal has no name there. Never null. */
+  director_name: string;
+  company_name: string;
+  company_reg: string;
+}
+
 /**
- * Fill director name and address from each case's own detail page, in place.
- * Best-effort: a case that cannot be fetched keeps its list-only values rather
- * than failing the crawl. Stops starting new requests once `deadline` passes —
- * the rows it did not reach still read as missing, so the next crawl retries them.
+ * Where the business-details stage gets its work and puts its results. Supplied
+ * by the caller so this module stays database-free.
  */
-async function enrichWithDetail(
+export interface DetailSource {
+  /**
+   * Business cases in [from, to] whose detail page has never been read, in a
+   * stable order, skipping the first `skip` (cases that failed earlier and are
+   * still unread). `remaining` counts every unread case, skipped ones included.
+   */
+  next(q: { from: Date; to: Date | null; skip: number; limit: number }): Promise<{
+    items: { case_no: string; case_url: string }[];
+    remaining: number;
+  }>;
+  /** Persist one batch. Called per batch so a cut-off pass loses seconds, not a page. */
+  save(rows: CaseDetailRow[]): Promise<void>;
+}
+
+/**
+ * Run the stage until nothing is left or the deadline passes.
+ *
+ * `skip` is the resume position AND the failure count: a case whose page could
+ * not be read stays unread, so it would otherwise come back first on the next
+ * ask and the stage would loop on it. Counting failures and skipping that many
+ * steps past them — they sit at the front, since everything read before them
+ * dropped out of the set.
+ */
+async function runDetailStage(
   baseUrl: string,
   session: LoginSession,
-  cases: CaseData[],
-  wanted: Set<string>,
+  source: DetailSource,
+  window: { from: Date; to: Date | null },
+  startSkip: number,
   deadline: number,
-): Promise<number> {
-  const todo = cases.filter((c) => wanted.has(c.case_no) && caseDetailRef(c.case_url));
-  let enriched = 0;
+  report: (done: number, remaining: number) => void,
+): Promise<{ complete: boolean; skip: number; done: number }> {
+  let skip = startSkip;
+  let done = 0;
 
-  for (let i = 0; i < todo.length; i += DETAIL_CONCURRENCY) {
-    if (Date.now() >= deadline) break;
-    await Promise.all(
-      todo.slice(i, i + DETAIL_CONCURRENCY).map(async (c) => {
-        const ref = caseDetailRef(c.case_url)!;
-        try {
-          const f = await fetchCaseDetail(baseUrl, session, ref.id, ref.module);
-          if (f.address) c.full_address = f.address;
-          // Set even when empty — the page WAS read, and that is the fact the
-          // next crawl needs so it does not ask for this page again.
-          c.director_name = f.customerName;
-          // The list row is the usual source for these two; the detail page only
-          // fills a gap, so a present list value is never overwritten.
-          if (!c.company_name) c.company_name = f.companyName;
-          if (!c.company_reg) c.company_reg = f.companyReg;
-          enriched++;
-        } catch {
-          // best-effort — this case keeps what the list gave us
-        }
-      }),
-    );
+  for (;;) {
+    if (Date.now() >= deadline) return { complete: false, skip, done };
+
+    const { items, remaining } = await source.next({ ...window, skip, limit: DETAIL_FETCH_SIZE });
+    if (items.length === 0) return { complete: true, skip, done };
+    report(done, remaining);
+    let readThisAsk = 0;
+
+    for (let i = 0; i < items.length; i += DETAIL_CONCURRENCY) {
+      if (Date.now() >= deadline) return { complete: false, skip, done };
+
+      const batch = items.slice(i, i + DETAIL_CONCURRENCY);
+      const rows: CaseDetailRow[] = [];
+      await Promise.all(
+        batch.map(async (it) => {
+          const ref = caseDetailRef(it.case_url);
+          if (!ref) return;
+          try {
+            const f = await fetchCaseDetail(baseUrl, session, ref.id, ref.module);
+            rows.push({
+              case_no: it.case_no,
+              full_address: f.address,
+              director_name: f.customerName,
+              company_name: f.companyName,
+              company_reg: f.companyReg,
+            });
+          } catch {
+            // left unread; counted into `skip` below so it is not asked for again
+          }
+        }),
+      );
+
+      if (rows.length > 0) await source.save(rows);
+      skip += batch.length - rows.length;
+      done += rows.length;
+      readThisAsk += rows.length;
+      report(done, Math.max(0, remaining - readThisAsk));
+    }
   }
-  return enriched;
 }
 
 // ── Step 4: Extract all cases ──
@@ -406,12 +480,10 @@ export interface CrawlOptions {
   /** Persist each page as it arrives instead of buffering the whole window. */
   onBatch?: (cases: CaseData[]) => Promise<void>;
   /**
-   * Given this page's business cases, return the case_nos still worth a
-   * detail-page request. Supplied by the caller so this module stays
-   * database-free: only the caller knows which rows are already filled in.
-   * Omit to skip enrichment entirely (the local CLI does).
+   * Source for the business-details stage (director name + address, one detail
+   * page per business case). Omit to skip the stage — the local CLI does.
    */
-  needsDetail?: (candidates: CaseData[]) => Promise<string[]>;
+  details?: DetailSource;
 }
 
 export interface CrawlOutcome {
@@ -443,7 +515,7 @@ export async function crawl(
 
   const deadline = options?.deadline ?? Infinity;
   const onBatch = options?.onBatch;
-  const needsDetail = options?.needsDetail;
+  const details = options?.details;
   const startCursor: CrawlCursor = options?.cursor ?? { moduleIndex: 0, start: 0 };
   const alreadyFetched = options?.fetchedSoFar ?? 0;
 
@@ -488,20 +560,6 @@ export async function crawl(
       const cases = extractCases(keep, baseUrl);
       fetched += cases.length;
 
-      // Business cases only, and only the ones the caller says still need it, so
-      // the first crawl backfills the existing rows and later ones cost nothing.
-      // Runs BEFORE the sink, so what gets persisted already carries the detail.
-      if (needsDetail) {
-        const candidates = cases.filter(isBizFibreCase);
-        if (candidates.length > 0) {
-          const want = await needsDetail(candidates);
-          if (want.length > 0) {
-            const n = await enrichWithDetail(baseUrl, session, cases, new Set(want), deadline);
-            if (n > 0) emit(`Fetching ${mod}… ${alreadyFetched + fetched} found, ${n} detailed`);
-          }
-        }
-      }
-
       // PERSIST AS WE GO. Buffering the whole window and saving at the end is what
       // made a timeout throw away 100% of the work — and 42k rows in memory is its
       // own problem. Whatever this pass fetched is already saved before it returns.
@@ -524,6 +582,31 @@ export async function crawl(
           oldestSeen,
         };
       }
+    }
+  }
+
+  // Business details: director + address, which the list row cannot supply.
+  // Resumes at its own cursor position, where `start` is the stage's skip count.
+  if (details) {
+    const skip = startCursor.moduleIndex === DETAIL_STAGE ? startCursor.start : 0;
+    const stage = await runDetailStage(
+      baseUrl, session, details, { from, to }, skip, deadline,
+      (done, remaining) =>
+        onProgress?.({
+          step: `Fetching business details… ${done.toLocaleString()} read, ${remaining.toLocaleString()} left`,
+          current: alreadyFetched + fetched,
+          total: 0,
+          percent: 92,
+        }),
+    );
+    if (!stage.complete) {
+      return {
+        cases: collected,
+        fetched,
+        complete: false,
+        nextCursor: { moduleIndex: DETAIL_STAGE, start: stage.skip },
+        oldestSeen,
+      };
     }
   }
 

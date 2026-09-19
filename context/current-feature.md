@@ -1,3 +1,83 @@
+# Current Feature: Business details as their own crawl stage, and shown on screen
+
+## Status
+
+CODE COMPLETE, VERIFIED AGAINST THE LIVE PORTAL AND IN THE BROWSER (branch `fix/business-detail-stage`,
+not committed). Vercel-only, no migration, no scraper change.
+
+## What went wrong in production (2026-09-19)
+
+Reported: "I recrawl and can't see business cases has any changes." Investigated against the
+production database rather than assumed. The deploy and migration HAD landed and the crawl WAS
+writing (1,036 business cases gained company + reg). Three reasons nothing looked different:
+
+1. **Nothing on screen rendered the new fields.** They were selected by `/api/cases` and fed only to
+   the Bizz Chat — the previous entry's "the case list reads them" was true and misleading.
+2. **The detail fetch ran inside each 1,000-row list page and held that page's save hostage.** On the
+   reporting account the pass spent its budget after 336 detail pages, saved the other 664 without
+   detail, and moved past them to be retried only on the next full crawl. The earlier live check used
+   an account with 51 business cases, which fit in one pass, so it never exercised this.
+3. The crawl then stopped after that pass (`last_crawl_at` never stamped), so the second business
+   page — where the screenshot case 202655047 sits — never ran.
+
+## Built
+
+- **A business-details stage after the list sweep** (`runDetailStage`), at its own cursor position
+  `DETAIL_STAGE` (= after the last module), so the existing client pass loop carries it with no client
+  or route change. List pages save immediately again. Detail pages are read 6 at a time and **each
+  batch is saved as it lands**; the stage returns a cursor when the pass budget is spent and the next
+  pass resumes exactly there. Progress reads "Fetching business details… N read, M left".
+- **The cursor's `start` is the stage's failure count.** A page that cannot be read stays unread and
+  would otherwise come back first on every ask; skipping that many steps past them.
+- **"Unread" is `director_name IS NULL` and nothing else** (`nextCasesNeedingDetail`). A read always
+  sets it — to '' when the portal has only a dash — so a case whose portal address is blank is no
+  longer re-fetched on every crawl, which the previous rule did.
+- **A failed page is a failure, never "read, no name".** `fetchCaseDetail` now throws on a non-2xx and
+  on a page that is not a case page: an expired session redirects to /login and fetch follows it to a
+  200, which the old code would have recorded as "no director" on every case, for ever.
+- `saveCaseDetails` — one UPDATE per batch; director always written, address/company only fill.
+- **Case list: Company (with reg no. beneath) and Director columns**, sortable, hidden below `lg` like
+  the other secondary columns; blank sorts last (`NULLIF(col,'')` + `NULLS LAST`), otherwise sorting
+  by Company would open on a page of residential dashes.
+- **Detail panel: a Business section** (company, reg no., director) on business cases only, and ID Type
+  under Customer Details.
+- The stage is scoped to the crawl's own date window — a 1-day crawl does not backfill a year.
+
+## Verified
+
+**Live portal, the account that stalled (BRIAN), into a throwaway user:** 14-day window, pass budget
+forced to 20 s so the stage had to resume — **385 / 385 detail pages read across 7 passes, 0
+duplicates**, 362 directors (the rest the portal's dash), 372 addresses.
+
+**In the browser**, a real crawl from `/dashboard/crawl` (Last 7 days) on the local server with the
+same account: the progress line counted business details down to the end and finished *"Crawl
+complete — 1,930 cases saved"*. The case list then showed the Company and Director columns filled for
+business rows (BAZZA TECH ENTERPRISE / PG0568772-H / LEE KEE BENG) and dashes for residential ones;
+the detail panel showed the Business section; a residential case had none; 375 px had no horizontal
+overflow. Sorting by Company and Director via the real API put real values first.
+
+**Tests:** 23 in `business-fields.test.ts` against a fake portal + in-memory database, including
+resuming across passes with each case read exactly once, a failed page stepped over, the login-page
+case, and list rows saved before any detail request. Two were mutation-checked: removing the login
+check fails its test, and removing the failure skip fails its test (it first HUNG the suite — the
+failure tests now carry a deadline so the bug fails cleanly). 20 in `db-live.test.ts` for the SQL
+(window, order, skip, the '' rule, fill-only saves, user scope). **1078 vitest passing**, build clean,
+lint clean on every touched file, `tsc` 3 errors, all pre-existing.
+
+## NOT verified
+
+- **Production.** Nothing from this branch is deployed; the 2 production passes seen today ran the
+  old design.
+- **The first full production backfill.** With the real 220 s budget a pass reads ~600 business
+  pages; a long window on a large account will span many passes, and the client stops at 30.
+
+## Noted, not changed
+
+- **`/Users/chrislam/package.json` + `package-lock.json` (16 Sep) make `next dev` treat the whole home
+  directory as the project root** — Turbopack then watches everything (766% CPU, 40 s responses) and
+  fails to resolve `tailwindcss`. Outside the repo, so left alone; verification used `next start`.
+- Local `next start` needs `AUTH_TRUST_HOST=true`.
+
 # Current Feature: Business cases carry their own company, director and address
 
 ## Status

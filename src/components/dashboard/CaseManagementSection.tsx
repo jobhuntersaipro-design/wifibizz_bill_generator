@@ -51,12 +51,22 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
       { label: "Order ID", value: caseData.order_no },
       { label: "Status", value: caseData.status, isStatus: true },
     ]},
+    // Business cases only — crawled from the list row (company, reg no.) and the
+    // case's detail page (director). A residential case has none of these.
+    ...(closingScriptVariant(caseData) === "bizz" ? [{ title: "Business", fields: [
+      { label: "Company Name", value: caseData.company_name ?? null },
+      { label: "Company Reg No.", value: caseData.company_reg ?? null },
+      { label: "Director", value: caseData.director_name ?? null },
+    ]}] : []),
     { title: "Customer Details", fields: [
       { label: "Full Name", value: caseData.full_name },
       { label: "Full Address", value: caseData.full_address },
       { label: "Mobile", value: caseData.mobile },
       { label: "Email", value: caseData.email },
       { label: "ID No.", value: caseData.id_no },
+      // On a business case the ID No. is often the company's reg no. (type
+      // passport), not a person's IC — the type is what says which.
+      { label: "ID Type", value: caseData.id_type ?? null },
     ]},
     { title: "Service", fields: [
       { label: "Provider", value: caseData.provider },
@@ -1085,6 +1095,11 @@ export default function CaseManagementSection() {
                       <td className="px-4 py-3 text-[13px] whitespace-nowrap hidden lg:table-cell"><span className="block truncate max-w-35 text-[#425466]">{c.order_no || "—"}</span></td>
                       <td className="px-4 py-3 whitespace-nowrap"><span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${getStatusStyle(c.status)}`}>{c.status ?? "Unknown"}</span></td>
                       <td className="px-4 py-3"><span className="block truncate max-w-40 text-[13px] font-medium text-[#0A2540]">{c.full_name || "—"}</span></td>
+                      <td className="px-4 py-3 hidden lg:table-cell">
+                        <span className="block truncate max-w-45 text-[13px] text-[#0A2540]" title={c.company_name || undefined}>{c.company_name || "—"}</span>
+                        {c.company_reg && <span className="block truncate max-w-45 text-[11px] text-[#697386] tabular-nums">{c.company_reg}</span>}
+                      </td>
+                      <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-40 text-[13px] text-[#425466]" title={c.director_name || undefined}>{c.director_name || "—"}</span></td>
                       <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-45 text-[13px] text-[#697386]">{c.full_address || "—"}</span></td>
                       <td className="px-4 py-3 text-[13px] text-[#425466] tabular-nums whitespace-nowrap">{c.mobile || "—"}</td>
                       <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-35 text-[13px] text-[#425466]">{c.provider || "—"}</span></td>

@@ -86,6 +86,9 @@ export const COLUMNS: { key: string; label: string; hideOnMobile?: boolean }[] =
   { key: "order_no", label: "Order ID", hideOnMobile: true },
   { key: "status", label: "Status" },
   { key: "full_name", label: "Full Name" },
+  // Business cases only; a residential row shows a dash in both.
+  { key: "company_name", label: "Company", hideOnMobile: true },
+  { key: "director_name", label: "Director", hideOnMobile: true },
   { key: "full_address", label: "Full Address", hideOnMobile: true },
   { key: "mobile", label: "Mobile" },
   { key: "provider", label: "Provider", hideOnMobile: true },

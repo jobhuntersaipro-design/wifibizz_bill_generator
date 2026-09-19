@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { caseDateFilterBounds, isInvalidCaseDateRange, parseCaseDateField } from "@/lib/case-list-filters";
 
 const SORTABLE_COLUMNS = new Set([
-  "case_no", "order_no", "full_name", "full_address", "mobile",
+  "case_no", "order_no", "full_name", "company_name", "director_name", "full_address", "mobile",
   "provider", "package", "agent_remark", "status", "case_created_at", "updated_at",
 ]);
 
@@ -42,6 +42,13 @@ export async function GET(request: Request) {
     const sortByParam = url.searchParams.get("sort_by")?.trim() ?? "";
     const sortDir = url.searchParams.get("sort_dir")?.trim() === "asc" ? "ASC" : "DESC";
     const sortBy = SORTABLE_COLUMNS.has(sortByParam) ? sortByParam : "case_created_at";
+    // Residential rows store '' in the business columns, and '' sorts before any
+    // company — so sorting by Company would open on a page of dashes. Blank is
+    // treated as NULL for these two, and NULLS LAST sends it to the end.
+    // (sortBy is whitelisted above, so interpolating it is safe.)
+    const sortExpr = sortBy === "company_name" || sortBy === "director_name"
+      ? `NULLIF(${sortBy}, '')`
+      : sortBy;
 
     // Get the user's wifibizz_user id
     const wifibizzUser = await prisma.wifibizzUser.findUnique({
@@ -98,7 +105,7 @@ export async function GET(request: Request) {
         AND (${!createdTo} OR case_created_at <= (${createdTo || '9999-12-31'}::date + interval '1 day'))
         AND (${!updatedFrom} OR updated_at >= ${updatedFrom || '1970-01-01'}::timestamp)
         AND (${!updatedTo} OR updated_at <= (${updatedTo || '9999-12-31'}::date + interval '1 day'))
-      ORDER BY ${sql.unsafe(sortBy)} ${sql.unsafe(sortDir)} NULLS LAST
+      ORDER BY ${sql.unsafe(sortExpr)} ${sql.unsafe(sortDir)} NULLS LAST
       LIMIT ${limit} OFFSET ${offset}
     `;
 
