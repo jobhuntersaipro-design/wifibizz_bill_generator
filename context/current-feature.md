@@ -1,3 +1,25 @@
+# Current Feature: Biz Auth Letter letterhead on separate address lines
+
+## Status
+
+MERGED TO MAIN AND PUSHED 2026-09-19 (branch `fix/biz-letterhead-lines`, deleted). Vercel-only, no migration.
+
+## Notes
+
+Asked 2026-09-19 with a sample: the letterhead should read street / area / `POSTCODE TOWN` / state,
+one per line. `letterheadLines` split only on commas, and portal addresses have none, so the whole
+address printed as one wrapped line. It now splits on the portal's standalone ` - ` segment
+separators, and packs comma segments the way the residential letter does (a new line at TAMAN /
+KAMPUNG / BANDAR …). It peels `MALAYSIA`, the state (with an optional `DARUL …`, the W.P. spellings,
+PENANG / MALACCA) and the town off the end once each. It then prints `POSTCODE TOWN` and the state.
+The town comes from the postcode table, not the address parser, so the state-matcher bug
+(`81200 BAHRU JOHOR`) cannot reach the letterhead. Consequence: the post office's town prints
+(`14000 BUKIT MERTAJAM`, `71010 PORT DICKSON`), and the smaller place stays on the street line.
+Federal territories print `W.P. KUALA LUMPUR`. SERVICE ADDRESS is unchanged (the raw address).
+
+Verified: 6 letterhead tests on real portal shapes, 1094 vitest, build + lint clean. A rendered
+letter was looked at through `pdftoppm`. NOT verified in the browser.
+
 # Current Feature: Umobile bill drops the bracketed ID on business cases
 
 ## Status
