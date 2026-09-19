@@ -204,7 +204,7 @@ test.describe("Case Usage Limit System (Production)", () => {
     expect(kpiText).toContain("/ 1");
     console.log("  ✓ KPI: 0/1 cases used");
 
-    await expect(page.getByRole("button", { name: /Generate Internet Bill/i })).toBeDisabled();
+    await expect(page.getByRole("button", { name: /Generate Umobile Bill/i })).toBeDisabled();
     console.log("  ✓ Generate button disabled (no cases)");
 
     // ─── Step 6: Usage page ───

@@ -4,6 +4,7 @@ import {
   isBusinessCase,
   parseCompanyPair,
   resolveBizzChatFields,
+  umobileBillCustomerName,
 } from "../case-kind";
 
 describe("parseCompanyPair", () => {
@@ -134,5 +135,89 @@ describe("resolveBizzChatFields", () => {
       customerId: "201501012345",
       businessOwnerName: "PHONG KONE LEE",
     });
+  });
+});
+
+describe("umobileBillCustomerName", () => {
+  const nameWithDigits = "TAN PEI SHAN(940924045066)";
+
+  it("keeps Home Fibre name+(NRIC)", () => {
+    expect(
+      umobileBillCustomerName(nameWithDigits, {
+        case_url: "https://wifibizz.com/applications/1?module=home_fibre",
+        provider: "Unifi Premium Value",
+        package: "Unifi Home 500Mbps",
+      }),
+    ).toBe(nameWithDigits);
+  });
+
+  it("keeps NAME(digits) when the case is not Business Fibre", () => {
+    expect(umobileBillCustomerName(nameWithDigits)).toBe(nameWithDigits);
+    expect(umobileBillCustomerName(nameWithDigits, { full_name: nameWithDigits })).toBe(
+      nameWithDigits,
+    );
+    expect(umobileBillCustomerName(nameWithDigits, { company_reg: "201501012345" })).toBe(
+      nameWithDigits,
+    );
+    expect(
+      umobileBillCustomerName(nameWithDigits, {
+        offer_category: "unifi Biz Bundle Sale Catg",
+      }),
+    ).toBe(nameWithDigits);
+    expect(
+      umobileBillCustomerName(nameWithDigits, {
+        provider: "Unifi Business",
+        package: "Unifi Business 300Mbps",
+      }),
+    ).toBe(nameWithDigits);
+  });
+
+  it("strips trailing digits on Business Fibre / biz_fibre", () => {
+    expect(
+      umobileBillCustomerName(nameWithDigits, {
+        case_url: "https://wifibizz.com/applications/1?module=biz_fibre",
+      }),
+    ).toBe("TAN PEI SHAN");
+    expect(
+      umobileBillCustomerName(nameWithDigits, {
+        provider: "Unifi Business",
+        package: "Unifi Business Fibre 300Mbps",
+      }),
+    ).toBe("TAN PEI SHAN");
+  });
+
+  it("strips a trailing NNNNNN-T BRN on Business Fibre", () => {
+    expect(
+      umobileBillCustomerName("VSD AUTOMATION SDN. BHD.(510254-T)", {
+        case_url: "https://wifibizz.com/applications/1?module=biz_fibre&application_no=202672121",
+      }),
+    ).toBe("VSD AUTOMATION SDN. BHD.");
+  });
+
+  it("keeps a trailing NNNNNN-T pair on Home Fibre", () => {
+    expect(
+      umobileBillCustomerName("VSD AUTOMATION SDN. BHD.(510254-T)", {
+        case_url: "https://wifibizz.com/applications/1?module=home_fibre",
+        package: "Unifi Home 500Mbps",
+      }),
+    ).toBe("VSD AUTOMATION SDN. BHD.(510254-T)");
+  });
+
+  it("keeps a letter BRN even on Business Fibre", () => {
+    expect(
+      umobileBillCustomerName("MONBLEU CAFE(JM0920662-D)", {
+        case_url: "https://wifibizz.com/applications/1?module=biz_fibre",
+        package: "Unifi Business Fibre 300Mbps",
+      }),
+    ).toBe("MONBLEU CAFE(JM0920662-D)");
+  });
+
+  it("leaves a plain name alone", () => {
+    expect(umobileBillCustomerName("PHONG KONE LEE")).toBe("PHONG KONE LEE");
+    expect(
+      umobileBillCustomerName("PHONG KONE LEE", {
+        case_url: "https://wifibizz.com/applications/1?module=biz_fibre",
+      }),
+    ).toBe("PHONG KONE LEE");
   });
 });

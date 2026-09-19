@@ -106,7 +106,7 @@ export async function POST(request: Request) {
 
     // Fetch all case data upfront in a single query
     const casesData = await sql`
-      SELECT case_no, full_name, full_address, mobile, case_url
+      SELECT case_no, full_name, full_address, mobile, case_url, provider, package
       FROM wifibizz_cases
       WHERE case_no = ANY(${cappedCaseNos}) AND user_id = ${wifibizzUserId}
     `;
@@ -120,6 +120,8 @@ export async function POST(request: Request) {
           full_address: c.full_address as string,
           mobile: c.mobile as string,
           case_url: (c.case_url as string) || "",
+          provider: (c.provider as string) || "",
+          package: (c.package as string) || "",
         },
       ])
     );

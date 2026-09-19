@@ -96,6 +96,30 @@ export const AUTH_LETTER_LABEL: Record<AuthLetterVariant, string> = {
   residential: "Auth Letter",
 };
 
+export const UMOBILE_BILL_LABEL = "Umobile Bill";
+
+export const UMOBILE_BILL_SHORT = "Umobile";
+
+function isBusinessFibre(s: BusinessSignals): boolean {
+  const product = `${s.provider ?? ""} ${s.package ?? ""}`;
+  if (/\bbusiness\s+fibre\b/i.test(product)) return true;
+  if (s.case_url && /[?&]module=biz_fibre\b/i.test(s.case_url)) return true;
+  return false;
+}
+
+const TRAILING_BRN = /^(.*)\((\d+(?:-[A-Za-z])?)\)\s*$/;
+
+export function umobileBillCustomerName(
+  fullName: string,
+  signals: BusinessSignals = {},
+): string {
+  const name = present(fullName);
+  if (!isBusinessFibre(signals)) return name;
+  const m = TRAILING_BRN.exec(name);
+  const stripped = m?.[1].trim() ?? "";
+  return stripped || name;
+}
+
 export interface BizzChatFields {
   /** Company Registration No / BRN. Never NRIC. */
   customerId: string | null;

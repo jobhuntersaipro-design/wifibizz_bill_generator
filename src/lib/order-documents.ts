@@ -9,7 +9,7 @@
 // route (what to build) and the dialog (what to attach it as), so the three can
 // never disagree about what a document needs.
 
-import { isBusinessCase } from "./case-kind";
+import { isBusinessCase, UMOBILE_BILL_LABEL } from "./case-kind";
 import type { ChatScriptVariant } from "./chat-script";
 
 /** The documents an order draft can produce. */
@@ -116,7 +116,7 @@ export const GENERATED_DOCS: GeneratedDocSpec[] = [
   },
   {
     type: "internet_bill",
-    label: "Internet Bill",
+    label: UMOBILE_BILL_LABEL,
     requires: [NAME, ID, ADDR, MOBILE],
     attachAs: "other",
     attachLabel: "internetbill",

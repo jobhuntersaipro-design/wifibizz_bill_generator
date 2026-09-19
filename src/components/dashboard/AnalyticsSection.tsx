@@ -68,7 +68,7 @@ function CaseUsageCard({ usage, delay = 0 }: { usage: { casesUsed: number; limit
       </div>
       {usage && (
         <div className="flex gap-3 mt-2 text-[11px] text-[#697386] tabular-nums">
-          <span>Internet: {usage.internetBills}</span>
+          <span>Umobile: {usage.internetBills}</span>
           <span>Utility: {usage.utilityBills}</span>
         </div>
       )}

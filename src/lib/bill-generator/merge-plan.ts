@@ -1,4 +1,4 @@
-import { AUTH_LETTER_LABEL, authLetterVariant, type BusinessSignals } from "../case-kind";
+import { AUTH_LETTER_LABEL, UMOBILE_BILL_LABEL, authLetterVariant, type BusinessSignals } from "../case-kind";
 
 /**
  * Turning a case selection into an ordered list of documents to merge.
@@ -14,7 +14,7 @@ export type MergeDocType = "internet" | "utility" | "letter" | "time" | "chat";
 export const MERGE_DOC_TYPES: MergeDocType[] = ["internet", "utility", "letter", "time", "chat"];
 
 export const MERGE_DOC_LABELS: Record<MergeDocType, string> = {
-  internet: "Internet Bill",
+  internet: UMOBILE_BILL_LABEL,
   utility: "Utility Bill",
   letter: "Authorization Letter",
   time: "TIME Invoice",

@@ -106,7 +106,7 @@ describe("Case List uses the Order Entry combine path", () => {
     // Per-row Internet always POSTs generate. Downloading a stored URL would
     // re-serve a pre-combine (slot-stamped) R2 object for already-billed cases.
     const internetClick = caseList.slice(
-      caseList.indexOf('aria-label={c.internet_bill_url ? `Download internet bill'),
+      caseList.indexOf('aria-label={c.internet_bill_url ? `Download umobile bill'),
       caseList.indexOf('aria-label={c.utility_bill_url'),
     );
     expect(internetClick).toContain('handleGenerateSingle(c.case_no, "internet")');

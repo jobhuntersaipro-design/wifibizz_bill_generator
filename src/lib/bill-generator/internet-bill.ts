@@ -10,6 +10,7 @@ import { PDFDocument } from 'pdf-lib';
 import { readFile } from 'fs/promises';
 import path from 'path';
 import { decodeCustomerName } from '../html-entities';
+import { umobileBillCustomerName, type BusinessSignals } from '../case-kind';
 import {
   getPageStreamRefs,
   transformStream,
@@ -171,7 +172,7 @@ function buildReplacements(v: ReturnType<typeof computeValues>): {
 
 // ── Main generator ──────────────────────────────────────────────
 
-export interface CaseData {
+export interface CaseData extends BusinessSignals {
   case_no: string;
   full_name: string;
   full_address: string;
@@ -219,7 +220,13 @@ export async function generateInternetBill(caseData: CaseData): Promise<Buffer> 
       const o = NAME_ADDR_OVERLAY;
       const addrYKeys = [o.addr1Y, o.addr2Y, o.addr3Y];
       const lines: { text: string; x: number; y: number; font: string; fontSize: number }[] = [
-        { text: decodeCustomerName(caseData.full_name), x: o.x, y: o.nameY, font: '/FHB', fontSize: o.fontSize },
+        {
+          text: umobileBillCustomerName(decodeCustomerName(caseData.full_name), caseData),
+          x: o.x,
+          y: o.nameY,
+          font: '/FHB',
+          fontSize: o.fontSize,
+        },
       ];
 
       for (let i = 0; i < addrLines.length && i < addrYKeys.length; i++) {

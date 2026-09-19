@@ -61,6 +61,7 @@ export async function POST(request: Request) {
       fullAddress: String(body?.fullAddress ?? "").trim(),
       mobile: String(body?.mobile ?? "").trim(),
       offerName: String(body?.offerName ?? "").trim(),
+      offerCategory: String(body?.offerCategory ?? "").trim(),
       // Business identity. Optional everywhere: the order form has no company
       // fields, so these arrive only from a case row whose WifiBizz detail page
       // has been read. Absent, the letter falls back to the `COMPANY(REG)` shape
@@ -88,6 +89,10 @@ export async function POST(request: Request) {
       full_address: source.fullAddress,
       mobile: source.mobile,
       id_no: source.idNumber,
+      package: source.offerName,
+      offer_category: source.offerCategory,
+      company_name: source.companyName,
+      company_reg: source.companyReg,
     };
 
     let pdf: Buffer | Uint8Array;
