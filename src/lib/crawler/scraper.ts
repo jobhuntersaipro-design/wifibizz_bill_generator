@@ -186,13 +186,23 @@ function normalizeDetailLabel(raw: string): string {
   return raw.replace(/\s+/g, " ").trim().replace(/\s*\*$/, "").replace(/\.$/, "");
 }
 
+/**
+ * The portal's own "nothing here" marker. Agents leave a bare dash in the Name
+ * field (observed on 4 of 6 business cases in one live sweep), and storing that
+ * as a director's name would print a dash on anything that uses it.
+ */
+function realValue(raw: string): string {
+  const v = raw.replace(/\s+/g, " ").trim();
+  return /^[-–—]+$/.test(v) ? "" : v;
+}
+
 /** Label/value pairs from a WifiBizz case view or edit page. */
 export function parseCaseDetailFields(html: string): CaseDetailFields {
   const $ = cheerio.load(html);
   const out: CaseDetailFields = { address: "", companyName: "", companyReg: "", customerName: "" };
   $("label").each((_, el) => {
     const label = normalizeDetailLabel($(el).text());
-    const value = $(el).next().text().replace(/\s+/g, " ").trim();
+    const value = realValue($(el).next().text());
     if (!value) return;
     if (label === "Address") out.address = value;
     else if (label === "Company Name") out.companyName = value;
@@ -229,6 +239,67 @@ async function fetchCaseDetail(
 
   if (!res.ok) return empty;
   return parseCaseDetailFields(await res.text());
+}
+
+// ── Step 3c: Detail enrichment for business cases ──
+//
+// Two of the seven fields a business case needs are not in the list row at any
+// key — the Customer-tab Name (the list's `customer_name` is the COMPANY(REG)
+// string, never the person) and the installation address (`application_detail`
+// carries none either). Both cost one detail-page request per case, so only
+// business cases the caller says are still missing them are fetched.
+
+const DETAIL_CONCURRENCY = 6;
+
+/** A business case, by the module its own portal URL names. */
+export function isBizFibreCase(c: CaseData): boolean {
+  return /[?&]module=biz_fibre\b/i.test(c.case_url || "");
+}
+
+function caseDetailRef(caseUrl: string): { id: number; module: string } | null {
+  const m = caseUrl?.match(/\/applications\/(\d+)(?:\/edit)?\?module=([a-z0-9_]+)/i);
+  return m ? { id: Number(m[1]), module: m[2] } : null;
+}
+
+/**
+ * Fill director name and address from each case's own detail page, in place.
+ * Best-effort: a case that cannot be fetched keeps its list-only values rather
+ * than failing the crawl. Stops starting new requests once `deadline` passes —
+ * the rows it did not reach still read as missing, so the next crawl retries them.
+ */
+async function enrichWithDetail(
+  baseUrl: string,
+  session: LoginSession,
+  cases: CaseData[],
+  wanted: Set<string>,
+  deadline: number,
+): Promise<number> {
+  const todo = cases.filter((c) => wanted.has(c.case_no) && caseDetailRef(c.case_url));
+  let enriched = 0;
+
+  for (let i = 0; i < todo.length; i += DETAIL_CONCURRENCY) {
+    if (Date.now() >= deadline) break;
+    await Promise.all(
+      todo.slice(i, i + DETAIL_CONCURRENCY).map(async (c) => {
+        const ref = caseDetailRef(c.case_url)!;
+        try {
+          const f = await fetchCaseDetail(baseUrl, session, ref.id, ref.module);
+          if (f.address) c.full_address = f.address;
+          // Set even when empty — the page WAS read, and that is the fact the
+          // next crawl needs so it does not ask for this page again.
+          c.director_name = f.customerName;
+          // The list row is the usual source for these two; the detail page only
+          // fills a gap, so a present list value is never overwritten.
+          if (!c.company_name) c.company_name = f.companyName;
+          if (!c.company_reg) c.company_reg = f.companyReg;
+          enriched++;
+        } catch {
+          // best-effort — this case keeps what the list gave us
+        }
+      }),
+    );
+  }
+  return enriched;
 }
 
 // ── Step 4: Extract all cases ──
@@ -271,6 +342,19 @@ export function extractCases(records: Record<string, unknown>[], baseUrl: string
       mobile: (r.customer_full_mobile_no as string) || "",
       email: (r.customer_email as string) || "",
       id_no: (r.customer_id_no as string) || "",
+      // The list row has carried these three all along — they were simply never
+      // read, which is why company + BRN were being re-derived by splitting
+      // `full_name` on its trailing bracket (and failing whenever the portal
+      // nests the old registration number inside the new one).
+      id_type: (r.customer_id_type as string) || "",
+      company_name: (r.company_name as string) || "",
+      company_reg: (r.company_reg as string) || "",
+      // Not in the list row at any key — the Customer-tab Name comes from the
+      // detail page. NULL means "no detail page has been read for this case yet",
+      // which is what makes a legacy row (address lazily filled, director never
+      // fetched) still ask for one. An empty string means the opposite: the page
+      // WAS read and the portal had no name, so it must not be asked again.
+      director_name: null,
       provider: (r.operator_name as string) || "",
       package: (appItem.item_name as string) || (r.package as string) || "",
       order_no: (appDetail.order_no as string) || (r.order_no as string) || "",
@@ -321,6 +405,13 @@ export interface CrawlOptions {
   fetchedSoFar?: number;
   /** Persist each page as it arrives instead of buffering the whole window. */
   onBatch?: (cases: CaseData[]) => Promise<void>;
+  /**
+   * Given this page's business cases, return the case_nos still worth a
+   * detail-page request. Supplied by the caller so this module stays
+   * database-free: only the caller knows which rows are already filled in.
+   * Omit to skip enrichment entirely (the local CLI does).
+   */
+  needsDetail?: (candidates: CaseData[]) => Promise<string[]>;
 }
 
 export interface CrawlOutcome {
@@ -352,6 +443,7 @@ export async function crawl(
 
   const deadline = options?.deadline ?? Infinity;
   const onBatch = options?.onBatch;
+  const needsDetail = options?.needsDetail;
   const startCursor: CrawlCursor = options?.cursor ?? { moduleIndex: 0, start: 0 };
   const alreadyFetched = options?.fetchedSoFar ?? 0;
 
@@ -395,6 +487,20 @@ export async function crawl(
 
       const cases = extractCases(keep, baseUrl);
       fetched += cases.length;
+
+      // Business cases only, and only the ones the caller says still need it, so
+      // the first crawl backfills the existing rows and later ones cost nothing.
+      // Runs BEFORE the sink, so what gets persisted already carries the detail.
+      if (needsDetail) {
+        const candidates = cases.filter(isBizFibreCase);
+        if (candidates.length > 0) {
+          const want = await needsDetail(candidates);
+          if (want.length > 0) {
+            const n = await enrichWithDetail(baseUrl, session, cases, new Set(want), deadline);
+            if (n > 0) emit(`Fetching ${mod}… ${alreadyFetched + fetched} found, ${n} detailed`);
+          }
+        }
+      }
 
       // PERSIST AS WE GO. Buffering the whole window and saving at the end is what
       // made a timeout throw away 100% of the work — and 42k rows in memory is its

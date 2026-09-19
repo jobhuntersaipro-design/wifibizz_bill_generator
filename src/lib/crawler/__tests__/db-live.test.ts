@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { neon } from "@neondatabase/serverless";
 import fs from "fs";
-import { upsertCases, type CaseData } from "../db";
+import { upsertCases, casesNeedingDetail, type CaseData } from "../db";
 
 // LIVE DATABASE TEST — opt in with CRAWL_DB_TEST=1 (npm run test:db).
 // upsertCases is one multi-row INSERT built on UNNEST + ON CONFLICT + xmax. None of
@@ -27,7 +27,8 @@ let uid = 0;
 
 const mk = (n: string, over: Partial<CaseData> = {}): CaseData => ({
   case_no: n, case_url: `u${n}`, full_name: `NAME ${n}`, full_address: "",
-  mobile: "+60123", email: `${n}@x.com`, id_no: "900101012345", provider: "Unifi",
+  mobile: "+60123", email: `${n}@x.com`, id_no: "900101012345",
+  id_type: "mykad", company_name: "", company_reg: "", director_name: null, provider: "Unifi",
   package: "Home 500", order_no: "ORD1", agent: "A (X1)", agent_remark: "r",
   status: "Activated", case_created_at: "2026-03-28 02:58:37", ...over,
 });
@@ -111,5 +112,71 @@ describe.skipIf(!ENABLED)("bulk upsertCases (live db)", () => {
 
   it("is a no-op on empty input", async () => {
     expect(await upsertCases(uid, [])).toEqual({ inserted: 0, updated: 0 });
+  });
+});
+
+// ── Business-case fields (2026-09-19) ──
+
+describe.skipIf(!ENABLED)("business fields", () => {
+  it("stores company_name, company_reg and id_type from the list row", async () => {
+    await upsertCases(uid, [mk("C1", {
+      id_type: "passport", company_name: "SR RAIFA TRADING", company_reg: "JR0191646-W",
+    })]);
+    expect(await one("C1", "company_name")).toBe("SR RAIFA TRADING");
+    expect(await one("C1", "company_reg")).toBe("JR0191646-W");
+    expect(await one("C1", "id_type")).toBe("passport");
+  });
+
+  it("a list-only re-crawl must not blank a director name the detail page found", async () => {
+    await upsertCases(uid, [mk("C2", { director_name: "RAHIMAH BINTI HABEEB RAHMAN" })]);
+    await upsertCases(uid, [mk("C2", { director_name: null })]); // list-only sweep
+    expect(await one("C2", "director_name")).toBe("RAHIMAH BINTI HABEEB RAHMAN");
+  });
+
+  it("but an EMPTY director name does store — it means the page was read", async () => {
+    // The distinction the whole re-fetch rule rests on: null = nobody looked,
+    // '' = looked, and the portal's Name field is a bare dash.
+    await upsertCases(uid, [mk("C2b", { director_name: "SOMEONE" })]);
+    await upsertCases(uid, [mk("C2b", { director_name: "" })]);
+    expect(await one("C2b", "director_name")).toBe("");
+  });
+
+  it("but a newly-read director name does replace the old one", async () => {
+    await upsertCases(uid, [mk("C3", { director_name: "OLD NAME" })]);
+    await upsertCases(uid, [mk("C3", { director_name: "NEW NAME" })]);
+    expect(await one("C3", "director_name")).toBe("NEW NAME");
+  });
+
+  describe("casesNeedingDetail", () => {
+    it("a case with both address and director is not asked for again", async () => {
+      await upsertCases(uid, [mk("D1", { full_address: "1 JALAN X", director_name: "A PERSON" })]);
+      expect(await casesNeedingDetail(uid, ["D1"])).toEqual([]);
+    });
+
+    it("an address with no detail page read yet is not enough", async () => {
+      // The legacy shape: address lazily filled at bill time, director never fetched.
+      await upsertCases(uid, [mk("D2", { full_address: "1 JALAN X", director_name: null })]);
+      await upsertCases(uid, [mk("D3", { director_name: "A PERSON" })]); // no address
+      expect(await casesNeedingDetail(uid, ["D2", "D3"])).toEqual(["D2", "D3"]);
+    });
+
+    it("a page read that found no name still counts as done", async () => {
+      // Otherwise every case whose Name is a bare dash is re-fetched for ever.
+      await upsertCases(uid, [mk("D5", { full_address: "1 JALAN X", director_name: "" })]);
+      expect(await casesNeedingDetail(uid, ["D5"])).toEqual([]);
+    });
+
+    it("a case never stored yet counts as needing it — this is what backfills", async () => {
+      expect(await casesNeedingDetail(uid, ["NEVER-SEEN"])).toEqual(["NEVER-SEEN"]);
+    });
+
+    it("is scoped to the user — another account's filled row does not count", async () => {
+      await upsertCases(uid, [mk("D4", { full_address: "1 JALAN X", director_name: "A PERSON" })]);
+      expect(await casesNeedingDetail(uid + 999999, ["D4"])).toEqual(["D4"]);
+    });
+
+    it("is a no-op on empty input", async () => {
+      expect(await casesNeedingDetail(uid, [])).toEqual([]);
+    });
   });
 });
