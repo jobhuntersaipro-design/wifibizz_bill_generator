@@ -611,15 +611,28 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
       "resubmit without checking — that creates a second one.",
     action: "resubmit",
   },
+  next_click_failed: {
+    title: "No Next button on this page",
+    subtext:
+      "The run tried to press Next and the portal had none. On the Pay page " +
+      "that is expected, because Pay and Cancel are not Next. Nothing about " +
+      "the customer, the address or the package is wrong.",
+    fix:
+      "Open the order in the Unifi portal and continue it there, or void it " +
+      "before submitting again. A new submit creates a second portal order.",
+    action: "check_portal",
+  },
   pay_page_not_ready: {
     title: "Pay page never finished loading",
     subtext:
-      "The portal showed its Pay button before the charges had loaded, so the " +
-      "run stopped rather than click it. Nothing was paid \u2014 this happens " +
-      "before the payment, not during it.",
+      "The Pay step did not finish loading. The charges were still missing, " +
+      "or neither Pay nor Next was on the page, so the run stopped rather " +
+      "than guess. Nothing was paid. This happens before the payment, not " +
+      "during it.",
     fix:
-      "Submit again. The order already exists in the portal and is waiting at " +
-      "the Pay step, so check it there first rather than creating a second one.",
+      "Check the order in the Unifi portal before doing anything else. It is " +
+      "already waiting at the Pay step. Continue it there or void it. A new " +
+      "submit creates a second order.",
     action: "check_portal",
   },
   pay_click_did_not_take: {

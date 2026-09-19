@@ -53,6 +53,10 @@ describe("retryVerdict — what retries", () => {
       expect(retryVerdict(failed({ errorCode: code })).retry, code).toBe(true);
     }
   });
+
+  it("retries next_click_failed when no portal order was minted", () => {
+    expect(retryVerdict(failed({ errorCode: "next_click_failed" })).retry).toBe(true);
+  });
 });
 
 describe("retryVerdict — what stops", () => {
@@ -116,6 +120,26 @@ describe("retryVerdict — what stops", () => {
   it("refuses a misconfigured service", () => {
     expect(
       retryVerdict(failed({ errorMessage: "Order service is not configured." })).retry,
+    ).toBe(false);
+  });
+
+  it("refuses next_click_failed once a portal order exists", () => {
+    // ORD-0201: pay_tail nonext after mint, then startSubmit minted a second
+    // order and died as address_already_has_service. Resume or void first.
+    const v = retryVerdict(
+      failed({ errorCode: "next_click_failed", portalOrderId: "2609000125814861" }),
+    );
+    expect(v.retry).toBe(false);
+    expect(v.reason).toMatch(/resume|void/i);
+  });
+
+  it("refuses pay_page_not_ready once a portal order exists", () => {
+    // Must 1 remaps the ORD-0201 none-wait to this code. Retrying it would
+    // still startSubmit and mint a second order.
+    expect(
+      retryVerdict(
+        failed({ errorCode: "pay_page_not_ready", portalOrderId: "2609000125814861" }),
+      ).retry,
     ).toBe(false);
   });
 

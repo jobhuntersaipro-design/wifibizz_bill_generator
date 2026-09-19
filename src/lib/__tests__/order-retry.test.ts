@@ -110,6 +110,18 @@ describe("maybeAutoRetry", () => {
     expect(recordEvent).not.toHaveBeenCalled();
   });
 
+  it("does not startSubmit after next_click_failed when a portal order exists", async () => {
+    orderFindFirst.mockResolvedValue({
+      ...ORDER,
+      status: "warning",
+      errorCode: "next_click_failed",
+      errorMessage: "nonext",
+      orderId: "2609000125814861",
+    });
+    await expect(maybeAutoRetry("ord_1")).resolves.toBe("no");
+    expect(startSubmitRun).not.toHaveBeenCalled();
+  });
+
   it("names the stranded portal order before the next run overwrites it", async () => {
     // The number is only reachable from the row until the retry replaces it, and
     // it is what someone needs in order to void the duplicate.

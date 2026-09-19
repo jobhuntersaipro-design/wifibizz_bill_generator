@@ -131,6 +131,17 @@ describe("errorShortLabel", () => {
   });
 });
 
+describe("next_click_failed", () => {
+  it("has copy so the UI does not render the internal nonext token as the title", () => {
+    const copy = submitErrorCopy("next_click_failed");
+    expect(copy?.title).toBeTruthy();
+    expect(copy?.title.toLowerCase()).not.toContain("nonext");
+    expect(copy?.subtext.toLowerCase()).not.toContain("nonext");
+    expect(copy?.fix.toLowerCase()).not.toContain("nonext");
+    expect(copy?.action).toBe("check_portal");
+  });
+});
+
 describe("pii_verification_required", () => {
   it("says the code goes to the customer, not to the agent", () => {
     const copy = submitErrorCopy("pii_verification_required");
