@@ -108,16 +108,16 @@ function isBusinessFibre(s: BusinessSignals): boolean {
   return false;
 }
 
-const TRAILING_DIGITS = /^(.*)\((\d+)\)\s*$/;
+const TRAILING_BRN = /^(.*)\((\d+(?:-[A-Za-z])?)\)\s*$/;
 
-/** Business Fibre only: drop a trailing `(digits)` pair. Home Fibre is unchanged. */
+/** Business Fibre only: drop trailing `(digits)` or `(NNNNNN-T)`. Home Fibre is unchanged. */
 export function umobileBillCustomerName(
   fullName: string,
   signals: BusinessSignals = {},
 ): string {
   const name = present(fullName);
   if (!isBusinessFibre(signals)) return name;
-  const m = TRAILING_DIGITS.exec(name);
+  const m = TRAILING_BRN.exec(name);
   const stripped = m?.[1].trim() ?? "";
   return stripped || name;
 }
