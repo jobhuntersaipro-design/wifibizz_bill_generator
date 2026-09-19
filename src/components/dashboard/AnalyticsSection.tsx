@@ -200,9 +200,9 @@ function MalaysiaMap({ stateData, maxValue, selectedState, onStateClick, status 
   );
 }
 
-// ── Main Analytics Section ──
+export type AnalyticsSurface = "workbench" | "analytics";
 
-export default function AnalyticsSection() {
+export default function AnalyticsSection({ surface }: { surface: AnalyticsSurface }) {
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [caseUsage, setCaseUsage] = useState<{ casesUsed: number; limit: number; internetBills: number; utilityBills: number } | null>(null);
@@ -382,13 +382,16 @@ export default function AnalyticsSection() {
 
   return (
     <>
-      {/* KPI Row */}
+      {surface === "workbench" && (
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4 stagger-children">
         <KpiCard label="Total Cases" value={analyticsLoading ? "—" : String(analytics?.totalCases ?? 0)} icon={<FileStackIcon className="w-4 h-4" />} delay={0} />
         <KpiCard label="Activated" value={analyticsLoading ? "—" : String(activatedCount)} icon={<CheckCircleIcon className="w-4 h-4" />} accent="text-[#09825D]" delay={80} />
         <CaseUsageCard usage={caseUsage} delay={160} />
       </div>
+      )}
 
+      {surface === "analytics" && (
+      <>
       {/* Cases Over Time */}
       <div className="animate-fade-in-up" style={{ animationDelay: "200ms" }}>
         <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden hover-lift chart-card-hover">
@@ -785,6 +788,8 @@ export default function AnalyticsSection() {
           </ChartCard>
         </div>
       </div>
+      </>
+      )}
     </>
   );
 }

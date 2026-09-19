@@ -10,6 +10,7 @@ import { unseenOutcomes } from "@/actions/order";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboardIcon },
+  { label: "Analytics", href: "/dashboard/analytics", icon: AnalyticsIcon },
   { label: "Usage", href: "/dashboard/usage", icon: UsageIcon },
   { label: "Crawler", href: "/dashboard/crawl", icon: CrawlerIcon },
   { label: "Order Entry", href: "/dashboard/order-entry", icon: OrderEntryIcon },
@@ -152,6 +153,17 @@ function LayoutDashboardIcon({ className }: { className?: string }) {
       <rect width="7" height="5" x="14" y="3" rx="1" />
       <rect width="7" height="9" x="14" y="12" rx="1" />
       <rect width="7" height="5" x="3" y="16" rx="1" />
+    </svg>
+  );
+}
+
+function AnalyticsIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M3 3v16a2 2 0 0 0 2 2h16" />
+      <rect x="7" y="13" width="3" height="5" rx="0.5" />
+      <rect x="12" y="8" width="3" height="10" rx="0.5" />
+      <rect x="17" y="5" width="3" height="13" rx="0.5" />
     </svg>
   );
 }

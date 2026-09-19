@@ -11,11 +11,10 @@ export default function DashboardPage() {
       {/* Page header */}
       <div className="animate-fade-in-up" style={{ animationDelay: "100ms" }}>
         <h1 className="text-2xl font-semibold text-[#0A2540]">Dashboard</h1>
-        <p className="text-sm text-[#697386] mt-1">Analytics overview and case management</p>
+        <p className="text-sm text-[#697386] mt-1">Case workbench</p>
       </div>
 
-      {/* Analytics: KPI row, charts, map */}
-      <AnalyticsSection />
+      <AnalyticsSection surface="workbench" />
 
       {/* Case Management: filters, table, bill actions */}
       <CaseManagementSection />
