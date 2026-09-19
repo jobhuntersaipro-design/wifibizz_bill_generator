@@ -2,7 +2,7 @@
 
 ## Status
 
-CODE COMPLETE (branch `fix/umobile-strip-letter-brn`, not committed). Vercel-only, no migration.
+MERGED TO MAIN AND PUSHED 2026-09-19 (`a161f8e`, merge `afcf698`; branch deleted). Vercel-only, no migration.
 
 ## Notes
 
