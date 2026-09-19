@@ -104,6 +104,20 @@ describe("maybeAutoRetry", () => {
     expect(recordEvent.mock.calls[0][0].message).toContain("No automatic retry");
   });
 
+  it("does not startSubmit after next_click_failed once a portal order exists", async () => {
+    // A new startSubmit is what minted ORD-0201's twin. Resume/void-first.
+    orderFindFirst.mockResolvedValue({
+      ...ORDER,
+      status: "warning",
+      errorCode: "next_click_failed",
+      errorMessage: "No Next button was visible on this page.",
+      orderId: "2609000125814861",
+    });
+    await expect(maybeAutoRetry("ord_1")).resolves.toBe("no");
+    expect(startSubmitRun).not.toHaveBeenCalled();
+    expect(recordEvent.mock.calls[0][0].message).toMatch(/No automatic retry/);
+  });
+
   it("says nothing at all about an order that succeeded", async () => {
     orderFindFirst.mockResolvedValue({ ...ORDER, status: "submitted" });
     await expect(maybeAutoRetry("ord_1")).resolves.toBe("no");

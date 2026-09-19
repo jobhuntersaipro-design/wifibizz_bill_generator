@@ -4583,6 +4583,13 @@ _NEXT_JS = r"""(() => {
   if(!b) return 'nonext'; b.click(); return 'ok';
 })()"""
 
+# `_NEXT_JS` tokens are for the picker, not for the agent. Stored as the failure
+# message they rendered as a bare `nonext` on ORD-0201.
+_NEXT_CLICK_FAIL = {
+    "nonext": "No Next button was visible on this page.",
+    "nodoc": "The portal page was not ready (the order iframe had no document).",
+}
+
 
 async def click_next_newconn(page, expect_sel: str = None, timeout_ms: int = 20000,
                              stage=None, page_name: str = None,
@@ -4599,7 +4606,8 @@ async def click_next_newconn(page, expect_sel: str = None, timeout_ms: int = 200
     # Playwright click then times out as "element is outside of the viewport").
     clicked = await page.evaluate(picker_js or _NEXT_JS)
     if clicked != "ok":
-        return {"status": "error", "error": "next_click_failed", "message": clicked}
+        return {"status": "error", "error": "next_click_failed",
+                "message": _NEXT_CLICK_FAIL.get(clicked, clicked)}
     await asyncio.sleep(3)
     # Answer the validation gate FIRST. It is not an error, so read_error_dialog
     # skips it; left up, it blocks the page we are about to wait for.
@@ -5834,8 +5842,21 @@ async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
     while step < max_next:
         # Wait for the page to settle rather than looking once: a slow Pay page
         # shows neither Pay nor Next for several seconds after the T&C Next.
-        if await _wait_for_pay_or_next(page) == "pay":
+        settled = await _wait_for_pay_or_next(page)
+        if settled == "pay":
             break
+        # `none` is the AJAX Pay shell after T&C: neither Pay nor `.js-btn-next`
+        # yet. Pay buttons are NOT `.js-btn-next`. Clicking Next here returns
+        # `nonext` → `next_click_failed` (ORD-0201), and a retry mints a twin.
+        if settled == "none":
+            shot = await _debug_screenshot(page, "pay_page_not_ready")
+            return {"status": "error", "error": "pay_page_not_ready", "stage": "pay_tail",
+                    "advance_payment": None,
+                    "message": ("The Pay page did not finish loading, so no payment was "
+                                "attempted — neither a Pay button nor a Next control "
+                                "appeared after waiting. The order exists in the portal "
+                                "and is waiting at the Pay step."
+                                + (f" Screenshot: {shot}" if shot else ""))}
         on_terms = await _ensure_bypass_acknowledge(page)  # False unless on T&C
         if on_terms and not captured_terms:
             # The terms the order was placed under. Captured BEFORE Next, since

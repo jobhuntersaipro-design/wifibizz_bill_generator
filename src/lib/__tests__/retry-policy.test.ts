@@ -102,6 +102,28 @@ describe("retryVerdict — what stops", () => {
     expect(retryVerdict(failed({ errorCode: "appointment_slot_taken" })).retry).toBe(true);
   });
 
+  it("refuses next_click_failed once a portal order already exists", () => {
+    // ORD-0201: attempt 1 minted 2609000125814861 then died as next_click_failed;
+    // auto-retry minted a twin → address_already_has_service. Resume/void first.
+    const v = retryVerdict(
+      failed({
+        status: "warning",
+        errorCode: "next_click_failed",
+        errorMessage: "No Next button was visible on this page.",
+        orderId: "2609000125814861",
+      }),
+    );
+    expect(v.retry).toBe(false);
+    expect(v.reason).toMatch(/resume or void/i);
+  });
+
+  it("still retries next_click_failed when no portal order was minted", () => {
+    expect(retryVerdict(failed({ errorCode: "next_click_failed" })).retry).toBe(true);
+    expect(
+      retryVerdict(failed({ errorCode: "next_click_failed", orderId: null })).retry,
+    ).toBe(true);
+  });
+
   it("refuses an expired dealer session, which carries no code", () => {
     const v = retryVerdict(
       failed({

@@ -611,6 +611,18 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
       "resubmit without checking — that creates a second one.",
     action: "resubmit",
   },
+  next_click_failed: {
+    title: "The Next button was not there to click",
+    subtext:
+      "The run needed to press Next to move on, but no Next control was visible " +
+      "on the page. This is not a Next the Pay page is supposed to have \u2014 Pay " +
+      "uses its own Pay and Cancel buttons. The portal has usually already " +
+      "minted a Customer Order Number by this point.",
+    fix:
+      "Check the order in the Unifi portal. Continue or void that order there " +
+      "\u2014 submitting again from here creates a second one.",
+    action: "check_portal",
+  },
   pay_page_not_ready: {
     title: "Pay page never finished loading",
     subtext:
@@ -759,6 +771,24 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
 export function storedErrorCode(raw: string | null | undefined): string | null {
   const code = raw?.trim();
   return code && /^[a-z][a-z0-9_]{1,63}$/.test(code) ? code : null;
+}
+
+/**
+ * Picker tokens the scraper used to store as the failure message.
+ *
+ * `_NEXT_JS` returns `nonext` / `nodoc`. Left verbatim they rendered as the
+ * whole agent-facing sentence (ORD-0201). New scraper builds already rewrite
+ * them; this covers a mixed deploy and any other path that still forwards the
+ * token.
+ */
+const SCRAPER_NEXT_TOKENS: Record<string, string> = {
+  nonext: "No Next button was visible on this page.",
+  nodoc: "The portal page was not ready (the order iframe had no document).",
+};
+
+export function humanizeScraperMessage(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  return SCRAPER_NEXT_TOKENS[raw.trim()] ?? raw;
 }
 
 export function submitErrorCopy(code: string | null | undefined): SubmitErrorCopy | null {

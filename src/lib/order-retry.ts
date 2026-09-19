@@ -48,6 +48,7 @@ export async function maybeAutoRetry(orderId: string): Promise<RetryOutcome> {
     autoRetries: order.autoRetries,
     attempt: order.attempt,
     autoRetryDisabled: order.autoRetryDisabled,
+    orderId: order.orderId,
   });
 
   if (!verdict.retry) {

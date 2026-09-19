@@ -106,6 +106,8 @@ export interface RetryInput {
   attempt: number;
   /** A replication clone: every run is one run. */
   autoRetryDisabled?: boolean;
+  /** Portal Customer Order Number, when the failed run already minted one. */
+  orderId?: string | null;
 }
 
 export interface RetryVerdict {
@@ -143,6 +145,16 @@ export function retryVerdict(input: RetryInput): RetryVerdict {
 
   if (input.errorCode && TERMINAL_ERROR_CODES.has(input.errorCode)) {
     return { retry: false, reason: `${input.errorCode} will not fix itself` };
+  }
+
+  // next_click_failed after a minted portal order: another startSubmit creates
+  // a twin (ORD-0201: 2609000125814861 then 2609000125815472 →
+  // address_already_has_service). Resume or void the existing order first.
+  if (input.errorCode === "next_click_failed" && input.orderId) {
+    return {
+      retry: false,
+      reason: "next_click_failed after a portal order was minted — resume or void that order first",
+    };
   }
 
   // Unrecognised, or a known-transient code. Retry: see TERMINAL_ERROR_CODES.

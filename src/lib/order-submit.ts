@@ -23,6 +23,7 @@ import {
   isPortalOrderNumber,
   isScreenshotKey,
   movesStagePointer,
+  humanizeScraperMessage,
   storedErrorCode,
   submitErrorCopy,
   type StageDetail,
@@ -350,6 +351,7 @@ async function applyResult(
           autoRetries: current?.autoRetries ?? 0,
           attempt,
           autoRetryDisabled: current?.autoRetryDisabled,
+          orderId: data.orderId ?? null,
         }),
       },
     });
@@ -409,14 +411,15 @@ async function applyResult(
     // failure reads, never whether it is recorded.
     const code = storedErrorCode(result.error);
     const hasCopy = !!submitErrorCopy(code);
+    const portalMsg = humanizeScraperMessage(result.message);
     if (result.order_id) {
       // Order EXISTS in the portal despite the failure. Surface as a warning to
       // verify/complete by hand — a plain "failed" would re-enable submit and
       // invite a duplicate.
       const msg = hasCopy
-        ? result.message || "The portal returned an error."
+        ? portalMsg || "The portal returned an error."
         : `Order ${result.order_id} was created but the flow didn't finish: ${
-            result.message || result.error || "error"
+            portalMsg || result.error || "error"
           }. Verify in the portal before retrying.`;
       return finish({
         status: "warning", orderId: result.order_id, errorMessage: msg, errorCode: code,
@@ -425,7 +428,7 @@ async function applyResult(
     }
     return finish({
       status: "failed",
-      errorMessage: result.message || result.error || "The portal returned an error.",
+      errorMessage: portalMsg || result.error || "The portal returned an error.",
       errorCode: code,
       stage: result.stage,
     });
@@ -586,6 +589,7 @@ export async function pollOrderProgress(id: string): Promise<ProgressState | nul
           autoRetries: order.autoRetries,
           attempt: order.attempt,
           autoRetryDisabled: order.autoRetryDisabled,
+          orderId: order.orderId,
         }),
       },
     });
