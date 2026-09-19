@@ -5834,8 +5834,20 @@ async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
     while step < max_next:
         # Wait for the page to settle rather than looking once: a slow Pay page
         # shows neither Pay nor Next for several seconds after the T&C Next.
-        if await _wait_for_pay_or_next(page) == "pay":
+        settled = await _wait_for_pay_or_next(page)
+        if settled == "pay":
             break
+        # `none` is the AJAX Pay shell (ORD-0201): Pay is not `.js-btn-next`, so
+        # clicking Next here returns `nonext` and files `next_click_failed`.
+        if settled == "none":
+            shot = await _debug_screenshot(page, "pay_page_not_ready")
+            return {"status": "error", "error": "pay_page_not_ready", "stage": "pay_tail",
+                    "advance_payment": None,
+                    "message": ("The Pay page did not finish loading, so no payment was "
+                                "attempted — neither Pay nor Next appeared after the last "
+                                "step. The order exists in the portal and is waiting at "
+                                "the Pay step."
+                                + (f" Screenshot: {shot}" if shot else ""))}
         on_terms = await _ensure_bypass_acknowledge(page)  # False unless on T&C
         if on_terms and not captured_terms:
             # The terms the order was placed under. Captured BEFORE Next, since

@@ -106,6 +106,8 @@ export interface RetryInput {
   attempt: number;
   /** A replication clone: every run is one run. */
   autoRetryDisabled?: boolean;
+  /** Portal Customer Order Number, if this run or an earlier one minted one. */
+  portalOrderId?: string | null;
 }
 
 export interface RetryVerdict {
@@ -143,6 +145,18 @@ export function retryVerdict(input: RetryInput): RetryVerdict {
 
   if (input.errorCode && TERMINAL_ERROR_CODES.has(input.errorCode)) {
     return { retry: false, reason: `${input.errorCode} will not fix itself` };
+  }
+
+  // Minted + pay-tail miss: startSubmit would mint a second order (ORD-0201
+  // died as address_already_has_service). Resume or void first.
+  if (
+    input.portalOrderId?.trim() &&
+    (input.errorCode === "next_click_failed" || input.errorCode === "pay_page_not_ready")
+  ) {
+    return {
+      retry: false,
+      reason: `${input.errorCode} after a minted portal order needs resume or void, not a new submit`,
+    };
   }
 
   // Unrecognised, or a known-transient code. Retry: see TERMINAL_ERROR_CODES.

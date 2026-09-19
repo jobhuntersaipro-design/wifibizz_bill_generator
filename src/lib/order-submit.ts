@@ -296,7 +296,7 @@ async function applyResult(
       attempt: true, stage: true, offerName: true, deviceName: true,
       // Needed to judge, in the SAME write that files the outcome, whether this
       // failure is one an automatic retry will come back for.
-      autoRetries: true, autoRetryDisabled: true,
+      autoRetries: true, autoRetryDisabled: true, orderId: true,
     },
   });
   const attempt = current?.attempt ?? 1;
@@ -350,6 +350,7 @@ async function applyResult(
           autoRetries: current?.autoRetries ?? 0,
           attempt,
           autoRetryDisabled: current?.autoRetryDisabled,
+          portalOrderId: data.orderId ?? current?.orderId ?? null,
         }),
       },
     });
@@ -409,14 +410,18 @@ async function applyResult(
     // failure reads, never whether it is recorded.
     const code = storedErrorCode(result.error);
     const hasCopy = !!submitErrorCopy(code);
+    const raw = result.message || result.error || "The portal returned an error.";
+    // `nonext` is click_next_newconn's internal token, not portal wording.
+    const portalSentence =
+      raw === "nonext" ? "The portal had no Next button on this page." : raw;
     if (result.order_id) {
       // Order EXISTS in the portal despite the failure. Surface as a warning to
       // verify/complete by hand — a plain "failed" would re-enable submit and
       // invite a duplicate.
       const msg = hasCopy
-        ? result.message || "The portal returned an error."
+        ? portalSentence
         : `Order ${result.order_id} was created but the flow didn't finish: ${
-            result.message || result.error || "error"
+            portalSentence
           }. Verify in the portal before retrying.`;
       return finish({
         status: "warning", orderId: result.order_id, errorMessage: msg, errorCode: code,
@@ -425,7 +430,7 @@ async function applyResult(
     }
     return finish({
       status: "failed",
-      errorMessage: result.message || result.error || "The portal returned an error.",
+      errorMessage: portalSentence,
       errorCode: code,
       stage: result.stage,
     });

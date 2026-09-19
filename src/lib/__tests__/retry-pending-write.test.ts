@@ -190,6 +190,24 @@ describe("every failed attempt keeps the code it failed with", () => {
     expect(finalWrite().errorCode).toBe("job_lost");
   });
 
+  it("does not stamp a retry on minted next_click_failed", async () => {
+    jobAnswers({
+      status: "done",
+      result: {
+        status: "error",
+        error: "next_click_failed",
+        message: "nonext",
+        order_id: "2609000125814861",
+        stage: "pay_tail",
+      },
+    });
+    await pollOrderProgress("ord_1");
+    const data = finalWrite();
+    expect(data.errorCode).toBe("next_click_failed");
+    expect(data.autoRetryAt).toBeNull();
+    expect(data.errorMessage).not.toMatch(/nonext/);
+  });
+
   it("makes post_pay_not_confirmed terminal, as the policy always intended", async () => {
     // It had no copy, so it used to be stored as null — and null RETRIES, which
     // for a run that may already have charged the customer is the worst case.
