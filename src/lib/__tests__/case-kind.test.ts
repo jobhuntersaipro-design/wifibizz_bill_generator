@@ -5,8 +5,6 @@ import {
   parseCompanyPair,
   resolveBizzChatFields,
   umobileBillCustomerName,
-  UMOBILE_BILL_LABEL,
-  UMOBILE_BILL_SHORT,
 } from "../case-kind";
 
 describe("parseCompanyPair", () => {
@@ -141,54 +139,60 @@ describe("resolveBizzChatFields", () => {
 });
 
 describe("umobileBillCustomerName", () => {
-  const residentialNric = "TAN PEI SHAN(940924045066)";
+  const nameWithDigits = "TAN PEI SHAN(940924045066)";
 
-  it("keeps a residential name+(NRIC) when no business signal is present", () => {
-    expect(umobileBillCustomerName(residentialNric)).toBe(residentialNric);
+  it("keeps Home Fibre name+(NRIC)", () => {
     expect(
-      umobileBillCustomerName(residentialNric, {
-        full_name: residentialNric,
+      umobileBillCustomerName(nameWithDigits, {
         case_url: "https://wifibizz.com/applications/1?module=home_fibre",
         provider: "Unifi Premium Value",
         package: "Unifi Home 500Mbps",
       }),
-    ).toBe(residentialNric);
+    ).toBe(nameWithDigits);
   });
 
-  it("does not treat NAME(NRIC) as COMPANY(REG) just because full_name parses", () => {
-    expect(umobileBillCustomerName(residentialNric, { full_name: residentialNric })).toBe(
-      residentialNric,
+  it("keeps NAME(digits) when the case is not Business Fibre", () => {
+    expect(umobileBillCustomerName(nameWithDigits)).toBe(nameWithDigits);
+    expect(umobileBillCustomerName(nameWithDigits, { full_name: nameWithDigits })).toBe(
+      nameWithDigits,
     );
+    expect(umobileBillCustomerName(nameWithDigits, { company_reg: "201501012345" })).toBe(
+      nameWithDigits,
+    );
+    expect(
+      umobileBillCustomerName(nameWithDigits, {
+        offer_category: "unifi Biz Bundle Sale Catg",
+      }),
+    ).toBe(nameWithDigits);
+    expect(
+      umobileBillCustomerName(nameWithDigits, {
+        provider: "Unifi Business",
+        package: "Unifi Business 300Mbps",
+      }),
+    ).toBe(nameWithDigits);
   });
 
-  it("strips a digit parenthetical on a Business Fibre / biz_fibre case", () => {
+  it("strips trailing digits on Business Fibre / biz_fibre", () => {
     expect(
-      umobileBillCustomerName(residentialNric, {
+      umobileBillCustomerName(nameWithDigits, {
         case_url: "https://wifibizz.com/applications/1?module=biz_fibre",
       }),
     ).toBe("TAN PEI SHAN");
     expect(
-      umobileBillCustomerName(residentialNric, {
+      umobileBillCustomerName(nameWithDigits, {
         provider: "Unifi Business",
         package: "Unifi Business Fibre 300Mbps",
       }),
     ).toBe("TAN PEI SHAN");
   });
 
-  it("strips COMPANY(letter-BRN) even when other signals were not passed", () => {
-    expect(umobileBillCustomerName("MONBLEU CAFE(JM0920662-D)")).toBe("MONBLEU CAFE");
-    expect(umobileBillCustomerName("U Mobile Sdn. Bhd.(223969-U)")).toBe("U Mobile Sdn. Bhd.");
-  });
-
-  it("strips a 12-digit new-format BRN when company_reg or the Biz catalogue is set", () => {
+  it("keeps a letter BRN even on Business Fibre", () => {
     expect(
-      umobileBillCustomerName("ACME SDN BHD(201501012345)", { company_reg: "201501012345" }),
-    ).toBe("ACME SDN BHD");
-    expect(
-      umobileBillCustomerName("ACME SDN BHD(201501012345)", {
-        offer_category: "unifi Biz Bundle Sale Catg",
+      umobileBillCustomerName("MONBLEU CAFE(JM0920662-D)", {
+        case_url: "https://wifibizz.com/applications/1?module=biz_fibre",
+        package: "Unifi Business Fibre 300Mbps",
       }),
-    ).toBe("ACME SDN BHD");
+    ).toBe("MONBLEU CAFE(JM0920662-D)");
   });
 
   it("leaves a plain name alone", () => {
@@ -198,10 +202,5 @@ describe("umobileBillCustomerName", () => {
         case_url: "https://wifibizz.com/applications/1?module=biz_fibre",
       }),
     ).toBe("PHONG KONE LEE");
-  });
-
-  it("exports the Umobile labels the UI surfaces share", () => {
-    expect(UMOBILE_BILL_LABEL).toBe("Umobile Bill");
-    expect(UMOBILE_BILL_SHORT).toBe("Umobile");
   });
 });

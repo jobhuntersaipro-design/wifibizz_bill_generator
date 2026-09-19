@@ -1,15 +1,17 @@
-# Current Feature: Business Umobile bill — strip BRN; rename Internet → Umobile
+# Current Feature: Business Umobile bill — strip trailing digits on Business Fibre; rename Internet → Umobile
 
 ## Status
 
 In Progress (branch `cursor/umobile-brn-labels-752c`). ClickUp [z8v9xng423](https://app.clickup.com/t/z8v9xng423).
+Atlas lock: Business Fibre only, trailing `(digits)` only.
 
 ## Goals
 
-- Business U Mobile bill PDF customer name has no trailing `(BRN)` / `COMPANY(REG)` parenthetical.
-- Residential name+(NRIC) on that same line stays exactly as today (`TAN PEI SHAN(940924045066)`).
-- Every user-visible "Internet" label for this bill reads "Umobile" (Case List Bills, OE cards, Combine, toasts, usage).
-- API / DB / storage names stay `internet` unless a user-visible string cannot change without them.
+- Business Fibre U Mobile bill PDF drops a trailing `(digits)` pair on the customer name line.
+- Home Fibre / non-business name+(NRIC) stays exactly as today (`TAN PEI SHAN(940924045066)`).
+- Letter BRNs such as `(JM0920662-D)` stay, including on Business Fibre.
+- Every user-visible "Internet" label for this bill reads "Umobile".
+- API / DB / storage names stay `internet`. Modem extra page is unchanged.
 
 ## Decisions (taken with the user, 2026-09-18)
 

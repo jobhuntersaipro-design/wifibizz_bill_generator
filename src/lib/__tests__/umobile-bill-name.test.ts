@@ -38,19 +38,19 @@ describe("U Mobile bill name overlay", () => {
     expect(stream).toContain("(TAN PEI SHAN\\(940924045066\\)) Tj");
   });
 
-  it("strips a trailing BRN on a Business Fibre case", async () => {
+  it("keeps a letter BRN on a Business Fibre case", async () => {
     const stream = await overlayStream("MONBLEU CAFE(JM0920662-D)", {
       case_url: "https://wifibizz.com/applications/1?module=biz_fibre",
       provider: "Unifi Business",
       package: "Unifi Business Fibre 300Mbps",
     });
-    expect(stream).toContain("(MONBLEU CAFE) Tj");
-    expect(stream).not.toContain("JM0920662-D");
+    expect(stream).toContain("(MONBLEU CAFE\\(JM0920662-D\\)) Tj");
   });
 
-  it("strips NAME(digits) when the case is biz_fibre", async () => {
+  it("strips trailing digits on a Business Fibre case", async () => {
     const stream = await overlayStream("TAN PEI SHAN(940924045066)", {
       case_url: "https://wifibizz.com/applications/1?module=biz_fibre",
+      package: "Unifi Business Fibre 300Mbps",
     });
     expect(stream).toContain("(TAN PEI SHAN) Tj");
     expect(stream).not.toContain("940924045066");
