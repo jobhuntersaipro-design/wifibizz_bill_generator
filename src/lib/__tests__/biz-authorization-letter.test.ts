@@ -226,8 +226,19 @@ describe("the director — WifiBizz's own, never invented", () => {
 });
 
 describe("letterheadLines", () => {
-  it("splits the address on its own commas and nothing else", () => {
-    expect(letterheadLines("NO 12 JALAN ABC, TAMAN XYZ, 81200 JOHOR BAHRU, JOHOR")).toEqual([
+  it("splits a portal address into street, area, postcode + town, state", async () => {
+    // The shape the user supplied (TOMMAC SDN. BHD.): the area keeps its own
+    // RAWANG, the town RAWANG is peeled off once.
+    expect(
+      await letterheadLines("8 JALAN STR 3 - SAUJANA TEKNOLOGI RAWANG RAWANG SELANGOR MALAYSIA 48000"),
+    ).toEqual(["8 JALAN STR 3", "SAUJANA TEKNOLOGI RAWANG", "48000 RAWANG", "SELANGOR"]);
+    expect(
+      await letterheadLines("12 JALAN MIRI BYPASS - - KAMPUNG BARU MIRI SARAWAK MALAYSIA 98000"),
+    ).toEqual(["12 JALAN MIRI BYPASS", "KAMPUNG BARU", "98000 MIRI", "SARAWAK"]);
+  });
+
+  it("splits a comma-typed address and packs a housing area onto its own line", async () => {
+    expect(await letterheadLines("NO 12 JALAN ABC, TAMAN XYZ, 81200 JOHOR BAHRU, JOHOR")).toEqual([
       "NO 12 JALAN ABC",
       "TAMAN XYZ",
       "81200 JOHOR BAHRU",
@@ -237,27 +248,45 @@ describe("letterheadLines", () => {
 
   /**
    * The shared address parser removes the first state name it finds anywhere in
-   * the string, which eats the one inside a city. Both of these came off a real
-   * render through that parser, and both are why the letterhead does not use it.
+   * the string, which eats the one inside a city. The town comes from the
+   * postcode table so it cannot.
    */
-  it("keeps a city that contains a state name, and a two-word state", () => {
-    expect(letterheadLines("81200 JOHOR BAHRU, JOHOR")).toEqual(["81200 JOHOR BAHRU", "JOHOR"]);
-    expect(letterheadLines("40150 SHAH ALAM, SELANGOR DARUL EHSAN")).toEqual([
+  it("keeps a city that contains a state name, and a state with its honorific", async () => {
+    expect(await letterheadLines("NO 12 JALAN ABC TAMAN XYZ 81200 JOHOR BAHRU JOHOR")).toEqual([
+      "NO 12 JALAN ABC TAMAN XYZ",
+      "81200 JOHOR BAHRU",
+      "JOHOR",
+    ]);
+    expect(await letterheadLines("40150 SHAH ALAM, SELANGOR DARUL EHSAN")).toEqual([
       "40150 SHAH ALAM",
-      "SELANGOR DARUL EHSAN",
+      "SELANGOR",
     ]);
   });
 
-  // Portal addresses frequently carry no commas at all.
-  it("leaves a comma-less address as one segment for the caller to wrap", () => {
-    expect(letterheadLines("NO 12 JALAN ABC TAMAN XYZ 81200 JOHOR BAHRU JOHOR")).toEqual([
-      "NO 12 JALAN ABC TAMAN XYZ 81200 JOHOR BAHRU JOHOR",
+  it("prints a federal territory the way the portal names it", async () => {
+    expect(
+      await letterheadLines(
+        "B4-32-09 PERSIARAN BESTARI 32 ALAM DAMAI KUALA LUMPUR WILAYAH PERSEKUTUAN MALAYSIA 56000",
+      ),
+    ).toEqual(["B4-32-09 PERSIARAN BESTARI 32 ALAM DAMAI", "56000 KUALA LUMPUR", "W.P. KUALA LUMPUR"]);
+  });
+
+  it("uses the post office's town when the address names a smaller place", async () => {
+    expect(
+      await letterheadLines(
+        "1974 LORONG ASAS JAYA 1 - KAW IND. RINGAN ASAS JAYA SIMPANG AMPAT PULAU PINANG MALAYSIA 14000",
+      ),
+    ).toEqual([
+      "1974 LORONG ASAS JAYA 1",
+      "KAW IND. RINGAN ASAS JAYA SIMPANG AMPAT",
+      "14000 BUKIT MERTAJAM",
+      "PULAU PINANG",
     ]);
   });
 
-  it("is empty for no address", () => {
-    expect(letterheadLines("")).toEqual([]);
-    expect(letterheadLines(null)).toEqual([]);
+  it("is empty for no address", async () => {
+    expect(await letterheadLines("")).toEqual([]);
+    expect(await letterheadLines(null)).toEqual([]);
   });
 });
 

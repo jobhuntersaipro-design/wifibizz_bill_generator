@@ -25,9 +25,10 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf
 import type { BusinessSignals } from '../case-kind';
 import { companyLine, resolveBizCompany, resolveBizDirector } from '../biz-director';
 import { decodeCustomerName } from '../html-entities';
-import { sanitize } from './address-parts';
-import { wrapToWidth } from './authorization-letter';
+import { dropEmptySegments, escapeRegExp, resolveAddressParts, sanitize } from './address-parts';
+import { packStreetLines, wrapToWidth } from './authorization-letter';
 import { longDate } from './letter-dates';
+import postcodeTable from '../malaysia-postcodes.json';
 import type { SignatureImage } from './landlord-signature';
 
 // Re-exported because the letter is where callers and tests already import it
@@ -144,25 +145,102 @@ export function resolveBizLetterFields(s: BizLetterSource): BizLetterFields {
 }
 
 /**
- * The letterhead block: the installation address split on its own commas.
+ * The letterhead block: street lines, then `POSTCODE CITY`, then the state —
  *
- * Deliberately NOT `buildLetterAddress`, which runs the address through the
- * shared parser. That parser removes the FIRST occurrence of a state name found
- * anywhere in the string, so `81200 JOHOR BAHRU, JOHOR` comes back as
- * `81200 BAHRU JOHOR` and `40150 SHAH ALAM, SELANGOR DARUL EHSAN` loses its
- * state — a mangled letterhead sitting above a correct SERVICE ADDRESS line on
- * the same page, which is worse than either alone.
+ *   8 JALAN STR 3
+ *   SAUJANA TEKNOLOGI RAWANG
+ *   48000 RAWANG
+ *   SELANGOR
  *
- * The template asks for the address on its existing lines with nothing inferred,
- * so the commas the agent typed are the only split needed and no state, city or
- * postcode has to be recognised at all. An address with no commas stays one
- * segment and is wrapped to the page width by the caller.
+ * Portal addresses carry no commas; they separate segments with a standalone
+ * dash and put the postcode last (`8 JALAN STR 3 - SAUJANA TEKNOLOGI RAWANG
+ * RAWANG SELANGOR MALAYSIA 48000`). So each dash segment starts its own line,
+ * comma segments within one are packed the way the residential letter packs
+ * them, and the city, state and country are peeled off the end.
+ *
+ * Town and state come from the postcode table — NOT from the address parser,
+ * which removes the first state name found anywhere and so turns `81200 JOHOR
+ * BAHRU JOHOR` into `81200 BAHRU JOHOR`. The tail is stripped once per name, in
+ * portal order, so an area named after its town (`SAUJANA TEKNOLOGI RAWANG` in
+ * 48000 RAWANG) keeps its name.
  */
-export function letterheadLines(raw: string | null | undefined): string[] {
-  return sanitize(decodeCustomerName(present(raw)))
-    .split(',')
-    .map((segment) => segment.trim().toUpperCase())
-    .filter(Boolean);
+export async function letterheadLines(raw: string | null | undefined): Promise<string[]> {
+  const text = sanitize(decodeCustomerName(present(raw))).toUpperCase();
+  if (!text) return [];
+
+  const { postcode, locality, state, hasTail } = await resolveAddressParts(text, '');
+  // The table's town first: the parsed one inherits the state-matcher bug
+  // (`JOHOR BAHRU, JOHOR` parses as `BAHRU JOHOR`) and drops leading words
+  // (`SIMPANG AMPAT` as `AMPAT`). The table's is the post office's own name.
+  const fromTable = postcode ? (postcodeTable as Record<string, string[]>)[postcode] : undefined;
+  const town = (fromTable?.[0] ?? locality)?.toUpperCase();
+  const stateName = state?.toUpperCase();
+
+  let street = text;
+  if (hasTail && postcode) street = street.replace(new RegExp(`\\b${postcode}\\b`), ' ');
+
+  const groups = street
+    .split(/\s+-{1,2}(?=\s|$)|^-{1,2}\s+/)
+    .map((group) => group.split(','));
+  if (hasTail) stripTail(groups, [['MALAYSIA'], stateSpellings(stateName), town ? [escapeRegExp(town)] : []]);
+
+  const lines = groups.flatMap((group) =>
+    packStreetLines(group.map(dropEmptySegments).filter((segment) => segment && segment !== 'NULL')),
+  );
+  if (hasTail) {
+    const localityLine = [postcode, town].filter(Boolean).join(' ');
+    if (localityLine) lines.push(localityLine);
+    if (stateName) lines.push(printedState(stateName));
+  }
+  return lines;
+}
+
+// The postcode table names the federal territories bare; the portal writes
+// them `W.P. KUALA LUMPUR` or `KUALA LUMPUR WILAYAH PERSEKUTUAN`.
+const FEDERAL_TERRITORIES = ['KUALA LUMPUR', 'PUTRAJAYA', 'LABUAN'];
+
+// Older English names the portal and agents still type.
+const STATE_ALIASES: Record<string, string[]> = {
+  'PULAU PINANG': ['PENANG'],
+  MELAKA: ['MALACCA'],
+};
+
+/** Every spelling of the state that may end an address, as regex sources, longest first. */
+function stateSpellings(state: string | undefined): string[] {
+  if (!state) return [];
+  if (FEDERAL_TERRITORIES.includes(state)) {
+    return [`WILAYAH PERSEKUTUAN ${state}`, `W.P. ${state}`, `WP ${state}`, 'WILAYAH PERSEKUTUAN', state].map(
+      escapeRegExp,
+    );
+  }
+  // `SELANGOR DARUL EHSAN`, `PERAK DARUL RIDZUAN`, … — the honorific is optional.
+  return [state, ...(STATE_ALIASES[state] ?? [])].flatMap((name) => [
+    `${escapeRegExp(name)} DARUL \\S+`,
+    escapeRegExp(name),
+  ]);
+}
+
+function printedState(state: string): string {
+  return FEDERAL_TERRITORIES.includes(state) ? `W.P. ${state}` : state;
+}
+
+/**
+ * Remove each step's first matching spelling (a regex source) from the end of
+ * the street text — each step at most once, reaching back into an earlier
+ * segment when a later one has emptied.
+ */
+function stripTail(groups: string[][], steps: string[][]): void {
+  for (const spellings of steps) {
+    for (let g = groups.length - 1; g >= 0; g--) {
+      const group = groups[g];
+      let i = group.length - 1;
+      while (i >= 0 && !dropEmptySegments(group[i])) i--;
+      if (i < 0) continue;
+      const hit = spellings.find((tail) => new RegExp(`(^|\\s)${tail}\\s*$`).test(group[i].trim()));
+      if (hit) group[i] = group[i].trim().replace(new RegExp(`\\s*${hit}\\s*$`), '');
+      break;
+    }
+  }
 }
 
 /** A cursor that draws top-down, so the code reads in the order the page does. */
@@ -236,7 +314,7 @@ export async function generateBizAuthorizationLetter(
   // The letterhead reuses the installation address: no company registered
   // address is recorded anywhere, and the Bizz Chat already prints
   // "Billing Address : SAME AS ABOVE" for the same reason.
-  const addressLines = letterheadLines(source.full_address);
+  const addressLines = await letterheadLines(source.full_address);
 
   const pdfDoc = await PDFDocument.create();
   const page = pdfDoc.addPage([PAGE_W, PAGE_H]);
