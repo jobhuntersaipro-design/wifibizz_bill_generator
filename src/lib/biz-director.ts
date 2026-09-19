@@ -53,9 +53,9 @@ export function resolveBizCompany(s: BizIdentitySource): BizCompany {
 }
 
 export interface BizDirector {
-  /** Blank when the portal has no name — never invented. */
+  /** The portal's Name; blank when it has only its dash. Never invented. */
   name: string;
-  /** Blank when there is no name, or the ID on file is not really an ID. */
+  /** The portal's National ID No., as the case holds it (see `directorIdNumber`). */
   ic: string;
 }
 
@@ -67,18 +67,15 @@ export interface BizDirector {
  * routinely travel together — the Combine dialog puts them in one PDF — so they
  * must name the same person.
  *
- * NOTHING IS INVENTED. Until 2026-09-19 this generated a seeded Malay name and
- * MyKad; the director is now the real one or blank (the user's call). With no
- * name the IC is blank too: an ID number under no name identifies nobody. An
- * Order Entry letter has no crawled case behind it, so it prints blank.
+ * NOTHING IS INVENTED OR FILTERED: the case's original data (user, 2026-09-19).
+ * The ID prints even under a missing name, and even when it is really the
+ * company registration number.
  */
-export function resolveBizDirector(s: BizIdentitySource & {
-  id_no?: string | null;
-  id_type?: string | null;
-}): BizDirector {
-  const name = sanitize(decodeCustomerName(realText(s.director_name))).toUpperCase();
-  if (!name) return { name: "", ic: "" };
-  return { name, ic: directorIdNumber(s) };
+export function resolveBizDirector(s: BizIdentitySource & { id_no?: string | null }): BizDirector {
+  return {
+    name: sanitize(decodeCustomerName(realText(s.director_name))).toUpperCase(),
+    ic: directorIdNumber(s),
+  };
 }
 
 /**
@@ -94,7 +91,7 @@ export function resolveBizDirector(s: BizIdentitySource & {
  * a document queried.
  */
 export function bizSignatureRng(
-  s: BizIdentitySource & { id_no?: string | null; id_type?: string | null },
+  s: BizIdentitySource & { id_no?: string | null },
 ): (() => number) | null {
   const director = resolveBizDirector(s);
   if (!director.name) return null;

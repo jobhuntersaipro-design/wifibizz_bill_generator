@@ -51,7 +51,7 @@ export async function GET(request: Request) {
 
     const sql = neon(process.env.DATABASE_URL!);
     const rows = await sql`
-      SELECT case_no, full_name, full_address, mobile, id_no, id_type, package, provider, case_url,
+      SELECT case_no, full_name, full_address, mobile, id_no, package, provider, case_url,
              company_name, company_reg, director_name
       FROM wifibizz_cases
       WHERE case_no = ${caseNo} AND user_id = ${wifibizzUser.id}
@@ -105,7 +105,6 @@ export async function GET(request: Request) {
       company_reg: companyReg,
       director_name: directorName ?? "",
       id_no: (row.id_no as string) || "",
-      id_type: (row.id_type as string) || "",
       full_address: fullAddress,
       package: (row.package as string) || "",
       provider: (row.provider as string) || "",

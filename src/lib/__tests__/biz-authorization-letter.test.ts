@@ -144,42 +144,50 @@ describe("the director — WifiBizz's own, never invented", () => {
     expect(f.directorIc).toBe("940811-03-4224");
   });
 
-  // Real case 202655047: the agent typed the company's reg into the ID field.
-  it("leaves the IC blank when the 'ID' is really the company registration no.", () => {
-    const f = resolveBizLetterFields({
-      ...CASE, company_reg: "JR0191646-W", id_no: "JR0191646W", id_type: "passport",
-    });
+  // The user's call (2026-09-19): print the case's original data. Real case
+  // 202655047 holds its company reg in the ID field — it prints as typed.
+  it("prints the ID field as typed, even when it is the company registration no.", () => {
+    const f = resolveBizLetterFields({ ...CASE, company_reg: "JR0191646-W", id_no: "JR0191646W" });
     expect(f.directorName).toBe("TAN WEI MING");
-    expect(f.directorIc).toBe("");
+    expect(f.directorIc).toBe("JR0191646W");
   });
 
-  // Real case 202673021: the owner's genuine IC is in BOTH fields. Equality with
-  // the reg alone would have blanked it — the type and shape are what decide.
-  it("keeps a genuine MyKad even when the reg field holds the same number", () => {
-    const f = resolveBizLetterFields({
-      ...CASE, company_reg: "960808086675", id_no: "960808086675", id_type: "mykad",
-    });
+  it("dashes a real MyKad, including one that is also in the reg field", () => {
+    const f = resolveBizLetterFields({ ...CASE, company_reg: "960808086675", id_no: "960808086675" });
     expect(f.directorIc).toBe("960808-08-6675");
   });
 
-  it("prints a real passport that differs from the reg, as typed", () => {
-    const f = resolveBizLetterFields({ ...CASE, id_no: "ek1234567", id_type: "passport" });
-    expect(f.directorIc).toBe("EK1234567");
+  // A new-format SSM number is 12 digits too, but not a date: no IC dashes.
+  it("never dresses a 12-digit registration number up as an IC", () => {
+    expect(resolveBizLetterFields({ ...CASE, id_no: "202301024655" }).directorIc).toBe("202301024655");
   });
 
-  it("leaves the IC blank for an NRIC-typed value that is not a MyKad", () => {
-    for (const id_no of ["1683594U", "12345", "941311034224" /* month 13 */]) {
-      expect(resolveBizLetterFields({ ...CASE, id_no, id_type: "mykad" }).directorIc).toBe("");
+  it("prints a passport as typed", () => {
+    expect(resolveBizLetterFields({ ...CASE, id_no: "ek1234567" }).directorIc).toBe("EK1234567");
+  });
+
+  // No name on the portal: the letter keeps the portal's `-` and still prints
+  // the ID the case holds — original data, nothing invented, nothing hidden.
+  it("prints '-' for a missing name and still fills the IC", () => {
+    for (const director_name of ["", "-", "  —  ", null]) {
+      const f = resolveBizLetterFields({ ...CASE, director_name });
+      expect(f.directorName).toBe("-");
+      expect(f.directorNamed).toBe(false);
+      expect(f.directorIc).toBe("940811-03-4224");
     }
   });
 
-  // The user's call: no name on the portal → name AND IC blank. An ID under no
-  // name identifies nobody, and nothing is ever made up to fill the gap.
-  it("prints name and IC blank when the portal has no name (or its dash)", () => {
-    for (const director_name of ["", "-", "  —  ", null]) {
-      const f = resolveBizLetterFields({ ...CASE, director_name });
-      expect(f.directorName).toBe("");
-      expect(f.directorIc).toBe("");
+  it("leaves the IC blank only when the case holds no ID at all", () => {
+    expect(resolveBizLetterFields({ ...CASE, id_no: "" }).directorIc).toBe("");
+  });
+
+  // Both IC lines — the director block and the footer — carry the value.
+  it("fills both IC / PASSPORT NUMBER lines, with or without a name", async () => {
+    for (const c of [CASE, { ...CASE, director_name: "" }, { ...CASE, id_no: "JR0191646W" }]) {
+      const f = resolveBizLetterFields(c);
+      const runs = await letterRuns(await generateBizAuthorizationLetter(c, WHEN));
+      expect(runs.filter((r) => r.trim() === f.directorIc)).toHaveLength(2);
+      expect(runs.filter((r) => r.trim() === f.directorName)).toHaveLength(2);
     }
   });
 

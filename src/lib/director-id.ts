@@ -16,9 +16,6 @@ export function realText(v: string | null | undefined): string {
   return /^[-–—]+$/.test(t) ? "" : t;
 }
 
-const alnum = (v: string | null | undefined): string =>
-  present(v).replace(/[^0-9A-Za-z]/g, "").toUpperCase();
-
 /** A real MyKad: 12 digits whose first six are a calendar date (YYMMDD). */
 export function isMyKad(value: string | null | undefined): boolean {
   const d = present(value).replace(/\D/g, "");
@@ -29,54 +26,30 @@ export function isMyKad(value: string | null | undefined): boolean {
 }
 
 /**
- * The director's IC / passport number, or '' when the portal does not really
- * have one.
+ * The director's IC / passport number, ready to print: the portal's National ID
+ * No. as the case holds it (user, 2026-09-19 — WifiBizz data is generated, so
+ * the letter prints its original data rather than second-guessing it).
  *
- * The portal's National ID No. is the only ID on the Customer tab, so it is the
- * director's — but agents often type the COMPANY registration number into it
- * (30% of one account's business cases). Equality with the company reg cannot
- * decide it on its own, because it is wrong both ways: case 202655047 holds its
- * BRN `JR0191646W` there (not an ID), while 202673021 holds the owner's genuine
- * IC `960808086675` in BOTH fields (the agent put the IC into the reg field).
- * So the TYPE and the SHAPE decide:
- *
- * 1. NRIC type and a real MyKad → the IC.
- * 2. Passport type and different from the company reg → a real passport.
- * 3. Anything else → blank. Printing a registration number on an IC line is
- *    worse than a line the director can fill in by hand.
+ * A real MyKad prints dashed. Anything else — a passport, or the company
+ * registration number an agent typed there — prints as typed. The dash is
+ * decided by `isMyKad`, not by length: a new-format SSM number is also 12 digits
+ * and must not be dressed up as an IC.
  */
-export function directorIdNumber(s: {
-  id_no?: string | null;
-  id_type?: string | null;
-  company_reg?: string | null;
-}): string {
+export function directorIdNumber(s: { id_no?: string | null }): string {
   const id = present(s.id_no);
-  if (!id) return "";
-  const type = present(s.id_type).toLowerCase();
-
-  if (/nric|mykad|ic\b/.test(type) && isMyKad(id)) return id.replace(/\D/g, "");
-  if (/passport/.test(type)) {
-    const reg = alnum(s.company_reg);
-    if (reg && alnum(id) === reg) return "";
-    return id.toUpperCase();
-  }
-  return "";
+  if (!isMyKad(id)) return id.toUpperCase();
+  const d = id.replace(/\D/g, "");
+  return `${d.slice(0, 6)}-${d.slice(6, 8)}-${d.slice(8)}`;
 }
 
 /**
- * The director as the screen shows it: name, and the ID only when there is a
- * name — an ID number under no name identifies nobody. Same rule as
- * `resolveBizDirector`, minus the PDF-font sanitising the letter needs.
+ * The director as the screen shows it — the same values the Biz Auth Letter
+ * prints, minus the PDF-font sanitising. The ID shows whether or not the portal
+ * has a name; a missing name is left for the caller to render as its dash.
  */
 export function directorDisplay(s: {
   director_name?: string | null;
   id_no?: string | null;
-  id_type?: string | null;
-  company_reg?: string | null;
 }): { name: string; id: string } {
-  const name = realText(s.director_name);
-  if (!name) return { name: "", id: "" };
-  const id = directorIdNumber(s);
-  // A MyKad prints dashed, the way the letter prints it.
-  return { name, id: /^\d{12}$/.test(id) ? `${id.slice(0, 6)}-${id.slice(6, 8)}-${id.slice(8)}` : id };
+  return { name: realText(s.director_name), id: directorIdNumber(s) };
 }
