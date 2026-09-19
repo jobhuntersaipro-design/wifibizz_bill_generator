@@ -241,33 +241,98 @@ export async function upsertCases(userId: number, cases: CaseData[]): Promise<{ 
   return { inserted, updated };
 }
 
-/**
- * Of these case_nos, which are still worth one detail-page request each.
- *
- * A case is DONE when it has an address AND its detail page has been read —
- * `director_name IS NOT NULL`, which is true even when the portal had no name
- * there (stored as ''). Testing the name for non-emptiness instead would re-fetch
- * the same page on every crawl for ever, for the many cases whose Name field the
- * agent left as a bare dash.
- *
- * Asked as "which are already DONE?" rather than "which are missing?" so a row
- * that has never been seen falls on the needs-it side by default — that is what
- * makes the first crawl backfill, and what catches a legacy row whose address was
- * lazily filled at bill time but whose director was never fetched.
- */
-export async function casesNeedingDetail(userId: number, caseNos: string[]): Promise<string[]> {
-  if (caseNos.length === 0) return [];
-  const sql = getDb();
-  const done = (await sql`
-    SELECT case_no FROM wifibizz_cases
-    WHERE user_id = ${userId}
-      AND case_no = ANY(${caseNos}::text[])
-      AND COALESCE(full_address, '') <> ''
-      AND director_name IS NOT NULL
-  `) as { case_no: string }[];
+// ── Business-details stage (see runDetailStage in scraper.ts) ──
 
-  const filled = new Set(done.map((r) => r.case_no));
-  return caseNos.filter((c) => !filled.has(c));
+/**
+ * A Date as the portal's naive "YYYY-MM-DD HH:MM:SS", in LOCAL time — the same
+ * interpretation the list sweep uses when it compares created_at against the
+ * window, so the stage covers exactly the cases the sweep did.
+ */
+function naiveLocal(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
+    `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+/**
+ * Business cases in the window whose detail page has never been read.
+ *
+ * "Never read" is `director_name IS NULL` and nothing else. A read always sets
+ * it — to the name, or to '' when the portal has only a dash there — so a read
+ * case drops out whatever the page held. Testing the address as well would send
+ * a case whose portal address is genuinely blank round again on every ask, and
+ * the stage would loop on it.
+ *
+ * Ordered newest first with case_no as a tiebreak, so the order is stable and
+ * `skip` (the stage's count of failed reads, which stay unread) lands past them.
+ */
+export async function nextCasesNeedingDetail(
+  userId: number,
+  q: { from: Date; to: Date | null; skip: number; limit: number },
+): Promise<{ items: { case_no: string; case_url: string }[]; remaining: number }> {
+  const sql = getDb();
+  const from = naiveLocal(q.from);
+  const to = q.to ? naiveLocal(q.to) : null;
+
+  const items = (await sql`
+    SELECT case_no, case_url FROM wifibizz_cases
+    WHERE user_id = ${userId}
+      AND case_url LIKE '%module=biz_fibre%'
+      AND director_name IS NULL
+      AND case_created_at >= ${from}::timestamp
+      AND (${to}::timestamp IS NULL OR case_created_at <= ${to}::timestamp)
+    ORDER BY case_created_at DESC, case_no
+    OFFSET ${q.skip} LIMIT ${q.limit}
+  `) as { case_no: string; case_url: string }[];
+
+  const count = (await sql`
+    SELECT COUNT(*)::int AS n FROM wifibizz_cases
+    WHERE user_id = ${userId}
+      AND case_url LIKE '%module=biz_fibre%'
+      AND director_name IS NULL
+      AND case_created_at >= ${from}::timestamp
+      AND (${to}::timestamp IS NULL OR case_created_at <= ${to}::timestamp)
+  `) as { n: number }[];
+
+  return { items, remaining: count[0]?.n ?? 0 };
+}
+
+export interface CaseDetailUpdate {
+  case_no: string;
+  full_address: string;
+  director_name: string;
+  company_name: string;
+  company_reg: string;
+}
+
+/**
+ * Save one batch of detail-page reads. One statement per batch.
+ *
+ * director_name is always written — '' included, since that is what marks the
+ * page as read. The other three only fill: an empty read never blanks an address
+ * or a company the row already has, and the list row stays the source of truth
+ * for company and registration no.
+ */
+export async function saveCaseDetails(userId: number, rows: CaseDetailUpdate[]): Promise<void> {
+  if (rows.length === 0) return;
+  const sql = getDb();
+  const col = <T,>(f: (r: CaseDetailUpdate) => T) => rows.map(f);
+  await sql`
+    UPDATE wifibizz_cases AS c SET
+      director_name = t.director_name,
+      full_address  = CASE WHEN t.full_address <> '' THEN t.full_address ELSE c.full_address END,
+      company_name  = CASE WHEN COALESCE(c.company_name, '') = '' THEN NULLIF(t.company_name, '') ELSE c.company_name END,
+      company_reg   = CASE WHEN COALESCE(c.company_reg, '') = '' THEN NULLIF(t.company_reg, '') ELSE c.company_reg END,
+      updated_at    = NOW()
+    FROM UNNEST(
+      ${col((r) => r.case_no)}::text[],
+      ${col((r) => r.full_address)}::text[],
+      ${col((r) => r.director_name)}::text[],
+      ${col((r) => r.company_name)}::text[],
+      ${col((r) => r.company_reg)}::text[]
+    ) AS t(case_no, full_address, director_name, company_name, company_reg)
+    WHERE c.user_id = ${userId} AND c.case_no = t.case_no
+  `;
 }
 
 export async function getCases(

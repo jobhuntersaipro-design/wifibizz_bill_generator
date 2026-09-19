@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { neon } from "@neondatabase/serverless";
 import fs from "fs";
-import { upsertCases, casesNeedingDetail, type CaseData } from "../db";
+import { upsertCases, nextCasesNeedingDetail, saveCaseDetails, type CaseData } from "../db";
 
 // LIVE DATABASE TEST — opt in with CRAWL_DB_TEST=1 (npm run test:db).
 // upsertCases is one multi-row INSERT built on UNNEST + ON CONFLICT + xmax. None of
@@ -147,36 +147,74 @@ describe.skipIf(!ENABLED)("business fields", () => {
     expect(await one("C3", "director_name")).toBe("NEW NAME");
   });
 
-  describe("casesNeedingDetail", () => {
-    it("a case with both address and director is not asked for again", async () => {
-      await upsertCases(uid, [mk("D1", { full_address: "1 JALAN X", director_name: "A PERSON" })]);
-      expect(await casesNeedingDetail(uid, ["D1"])).toEqual([]);
+  describe("the business-details stage queries", () => {
+    const BIZ = (n: string) => `https://wifibizz.com/applications/${n}?module=biz_fibre&application_no=${n}`;
+    const HOME = (n: string) => `https://wifibizz.com/applications/${n}?module=home_fibre&application_no=${n}`;
+    const win = { from: new Date(2026, 0, 1), to: null as Date | null };
+
+    beforeAll(async () => {
+      await sql`DELETE FROM wifibizz_cases WHERE user_id = ${uid} AND case_no LIKE 'S%'`;
+      await upsertCases(uid, [
+        mk("S1", { case_url: BIZ("S1"), case_created_at: "2026-09-18 10:00:00" }),
+        mk("S2", { case_url: BIZ("S2"), case_created_at: "2026-09-17 10:00:00" }),
+        mk("S3", { case_url: BIZ("S3"), case_created_at: "2026-09-16 10:00:00" }),
+        mk("S4", { case_url: HOME("S4"), case_created_at: "2026-09-18 11:00:00" }), // not business
+        mk("S5", { case_url: BIZ("S5"), case_created_at: "2025-06-01 10:00:00" }),  // outside window
+        // legacy shape: address lazily filled at bill time, detail never read
+        mk("S6", { case_url: BIZ("S6"), case_created_at: "2026-09-15 10:00:00", full_address: "OLD ADDR" }),
+      ]);
     });
 
-    it("an address with no detail page read yet is not enough", async () => {
-      // The legacy shape: address lazily filled at bill time, director never fetched.
-      await upsertCases(uid, [mk("D2", { full_address: "1 JALAN X", director_name: null })]);
-      await upsertCases(uid, [mk("D3", { director_name: "A PERSON" })]); // no address
-      expect(await casesNeedingDetail(uid, ["D2", "D3"])).toEqual(["D2", "D3"]);
+    it("lists unread business cases in the window, newest first", async () => {
+      const r = await nextCasesNeedingDetail(uid, { ...win, skip: 0, limit: 10 });
+      const mine = r.items.map((i) => i.case_no).filter((n) => n.startsWith("S"));
+      expect(mine).toEqual(["S1", "S2", "S3", "S6"]);
     });
 
-    it("a page read that found no name still counts as done", async () => {
-      // Otherwise every case whose Name is a bare dash is re-fetched for ever.
-      await upsertCases(uid, [mk("D5", { full_address: "1 JALAN X", director_name: "" })]);
-      expect(await casesNeedingDetail(uid, ["D5"])).toEqual([]);
+    it("counts the remaining, and skip steps past the first N", async () => {
+      const all = await nextCasesNeedingDetail(uid, { ...win, skip: 0, limit: 100 });
+      const skipped = await nextCasesNeedingDetail(uid, { ...win, skip: 1, limit: 100 });
+      expect(skipped.items[0].case_no).toBe(all.items[1].case_no);
+      expect(skipped.remaining).toBe(all.remaining);
     });
 
-    it("a case never stored yet counts as needing it — this is what backfills", async () => {
-      expect(await casesNeedingDetail(uid, ["NEVER-SEEN"])).toEqual(["NEVER-SEEN"]);
+    it("a saved read drops the case out — even when the portal had no name", async () => {
+      await saveCaseDetails(uid, [
+        { case_no: "S1", full_address: "1 JALAN A", director_name: "A PERSON", company_name: "", company_reg: "" },
+        { case_no: "S2", full_address: "2 JALAN B", director_name: "", company_name: "", company_reg: "" },
+      ]);
+      const r = await nextCasesNeedingDetail(uid, { ...win, skip: 0, limit: 100 });
+      const mine = r.items.map((i) => i.case_no).filter((n) => n.startsWith("S"));
+      expect(mine).toEqual(["S3", "S6"]);
+      expect(await one("S2", "director_name")).toBe("");
     });
 
-    it("is scoped to the user — another account's filled row does not count", async () => {
-      await upsertCases(uid, [mk("D4", { full_address: "1 JALAN X", director_name: "A PERSON" })]);
-      expect(await casesNeedingDetail(uid + 999999, ["D4"])).toEqual(["D4"]);
+    it("an empty read never blanks an address the row already has", async () => {
+      await saveCaseDetails(uid, [
+        { case_no: "S6", full_address: "", director_name: "B PERSON", company_name: "", company_reg: "" },
+      ]);
+      expect(await one("S6", "full_address")).toBe("OLD ADDR");
+      expect(await one("S6", "director_name")).toBe("B PERSON");
     });
 
-    it("is a no-op on empty input", async () => {
-      expect(await casesNeedingDetail(uid, [])).toEqual([]);
+    it("company from the list row is kept; the detail page only fills a gap", async () => {
+      await upsertCases(uid, [mk("S7", { case_url: BIZ("S7"), company_name: "LIST CO", company_reg: "" })]);
+      await saveCaseDetails(uid, [
+        { case_no: "S7", full_address: "", director_name: "", company_name: "PAGE CO", company_reg: "PAGE-REG" },
+      ]);
+      expect(await one("S7", "company_name")).toBe("LIST CO");
+      expect(await one("S7", "company_reg")).toBe("PAGE-REG");
+    });
+
+    it("the window's lower bound excludes older cases", async () => {
+      const r = await nextCasesNeedingDetail(uid, { from: new Date(2026, 8, 17), to: null, skip: 0, limit: 100 });
+      expect(r.items.map((i) => i.case_no)).not.toContain("S3");
+    });
+
+    it("is scoped to the user", async () => {
+      const r = await nextCasesNeedingDetail(uid + 999999, { ...win, skip: 0, limit: 100 });
+      expect(r.items).toHaveLength(0);
+      expect(r.remaining).toBe(0);
     });
   });
 });
