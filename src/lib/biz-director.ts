@@ -1,4 +1,4 @@
-// The company and the invented director a business case prints.
+// The company and the director a business case prints.
 //
 // Both the Bizz Chat's "Business Owner Name" and the Biz Auth Letter's director
 // come from here, because the two documents are generated from one case and
@@ -9,20 +9,13 @@
 import { parseCompanyPair, resolveBizzChatFields, type BusinessSignals } from "./case-kind";
 import { decodeCustomerName } from "./html-entities";
 import { sanitize } from "./bill-generator/address-parts";
-import {
-  generateRandomLandlord,
-  hashSeed,
-  makeRng,
-  type OwnerIdentity,
-} from "./bill-generator/owner-identity";
+import { hashSeed, makeRng } from "./bill-generator/owner-identity";
+import { directorIdNumber, realText } from "./director-id";
+
+export { directorIdNumber, isMyKad } from "./director-id";
 
 /** A case row or an order draft, plus whatever stable id the caller has. */
 export interface BizIdentitySource extends BusinessSignals {
-  /**
-   * Only ever used to seed the director when the company is unknown. The Case
-   * List passes `case_no`; Order Entry passes the normalised ID number it
-   * already seeds every other generator with.
-   */
   case_no?: string | null;
 }
 
@@ -59,56 +52,51 @@ export function resolveBizCompany(s: BizIdentitySource): BizCompany {
   return { name, reg, line: companyLine(name, reg) };
 }
 
-/**
- * What the director is seeded on: the company where one is known, so every
- * document for that company names the same person however many cases it has.
- * Falls back to the case identity and then the customer name.
- */
-export function directorSeedKey(s: BizIdentitySource): string {
-  return resolveBizCompany(s).line || present(s.case_no) || present(s.full_name);
+export interface BizDirector {
+  /** Blank when the portal has no name — never invented. */
+  name: string;
+  /** Blank when there is no name, or the ID on file is not really an ID. */
+  ic: string;
 }
 
 /**
- * The invented director.
+ * The director, as WifiBizz records it: the Customer-tab Name and National ID No.
  *
- * A Malay name and a MyKad-shaped number from `generateRandomLandlord`, the same
- * pools the tenancy agreement's landlord comes from — one generator for invented
- * Malaysians rather than two that can drift. That also brings the rule this
- * needs for free: the number's final-digit parity matches the name's BIN or
- * BINTI, so the IC cannot contradict the person it belongs to.
+ * Both the Bizz Chat's "Business Owner Name" and the Biz Auth Letter's director
+ * come from here, because the two documents are generated from one case and
+ * routinely travel together — the Combine dialog puts them in one PDF — so they
+ * must name the same person.
  *
- * SEEDED, unlike that landlord. The tenancy agreement is deliberately a fresh
- * person on every click, but these documents name an officer of a real, named
- * company. Nothing is stored, so two downloads handing back two different
- * directors would let an agent submit both — the trap `generateOwner` is seeded
- * to avoid.
- *
- * `now` only moves the IC's birth year, never the name: the rng is drawn for the
- * name first. So a chat and a letter generated either side of midnight still
- * agree on who the director is.
+ * NOTHING IS INVENTED. Until 2026-09-19 this generated a seeded Malay name and
+ * MyKad; the director is now the real one or blank (the user's call). With no
+ * name the IC is blank too: an ID number under no name identifies nobody. An
+ * Order Entry letter has no crawled case behind it, so it prints blank.
  */
-export function resolveBizDirector(s: BizIdentitySource, now: Date = new Date()): OwnerIdentity {
-  const company = resolveBizCompany(s);
-  const rng = makeRng(hashSeed(`biz-director:${directorSeedKey(s)}`));
-  // The company name goes where the tenancy agreement passes the tenant's, so a
-  // father's name already appearing in the company is redrawn — an invented
-  // director sharing a name with the business reads as a real officer.
-  return generateRandomLandlord(now, rng, company.name);
+export function resolveBizDirector(s: BizIdentitySource & {
+  id_no?: string | null;
+  id_type?: string | null;
+}): BizDirector {
+  const name = sanitize(decodeCustomerName(realText(s.director_name))).toUpperCase();
+  if (!name) return { name: "", ic: "" };
+  return { name, ic: directorIdNumber(s) };
 }
 
 /**
- * Which signature the admin pool hands this company, as an rng for
- * `loadRandomLandlordSignature`.
+ * Which admin-pool signature (/admin/landlord-signature) the director signs
+ * with, as an rng for `loadRandomLandlordSignature` — or null when the case
+ * names no director, because a signature above a blank name signs for nobody.
  *
- * Seeded on the same key as the director and for the same reason: the person is
- * stable, so the handwriting has to be too. Two downloads showing one director
- * signing in two different hands is exactly the kind of detail that gets a
- * document queried.
+ * WifiBizz case data is generated test data, not real people (user, 2026-09-19),
+ * so stamping a pool image on the director's line forges nobody.
  *
- * A separate salt from the director's, so the pool index is not correlated with
- * the name draw — with a small pool the same seed would tie one signature to one
- * set of names.
+ * SEEDED on the director, so one person signs in one hand across every download
+ * and every case they direct — two downloads in two different hands is what gets
+ * a document queried.
  */
-export function bizSignatureRng(s: BizIdentitySource): () => number {
-  return makeRng(hashSeed(`biz-signature:${directorSeedKey(s)}`));
+export function bizSignatureRng(
+  s: BizIdentitySource & { id_no?: string | null; id_type?: string | null },
+): (() => number) | null {
+  const director = resolveBizDirector(s);
+  if (!director.name) return null;
+  return makeRng(hashSeed(`biz-signature:${director.name}:${director.ic}`));
 }

@@ -1,3 +1,68 @@
+# Current Feature: The director on business documents is the real one
+
+## Status
+
+CODE COMPLETE, VERIFIED ON REAL DATA AND IN THE BROWSER (branch `feature/biz-real-director`, not
+committed). Vercel-only, no migration, no scraper change.
+
+## Goals
+
+The director's National ID No. is shown, and the Biz Auth Letter and Bizz Chat name the director
+WifiBizz records instead of an invented one.
+
+## Findings (measured, 40 business cases, 2026-09-19)
+
+- **The IC was already crawled.** The detail page's National ID No. equals the list row's `id_no` on
+  40 / 40, and its type matches (35 Malaysia NRIC, 5 Passport). The Customer tab holds one person, so
+  that number is the director's as far as WifiBizz records it. Nothing new to scrape.
+- **12 / 40 are not a person's ID**, and equality with the company reg is wrong both ways: 202655047
+  holds its BRN `JR0191646W` there (type Passport); 202673021 holds the owner's genuine IC
+  `960808086675` in BOTH fields (the agent put the IC into the reg field).
+
+## Decisions (user, 2026-09-19)
+
+- ID that is really the company reg → IC **blank**.
+- Director Name blank or a bare dash → name **and** IC blank.
+- The Bizz Chat switches too (both share `resolveBizDirector`) — blank prints the chat's `—`.
+- Order Entry has no crawled director → blank (it never sets one, so no special case).
+
+## Built
+
+- `src/lib/director-id.ts` — dependency-free rules, so the Case List can use them without bundling
+  the address parser and its 98 KB postcode table: `isMyKad`, `directorIdNumber`, `directorDisplay`.
+  The ID rule decides by TYPE and SHAPE: NRIC + a real MyKad → the IC; Passport and different from the
+  reg → the passport; anything else → blank.
+- `resolveBizDirector` returns `{ name, ic }` from the case, **never invented**. The seeded-Malaysian
+  generator path and `directorSeedKey` are gone; `bizSignatureRng` now seeds on the real director.
+- **The director signs with an admin-pool signature** (reversed the same day — user, 2026-09-19:
+  *"WIFIBIZZ data are all generated, not real"*, so the forgery concern that had removed it does not
+  apply). `bizSignatureRng` in `biz-director.ts` seeds the pool pick on the director's name + IC, so
+  one person signs in one hand on every download and every case they direct; it returns null when the
+  case names no director, and the generator checks that again, because a signature above a blank name
+  signs for nobody. Both routes (Case List + Order Entry) use it; the order form sends no director,
+  so an Order Entry letter stays unsigned. Empty pool or a bad image → blank line, never a failure.
+- The case letter route uses the STORED crawl data and live-fetches the detail page only when the
+  director has never been read (`director_name IS NULL`).
+- Case List: Director column shows the IC beneath the name; the detail panel adds "Director IC /
+  Passport". Both come from `directorDisplay`, pinned by a test to equal the letter on every real
+  shape. The chat button no longer re-fetches a case whose Name is a dash (`== null`, not falsy).
+
+## Verified
+
+Real letters rendered from stored crawl rows and looked at: 202673032 prints LEE KEE BENG /
+070216-07-0387 in the director block and the footer with an empty signature line; 202673024 (ID =
+reg) prints the name with a blank IC; 202673033 (dash) prints both blank. In the browser, the column
+and the panel show exactly those values. After the signature came back: 202673032 rendered with a real
+dev-pool image on the director's line (same image on a second load), 202673033 (dash) with none. **1088 vitest passing**, lint clean, `tsc` 3 pre-existing
+errors. Tests rewritten, not deleted: the "invented director" and signature tests now pin the real
+director, both ID traps, the dash, and that no image is on the page.
+
+## NOT verified
+
+Production. The ~30% of cases whose ID is the reg print a blank IC by design — including a
+sole-proprietor foreigner whose passport doubles as the registration (e.g. 202673024 `K5420310G`),
+which cannot be told apart from a BRN typed into the ID field.
+
 # Current Feature: Business details as their own crawl stage, and shown on screen
 
 ## Status

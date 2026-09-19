@@ -9,14 +9,16 @@
  * owner confirming that somebody lives at an address. The two are selected by
  * plan type and never both offered: see `generatableDocTypes`.
  *
- * Three values are left visually empty on purpose — the authorised
- * representative's name and IC, and the company chop. The agent is never
- * pre-assigned and no chop is stamped.
+ * The director is the one WifiBizz records (see `resolveBizDirector`). Three
+ * things are left visually empty on purpose: the authorised representative's
+ * name and IC, and the company chop. The agent is never pre-assigned and no chop
+ * is stamped.
  *
- * The DIRECTOR's signature line is the exception: it carries a random image
- * from the admin pool at /admin/landlord-signature, the same pool the tenancy
- * agreement and the residential letter draw from. An empty pool leaves the line
- * blank rather than failing the generate.
+ * The DIRECTOR's signature line carries a random image from the admin pool at
+ * /admin/landlord-signature (the pool the tenancy agreement and the residential
+ * letter draw from), seeded on the director — but only when the case names one.
+ * WifiBizz case data is generated, not real people, so this signs for nobody
+ * real. An empty pool or a bad image leaves the line blank, never fails.
  */
 
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
@@ -62,7 +64,10 @@ const VALIDITY = 'This authorisation is valid until the completion of the applic
 
 /** What the letter reads off a case row or an order draft. */
 export interface BizLetterSource extends BusinessSignals {
+  /** The portal's National ID No. — the director's, when it really is an ID. */
   id_no?: string | null;
+  /** "mykad" / "passport" — decides whether `id_no` is an ID or a stray BRN. */
+  id_type?: string | null;
   full_address?: string | null;
   mobile?: string | null;
   /**
@@ -113,21 +118,13 @@ export function formatContactNumber(raw: string | null | undefined): string {
  * `COMPANY(REG)` in `full_name`, which is where the pair comes from when the
  * detail page has not been fetched.
  *
- * The DIRECTOR is invented, not read off the case — a Malay name and a
- * MyKad-shaped number from the same pools the tenancy agreement's landlord comes
- * from, so there is one generator for invented Malaysians rather than two that
- * can drift.
- *
- * It is SEEDED, unlike that landlord. The TA is deliberately a fresh person on
- * every click, but this letter names an officer of a real, named company: two
- * downloads handing back two different directors would let an agent submit both,
- * which is the same trap `generateOwner` is seeded to avoid. The seed is the
- * company itself where one is known, so every letter for that company names the
- * same director however many cases it has, falling back to the case identity.
+ * The DIRECTOR is the one WifiBizz records, through `resolveBizDirector` — the
+ * same resolver the Bizz Chat uses, so the two cannot name different people.
+ * Blank when the portal has none; never invented.
  */
-export function resolveBizLetterFields(s: BizLetterSource, now: Date = new Date()): BizLetterFields {
+export function resolveBizLetterFields(s: BizLetterSource): BizLetterFields {
   const company = resolveBizCompany(s);
-  const director = resolveBizDirector(s, now);
+  const director = resolveBizDirector(s);
 
   return {
     companyName: company.name,
@@ -217,9 +214,9 @@ function labelled(
 
 export interface BizLetterExtras {
   /**
-   * A signature from the admin pool (/admin/landlord-signature), stamped on the
-   * director's line. Null or omitted leaves that line blank, which is what an
-   * empty pool must produce — a missing signature never fails a generate.
+   * A signature from the admin pool, stamped on the director's line. Ignored
+   * when the case names no director. Null or omitted leaves the line blank —
+   * an empty pool must never fail a generate.
    */
   signature?: SignatureImage | null;
 }
@@ -229,7 +226,7 @@ export async function generateBizAuthorizationLetter(
   now: Date = new Date(),
   extras?: BizLetterExtras,
 ): Promise<Uint8Array> {
-  const f = resolveBizLetterFields(source, now);
+  const f = resolveBizLetterFields(source);
 
   // The letterhead reuses the installation address: no company registered
   // address is recorded anywhere, and the Bizz Chat already prints
@@ -320,9 +317,8 @@ export async function generateBizAuthorizationLetter(
   const signatureBaseline = cur.y;
   cur.text('_________________');
   // Drawn AFTER the rule so the ink sits on the line rather than under it, and
-  // only if the pool had one — an empty pool leaves the blank line the letter
-  // shipped with rather than failing the generate.
-  if (extras?.signature) {
+  // only above a named director — a signature over a blank name signs for nobody.
+  if (extras?.signature && f.directorName) {
     await drawPoolSignature(pdfDoc, page, extras.signature, signatureBaseline);
   }
   if (f.directorName) cur.text(f.directorName, { font: bold });
@@ -347,7 +343,7 @@ async function drawPoolSignature(
   page: PDFPage,
   image: SignatureImage,
   ruleBaseline: number,
-): Promise<boolean> {
+): Promise<void> {
   try {
     const embedded = image.mime === 'image/png'
       ? await pdfDoc.embedPng(image.bytes)
@@ -363,12 +359,10 @@ async function drawPoolSignature(
       width: embedded.width * scale,
       height: embedded.height * scale,
     });
-    return true;
   } catch (error) {
     console.error(
       'biz auth letter signature skipped:',
       error instanceof Error ? error.message : error,
     );
-    return false;
   }
 }

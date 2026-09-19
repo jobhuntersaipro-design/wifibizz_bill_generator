@@ -140,9 +140,11 @@ export async function POST(request: Request) {
           package: source.offerName,
           mobile: source.mobile,
         };
-        // Same pool and the same seed as the Case List path, so one company's
-        // letters sign identically whichever surface generated them.
-        const signature = await loadRandomLandlordSignature(bizSignatureRng(bizSource));
+        // Same rule as the Case List: the pool signature only stamps above a
+        // named director. The order form sends none today, so an order's
+        // letter is left unsigned unless a director name is supplied.
+        const rng = bizSignatureRng(bizSource);
+        const signature = rng ? await loadRandomLandlordSignature(rng) : null;
         pdf = await generateBizAuthorizationLetter(bizSource, new Date(), { signature });
         break;
       }

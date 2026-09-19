@@ -39,6 +39,7 @@ const CASE = {
   company_reg: "JM0920662-D",
   director_name: "Tan Wei Ming",
   id_no: "940811034224",
+  id_type: "mykad",
   full_address: "NO 12 JALAN ABC, TAMAN XYZ, 81200 JOHOR BAHRU, JOHOR",
   package: "Unifi Biz 300Mbps Broadband",
   mobile: "60137089093",
@@ -46,13 +47,14 @@ const CASE = {
 
 const WHEN = new Date(2026, 8, 18);
 
-/** A real 1x1 PNG — enough for pdf-lib to embed, so the stamp path runs. */
 const PNG_1PX = new Uint8Array(
   Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
     "base64",
   ),
 );
+
+const hasImage = (bytes: Uint8Array) => Buffer.from(bytes).toString("latin1").includes("/XObject");
 
 describe("companyLine", () => {
   it("is NAME (BRN) when both are known", () => {
@@ -94,7 +96,6 @@ describe("formatContactNumber", () => {
 });
 
 /** `940811-03-4224` → the parts the format guarantees. */
-const MALAY_NAME = /^[A-Z]+ [A-Z]+ (BIN|BINTI) [A-Z]+$/;
 const DASHED_IC = /^(\d{2})(\d{2})(\d{2})-(\d{2})-(\d{3})(\d)$/;
 
 describe("resolveBizLetterFields", () => {
@@ -136,92 +137,83 @@ describe("resolveBizLetterFields", () => {
   });
 });
 
-describe("the invented director", () => {
-  it("is a Malay name with the right particle for its IC's gender", () => {
-    // Across many companies, not one: the gender is drawn per seed, so a single
-    // sample would pass with the parity rule broken half the time.
-    for (let i = 0; i < 40; i++) {
-      const f = resolveBizLetterFields({ company_name: `TEST COMPANY ${i} SDN BHD`, company_reg: "X1" });
-      expect(f.directorName).toMatch(MALAY_NAME);
+describe("the director — WifiBizz's own, never invented", () => {
+  it("prints the director and IC the case records", () => {
+    const f = resolveBizLetterFields(CASE);
+    expect(f.directorName).toBe("TAN WEI MING");
+    expect(f.directorIc).toBe("940811-03-4224");
+  });
 
-      const m = DASHED_IC.exec(f.directorIc);
-      expect(m, `bad IC ${f.directorIc}`).not.toBeNull();
-      const [, , mm, dd, pb, , last] = m!;
-      expect(Number(mm)).toBeGreaterThanOrEqual(1);
-      expect(Number(mm)).toBeLessThanOrEqual(12);
-      expect(Number(dd)).toBeGreaterThanOrEqual(1);
-      expect(Number(dd)).toBeLessThanOrEqual(28);
-      // MyKad birth-state codes 01-16: the 13 states plus KL, Labuan, Putrajaya.
-      expect(Number(pb)).toBeGreaterThanOrEqual(1);
-      expect(Number(pb)).toBeLessThanOrEqual(16);
-      // Final digit odd = male, even = female. The name must not contradict it.
-      const male = Number(last) % 2 === 1;
-      expect(f.directorName.includes(" BIN ")).toBe(male);
-      expect(f.directorName.includes(" BINTI ")).toBe(!male);
+  // Real case 202655047: the agent typed the company's reg into the ID field.
+  it("leaves the IC blank when the 'ID' is really the company registration no.", () => {
+    const f = resolveBizLetterFields({
+      ...CASE, company_reg: "JR0191646-W", id_no: "JR0191646W", id_type: "passport",
+    });
+    expect(f.directorName).toBe("TAN WEI MING");
+    expect(f.directorIc).toBe("");
+  });
+
+  // Real case 202673021: the owner's genuine IC is in BOTH fields. Equality with
+  // the reg alone would have blanked it — the type and shape are what decide.
+  it("keeps a genuine MyKad even when the reg field holds the same number", () => {
+    const f = resolveBizLetterFields({
+      ...CASE, company_reg: "960808086675", id_no: "960808086675", id_type: "mykad",
+    });
+    expect(f.directorIc).toBe("960808-08-6675");
+  });
+
+  it("prints a real passport that differs from the reg, as typed", () => {
+    const f = resolveBizLetterFields({ ...CASE, id_no: "ek1234567", id_type: "passport" });
+    expect(f.directorIc).toBe("EK1234567");
+  });
+
+  it("leaves the IC blank for an NRIC-typed value that is not a MyKad", () => {
+    for (const id_no of ["1683594U", "12345", "941311034224" /* month 13 */]) {
+      expect(resolveBizLetterFields({ ...CASE, id_no, id_type: "mykad" }).directorIc).toBe("");
     }
   });
 
-  /**
-   * Nothing is stored, so an unseeded director would differ on every download
-   * and an agent could submit two letters naming two directors of one company.
-   */
-  it("is the same person every time for the same company", () => {
-    const a = resolveBizLetterFields(CASE);
-    const b = resolveBizLetterFields(CASE);
-    expect(b.directorName).toBe(a.directorName);
-    expect(b.directorIc).toBe(a.directorIc);
+  // The user's call: no name on the portal → name AND IC blank. An ID under no
+  // name identifies nobody, and nothing is ever made up to fill the gap.
+  it("prints name and IC blank when the portal has no name (or its dash)", () => {
+    for (const director_name of ["", "-", "  —  ", null]) {
+      const f = resolveBizLetterFields({ ...CASE, director_name });
+      expect(f.directorName).toBe("");
+      expect(f.directorIc).toBe("");
+    }
   });
 
-  it("is a different person for a different company", () => {
-    const names = new Set(
-      Array.from({ length: 12 }, (_, i) =>
-        resolveBizLetterFields({ company_name: `COMPANY ${i}`, company_reg: `R${i}` }).directorName,
-      ),
-    );
-    expect(names.size).toBeGreaterThan(6);
-  });
-
-  // The whole point of the change: the case's own person is not the director.
-  it("ignores the director and IC recorded on the case", () => {
-    const f = resolveBizLetterFields(CASE);
-    expect(f.directorName).not.toBe("TAN WEI MING");
-    expect(f.directorIc.replace(/\D/g, "")).not.toBe("940811034224");
-  });
-
-  /**
-   * The person is stable, so the handwriting has to be. One director signing in
-   * two different hands across two downloads is what gets a document queried.
-   */
-  it("picks the same pool signature every time for the same company", () => {
-    const a = bizSignatureRng(CASE);
-    const b = bizSignatureRng(CASE);
+  // One person signs in one hand across downloads and across their cases.
+  it("picks the same pool signature every time for the same director", () => {
+    const a = bizSignatureRng(CASE)!;
+    const b = bizSignatureRng({ ...CASE, company_name: "OTHER SDN BHD", case_no: "999" })!;
     expect([a(), a(), a()]).toEqual([b(), b(), b()]);
   });
 
-  it("picks a different pool signature for a different company", () => {
-    const first = bizSignatureRng(CASE)();
-    const other = bizSignatureRng({ company_name: "OTHER SDN BHD", company_reg: "Z9" })();
-    expect(other).not.toBe(first);
+  it("picks a different pool signature for a different director", () => {
+    expect(bizSignatureRng({ ...CASE, director_name: "LEE KEE BENG" })!()).not.toBe(
+      bizSignatureRng(CASE)!(),
+    );
   });
 
-  /**
-   * The reason the rule lives in one module. These two documents are generated
-   * from one case and travel together in a Combine bundle, so naming two
-   * different people would be visible side by side.
-   */
+  it("picks no signature when the case names no director", () => {
+    for (const director_name of ["", "-", null]) {
+      expect(bizSignatureRng({ ...CASE, director_name })).toBeNull();
+    }
+  });
+
   it("is the same person the Bizz Chat prints as Business Owner", () => {
-    const owner = (c: Partial<typeof CASE> & { case_no?: string }) =>
+    const owner = (c: Record<string, unknown>) =>
       buildBizzChatScript(
-        { ...c, full_name: c.full_name ?? null, mobile: null, id_no: null, email: null,
+        { ...c, full_name: (c.full_name as string) ?? null, mobile: null, id_no: null, email: null,
           full_address: null, package: null, case_created_at: null },
         3,
       ).lines.find((l) => l.label.includes("Business Owner Name"))?.value;
 
+    expect(owner(CASE)).toBe("TAN WEI MING");
     expect(owner(CASE)).toBe(resolveBizLetterFields(CASE).directorName);
-
-    // And for a case with no company at all, where both fall back to case_no.
-    const bare = { ...CASE, company_name: "", company_reg: "", full_name: "", case_no: "202661159" };
-    expect(owner(bare)).toBe(resolveBizLetterFields(bare).directorName);
+    // No name: the letter prints blank, the chat its usual dash — neither invents.
+    expect(owner({ ...CASE, director_name: "" })).toBe("—");
   });
 });
 
@@ -284,14 +276,11 @@ describe("the whole letter", () => {
   });
 
   it("fills the company, director, package, service address, date and contact", async () => {
-    const f = resolveBizLetterFields(CASE, WHEN);
     const text = (await letterRuns(await generateBizAuthorizationLetter(CASE, WHEN))).join("\n");
     expect(text).toContain("MONBLEU CAFE SDN BHD (JM0920662-D)");
-    expect(text).toContain(f.directorName);
-    expect(text).toContain(f.directorIc);
-    // The case's own person never reaches the page.
-    expect(text).not.toContain("TAN WEI MING");
-    expect(text).not.toContain("940811034224");
+    // The case's own director, as WifiBizz records them.
+    expect(text).toContain("TAN WEI MING");
+    expect(text).toContain("940811-03-4224");
     expect(text).toContain("Unifi Biz 300Mbps Broadband");
     // The letterhead keeps the city intact, not the parser's "81200 BAHRU JOHOR".
     expect(text).toContain("81200 JOHOR BAHRU");
@@ -305,10 +294,11 @@ describe("the whole letter", () => {
    * plausible bug is the director's details being reused for the agent's — the
    * two IC labels sit eight lines apart and read almost alike.
    */
-  it("leaves the agent name, agent IC, signature and chop empty", async () => {
-    const f = resolveBizLetterFields(CASE, WHEN);
+  it("leaves the agent name, agent IC and chop empty", async () => {
+    const f = resolveBizLetterFields(CASE);
     const runs = await letterRuns(await generateBizAuthorizationLetter(CASE, WHEN));
     const text = runs.join("\n");
+    expect(f.directorName).toBe("TAN WEI MING"); // so the counts below mean something
 
     // The director appears exactly twice — their own block and the footer. A
     // third would mean they had been written into the representative line.
@@ -332,39 +322,42 @@ describe("the whole letter", () => {
   });
 
   /**
-   * The pool is admin-managed and can be empty, and a bad image can be uploaded
-   * to it. Neither may cost the agent their letter.
+   * The director signs with an admin-pool image. The pool is admin-managed, can
+   * be empty, and can hold a bad upload — none of which may cost the letter.
    */
+  it("stamps a pool signature on the director's line without moving the text", async () => {
+    const plain = await generateBizAuthorizationLetter(CASE, WHEN);
+    const signed = await generateBizAuthorizationLetter(CASE, WHEN, {
+      signature: { bytes: PNG_1PX, mime: "image/png" },
+    });
+    expect((await PDFDocument.load(signed)).getPageCount()).toBe(1);
+    expect(hasImage(signed)).toBe(true);
+    expect(hasImage(plain)).toBe(false);
+    // Drawn into the gap the footer already reserved: every text run matches.
+    expect(await letterRuns(signed)).toEqual(await letterRuns(plain));
+  });
+
+  // A signature above a blank name block signs for nobody.
+  it("does not stamp a signature when the case names no director", async () => {
+    const bytes = await generateBizAuthorizationLetter({ ...CASE, director_name: "-" }, WHEN, {
+      signature: { bytes: PNG_1PX, mime: "image/png" },
+    });
+    expect(hasImage(bytes)).toBe(false);
+  });
+
   it("still produces the letter when the signature pool is empty", async () => {
-    const doc = await PDFDocument.load(
-      await generateBizAuthorizationLetter(CASE, WHEN, { signature: null }),
-    );
-    expect(doc.getPageCount()).toBe(1);
+    const bytes = await generateBizAuthorizationLetter(CASE, WHEN, { signature: null });
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1);
+    expect(hasImage(bytes)).toBe(false);
   });
 
   it("still produces the letter when the pool image will not embed", async () => {
     const bytes = await generateBizAuthorizationLetter(CASE, WHEN, {
       signature: { bytes: new Uint8Array([1, 2, 3]), mime: "image/png" },
     });
-    const doc = await PDFDocument.load(bytes);
-    expect(doc.getPageCount()).toBe(1);
-    // The text is untouched — only the stamp is skipped.
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1);
     const runs = await letterRuns(bytes);
     expect(runs[runs.length - 1].trim()).toBe("COMPANY CHOP :");
-  });
-
-  it("stamps a pool signature on the page without moving the text", async () => {
-    const plain = await generateBizAuthorizationLetter(CASE, WHEN);
-    const signed = await generateBizAuthorizationLetter(CASE, WHEN, {
-      signature: { bytes: PNG_1PX, mime: "image/png" },
-    });
-    const doc = await PDFDocument.load(signed);
-    expect(doc.getPageCount()).toBe(1);
-    // An XObject is only present on the signed one, and every text run matches:
-    // the stamp is drawn into the gap the footer already reserved.
-    expect(Buffer.from(signed).toString("latin1")).toContain("/XObject");
-    expect(Buffer.from(plain).toString("latin1")).not.toContain("/XObject");
-    expect(await letterRuns(signed)).toEqual(await letterRuns(plain));
   });
 
   // The brief: incomplete data still produces a letter, with blanks.

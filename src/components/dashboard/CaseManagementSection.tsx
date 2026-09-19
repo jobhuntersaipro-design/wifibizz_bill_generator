@@ -21,6 +21,7 @@ import ChatImageGenerator from "./ChatImageGenerator";
 import type { ChatScriptVariant } from "@/lib/chat-script";
 import { AUTH_LETTER_LABEL, UMOBILE_BILL_LABEL, UMOBILE_BILL_SHORT, authLetterVariant, closingScriptVariant } from "@/lib/case-kind";
 import MergePdfDialog from "./MergePdfDialog";
+import { directorDisplay } from "@/lib/director-id";
 import { syncCasesToSheet } from "@/actions/settings";
 import { billDownloadPath, revisionFromPublicUrl } from "@/lib/bill-object";
 import {
@@ -45,6 +46,9 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
     setTimeout(onClose, CLOSE_MS);
   }, [onClose]);
 
+  // What the Biz Auth Letter and the Bizz Chat print for the director — the
+  // same rule, so the screen can never promise a value the letter leaves blank.
+  const director = directorDisplay(caseData);
   const sections = [
     { title: "Case Information", fields: [
       { label: "Case No.", value: caseData.case_no },
@@ -56,7 +60,8 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
     ...(closingScriptVariant(caseData) === "bizz" ? [{ title: "Business", fields: [
       { label: "Company Name", value: caseData.company_name ?? null },
       { label: "Company Reg No.", value: caseData.company_reg ?? null },
-      { label: "Director", value: caseData.director_name ?? null },
+      { label: "Director", value: director.name || null },
+      { label: "Director IC / Passport", value: director.id || null },
     ]}] : []),
     { title: "Customer Details", fields: [
       { label: "Full Name", value: caseData.full_name },
@@ -586,7 +591,9 @@ export default function CaseManagementSection() {
     if (variant !== closingScriptVariant(c)) return;
     const open = (caseData: CaseRow) => setChatCase({ caseData, variant });
     const needsAddress = !(c.full_address && c.full_address.trim()) && !!c.case_url;
-    const needsBizzFields = variant === "bizz" && !!c.case_url && !c.director_name;
+    // NULL = the detail page has never been read. '' means it was, and the portal
+    // has no name there — asking again would only fetch the same dash.
+    const needsBizzFields = variant === "bizz" && !!c.case_url && c.director_name == null;
     if (!needsAddress && !needsBizzFields) {
       open(c);
       return;
@@ -608,7 +615,7 @@ export default function CaseManagementSection() {
         full_address: address || c.full_address,
         company_name: bizz?.companyName || c.company_name,
         company_reg: bizz?.companyReg || c.company_reg,
-        director_name: bizz?.customerName || c.director_name,
+        director_name: bizz ? bizz.customerName ?? "" : c.director_name,
       };
       if (address) {
         setCases((prev) => prev.map((r) => (r.case_no === c.case_no ? { ...r, full_address: address } : r)));
@@ -1099,7 +1106,17 @@ export default function CaseManagementSection() {
                         <span className="block truncate max-w-45 text-[13px] text-[#0A2540]" title={c.company_name || undefined}>{c.company_name || "—"}</span>
                         {c.company_reg && <span className="block truncate max-w-45 text-[11px] text-[#697386] tabular-nums">{c.company_reg}</span>}
                       </td>
-                      <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-40 text-[13px] text-[#425466]" title={c.director_name || undefined}>{c.director_name || "—"}</span></td>
+                      <td className="px-4 py-3 hidden lg:table-cell">
+                        {(() => {
+                          const d = directorDisplay(c);
+                          return (
+                            <>
+                              <span className="block truncate max-w-40 text-[13px] text-[#425466]" title={d.name || undefined}>{d.name || "—"}</span>
+                              {d.id && <span className="block truncate max-w-40 text-[11px] text-[#697386] tabular-nums">{d.id}</span>}
+                            </>
+                          );
+                        })()}
+                      </td>
                       <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-45 text-[13px] text-[#697386]">{c.full_address || "—"}</span></td>
                       <td className="px-4 py-3 text-[13px] text-[#425466] tabular-nums whitespace-nowrap">{c.mobile || "—"}</td>
                       <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-35 text-[13px] text-[#425466]">{c.provider || "—"}</span></td>
