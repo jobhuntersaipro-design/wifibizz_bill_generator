@@ -137,8 +137,16 @@ describe("admin failure alert", () => {
       status: "failed", portalOrderNo: null, errorCode: "device_out_of_stock",
       errorMessage: "out of stock", details: [], tries: 3,
     };
-    expect(singleResultEmail(outcome).html).not.toContain("/admin/orders/");
-    expect(singleResultEmail(outcome, { adminLink: true }).html).toContain("/admin/orders/");
+    const agent = singleResultEmail(outcome).html;
+    const admin = singleResultEmail(outcome, { adminLink: true }).html;
+    expect(agent).not.toContain("/admin/orders/");
+    expect(admin).toContain("/admin/orders/");
+    // The footer says why you got it, and the two readers got it for different
+    // reasons. Pointing the admin at Settings sends them to a page that cannot
+    // change ADMIN_ALERT_EMAIL.
+    expect(agent).toContain("Change the destination address in Settings");
+    expect(admin).toContain("ADMIN_ALERT_EMAIL");
+    expect(admin).not.toContain("Change the destination address in Settings");
   });
 
   it("still writes the trail when the alert throws", async () => {

@@ -118,7 +118,17 @@ function pill(bucket: OutcomeBucket, label: string): string {
  * subject: a subject line is gone the moment the mail is open, and the verdict
  * has to survive that.
  */
-function shell(mark: string, title: string, body: string): string {
+function shell(
+  mark: string,
+  title: string,
+  body: string,
+  /**
+   * Overrides the footer's "why am I getting this". The default points at
+   * Settings, which is the truth for an agent and a dead end for the admin
+   * alert — that address is an environment variable, not a field on a page.
+   */
+  footerNote = "You're getting this because order notifications are on for your BizzFlow account. Change the destination address in Settings.",
+): string {
   const link = ordersUrl();
   return `<!doctype html>
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head><body style="margin:0;padding:24px;background:${SURFACE};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Arial,sans-serif;color:${INK};">
@@ -130,7 +140,7 @@ function shell(mark: string, title: string, body: string): string {
     <tr><td style="padding:8px 24px 24px;font-size:14px;line-height:1.55;color:${INK};">${body}</td></tr>
     <tr><td style="padding:16px 24px;border-top:1px solid ${LINE};font-size:12px;color:${MUTED};">
       ${link ? `<a href="${esc(link)}" style="color:${BRAND};text-decoration:none;font-weight:600;">Open the Orders page</a><br/>` : ""}
-      You're getting this because order notifications are on for your BizzFlow account. Change the destination address in Settings.
+      ${esc(footerNote)}
     </td></tr>
   </table>
 </body></html>`;
@@ -242,6 +252,9 @@ export function singleResultEmail(
        ${problemBox(o)}
        ${admin ? `<div style="margin-top:14px;"><a href="${esc(admin)}" style="display:inline-block;padding:9px 16px;background:${BRAND};color:#fff;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none;">Open in admin</a></div>` : ""}
        ${detailRows(o.details) ? `${heading("Case details")}<table role="presentation" cellpadding="0" cellspacing="0" width="100%">${detailRows(o.details)}</table>` : ""}`,
+      opts.adminLink
+        ? "You're getting this because this address is set as ADMIN_ALERT_EMAIL. It reports every submit that ended un-submitted, for every agent."
+        : undefined,
     ),
   };
 }
