@@ -87,6 +87,18 @@ const ordersUrl = (): string | null => {
   return base ? `${base}/dashboard/order-entry?tab=drafts` : null;
 };
 
+/**
+ * The order's own page.
+ *
+ * Reaches both readers of a failure email: the agent owns the order, and
+ * `getOrderDetail` also admits a superadmin, which is what the copied-in
+ * address is. One link, so there is no per-recipient variant to keep in step.
+ */
+const orderUrl = (orderId: string): string | null => {
+  const base = appBaseUrl();
+  return base ? `${base}/order-entry/orders/${encodeURIComponent(orderId)}` : null;
+};
+
 /** Pill colours per outcome — the one visual carrying the whole verdict. */
 const PILL: Record<OutcomeBucket, { fg: string; bg: string; border: string }> = {
   submitted: { fg: "#0F7B4F", bg: "#E7F6EE", border: "#B7E3CC" },
@@ -203,6 +215,7 @@ function problemBox(
 export function singleResultEmail(o: OrderOutcome): { subject: string; html: string } {
   const { label, detail } = describeOutcome(o);
   const bucket = bucketOf(o);
+  const link = orderUrl(o.orderId);
 
   const orderFacts = [
     o.reference ? row("Reference", esc(o.reference)) : "",
@@ -218,6 +231,7 @@ export function singleResultEmail(o: OrderOutcome): { subject: string; html: str
        <p style="margin:0 0 14px;color:${MUTED};">${esc(detail)}</p>
        ${orderFacts ? `<table role="presentation" cellpadding="0" cellspacing="0" width="100%">${orderFacts}</table>` : ""}
        ${problemBox(o)}
+       ${link ? `<div style="margin-top:14px;"><a href="${esc(link)}" style="display:inline-block;padding:9px 16px;background:${BRAND};color:#fff;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none;">Open this order</a></div>` : ""}
        ${detailRows(o.details) ? `${heading("Case details")}<table role="presentation" cellpadding="0" cellspacing="0" width="100%">${detailRows(o.details)}</table>` : ""}`,
     ),
   };

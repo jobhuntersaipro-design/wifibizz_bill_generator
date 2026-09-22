@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { resolveRecipient } from "./recipient";
 import { sendEmail } from "./resend";
 import { batchSummaryEmail, singleResultEmail } from "./templates";
-import { caseDetailsFrom, type OrderOutcome } from "./outcomes";
+import { bucketOf, caseDetailsFrom, type OrderOutcome } from "./outcomes";
 
 /**
  * Sending a notification exactly once.
@@ -89,7 +89,14 @@ export async function notifyOrderResult(orderId: string): Promise<void> {
     tries: order.attempt,
   };
   const { subject, html } = singleResultEmail(outcome);
-  const res = await sendEmail({ to, subject, html });
+  // A failure is copied to the admin address, so somebody who is not the agent
+  // sees it. Copied rather than sent separately: one read, one send, and one
+  // body, so the two readers can never be told different things about the same
+  // order. Unset means no copy, which is the behaviour that shipped.
+  const cc = bucketOf(outcome) === "failed"
+    ? process.env.ADMIN_ALERT_EMAIL?.trim() || undefined
+    : undefined;
+  const res = await sendEmail({ to, subject, html, cc });
   if (!res.sent) await releaseOrder(order.id);
 }
 

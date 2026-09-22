@@ -6,6 +6,7 @@
  * way last time?" needs an append-only trail — that is what `recordEvent` builds.
  */
 import { prisma } from "@/lib/prisma";
+import { notifyOrderResult } from "@/lib/notifications/send";
 
 /**
  * Next short reference, e.g. "ORD-0042".
@@ -58,6 +59,24 @@ export async function recordEvent(e: StatusEventInput): Promise<void> {
     });
   } catch (err) {
     console.error("[recordEvent] failed (continuing):", err);
+  }
+
+  // Every way a submit ends un-submitted writes its outcome through here — the
+  // droplet webhook, a refused start, an expired dealer session, a lost job, a
+  // failed batch start, a manual stop. Only the webhook notified anything, so
+  // the other five told nobody at all. Notifying from the one function all of
+  // them share covers every path, including a seventh added later.
+  //
+  // Safe to call twice: `notifyOrderResult` claims the send on `notified_at`,
+  // so the webhook's own call and this one race and exactly one wins.
+  //
+  // In-memory check first — this runs on every stage milestone too, and those
+  // must not pay for a database read. Awaited rather than floated, because a
+  // promise left running after a serverless function returns may never finish.
+  if (e.status === "failed" || e.status === "warning") {
+    await notifyOrderResult(e.orderId).catch((err) =>
+      console.error("[recordEvent] notify failed (continuing):", err),
+    );
   }
 }
 
