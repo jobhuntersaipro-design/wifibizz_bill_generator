@@ -100,6 +100,43 @@ describe("a failure that will be retried is marked in the same write", () => {
     expect(finalWrite().autoRetryAt).toBeNull();
   });
 
+  it("files a blacklisted IC as a warning, not a failure", async () => {
+    // The portal declined the customer ([40300805]) before the Order click. The
+    // run worked; a red Failed row sends an admin hunting for a fault that is
+    // not there.
+    jobAnswers({
+      status: "done",
+      result: {
+        status: "error",
+        error: "blacklisted_ic",
+        message: "[40300805]: You're on our blacklist. Visit our nearest Unifi Store for help.",
+      },
+    });
+    await pollOrderProgress("ord_1");
+    const data = finalWrite();
+    expect(data.status).toBe("warning");
+    expect(data.errorCode).toBe("blacklisted_ic");
+    // No order was minted, so nothing is owed and nothing needs voiding. The
+    // whole point is that ONLY the pill changes.
+    expect(data.orderId ?? null).toBeNull();
+    expect(data.autoRetryAt).toBeNull();
+  });
+
+  it("still files an ordinary portal refusal as a failure", async () => {
+    // The control: without it the case above would pass on a build that had
+    // turned every refusal into a warning.
+    jobAnswers({
+      status: "done",
+      result: {
+        status: "error",
+        error: "device_out_of_stock",
+        message: "Sorry, the SAMSUNG TV is currently out of stock.",
+      },
+    });
+    await pollOrderProgress("ord_1");
+    expect(finalWrite().status).toBe("failed");
+  });
+
   it("clears any claim when the run actually succeeded", async () => {
     jobAnswers({
       status: "done",

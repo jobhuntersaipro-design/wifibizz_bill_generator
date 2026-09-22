@@ -287,6 +287,15 @@ function detailMessage(d: StageDetail): string {
  * id is what stops a retry from creating a duplicate, so it must be checked
  * before the plain-failure path.
  */
+/**
+ * Codes where the portal refused the CUSTOMER, not the submit.
+ *
+ * Filed as `warning` rather than `failed`: nothing malfunctioned, nothing is
+ * ours to fix, and the row should not read as a fault. Kept as a set so a second
+ * such code joins it here rather than growing another branch.
+ */
+const CUSTOMER_REFUSALS = new Set(["blacklisted_ic"]);
+
 async function applyResult(
   orderId: string,
   result: OrderJobResult,
@@ -427,7 +436,16 @@ async function applyResult(
       });
     }
     return finish({
-      status: "failed",
+      // A refusal the system handled correctly is a warning, not a failure.
+      // Blacklisted IC is the portal declining this customer ([40300805]) — the
+      // run did its job and there is nothing to fix on our side, so a red Failed
+      // row sends an admin looking for a fault that is not there.
+      //
+      // Safe without an order id because every consequence of `warning` is gated
+      // on one: `needsVoiding` and `canResubmit` are both false without it, and
+      // `canSubmit` stays true, so the agent can still resubmit once the
+      // customer's IC is sorted out. The pill is all that changes.
+      status: CUSTOMER_REFUSALS.has(code ?? "") ? "warning" : "failed",
       errorMessage: portalMsg || result.error || "The portal returned an error.",
       errorCode: code,
       stage: result.stage,
