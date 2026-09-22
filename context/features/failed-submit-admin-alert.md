@@ -42,7 +42,13 @@ in which case the one path that *does* notify does not fire either. **"Not submi
 all six.** Wiring an alert into the webhook alone would silently miss most of them, and a monitoring
 email you believe is watching and isn't is worse than none.
 
-## Build
+## Built (revised 2026-09-22 — the first cut was a parallel email; this is a CC)
+
+The first build sent a SECOND email from a new `alertAdminFailure`, which duplicated
+`notifyOrderResult`'s select and outcome-building and read the order twice per failure.
+Collapsed to a **copy on the existing email**: one read, one send, one body — so the agent and the
+admin can never be told different things about one order. `alertAdminFailure`, `adminOrderUrl`, the
+`adminLink` option and the `footerNote` parameter are all gone (net −63 lines).
 
 ### 1. The chokepoint is `recordEvent`, not the six call sites
 
@@ -52,53 +58,44 @@ there beats a call bolted onto every caller, and it cannot be forgotten by a sev
 
 ```ts
 // src/lib/order-history.ts — end of recordEvent(), after the insert
-if (e.status === "failed" || e.status === "warning") void alertAdminFailure(e.orderId);
+if (e.status === "failed" || e.status === "warning") {
+  await notifyOrderResult(e.orderId).catch(...);
+}
 ```
 
-The status check is in memory, so the ~90% of calls that are stage milestones cost nothing. `void`, not
-`await`: the alert is the last thing that happens and must not be able to change an outcome.
+The status check is in memory, so the ~90% of calls that are stage milestones cost nothing. Awaited
+rather than floated — a promise left running after a serverless function returns may never finish.
 
-### 2. `alertAdminFailure(orderId)` — new, in `src/lib/notifications/send.ts`
+Calling `notifyOrderResult` rather than a parallel notifier is what makes this safe to run beside the
+webhook: it already claims the send on `notified_at`, so the two race and exactly one wins.
+**It also fixes a bug for free** — those five paths emailed nobody at all, the agent included.
 
-```
-ADMIN_ALERT_EMAIL unset                  → return (feature off, no crash)
-re-read the order                        → autoRetryAt set? return   (a retry is owed; not news yet)
-build the same OrderOutcome as notifyOrderResult
-singleResultEmail(outcome) + the order link
-sendEmail({ to: ADMIN_ALERT_EMAIL, ... })
-```
+### 2. The admin is copied in, not sent to separately
 
-- **Reuses `singleResultEmail`.** One template means the admin copy and the agent copy cannot drift into
-  saying different things about the same failure. No second template, no second style.
-- **`autoRetryAt` gate, same rule `notifyOrderResult` already applies.** An order with a retry owed is not
-  finished. Without this an order that fails three times and then succeeds emits three false alarms.
-- **No new idempotency column.** The `autoRetryAt` gate means only the *last* attempt of a run alerts, and
-  a later resubmit that fails again is genuinely new news that should alert again. `orders.notified_at` is
-  left alone — it belongs to the agent's email and must keep meaning exactly that.
+`sendEmail` gains an optional `cc`. `notifyOrderResult` sets it to `ADMIN_ALERT_EMAIL` when the
+outcome is a failure, and to nothing on a success — copying every submit is how an address gets
+filtered into a folder nobody reads.
+
 - **`ADMIN_ALERT_EMAIL`, not a hardcoded address.** The env var already exists
-  (`src/app/api/cron/retry-sweep/route.ts:61`, stuck-lock alerting) and is currently unset. Reusing it costs
-  nothing and means the address can be changed without a deploy. Unset → no alert, which is the shipped
-  behaviour today.
+  (`src/app/api/cron/retry-sweep/route.ts:61`, stuck-lock alerting). Unset → no copy, which is the
+  behaviour that shipped.
+- **The `autoRetryAt` gate is `notifyOrderResult`'s own, already there.** An order with a retry owed
+  is not finished; without it a run that fails twice then succeeds sends two false alarms.
 
-### 3. The link — `/admin/orders/<id>`, not `/order-entry/orders/<id>`
+### 3. The link — `/order-entry/orders/<id>`
 
-Both pages exist. The admin one wins for an oversight alert: it is cross-agent by design, and it carries
-the capture thumbnails and the per-attempt timeline, which is what "why did this fail" actually needs. The
-agent route is owner-scoped in `getOrderDetail` (`actions/order.ts:550`) — a plain (non-superadmin) session
-opening another agent's order gets *Order not found*.
+One email now has two readers, so there is one link rather than a per-recipient variant. The agent
+owns the order and `getOrderDetail` also admits a superadmin, which is what the copied-in address is.
+The admin route was dropped with the second email: it is behind the separate admin JWT, and one body
+cannot carry a door only one reader can open.
 
-One line in `templates.ts` beside the existing `fixDraftUrl` / `ordersUrl`:
-
-```ts
-const adminOrderUrl = (id: string) => { const b = appBaseUrl(); return b ? `${b}/admin/orders/${id}` : null; };
-```
-
-Rendered as a second button under **Fix the draft**, only when `appBaseUrl()` resolves — the existing rule,
-so a missing `BIZZFLOW_APP_URL` omits the link rather than emitting a 404.
+**This improves the agent's email too** — it previously linked only to the draft editor (and only for
+`fix_field` codes) and the Orders list, never to the order itself.
 
 ## Not built
 
-- **A separate admin template.** The agent's failure email already carries every field asked for.
+- **A separate admin email or template.** The agent's failure email already carries every field
+  asked for, and one body cannot disagree with itself.
 - **A digest / hourly roll-up.** Alert per failure until the volume argues otherwise.
 - **Admin alerts for `submitted`.** The ask is failures; a success is not an alert.
 - **Wiring the droplet webhook.** Out of scope here — but note the alert now fires without it, which is
@@ -121,9 +118,7 @@ Then `npm run build` and `npm run lint`.
 Stage one dev order to `failed` with `autoRetryAt` null, call the path, confirm delivery and that the
 link opens the right order. Restore the row afterwards.
 
-## ⚠ Check the address before building
+## The address
 
-The ask says **`jobhunter.ai.pro@gmail.com`**. The account on file is
-**`jobhunters.ai.pro@gmail.com`** — with an `s`. Resend accepts either; a typo'd address is dropped
-silently and for ever, which is the one failure mode a monitoring alert cannot afford. Confirm the
-spelling before setting `ADMIN_ALERT_EMAIL`.
+Confirmed by the user, 2026-09-22: **`jobhunters.ai.pro@gmail.com`** (with the `s`). Set it as
+`ADMIN_ALERT_EMAIL` on Vercel; until then the copy is off and the agent's email is unchanged.

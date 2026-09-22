@@ -42,6 +42,8 @@ export async function sendEmail(opts: {
   to: string;
   subject: string;
   html: string;
+  /** Copied in, when set. One send, so the two readers cannot get two stories. */
+  cc?: string;
 }): Promise<SendResult> {
   if (!API_KEY || !FROM) {
     const missing = !API_KEY ? "RESEND_API_KEY" : "NOTIFY_FROM_EMAIL";
@@ -54,6 +56,7 @@ export async function sendEmail(opts: {
     const { error } = await resend().emails.send({
       from: FROM,
       to: [opts.to],
+      ...(opts.cc ? { cc: [opts.cc] } : {}),
       subject: opts.subject,
       html: opts.html,
     });

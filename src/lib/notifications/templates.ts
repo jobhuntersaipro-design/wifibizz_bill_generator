@@ -88,16 +88,15 @@ const ordersUrl = (): string | null => {
 };
 
 /**
- * The admin view of one order — captures, the per-attempt timeline, every agent.
+ * The order's own page.
  *
- * Deliberately the ADMIN route and not `/order-entry/orders/<id>`: this link only
- * ever goes to the admin alert, whose reader is not the order's owner, and
- * `getOrderDetail` scopes the agent route to the owner (or a superadmin), so that
- * one answers "Order not found" for the very person the alert was sent to.
+ * Reaches both readers of a failure email: the agent owns the order, and
+ * `getOrderDetail` also admits a superadmin, which is what the copied-in
+ * address is. One link, so there is no per-recipient variant to keep in step.
  */
-const adminOrderUrl = (orderId: string): string | null => {
+const orderUrl = (orderId: string): string | null => {
   const base = appBaseUrl();
-  return base ? `${base}/admin/orders/${encodeURIComponent(orderId)}` : null;
+  return base ? `${base}/order-entry/orders/${encodeURIComponent(orderId)}` : null;
 };
 
 /** Pill colours per outcome — the one visual carrying the whole verdict. */
@@ -118,17 +117,7 @@ function pill(bucket: OutcomeBucket, label: string): string {
  * subject: a subject line is gone the moment the mail is open, and the verdict
  * has to survive that.
  */
-function shell(
-  mark: string,
-  title: string,
-  body: string,
-  /**
-   * Overrides the footer's "why am I getting this". The default points at
-   * Settings, which is the truth for an agent and a dead end for the admin
-   * alert — that address is an environment variable, not a field on a page.
-   */
-  footerNote = "You're getting this because order notifications are on for your BizzFlow account. Change the destination address in Settings.",
-): string {
+function shell(mark: string, title: string, body: string): string {
   const link = ordersUrl();
   return `<!doctype html>
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head><body style="margin:0;padding:24px;background:${SURFACE};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Arial,sans-serif;color:${INK};">
@@ -140,7 +129,7 @@ function shell(
     <tr><td style="padding:8px 24px 24px;font-size:14px;line-height:1.55;color:${INK};">${body}</td></tr>
     <tr><td style="padding:16px 24px;border-top:1px solid ${LINE};font-size:12px;color:${MUTED};">
       ${link ? `<a href="${esc(link)}" style="color:${BRAND};text-decoration:none;font-weight:600;">Open the Orders page</a><br/>` : ""}
-      ${esc(footerNote)}
+      You're getting this because order notifications are on for your BizzFlow account. Change the destination address in Settings.
     </td></tr>
   </table>
 </body></html>`;
@@ -223,18 +212,10 @@ function problemBox(
  * for the title and remedy) rather than a paraphrase — that sentence is what an
  * agent quotes to Unifi support, and rewording it makes it unquotable.
  */
-export function singleResultEmail(
-  o: OrderOutcome,
-  /**
-   * `adminLink` adds an "Open in admin" button. Off by default so the agent's
-   * own email is unchanged — that page is behind the separate admin JWT, and
-   * offering an agent a door they cannot open is worse than no door.
-   */
-  opts: { adminLink?: boolean } = {},
-): { subject: string; html: string } {
+export function singleResultEmail(o: OrderOutcome): { subject: string; html: string } {
   const { label, detail } = describeOutcome(o);
   const bucket = bucketOf(o);
-  const admin = opts.adminLink ? adminOrderUrl(o.orderId) : null;
+  const link = orderUrl(o.orderId);
 
   const orderFacts = [
     o.reference ? row("Reference", esc(o.reference)) : "",
@@ -250,11 +231,8 @@ export function singleResultEmail(
        <p style="margin:0 0 14px;color:${MUTED};">${esc(detail)}</p>
        ${orderFacts ? `<table role="presentation" cellpadding="0" cellspacing="0" width="100%">${orderFacts}</table>` : ""}
        ${problemBox(o)}
-       ${admin ? `<div style="margin-top:14px;"><a href="${esc(admin)}" style="display:inline-block;padding:9px 16px;background:${BRAND};color:#fff;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none;">Open in admin</a></div>` : ""}
+       ${link ? `<div style="margin-top:14px;"><a href="${esc(link)}" style="display:inline-block;padding:9px 16px;background:${BRAND};color:#fff;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none;">Open this order</a></div>` : ""}
        ${detailRows(o.details) ? `${heading("Case details")}<table role="presentation" cellpadding="0" cellspacing="0" width="100%">${detailRows(o.details)}</table>` : ""}`,
-      opts.adminLink
-        ? "You're getting this because this address is set as ADMIN_ALERT_EMAIL. It reports every submit that ended un-submitted, for every agent."
-        : undefined,
     ),
   };
 }

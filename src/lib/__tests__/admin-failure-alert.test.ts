@@ -1,25 +1,31 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Alerting an admin that a submit ended un-submitted.
+ * Copying an admin address in on every failed submit.
  *
  * Two things are load-bearing and neither is visible from the happy path:
  *
- *  - the alert hangs off `recordEvent`, not off the droplet webhook, because
- *    five other code paths write a failure and none of them notifies. A test
- *    driving `recordEvent` directly is what pins that.
+ *  - the notify hangs off `recordEvent`, not off the droplet webhook. Five other
+ *    code paths write a failure — a refused start, an expired dealer session, a
+ *    lost job, a failed batch start, a manual stop — and before this none of
+ *    them emailed anyone, the agent included. A test driving `recordEvent`
+ *    directly is what pins that.
  *  - an order with `autoRetryAt` set is NOT news. Without that gate an order
  *    that fails twice and then submits sends two false alarms, which is how a
  *    monitoring address gets muted.
  */
 
 const orderFindUnique = vi.fn();
+const orderUpdateMany = vi.fn();
 const eventCreate = vi.fn();
 const sendEmail = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    order: { findUnique: (...a: unknown[]) => orderFindUnique(...a), updateMany: vi.fn() },
+    order: {
+      findUnique: (...a: unknown[]) => orderFindUnique(...a),
+      updateMany: (...a: unknown[]) => orderUpdateMany(...a),
+    },
     batchRun: { findUnique: vi.fn(), updateMany: vi.fn() },
     orderStatusEvent: { create: (...a: unknown[]) => eventCreate(...a) },
   },
@@ -37,11 +43,11 @@ const FAILED_ORDER = {
   status: "failed",
   orderId: null,
   errorCode: "device_out_of_stock",
-  errorMessage: "Sorry, the SAMSUNG TV 55\" is currently out of stock.",
+  errorMessage: 'Sorry, the SAMSUNG TV 55" is currently out of stock.',
   idType: "mykad",
   idNumber: "940811034224",
   mobilePrefix: "60",
-  mobile: "123456789",
+  mobile: "137089093",
   email: "customer@example.com",
   street: "12 JALAN BESAR, 42610 JENJAROM, SELANGOR",
   offerName: "Unifi Home 300Mbps",
@@ -49,11 +55,11 @@ const FAILED_ORDER = {
   installationDate: null,
   attempt: 3,
   autoRetryAt: null,
+  user: { email: "agent@example.com", notificationEmail: null },
 };
 
-/** The single argument `sendEmail` was called with, if it was. */
 const sent = () => sendEmail.mock.calls[0]?.[0] as
-  | { to: string; subject: string; html: string }
+  | { to: string; cc?: string; subject: string; html: string }
   | undefined;
 
 const failedEvent = { orderId: "ord_1", attempt: 3, status: "failed" as const };
@@ -63,6 +69,7 @@ beforeEach(() => {
   process.env.ADMIN_ALERT_EMAIL = "admin@example.com";
   process.env.BIZZFLOW_APP_URL = "https://bizzflow.top";
   orderFindUnique.mockResolvedValue(FAILED_ORDER);
+  orderUpdateMany.mockResolvedValue({ count: 1 });
   eventCreate.mockResolvedValue({});
   sendEmail.mockResolvedValue({ sent: true });
 });
@@ -72,18 +79,18 @@ afterEach(() => {
   delete process.env.BIZZFLOW_APP_URL;
 });
 
-describe("admin failure alert", () => {
-  it("emails the admin address when a failure is recorded", async () => {
+describe("admin copy on a failed submit", () => {
+  it("emails the agent and copies the admin, in one send", async () => {
     await recordEvent(failedEvent);
     expect(sendEmail).toHaveBeenCalledTimes(1);
-    expect(sent()?.to).toBe("admin@example.com");
-    expect(sent()?.subject).toContain("AISYAH BINTI RAHIM");
+    expect(sent()?.to).toBe("agent@example.com");
+    expect(sent()?.cc).toBe("admin@example.com");
   });
 
   it("carries the order detail and a link to the order", async () => {
     await recordEvent(failedEvent);
     const html = sent()?.html ?? "";
-    expect(html).toContain("https://bizzflow.top/admin/orders/ord_1");
+    expect(html).toContain("https://bizzflow.top/order-entry/orders/ord_1");
     expect(html).toContain("ORD-0042");
     expect(html).toContain("Unifi Home 300Mbps");
     expect(html).toContain("out of stock");
@@ -97,15 +104,30 @@ describe("admin failure alert", () => {
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
-  it("alerts on a warning too — a stranded portal order is the worst case", async () => {
+  it("copies the admin on a warning too — a stranded portal order is the worst case", async () => {
     orderFindUnique.mockResolvedValue({
       ...FAILED_ORDER,
       status: "warning",
       orderId: "2608000121625616",
     });
     await recordEvent({ ...failedEvent, status: "warning" });
-    expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect(sent()?.cc).toBe("admin@example.com");
     expect(sent()?.html).toContain("2608000121625616");
+  });
+
+  it("does NOT copy the admin on a success", async () => {
+    // The ask is failures. Copying every submit is how the address gets filtered.
+    orderFindUnique.mockResolvedValue({
+      ...FAILED_ORDER,
+      status: "submitted",
+      orderId: "2608000121625616",
+      errorCode: null,
+      errorMessage: null,
+    });
+    const { notifyOrderResult } = await import("@/lib/notifications/send");
+    await notifyOrderResult("ord_1");
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect(sent()?.cc).toBeUndefined();
   });
 
   it("never reads the order for a stage milestone", async () => {
@@ -116,42 +138,26 @@ describe("admin failure alert", () => {
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
-  it("sends nothing on a success", async () => {
-    await recordEvent({ orderId: "ord_1", attempt: 3, status: "submitted" });
-    expect(sendEmail).not.toHaveBeenCalled();
+  it("sends once when the webhook and the trail both notify", async () => {
+    // Both fire for a webhook-reported failure. The `notified_at` claim is what
+    // makes that safe; without it the pair would send two copies of one failure.
+    const { notifyOrderResult } = await import("@/lib/notifications/send");
+    orderUpdateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
+    await recordEvent(failedEvent);
+    await notifyOrderResult("ord_1");
+    expect(sendEmail).toHaveBeenCalledTimes(1);
   });
 
-  it("is off, not broken, when ADMIN_ALERT_EMAIL is unset", async () => {
+  it("sends with no copy when ADMIN_ALERT_EMAIL is unset", async () => {
     delete process.env.ADMIN_ALERT_EMAIL;
-    await expect(recordEvent(failedEvent)).resolves.toBeUndefined();
-    expect(sendEmail).not.toHaveBeenCalled();
+    await recordEvent(failedEvent);
+    expect(sent()?.to).toBe("agent@example.com");
+    expect(sent()?.cc).toBeUndefined();
   });
 
-  it("keeps the admin link out of the agent's own email", async () => {
-    // `singleResultEmail` is shared by both copies of one failure. The admin
-    // route is behind the separate admin JWT, so an agent following this link
-    // lands on a login they cannot pass — a door offered and not openable.
-    const { singleResultEmail } = await import("@/lib/notifications/templates");
-    const outcome = {
-      orderId: "ord_1", reference: "ORD-0042", fullName: "AISYAH BINTI RAHIM",
-      status: "failed", portalOrderNo: null, errorCode: "device_out_of_stock",
-      errorMessage: "out of stock", details: [], tries: 3,
-    };
-    const agent = singleResultEmail(outcome).html;
-    const admin = singleResultEmail(outcome, { adminLink: true }).html;
-    expect(agent).not.toContain("/admin/orders/");
-    expect(admin).toContain("/admin/orders/");
-    // The footer says why you got it, and the two readers got it for different
-    // reasons. Pointing the admin at Settings sends them to a page that cannot
-    // change ADMIN_ALERT_EMAIL.
-    expect(agent).toContain("Change the destination address in Settings");
-    expect(admin).toContain("ADMIN_ALERT_EMAIL");
-    expect(admin).not.toContain("Change the destination address in Settings");
-  });
-
-  it("still writes the trail when the alert throws", async () => {
-    // The alert is a diagnostic hanging off a diagnostic. It must not be able to
-    // take down the status trail, let alone the submit the trail describes.
+  it("still writes the trail when notifying throws", async () => {
+    // The notify hangs off a diagnostic. It must not be able to take down the
+    // status trail, let alone the submit the trail describes.
     orderFindUnique.mockRejectedValue(new Error("db gone"));
     await expect(recordEvent(failedEvent)).resolves.toBeUndefined();
     expect(eventCreate).toHaveBeenCalledTimes(1);
