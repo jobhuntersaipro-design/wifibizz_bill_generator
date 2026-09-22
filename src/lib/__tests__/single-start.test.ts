@@ -93,9 +93,15 @@ describe("startSubmit", () => {
   it("clears notifiedAt so a resubmitted order gets its own email", async () => {
     // The regression: an order notified once would otherwise never be notified
     // again, silently, for the rest of its life.
+    //
+    // Asserted across every write rather than on the `submitting` one: the
+    // clear moved to the first update, ahead of the session check and the
+    // droplet refusal, which both return before `submitting` is ever written.
+    // order-start-busy.test.ts pins that ordering.
     findFirst.mockResolvedValue(draft({ attempt: 2, notifiedAt: new Date() }));
     await startSubmit("ord_1");
-    expect(submittingWrite()).toMatchObject({ notifiedAt: null });
+    const datas = orderUpdate.mock.calls.map((c) => c[0].data as Record<string, unknown>);
+    expect(datas.some((d) => d.notifiedAt === null)).toBe(true);
   });
 
   it("clears the previous attempt's error code as well as its message", async () => {

@@ -83,6 +83,25 @@ describe("startSubmitRun when the droplet is busy", () => {
     expect(lastUpdateData().autoRetryAt).toBeInstanceOf(Date);
   });
 
+  it("releases the notification claim BEFORE the session check can return", async () => {
+    // The claim (`notified_at`) is what stops one failure being emailed twice.
+    // It used to be cleared beside the `submitting` write, which the session
+    // check and the droplet refusal both return before — so a second failure on
+    // an order that had already been emailed once was silently never reported,
+    // which is precisely the case the notification exists for.
+    dealerFindUnique.mockResolvedValue({ sessionExpiresAt: new Date(Date.now() - 1000) });
+    const res = await startSubmitRun(ORDER, { userKey: "user_1" });
+    expect(res).toMatchObject({ ok: false, busy: false });
+
+    const datas = orderUpdate.mock.calls.map(
+      (c) => c[0].data as Record<string, unknown>,
+    );
+    const cleared = datas.findIndex((d) => d.notifiedAt === null);
+    const failed = datas.findIndex((d) => d.status === "failed");
+    expect(cleared).toBeGreaterThanOrEqual(0);
+    expect(cleared).toBeLessThan(failed);
+  });
+
   it("a real refusal (non-busy) stays a plain failure with nothing owed", async () => {
     fetchMock.mockResolvedValue({
       ok: false,

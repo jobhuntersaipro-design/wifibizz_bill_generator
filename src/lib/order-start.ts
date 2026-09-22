@@ -224,6 +224,12 @@ export async function startSubmitRun(
       // longer describes anything. Cleared on EVERY path — person, batch,
       // automatic retry — for the same cannot-be-forgotten reason as above.
       outcomeSeenAt: null,
+      // Same rule, and it has to be HERE rather than beside the `submitting`
+      // write below: the session check and the droplet refusal both return
+      // before that write, so a claim left over from the previous attempt would
+      // still be held and those failures would email nobody — which is exactly
+      // the case the notification exists for.
+      notifiedAt: null,
     },
   });
 
@@ -266,10 +272,6 @@ export async function startSubmitRun(
       status: "submitting",
       errorMessage: null,
       errorCode: null,
-      // Cleared so this attempt gets its own email, exactly as the batch path
-      // does. The guard is per-send, not per-order-lifetime — a resubmitted
-      // order is news again.
-      notifiedAt: null,
       stage: "creating_customer",
       stageAt: new Date(),
     },
