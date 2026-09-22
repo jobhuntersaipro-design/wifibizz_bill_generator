@@ -87,6 +87,19 @@ const ordersUrl = (): string | null => {
   return base ? `${base}/dashboard/order-entry?tab=drafts` : null;
 };
 
+/**
+ * The admin view of one order — captures, the per-attempt timeline, every agent.
+ *
+ * Deliberately the ADMIN route and not `/order-entry/orders/<id>`: this link only
+ * ever goes to the admin alert, whose reader is not the order's owner, and
+ * `getOrderDetail` scopes the agent route to the owner (or a superadmin), so that
+ * one answers "Order not found" for the very person the alert was sent to.
+ */
+const adminOrderUrl = (orderId: string): string | null => {
+  const base = appBaseUrl();
+  return base ? `${base}/admin/orders/${encodeURIComponent(orderId)}` : null;
+};
+
 /** Pill colours per outcome — the one visual carrying the whole verdict. */
 const PILL: Record<OutcomeBucket, { fg: string; bg: string; border: string }> = {
   submitted: { fg: "#0F7B4F", bg: "#E7F6EE", border: "#B7E3CC" },
@@ -200,9 +213,18 @@ function problemBox(
  * for the title and remedy) rather than a paraphrase — that sentence is what an
  * agent quotes to Unifi support, and rewording it makes it unquotable.
  */
-export function singleResultEmail(o: OrderOutcome): { subject: string; html: string } {
+export function singleResultEmail(
+  o: OrderOutcome,
+  /**
+   * `adminLink` adds an "Open in admin" button. Off by default so the agent's
+   * own email is unchanged — that page is behind the separate admin JWT, and
+   * offering an agent a door they cannot open is worse than no door.
+   */
+  opts: { adminLink?: boolean } = {},
+): { subject: string; html: string } {
   const { label, detail } = describeOutcome(o);
   const bucket = bucketOf(o);
+  const admin = opts.adminLink ? adminOrderUrl(o.orderId) : null;
 
   const orderFacts = [
     o.reference ? row("Reference", esc(o.reference)) : "",
@@ -218,6 +240,7 @@ export function singleResultEmail(o: OrderOutcome): { subject: string; html: str
        <p style="margin:0 0 14px;color:${MUTED};">${esc(detail)}</p>
        ${orderFacts ? `<table role="presentation" cellpadding="0" cellspacing="0" width="100%">${orderFacts}</table>` : ""}
        ${problemBox(o)}
+       ${admin ? `<div style="margin-top:14px;"><a href="${esc(admin)}" style="display:inline-block;padding:9px 16px;background:${BRAND};color:#fff;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none;">Open in admin</a></div>` : ""}
        ${detailRows(o.details) ? `${heading("Case details")}<table role="presentation" cellpadding="0" cellspacing="0" width="100%">${detailRows(o.details)}</table>` : ""}`,
     ),
   };

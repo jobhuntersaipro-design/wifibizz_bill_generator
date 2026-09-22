@@ -140,3 +140,58 @@ export async function notifyBatchResult(batchRunId: string): Promise<void> {
       .catch((e) => console.error("[notifications] couldn't release batch claim:", e));
   }
 }
+
+/**
+ * Alert an admin address that a submit ended un-submitted.
+ *
+ * Separate from `notifyOrderResult`, and both can fire for one failure — they
+ * have different readers. The agent is told about their own customer; the admin
+ * is told because somebody has to notice the six ways a submit dies that the
+ * droplet's webhook never reports (a refused start, an expired dealer session, a
+ * lost job, a failed batch start, a manual stop, the poll finding the job gone).
+ *
+ * Reuses `singleResultEmail`, so the two copies of one failure cannot drift into
+ * saying different things about it.
+ *
+ * Never throws: it is called from `recordEvent`, which is a diagnostic and must
+ * not be able to fail the submit it is describing.
+ */
+export async function alertAdminFailure(orderId: string): Promise<void> {
+  try {
+    const to = process.env.ADMIN_ALERT_EMAIL?.trim();
+    // Unset is the shipped state and means the alert is off, not broken.
+    if (!to) return;
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true, reference: true, fullName: true, status: true,
+        orderId: true, errorCode: true, errorMessage: true,
+        idType: true, idNumber: true, mobilePrefix: true, mobile: true,
+        email: true, street: true, offerName: true, deviceName: true,
+        installationDate: true, attempt: true, autoRetryAt: true,
+      },
+    });
+    if (!order) return;
+    // A retry is owed, so the run is not over whatever the row says right now.
+    // Without this an order that fails twice and then submits sends two false
+    // alarms — which is how a monitoring address gets muted.
+    if (order.autoRetryAt) return;
+
+    const outcome: OrderOutcome = {
+      orderId: order.id,
+      reference: order.reference,
+      fullName: order.fullName,
+      status: order.status,
+      portalOrderNo: order.orderId,
+      errorCode: order.errorCode,
+      errorMessage: order.errorMessage,
+      details: caseDetailsFrom(order),
+      tries: order.attempt,
+    };
+    const { subject, html } = singleResultEmail(outcome, { adminLink: true });
+    await sendEmail({ to, subject, html });
+  } catch (e) {
+    console.error("[notifications] admin failure alert failed (continuing):", e);
+  }
+}

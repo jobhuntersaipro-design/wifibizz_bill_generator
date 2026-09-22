@@ -6,6 +6,7 @@
  * way last time?" needs an append-only trail — that is what `recordEvent` builds.
  */
 import { prisma } from "@/lib/prisma";
+import { alertAdminFailure } from "@/lib/notifications/send";
 
 /**
  * Next short reference, e.g. "ORD-0042".
@@ -58,6 +59,20 @@ export async function recordEvent(e: StatusEventInput): Promise<void> {
     });
   } catch (err) {
     console.error("[recordEvent] failed (continuing):", err);
+  }
+
+  // Every way a submit ends un-submitted writes its outcome through here — the
+  // droplet webhook, a refused start, an expired dealer session, a lost job, a
+  // failed batch start, a manual stop. Only the webhook has a notification of
+  // its own, so the alert hangs off the one function all of them share rather
+  // than off six call sites, where a seventh path would simply be forgotten.
+  //
+  // In-memory check first: this runs on every stage milestone too, and those
+  // must not pay for a database read. Awaited rather than floated, because a
+  // promise left running after a serverless function returns may never finish;
+  // `alertAdminFailure` swallows its own errors, so awaiting it is still safe.
+  if (e.status === "failed" || e.status === "warning") {
+    await alertAdminFailure(e.orderId);
   }
 }
 
