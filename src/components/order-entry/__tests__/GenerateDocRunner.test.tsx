@@ -48,7 +48,10 @@ describe("GenerateDocRunner", () => {
   it("photographs the Bizz Chat closing script for `bizz_chat`", () => {
     const text = textOf(markup("bizz_chat"));
     expect(text).toContain("Customer Name (as per NRIC/Passport) : PHONG KONE LEE");
-    expect(text).toContain("Contact Number : 60148893212");
+    // Canonical `+60 1X-XXXX XXXX`, the same in the header and in line 2, and
+    // the same whether the caller passed the portal's `+60…` or Order Entry's
+    // concatenated prefix+number.
+    expect(text).toContain("Contact Number : +60 14-889 3212");
     expect(text).not.toContain("Customer ID ( i.e BRN): 920505034434");
     // An order has no crawled director, so the Business Owner is the chat's
     // usual dash — never the customer's own name, and never an invented person.

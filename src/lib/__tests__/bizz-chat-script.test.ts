@@ -42,7 +42,7 @@ describe("buildBizzChatScript", () => {
     expect(asChatText(buildBizzChatScript(CASE, 3))).toBe(
       [
         "1.\u2060 \u2060Customer Name (as per NRIC/Passport) : MONBLEU CAFE(JM0920662-D)",
-        "2.\u2060 \u2060Contact Number : 60148893212",
+        "2.\u2060 \u2060Contact Number : +60 14-889 3212",
         "3.\u2060 \u2060Customer ID ( i.e BRN): JM0920662-D",
         "4.\u2060 \u2060Business Owner Name: TIAN ZI XUAN",
         "5.\u2060 \u2060Email Address : phong@example.com",

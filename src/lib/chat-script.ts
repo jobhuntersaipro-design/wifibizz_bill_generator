@@ -8,6 +8,7 @@
 // once rather than once per template.
 
 import { decodeCustomerName } from "./html-entities";
+import { formatPhone } from "./order-types";
 
 /** Which template a chat prints. Conversation is residential only; Bizz is the business path. */
 export type ChatScriptVariant = "conversation" | "bizz";
@@ -30,10 +31,32 @@ export interface ChatScript {
   agreement: string;
 }
 
-/** Digits only, e.g. "+60 14-889 3212" prints as 60148893212. */
+/**
+ * A Malaysian mobile as `+60 14-889 3212`, whatever shape it arrived in.
+ *
+ * The two entry points hand this different strings for the same customer — the
+ * Case List passes the portal's `+60137089093`, Order Entry concatenates its
+ * prefix and number field into `60137089093` — and a leading `0` turns up in
+ * both. Normalising to one canonical form HERE is what stops a chat generated
+ * from an order reading differently from the same customer's chat generated
+ * from their case.
+ *
+ * Grouped by `formatPhone`, not by a second copy of the rule: the orders table
+ * already prints phone numbers and the two must not drift apart.
+ *
+ * A number that is not a Malaysian mobile is returned as its bare digits rather
+ * than being stamped `+60`, which would put an authoritative and wrong country
+ * code on a foreign number — the same rule `formatPhone` follows for a length
+ * it does not recognise.
+ */
 export function formatMobileRaw(mobile: string | null): string {
   if (!mobile) return "—";
-  return mobile.replace(/[^0-9]/g, "");
+  const digits = mobile.replace(/[^0-9]/g, "");
+  if (!digits) return "—";
+  const national = digits.startsWith("60") ? digits.slice(2) : digits.replace(/^0+/, "");
+  // Malaysian mobiles are 1X… at 9 or 10 national digits, so a national number
+  // can never itself begin "60" and the strip above is unambiguous.
+  return /^1\d{8,9}$/.test(national) ? (formatPhone("60", national) ?? digits) : digits;
 }
 
 /** Portal-escaped names print as `YA'ASAK`, never `YA&#039;ASAK`. */

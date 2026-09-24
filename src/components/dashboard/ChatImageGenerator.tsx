@@ -6,32 +6,26 @@ import Image from "next/image";
 import { toPng } from "html-to-image";
 import type { CaseRow } from "./shared";
 import { CloseIcon, DownloadIcon } from "./icons";
-import {
-  buildConversationChatScript,
-  type ChatScriptVariant,
-} from "@/lib/chat-script";
+import { buildConversationChatScript, formatMobileRaw, type ChatScriptVariant } from "@/lib/chat-script";
 import { decodeCustomerName } from "@/lib/html-entities";
 import { buildBizzChatScript } from "@/lib/bizz-chat-script";
 
+/**
+ * The number in the chat header.
+ *
+ * Delegates to `formatMobileRaw` rather than grouping the digits again. The
+ * version this replaced only formatted a string that already began `+60`, so
+ * the Case List (which passes the portal's `+60137089093`) got a grouped header
+ * while Order Entry (which concatenates its prefix and number fields into
+ * `60137089093`) got a bare run of digits — the same customer, two headers.
+ *
+ * Empty rather than a dash when there is no number: the header falls back to
+ * the customer's name, and an em dash there would read as their name.
+ */
 function formatMobileDisplay(mobile: string | null): string {
   if (!mobile) return "";
-  const cleaned = mobile.replace(/[^0-9+]/g, "");
-  if (cleaned.startsWith("+60")) {
-    const rest = cleaned.slice(3);
-    // +6011x-xxxx xxxx format (10 digits after +60, e.g. 01119131715)
-    if (rest.length === 10 && rest.startsWith("11")) {
-      return `+60 ${rest.slice(0, 2)}-${rest.slice(2, 6)} ${rest.slice(6)}`;
-    }
-    // +60 1x-xxx xxxx format (9 digits after +60, e.g. 0109131715)
-    if (rest.length === 9) {
-      return `+60 ${rest.slice(0, 2)}-${rest.slice(2, 5)} ${rest.slice(5)}`;
-    }
-    // 10-digit non-011 numbers: +60 1x-xxx xxxx
-    if (rest.length === 10) {
-      return `+60 ${rest.slice(0, 2)}-${rest.slice(2, 5)} ${rest.slice(5)}`;
-    }
-  }
-  return mobile;
+  const shown = formatMobileRaw(mobile);
+  return shown === "\u2014" ? "" : shown;
 }
 
 function getTimeString(): string {
