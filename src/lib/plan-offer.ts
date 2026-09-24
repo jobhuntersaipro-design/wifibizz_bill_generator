@@ -273,3 +273,59 @@ export function sellableOffers(
     bandwidth: p.bandwidth ?? "",
   }));
 }
+
+/**
+ * The speed chip an offer belongs under.
+ *
+ * Business and VOF plans are keyed by CATEGORY — their bandwidth is a
+ * placeholder `1M` that means nothing to an agent. Everything else is keyed by
+ * its bandwidth, whatever that turns out to be.
+ *
+ * The rule the picker used before was `category === HOME && bandwidth === chip`,
+ * expressed once in the filter and again, differently, in the counts. So a
+ * published plan whose category was not byte-identical to one of the three
+ * portal strings, or whose speed was not one of five hardcoded chips, matched
+ * NO chip and was invisible under every one of them — while still being
+ * counted in the "All" total. Keying here, once, is what makes that
+ * unrepresentable: every offer has a key, so every offer has a chip.
+ */
+export const NO_SPEED = "?";
+
+export function offerSpeedKey(o: { category: string; bandwidth: string | null }): string {
+  if (o.category === "unifi Biz Bundle Sale Catg") return "BIZ";
+  if (o.category === "VOF Sales Catg") return "VOF";
+  return (o.bandwidth ?? "").trim().toUpperCase() || NO_SPEED;
+}
+
+/** The chips in the portal's own order. Anything else found is appended. */
+const KNOWN_SPEED_KEYS = ["100M", "300M", "500M", "1G", "2G", "BIZ", "VOF"];
+
+/**
+ * Which chips to render, given what is actually sellable.
+ *
+ * The known ones always render, so the row looks the same as it always has and
+ * a zero count still reads as "none at this speed". Any OTHER key present in
+ * the published set is appended — which is what stops a plan an admin recorded
+ * under a speed or category nobody hardcoded from having nowhere to appear.
+ * A new portal speed spelling then needs no deploy, which is the same reason
+ * `normalizeBandwidth` keeps an unrecognised value verbatim.
+ */
+export function speedChipKeys(
+  offers: { category: string; bandwidth: string | null }[],
+): string[] {
+  const present = new Set(offers.map(offerSpeedKey));
+  const extra = [...present]
+    .filter((k) => !KNOWN_SPEED_KEYS.includes(k))
+    .sort((a, b) => bandwidthMbps(a) - bandwidthMbps(b) || a.localeCompare(b));
+  return [...KNOWN_SPEED_KEYS, ...extra];
+}
+
+/** A chip's label. `NO_SPEED` reads as a state, never as a speed. */
+export function speedChipLabel(key: string): string {
+  const known: Record<string, string> = {
+    "100M": "100Mbps", "300M": "300Mbps", "500M": "500Mbps",
+    "1G": "1Gbps", "2G": "2Gbps", BIZ: "Business", VOF: "VOF",
+  };
+  if (known[key]) return known[key];
+  return key === NO_SPEED ? "No speed set" : bandwidthLabel(key);
+}

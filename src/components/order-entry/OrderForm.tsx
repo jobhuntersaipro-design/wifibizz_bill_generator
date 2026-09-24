@@ -42,20 +42,9 @@ import {
   leadHoursOrDefault,
   validateLeadHours,
 } from "@/lib/appointment-settings";
-import {
-  DEALER_OFFERS,
-  OFFER_CATEGORIES,
-  ID_TYPES,
-  MYKAD_LIKE_ID_TYPES,
-  type IdType,
-} from "@/lib/dealer-offers";
+import { DEALER_OFFERS, ID_TYPES, MYKAD_LIKE_ID_TYPES, type IdType } from "@/lib/dealer-offers";
 import { DEALER_DEVICES } from "@/lib/dealer-devices";
-import {
-  deviceRequired,
-  sellableOffers,
-  type PlanOfferSplit,
-  type SellableOffer,
-} from "@/lib/plan-offer";
+import { deviceRequired, offerSpeedKey, sellableOffers, speedChipKeys, speedChipLabel, type PlanOfferSplit, type SellableOffer } from "@/lib/plan-offer";
 import {
   DEVICE_CATEGORIES,
   DEVICE_CATEGORY_COUNTS,
@@ -112,12 +101,6 @@ function offerFlavour(name: string): (typeof FLAVOURS)[number] {
   return "Plain broadband";
 }
 
-/** Speed chips, in the order the portal lists them. BIZ/VOF are separate. */
-const SPEED_CHIPS = ["100M", "300M", "500M", "1G", "2G", "BIZ", "VOF"] as const;
-const SPEED_LABELS: Record<string, string> = {
-  "100M": "100Mbps", "300M": "300Mbps", "500M": "500Mbps",
-  "1G": "1Gbps", "2G": "2Gbps", BIZ: "Business", VOF: "VOF",
-};
 
 /** Inline validation error marker — icon + text, never colour alone. */
 function WarnIcon() {
@@ -476,8 +459,9 @@ export function OrderForm({
     return sellable.filter((o) => {
       if (q && !o.name.toLowerCase().includes(q)) return false;
       if (!speedFilter) return true;
-      if (speedFilter === "BIZ" || speedFilter === "VOF") return o.category === OFFER_CATEGORIES[speedFilter];
-      return o.category === OFFER_CATEGORIES.HOME && o.bandwidth === speedFilter;
+      // One key function, shared with the counts and the chips below, so a plan
+      // cannot be counted under a chip that does not filter it in.
+      return offerSpeedKey(o) === speedFilter;
     });
   }, [pkgQuery, speedFilter, publishedPlans]);
 
@@ -495,17 +479,20 @@ export function OrderForm({
 
   const sellableCount = sellableOffers(publishedPlans, DEALER_OFFERS).length;
 
+  // Derived, not hardcoded: a plan recorded under a speed or category nobody
+  // listed still gets a chip rather than being invisible under every one.
+  const speedChips = useMemo(
+    () => speedChipKeys(sellableOffers(publishedPlans, DEALER_OFFERS)),
+    [publishedPlans],
+  );
+
   // Counts per speed chip, so the agent sees where the packages actually are.
   // Counted over the SELLABLE plans, not the whole catalogue — a chip promising
   // 13 packages that then shows none is worse than no chip at all.
   const speedCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     const sellable = sellableOffers(publishedPlans, DEALER_OFFERS);
-    for (const o of sellable) {
-      const key =
-        o.category === OFFER_CATEGORIES.BIZ ? "BIZ" : o.category === OFFER_CATEGORIES.VOF ? "VOF" : o.bandwidth;
-      counts[key] = (counts[key] ?? 0) + 1;
-    }
+    for (const o of sellable) counts[offerSpeedKey(o)] = (counts[offerSpeedKey(o)] ?? 0) + 1;
     return counts;
   }, [publishedPlans]);
 
@@ -1315,7 +1302,7 @@ export function OrderForm({
               >
                 All <span className="tabular-nums opacity-70">{sellableCount}</span>
               </button>
-              {SPEED_CHIPS.map((s) => (
+              {speedChips.map((s) => (
                 <button
                   key={s}
                   type="button"
@@ -1327,7 +1314,7 @@ export function OrderForm({
                       : "bg-white text-[#425466] border-[#E3E8EF] hover:border-[#635BFF] hover:text-[#0A2540]"
                   }`}
                 >
-                  {SPEED_LABELS[s]} <span className="tabular-nums opacity-70">{speedCounts[s] ?? 0}</span>
+                  {speedChipLabel(s)} <span className="tabular-nums opacity-70">{speedCounts[s] ?? 0}</span>
                 </button>
               ))}
             </div>
@@ -1341,14 +1328,14 @@ export function OrderForm({
                 onChange={(e) => { setPkgQuery(e.target.value); setPkgOpen(true); setOfferName(""); }}
                 onFocus={() => setPkgOpen(true)}
                 className={inputCls}
-                placeholder={speedFilter ? `Search ${SPEED_LABELS[speedFilter]} packages…` : "Search all packages, or pick a speed above"}
+                placeholder={speedFilter ? `Search ${speedChipLabel(speedFilter)} packages…` : "Search all packages, or pick a speed above"}
               />
               {pkgOpen && (
                 <div className="absolute z-20 mt-1 w-full max-h-80 overflow-auto rounded-lg border border-[#E3E8EF] bg-white shadow-lg py-1 animate-fade-in">
                   {groupedOffers.length === 0 && (
                     <div className="px-3 py-3 text-xs text-[#697386]">
                       No package matches{pkgQuery && ` “${pkgQuery}”`}
-                      {speedFilter && ` in ${SPEED_LABELS[speedFilter]}`}.
+                      {speedFilter && ` in ${speedChipLabel(speedFilter)}`}.
                       {speedFilter && " Try the All chip to search every speed."}
                     </div>
                   )}
