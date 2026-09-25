@@ -33,7 +33,7 @@ from oe_errors import (APPOINTMENT_SLOT_TAKEN, CUSTOMER_IC_NAME_MISMATCH,
                        portal_code)
 from oe_helpers import set_combobox
 from portal_states import to_portal_state
-from order_entry import ORDER_ENTRY_URL, _frame, ensure_on_order_entry
+from order_entry import ORDER_ENTRY_URL, _frame, bracketless_keyword, ensure_on_order_entry
 from delivery_address import set_delivery_address
 from shell_modal import describe_blocking_dialog, read_shell_dialog
 
@@ -294,20 +294,6 @@ def _norm_addr(value: str) -> str:
     return re.sub(r"\s+", " ", text).strip().upper()
 
 
-def bracketless_keyword(keyword: str) -> str:
-    """The By-keyword search text, with its brackets taken out.
-
-    The portal runs the keyword through an Oracle Text CONTAINS query, where
-    `( )` are grouping operators — and a group sitting inside a run of plain
-    words is a parser error. Live 2026-09-25, "... HERMINGTON (BLOK B) TAMAN
-    ..." came back as a Warning: "ORA-29902 ... DRG-50901: text query parser
-    syntax error", with an empty grid behind it.
-
-    Safe to drop: Oracle Text indexes WORDS, and brackets are never part of a
-    word, so the bracketless keyword still finds "(BLOK B)". The grid match
-    ignores brackets too (`_norm_addr`), so the row is still recognised.
-    """
-    return re.sub(r"\s+", " ", re.sub(r"[()]", " ", keyword or "")).strip()
 
 
 def portal_search_error(dialog_texts) -> str:

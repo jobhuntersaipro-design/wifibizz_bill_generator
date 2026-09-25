@@ -27,6 +27,7 @@ oe_helpers — see SELECTOR_MAP.md and context/features/order-entry-build-spec.m
 """
 
 import asyncio
+import re
 import os
 from datetime import datetime
 
@@ -677,6 +678,22 @@ async def open_feasibility(frame) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 3 — select address  (MAPPED — SELECTOR_MAP §4b)
 # ─────────────────────────────────────────────────────────────────────────────
+def bracketless_keyword(keyword: str) -> str:
+    """The By-keyword search text, with its brackets taken out.
+
+    The portal runs the keyword through an Oracle Text CONTAINS query, where
+    `( )` are grouping operators — and a group sitting inside a run of plain
+    words is a parser error. Live 2026-09-25, "... HERMINGTON (BLOK B) TAMAN
+    ..." came back as a Warning: "ORA-29902 ... DRG-50901: text query parser
+    syntax error", with an empty grid behind it.
+
+    Safe to drop: Oracle Text indexes WORDS, and brackets are never part of a
+    word, so the bracketless keyword still finds "(BLOK B)". The grid match
+    ignores brackets too (`_norm_addr`), so the row is still recognised.
+    """
+    return re.sub(r"\s+", " ", re.sub(r"[()]", " ", keyword or "")).strip()
+
+
 async def select_address(frame, address: dict) -> dict:
     """
     Open the Select Address modal (via .js-address-pop), search, and pick a row.
@@ -700,7 +717,7 @@ async def select_address(frame, address: dict) -> dict:
     await frame.locator(tab).first.click()
 
     if search_type == "By keyword":
-        await frame.locator('input[name="keywords"]').first.fill(address["keywords"])
+        await frame.locator('input[name="keywords"]').first.fill(bracketless_keyword(address["keywords"]))
 
     # Run the query, then check for the address-already-has-service warning.
     await frame.locator(".js-query").first.click()
