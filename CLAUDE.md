@@ -14,3 +14,10 @@ Read the following to get the full context of the project:
 - `npm run lint` — run ESLint (flat config, `eslint.config.mjs`)
 
 
+
+## Reply shape
+- First sentence = result.
+- No restating the task. No “I’ll now…”. No closing recap.
+- Between tools: one short status line only if direction changed.
+- After edits: files changed, behavior change, tests run, leftover risk.
+- If I ask for detail, then expand.
