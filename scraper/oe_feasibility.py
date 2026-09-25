@@ -20,6 +20,7 @@ import json
 import os
 import random
 import re
+import unicodedata
 
 import dealer_web_login
 from appointment_policy import normalize_policy, choose_slot, describe_read_failure
@@ -272,8 +273,34 @@ def _norm_addr(value: str) -> str:
     "TAIB - KAMPUNG". Exact equality can therefore never match that whole
     class of address, so runs of whitespace compare equal to one space here,
     the same rule OFFER_ROW_INDEX_JS already applies to offer names.
+
+    Brackets compare as spaces (2026-09-25, order cmugj47yz00000agme8927057):
+    the grid returned exactly the right unit, "... HERMINGTON (BLOK B) ...",
+    and the run still died `address_not_matched`. Whether the stored street
+    held `(BLOK B)`, `(BLOK B )`, `HERMINGTON(BLOK B)` or no brackets at all,
+    it is the same unit, so none of those may decide the match. Replaced with
+    a space rather than deleted, so `HERMINGTON(BLOK B)` does not fuse into
+    `HERMINGTONBLOK`.
+
+    Also folded, because two strings that PRINT identically can still differ:
+    NFKC turns full-width brackets and digits pasted from a phone or a PDF into
+    their ASCII forms, and invisible format characters (zero-width space, BOM,
+    soft hyphen — Unicode category Cf) are dropped: whitespace matching skips
+    all of them, and they survive a copy-paste unseen.
     """
-    return re.sub(r"\s+", " ", value or "").strip().upper()
+    text = unicodedata.normalize("NFKC", value or "")
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
+    text = re.sub(r"[()]", " ", text)
+    return re.sub(r"\s+", " ", text).strip().upper()
+
+
+def bracketless_keyword(keyword: str) -> str:
+    """The search keyword with its brackets taken out, for a second query.
+
+    Only ever the FALLBACK: a bracketed keyword returned the right row live on
+    2026-09-25, so it is tried first and this is used only when it found nothing.
+    """
+    return re.sub(r"\s+", " ", re.sub(r"[()]", " ", keyword or "")).strip()
 
 
 def match_address_row(title_rows, want: str):
@@ -343,6 +370,16 @@ async def select_address(frame, addr: dict) -> dict:
     await asyncio.sleep(5)
 
     rows = await _grid_rows(frame)
+    if not rows and not address_id:
+        # The keyword search is asked once more without brackets before giving
+        # up — agents have reported the portal refusing a bracketed keyword.
+        plain = bracketless_keyword(kw)
+        if plain and plain != kw:
+            print(f"  address search: nothing for the bracketed keyword, retrying as {plain!r}")
+            await frame.locator('input[name="keywords"]').first.fill(plain)
+            await frame.locator(".js-address-form .js-query").first.click()
+            await asyncio.sleep(5)
+            rows = await _grid_rows(frame)
     if not rows:
         return {"status": "error", "error": "address_not_found",
                 "stage": "select_address", "message": "No serviceable address returned."}

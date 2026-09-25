@@ -15,7 +15,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from oe_feasibility import _norm_addr, match_address_row  # noqa: E402
+from oe_feasibility import _norm_addr, bracketless_keyword, match_address_row  # noqa: E402
 
 # The live grid row: 9 td titles; the 99-char one is the concatAddress with
 # the portal's double space after the blank-segment hyphen.
@@ -72,3 +72,64 @@ def test_short_cells_never_stand_in_for_the_address():
 def test_norm_collapses_tabs_nbsp_and_trims():
     assert _norm_addr("  a\t b  c  ") == "A B C"
     assert _norm_addr(None) == ""
+
+
+# ---------------------------------------------------------------------------
+# Brackets (2026-09-25, order cmugj47yz00000agme8927057 and its sibling
+# cmughddp8000404l0o7vod0hy). The grid returned exactly the right unit and the
+# run still died address_not_matched, three times over. The title below is the
+# one the failure message printed.
+# ---------------------------------------------------------------------------
+
+HERMINGTON_GRID = ("B-17-03 JALAN KUCHAI 8 17 RESIDENSI HERMINGTON (BLOK B) "
+                   "TAMAN LIAN HOE KUALA LUMPUR WILAYAH PERSEKUTUAN MALAYSIA 58200")
+HERMINGTON_ROWS = [["W.P. KUALA LUMPUR", "KUALA LUMPUR", HERMINGTON_GRID, "High-rise"]]
+
+
+def _old_norm(value):
+    """The comparison as it shipped, kept so the fix can be shown to fix it."""
+    import re
+    return re.sub(r"\s+", " ", value or "").strip().upper()
+
+
+def test_old_rule_refuses_a_bracket_spacing_the_grid_does_not_share():
+    # The control: without it, the tests below could pass on a build that never
+    # had the bug.
+    stored = HERMINGTON_GRID.replace("HERMINGTON (BLOK B)", "HERMINGTON(BLOK B)")
+    assert _old_norm(stored) != _old_norm(HERMINGTON_GRID)
+
+
+def test_the_live_row_matches_whatever_the_brackets_look_like():
+    for stored in (
+        HERMINGTON_GRID,                                                    # identical
+        HERMINGTON_GRID.replace("(BLOK B)", "( BLOK B )"),                  # padded
+        HERMINGTON_GRID.replace("HERMINGTON (BLOK B)", "HERMINGTON(BLOK B)"),  # unspaced
+        HERMINGTON_GRID.replace("(BLOK B)", "BLOK B"),                      # no brackets
+        HERMINGTON_GRID.replace("(BLOK B)", "\uff08BLOK B\uff09"),          # full-width
+    ):
+        assert match_address_row(HERMINGTON_ROWS, _norm_addr(stored)) == 0, stored
+
+
+def test_a_different_block_is_still_refused():
+    # Dropping brackets must never make two different units equal.
+    stored = HERMINGTON_GRID.replace("(BLOK B)", "(BLOK A)")
+    assert match_address_row(HERMINGTON_ROWS, _norm_addr(stored)) is None
+
+
+def test_invisible_characters_do_not_decide_the_match():
+    # A zero-width space or a BOM prints as nothing and survives a paste.
+    for junk in ("\u200b", "\ufeff", "\u00ad"):
+        stored = HERMINGTON_GRID.replace("KUCHAI", "KUC" + junk + "HAI")
+        assert _old_norm(stored) != _old_norm(HERMINGTON_GRID)
+        assert match_address_row(HERMINGTON_ROWS, _norm_addr(stored)) == 0
+
+
+def test_brackets_become_a_space_so_words_never_fuse():
+    assert "HERMINGTON BLOK B" in _norm_addr("HERMINGTON(BLOK B)")
+
+
+def test_bracketless_keyword_for_the_search_fallback():
+    assert bracketless_keyword(HERMINGTON_GRID) == HERMINGTON_GRID.replace("(BLOK B)", "BLOK B")
+    assert bracketless_keyword("HERMINGTON(BLOK B)") == "HERMINGTON BLOK B"
+    assert bracketless_keyword("NO BRACKETS") == "NO BRACKETS"
+
