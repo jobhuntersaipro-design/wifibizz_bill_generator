@@ -138,3 +138,54 @@ def test_page1_selects_the_first_existing_account_instead_of_adding():
     assert res["account"] == "7042172192"
     assert st["added"] == 0
     assert st["open"] is False
+
+
+# ---------------------------------------------------------------------------
+# Live 2026-09-25, order 2609000126725514: "The Account field on page 1 is
+# still empty after the account step (no add (noadd); selected existing)".
+# The step looked for the Account Infomation list once, three seconds after the
+# click, did not find it, then pressed the first row and OK of whatever dialog
+# WAS on top. That press closed the dialog, so the failure frame could not show
+# what it had been.
+# ---------------------------------------------------------------------------
+
+def test_a_list_that_opens_late_is_still_used():
+    # The list appears 5 s after the click: after the old single 3 s look,
+    # inside the new wait.
+    hidden = ACCOUNT_DIALOG.replace('style="display:block"', 'style="display:none"')
+    late = PAGE1.replace(
+        "onclick=\"document.querySelector('.ui-dialog').style.display='block'\"",
+        "onclick=\"setTimeout(()=>document.querySelector('.ui-dialog').style.display='block',5000)\"")
+    assert late != PAGE1, "fixture did not change"
+    res, st = _run(late + hidden, create_billing_account)
+    assert res["status"] == "ok", res
+    assert res["account"] == "7042172192"
+    assert st["added"] == 0
+
+
+# Another picker left on top, with a grid and an OK of its own. The addon click
+# never brings up the account list.
+CONTACT_PICKER = """
+<div class="ui-dialog" style="display:block">
+  <div class="ui-dialog-title">Installation Contact</div>
+  <div class="modal-body"><table><tbody>
+    <tr class="jqgrow"><td>POON WEI CHENG</td><td>60137089093</td></tr>
+  </tbody></table></div>
+  <button class="js-ok" onclick="window.errorOk=1">OK</button>
+</div>
+"""
+DEAD_ADDON = PAGE1.replace(
+    "onclick=\"document.querySelector('.ui-dialog').style.display='block'\"", "")
+
+
+def test_an_unrecognised_dialog_is_named_and_never_pressed():
+    assert DEAD_ADDON != PAGE1, "fixture did not change"
+    res, st = _run(DEAD_ADDON + CONTACT_PICKER, create_billing_account)
+    assert res["status"] == "error"
+    # Same code as before, so retry policy and copy are unchanged.
+    assert res["error"] == "account_not_set"
+    # The failure names what was on screen — the evidence the live run lost.
+    assert "Installation Contact" in res["message"], res["message"]
+    # And it did not press a button on a dialog it could not identify.
+    assert st["errorOk"] == 0
+    assert st["open"] is True

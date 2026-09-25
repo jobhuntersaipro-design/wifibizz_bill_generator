@@ -2294,6 +2294,14 @@ async def _apply_billing_account(frame, page, acct_name: str = "",
     except Exception:
         await _js_click_new_window(page, "acctId")
     await asyncio.sleep(3)
+    # The list can open well after 3 s. Live 2026-09-25 (2609000126725514) the
+    # step looked once, found no Account Infomation dialog, and gave up; waiting
+    # a little longer costs nothing when it has already opened.
+    listing = frame.locator('.ui-dialog:visible').filter(has_text=_ACCOUNT_DIALOG_RE)
+    for _ in range(14):
+        if await listing.count():
+            break
+        await asyncio.sleep(0.5)
 
     # An existing account wins — the first one, always.
     existing = await select_first_account(frame, page)
@@ -2303,26 +2311,30 @@ async def _apply_billing_account(frame, page, acct_name: str = "",
                 "note": f"selected first existing account {existing.get('account')}"}
 
     # No account yet: '+ Add' -> Add Account form.
-    added = await page.evaluate(r"""(() => {
-      const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
+    probe = await page.evaluate(r"""(() => {
+      const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return {r:'nodoc'};
       const vis=e=>e&&e.offsetParent!==null;
-      const dl=[...d.querySelectorAll('.ui-dialog')].filter(vis).pop(); if(!dl) return 'nodialog';
+      const dl=[...d.querySelectorAll('.ui-dialog')].filter(vis).pop(); if(!dl) return {r:'nodialog'};
       const add=[...dl.querySelectorAll('a,span,button')].filter(vis)
         .find(x=>/^\+?\s*add$/i.test((x.innerText||'').trim()));
-      if(!add) return 'noadd'; add.click(); return 'ok';
+      if(!add) return {r:'noadd', seen:(dl.innerText||'').replace(/\s+/g,' ').trim().slice(0,160)};
+      add.click(); return {r:'ok'};
     })()""")
+    added = probe.get("r")
     if added != "ok":
-        # No +Add — fall back to selecting the existing/auto account row + OK.
-        row = frame.locator('.ui-dialog:visible tr.jqgrow').first
-        if await row.count():
-            await row.click(); await asyncio.sleep(0.5)
-        try:
-            await frame.locator('.ui-dialog:visible .js-ok, '
-                                '.ui-dialog:visible button:has-text("OK")').last.click(timeout=5000)
-        except Exception:
-            pass
-        await asyncio.sleep(2)
-        return {"status": "ok", "stage": "account", "note": f"no add ({added}); selected existing"}
+        # Nothing is clicked here. This used to take the first row of WHATEVER
+        # dialog was on top and press its OK, then report "selected existing" —
+        # a blind press on a dialog it had not identified, which can just as
+        # well pick an Installation Contact as an account. And because that
+        # press closed the dialog, the failure frame could never show what it
+        # was. Name it instead, and stop before page 1's Next.
+        seen = probe.get("seen")
+        where = f' On screen: "{seen}".' if seen else " No dialog was on screen."
+        return {"status": "error", "stage": "account", "error": "account_not_set",
+                "message": ("The Account list never opened, and the dialog on screen has no "
+                            f"'+ Add' ({added}), so nothing was clicked.{where} The portal "
+                            "marks the Account field mandatory, so the page-1 Next would be "
+                            "refused.")}
     await asyncio.sleep(3.5)  # let the Add Account FORM fully render
 
     # Fill every starred field the form carries — not just Account Name, which
