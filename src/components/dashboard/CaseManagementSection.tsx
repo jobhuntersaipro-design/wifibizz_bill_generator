@@ -14,7 +14,7 @@ import {
 } from "./shared";
 import {
   SearchIcon, EmptyIcon, CloseIcon, ExternalLinkIcon, SortIcon,
-  InternetBillIcon, UtilityBillIcon, DownloadIcon, CheckCircleIcon,
+  InternetBillIcon, UtilityBillIcon, DownloadIcon,
   MessageSquareIcon, AuthLetterIcon, SyncSheetIcon, TimeBillIcon, TenancyAgreementIcon, MergeIcon,
 } from "./icons";
 import ChatImageGenerator from "./ChatImageGenerator";
@@ -153,7 +153,7 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
                 </a>
               </div>
             ) : (
-              <p className="text-sm text-[#697386]">No bill generated yet. Select this case and click &ldquo;Generate {UMOBILE_BILL_LABEL}&rdquo;.</p>
+              <p className="text-sm text-[#697386]">No bill generated yet. Click the {UMOBILE_BILL_SHORT} icon in this case&rsquo;s Bills column.</p>
             )}
           </div>
 
@@ -171,7 +171,7 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
                 </a>
               </div>
             ) : (
-              <p className="text-sm text-[#697386]">No bill generated yet. Select this case and click &ldquo;Generate Utility Bill&rdquo;.</p>
+              <p className="text-sm text-[#697386]">No bill generated yet. Click the Utility icon in this case&rsquo;s Bills column.</p>
             )}
           </div>
 
@@ -282,13 +282,6 @@ export default function CaseManagementSection() {
   const [lastCrawlAt, setLastCrawlAt] = useState<string | null>(null);
   const [sort, setSort] = useState<SortState>({ column: "case_created_at", dir: "desc" });
   const [selectedCase, setSelectedCase] = useState<CaseRow | null>(null);
-  const [selectedCases, setSelectedCases] = useState<Set<string>>(new Set());
-  const [allCasesSelected, setAllCasesSelected] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [generateProgress, setGenerateProgress] = useState({ current: 0, total: 0, type: "" });
-  const [downloading, setDownloading] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0, type: "" });
-  const [downloadConfirm, setDownloadConfirm] = useState<{ type: "internet" | "utility"; withBills: number; total: number } | null>(null);
   const [billCacheBuster, setBillCacheBuster] = useState(0);
   // The case whose documents are being combined into one PDF.
   const [mergeCase, setMergeCase] = useState<CaseRow | null>(null);
@@ -344,7 +337,6 @@ export default function CaseManagementSection() {
     }
     setPage(0);
     setSearch(searchDraft.trim());
-    setSelectedCases(new Set());
   }
 
   function applyDateRange(nextFrom: string, nextTo: string) {
@@ -371,136 +363,13 @@ export default function CaseManagementSection() {
     setPage(0);
   }
 
-  function toggleCaseSelection(caseNo: string) {
-    setSelectedCases((prev) => {
-      const next = new Set(prev);
-      if (next.has(caseNo)) next.delete(caseNo);
-      else next.add(caseNo);
-      return next;
-    });
-  }
-
-  function toggleSelectAll() {
-    const allOnPage = cases.map((c) => c.case_no);
-    const allSelected = allOnPage.every((cn) => selectedCases.has(cn));
-    if (allSelected) {
-      setSelectedCases((prev) => {
-        const next = new Set(prev);
-        allOnPage.forEach((cn) => next.delete(cn));
-        return next;
-      });
-      setAllCasesSelected(false);
-    } else {
-      setSelectedCases((prev) => {
-        const next = new Set(prev);
-        allOnPage.forEach((cn) => next.add(cn));
-        return next;
-      });
-    }
-  }
-
-  async function selectAllCases() {
-    if (isInvalidCaseDateRange(dateFrom, dateTo)) {
-      toast.error(CASE_DATE_RANGE_ERROR);
-      return;
-    }
-    const params = new URLSearchParams();
-    setCaseListQueryParams(params, { search, status, dateFrom, dateTo, dateField });
-    const res = await fetch(`/api/cases/ids?${params}`);
-    const json = await res.json();
-    const allNos = (json.case_nos ?? []) as string[];
-    setSelectedCases(new Set(allNos));
-    setAllCasesSelected(true);
-  }
-
-  function clearSelection() {
-    setSelectedCases(new Set());
-    setAllCasesSelected(false);
-  }
-
-  async function handleGenerateBills(type: "internet" | "utility") {
-    if (selectedCases.size === 0 || generating) return;
-
-    // Pre-check usage limit before generating
-    try {
-      const usageRes = await fetch("/api/cases/usage");
-      const usage = await usageRes.json();
-      if (usage.remaining === 0) {
-        toast.error("Case limit reached. Please top up your usage to generate more bills.", { duration: 5000 });
-        return;
-      }
-    } catch {
-      // Fail open — let the API enforce the limit
-    }
-
-    const caseNos = Array.from(selectedCases);
-    const total = caseNos.length;
-    setGenerating(true);
-    setGenerateProgress({ current: 0, total, type });
-
-    const BATCH_SIZE = 5;
-    let totalGenerated = 0;
-    let totalFailed = 0;
-    let limitReached = false;
-
-    try {
-      for (let i = 0; i < caseNos.length; i += BATCH_SIZE) {
-        const batch = caseNos.slice(i, i + BATCH_SIZE);
-        const results = await Promise.allSettled(
-          batch.map(async (caseNo) => {
-            const res = await fetch("/api/bills/generate", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ caseNos: [caseNo], type }),
-            });
-            if (!res.ok) {
-              const body = await res.json().catch(() => ({}));
-              if (body.error === "case_limit_reached") {
-                limitReached = true;
-              }
-              throw new Error(body.error || `Failed for ${caseNo}`);
-            }
-            return res.json();
-          })
-        );
-        const succeeded = results.filter((r) => r.status === "fulfilled").length;
-        const failed = results.filter((r) => r.status === "rejected").length;
-        totalGenerated += succeeded;
-        totalFailed += failed;
-        setGenerateProgress({ current: Math.min(i + BATCH_SIZE, total), total, type });
-
-        // Stop processing further batches if limit reached
-        if (limitReached) break;
-      }
-
-      if (limitReached) {
-        toast.error("Case limit reached. Please top up your usage to generate more bills.", { duration: 5000 });
-      } else if (totalFailed > 0) {
-        toast.error(`${totalFailed} bill(s) failed to generate`);
-      } else {
-        toast.success(`Generated ${totalGenerated} ${type === "internet" ? "Umobile" : type} bill(s)`);
-      }
-
-      setBillCacheBuster((prev) => prev + 1);
-      await fetchCases();
-      // Notify AnalyticsSection to refresh usage
-      window.dispatchEvent(new Event("usage-updated"));
-    } catch (err) {
-      console.error("Bill generation failed:", err);
-      toast.error("Bill generation failed. Please try again.");
-    } finally {
-      setGenerating(false);
-      setGenerateProgress({ current: 0, total: 0, type: "" });
-    }
-  }
-
   // Generate a single bill straight from its row icon (no need to select first),
   // then open it right away. Address is lazily fetched server-side during generation.
   // Internet always regenerates: a stored URL can still be the old slot-stamped
   // 3-page PDF, and POST /api/bills/generate is free when the case already has a bill.
   async function handleGenerateSingle(caseNo: string, type: "internet" | "utility") {
     const key = `${caseNo}:${type}`;
-    if (generatingCell || generating) return;
+    if (generatingCell) return;
     setGeneratingCell(key);
     const toastId = toast.loading(
       type === "internet" ? "Building Umobile bill…" : "Building utility bill…",
@@ -734,69 +603,6 @@ export default function CaseManagementSection() {
     });
   }
 
-  function handleDownloadClick(type: "internet" | "utility") {
-    if (selectedCases.size === 0 || downloading) return;
-    const billKey = type === "internet" ? "internet_bill_url" : "utility_bill_url";
-    const source = cases;
-    const withBills = source.filter((c) => selectedCases.has(c.case_no) && c[billKey]).length;
-    setDownloadConfirm({ type, withBills, total: selectedCases.size });
-  }
-
-  async function handleBulkDownload(type: "internet" | "utility") {
-    setDownloadConfirm(null);
-    if (selectedCases.size === 0 || downloading) return;
-    setDownloading(true);
-    setDownloadProgress({ current: 0, total: 100, type });
-
-    try {
-      setDownloadProgress({ current: 10, total: 100, type });
-
-      const res = await fetch("/api/bills/bulk-download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ caseNos: Array.from(selectedCases), type }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        toast.error(err.error || "Download failed");
-        return;
-      }
-
-      setDownloadProgress({ current: 50, total: 100, type });
-
-      const reader = res.body?.getReader();
-      const chunks: BlobPart[] = [];
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          chunks.push(value);
-        }
-      }
-
-      setDownloadProgress({ current: 90, total: 100, type });
-
-      const blob = new Blob(chunks, { type: "application/zip" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${type}_bills_${new Date().toISOString().split("T")[0]}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      toast.success(`Downloaded ${type === "internet" ? "Umobile" : type} bills as ZIP`);
-    } catch (err) {
-      console.error("Bulk download failed:", err);
-      toast.error("Download failed. Please try again.");
-    } finally {
-      setDownloading(false);
-      setDownloadProgress({ current: 0, total: 0, type: "" });
-    }
-  }
 
   async function handleSyncToSheet() {
     setSyncing(true);
@@ -912,25 +718,9 @@ export default function CaseManagementSection() {
         {/* Generate Bill Buttons + Selection Info */}
         <div className="animate-fade-in-up space-y-2">
           <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 sm:gap-3">
-            <Button onClick={() => handleGenerateBills("internet")} disabled={generating || selectedCases.size === 0} className="bg-[#635BFF] hover:bg-[#5851DB] text-white rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all hover-glow press-effect disabled:opacity-50 disabled:cursor-not-allowed">
-              <InternetBillIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
-              <span className="truncate">Generate {UMOBILE_BILL_LABEL}{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
-            </Button>
-            <Button onClick={() => handleGenerateBills("utility")} disabled={generating || selectedCases.size === 0} className="bg-[#FF6B35] hover:bg-[#E55A2B] text-white rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all hover-glow press-effect disabled:opacity-50 disabled:cursor-not-allowed">
-              <UtilityBillIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
-              <span className="truncate">Generate Utility Bill{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
-            </Button>
-            <Button onClick={() => handleDownloadClick("internet")} disabled={downloading || generating || selectedCases.size === 0} className="bg-white border border-[#E3E8EF] text-[#425466] hover:text-[#0A2540] hover:border-[#635BFF] rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all press-effect disabled:opacity-50 disabled:cursor-not-allowed">
-              <DownloadIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
-              <span className="truncate">Download {UMOBILE_BILL_LABEL}{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
-            </Button>
-            <Button onClick={() => handleDownloadClick("utility")} disabled={downloading || generating || selectedCases.size === 0} className="bg-white border border-[#E3E8EF] text-[#425466] hover:text-[#0A2540] hover:border-[#FF6B35] rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all press-effect disabled:opacity-50 disabled:cursor-not-allowed">
-              <DownloadIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />
-              <span className="truncate">Download Utility Bill{selectedCases.size > 0 ? ` (${selectedCases.size})` : ""}</span>
-            </Button>
             <Button
               onClick={handleSyncToSheet}
-              disabled={syncing || generating || downloading || syncResult !== null}
+              disabled={syncing || syncResult !== null}
               className={`rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all duration-300 press-effect disabled:cursor-not-allowed overflow-hidden ${
                 syncResult === "success"
                   ? "bg-[#34A853] border-[#34A853] text-white shadow-[0_0_12px_rgba(52,168,83,0.4)]"
@@ -969,104 +759,7 @@ export default function CaseManagementSection() {
               )}
             </Button>
           </div>
-          {selectedCases.size > 0 && (
-            <div className="flex flex-wrap items-center gap-3">
-              {!allCasesSelected && (
-                <button onClick={selectAllCases} className="text-xs text-[#635BFF] hover:text-[#5851DB] font-medium transition-colors">
-                  Select all {count} cases
-                </button>
-              )}
-              <button onClick={clearSelection} className="text-xs text-[#DF1B41] hover:text-red-700 font-medium transition-colors">
-                Clear selection
-              </button>
-              {allCasesSelected && (
-                <span className="text-xs text-[#697386]">All {selectedCases.size} cases selected</span>
-              )}
-            </div>
-          )}
         </div>
-
-        {/* Progress Bar */}
-        {generating && generateProgress.total > 0 && (() => {
-          const pct = Math.round((generateProgress.current / generateProgress.total) * 100);
-          const isComplete = generateProgress.current === generateProgress.total;
-          return (
-            <div className="animate-fade-in-up bg-white rounded-lg border border-[#E3E8EF] p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {isComplete ? (<CheckCircleIcon className="w-4 h-4 text-[#09825D]" />) : (<span className="h-4 w-4 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />)}
-                  <span className="text-sm font-medium text-[#0A2540]">{isComplete ? "Generation complete!" : `Generating ${generateProgress.type === "internet" ? "Umobile" : generateProgress.type} bills...`}</span>
-                </div>
-                <span className="text-xs tabular-nums font-semibold text-[#0A2540]">{pct}%</span>
-              </div>
-              <div className="w-full h-2.5 bg-[#E3E8EF] rounded-full overflow-hidden">
-                <div className={`h-full rounded-full transition-all duration-700 ease-out ${isComplete ? "bg-[#09825D]" : "bg-[#635BFF] progress-bar-glow"}`} style={{ width: `${pct}%` }} />
-              </div>
-              <p className="text-xs text-[#697386] tabular-nums">{generateProgress.current} of {generateProgress.total} bill{generateProgress.total !== 1 ? "s" : ""} processed</p>
-            </div>
-          );
-        })()}
-
-        {/* Download Progress Bar */}
-        {downloading && downloadProgress.total > 0 && (() => {
-          const pct = downloadProgress.current;
-          const isComplete = pct >= 100;
-          return (
-            <div className="animate-fade-in-up bg-white rounded-lg border border-[#E3E8EF] p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {isComplete ? (<CheckCircleIcon className="w-4 h-4 text-[#09825D]" />) : (<span className="h-4 w-4 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />)}
-                  <span className="text-sm font-medium text-[#0A2540]">{isComplete ? "Download complete!" : `Downloading ${downloadProgress.type === "internet" ? "Umobile" : downloadProgress.type} bills...`}</span>
-                </div>
-                <span className="text-xs tabular-nums font-semibold text-[#0A2540]">{pct}%</span>
-              </div>
-              <div className="w-full h-2.5 bg-[#E3E8EF] rounded-full overflow-hidden">
-                <div className={`h-full rounded-full transition-all duration-700 ease-out ${isComplete ? "bg-[#09825D]" : "bg-[#635BFF] progress-bar-glow"}`} style={{ width: `${pct}%` }} />
-              </div>
-              <p className="text-xs text-[#697386]">{isComplete ? "Preparing ZIP file..." : "Fetching bills from storage..."}</p>
-            </div>
-          );
-        })()}
-
-        {/* Download Confirmation Modal */}
-        {downloadConfirm && createPortal(
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 animate-fade-in" onClick={() => setDownloadConfirm(null)}>
-            <div className="bg-white rounded-xl shadow-2xl border border-[#E3E8EF] w-full max-w-sm mx-4 animate-fade-in-up" onClick={(e) => e.stopPropagation()}>
-              <div className="px-6 pt-6 pb-4">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 rounded-lg bg-[#F0EEFF] flex items-center justify-center">
-                    <DownloadIcon className="w-5 h-5 text-[#635BFF]" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold text-[#0A2540]">Download {downloadConfirm.type === "internet" ? "Umobile" : "Utility"} Bills</h3>
-                    <p className="text-xs text-[#697386]">{downloadConfirm.total} case{downloadConfirm.total !== 1 ? "s" : ""} selected</p>
-                  </div>
-                </div>
-                <div className="bg-[#F6F9FC] rounded-lg p-4 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-[#425466]">Bills generated</span>
-                    <span className="text-sm font-semibold tabular-nums text-[#0A2540]">{downloadConfirm.withBills} / {downloadConfirm.total}</span>
-                  </div>
-                  <div className="w-full h-1.5 bg-[#E3E8EF] rounded-full overflow-hidden">
-                    <div className="h-full bg-[#09825D] rounded-full transition-all duration-500" style={{ width: `${downloadConfirm.total > 0 ? (downloadConfirm.withBills / downloadConfirm.total) * 100 : 0}%` }} />
-                  </div>
-                  {downloadConfirm.withBills === 0 ? (
-                    <p className="text-xs text-[#DF1B41]">No bills have been generated yet. Generate bills first before downloading.</p>
-                  ) : downloadConfirm.withBills < downloadConfirm.total ? (
-                    <p className="text-xs text-[#D97706]">Only {downloadConfirm.withBills} of {downloadConfirm.total} selected cases have bills generated. Only generated bills will be downloaded.</p>
-                  ) : (
-                    <p className="text-xs text-[#09825D]">All selected cases have bills generated.</p>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center gap-3 px-6 py-4 border-t border-[#E3E8EF]">
-                <Button variant="outline" size="sm" className="flex-1 rounded-lg border-[#E3E8EF] text-[#425466]" onClick={() => setDownloadConfirm(null)}>Cancel</Button>
-                <Button size="sm" disabled={downloadConfirm.withBills === 0} className="flex-1 rounded-lg bg-[#635BFF] hover:bg-[#5851DB] text-white disabled:opacity-50" onClick={() => handleBulkDownload(downloadConfirm.type)}>Download ({downloadConfirm.withBills})</Button>
-              </div>
-            </div>
-          </div>,
-          document.body
-        )}
 
         {/* Table */}
         <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden animate-fade-in-up" style={{ animationDelay: "600ms" }}>
@@ -1074,9 +767,6 @@ export default function CaseManagementSection() {
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="border-b border-[#E3E8EF]">
-                  <th className="px-3 py-3 w-10">
-                    <input type="checkbox" aria-label="Select all cases" className="rounded border-[#E3E8EF] text-[#635BFF] focus:ring-[#635BFF]/20 cursor-pointer" checked={cases.length > 0 && cases.every((c) => selectedCases.has(c.case_no))} onChange={toggleSelectAll} />
-                  </th>
                   {COLUMNS.map((col) => (
                     <th key={col.key} aria-sort={sort.column === col.key ? (sort.dir === "asc" ? "ascending" : "descending") : "none"} className={`px-4 py-3 text-left text-[11px] font-semibold text-[#697386] uppercase tracking-wider whitespace-nowrap cursor-pointer select-none hover:text-[#0A2540] transition-colors ${col.hideOnMobile ? "hidden lg:table-cell" : ""}`} onClick={() => handleSort(col.key)}>
                       <span className="inline-flex items-center gap-1">{col.label}<SortIcon column={col.key} sort={sort} /></span>
@@ -1087,15 +777,12 @@ export default function CaseManagementSection() {
               </thead>
               <tbody className="divide-y divide-[#E3E8EF]/60 row-stagger">
                 {casesLoading ? (
-                  <tr><td colSpan={COLUMNS.length + 2} className="px-4 py-20 text-center"><div className="flex flex-col items-center gap-3"><div className="h-5 w-5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" /><span className="text-sm text-[#697386]">Loading cases...</span></div></td></tr>
+                  <tr><td colSpan={COLUMNS.length + 1} className="px-4 py-20 text-center"><div className="flex flex-col items-center gap-3"><div className="h-5 w-5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" /><span className="text-sm text-[#697386]">Loading cases...</span></div></td></tr>
                 ) : cases.length === 0 ? (
-                  <tr><td colSpan={COLUMNS.length + 2} className="px-4 py-20 text-center"><div className="flex flex-col items-center gap-2"><LottieSpot name="empty-orders" size={96} className="mb-1" fallback={<div className="w-10 h-10 rounded-lg bg-[#F6F9FC] flex items-center justify-center mb-2"><EmptyIcon className="w-5 h-5 text-[#697386]" /></div>} /><p className="text-sm font-medium text-[#0A2540]">No cases found</p><p className="text-xs text-[#697386]">{hasFilters ? "Try adjusting your filters" : "Run a crawl to get started"}</p></div></td></tr>
+                  <tr><td colSpan={COLUMNS.length + 1} className="px-4 py-20 text-center"><div className="flex flex-col items-center gap-2"><LottieSpot name="empty-orders" size={96} className="mb-1" fallback={<div className="w-10 h-10 rounded-lg bg-[#F6F9FC] flex items-center justify-center mb-2"><EmptyIcon className="w-5 h-5 text-[#697386]" /></div>} /><p className="text-sm font-medium text-[#0A2540]">No cases found</p><p className="text-xs text-[#697386]">{hasFilters ? "Try adjusting your filters" : "Run a crawl to get started"}</p></div></td></tr>
                 ) : (
                   cases.map((c) => (
-                    <tr key={c.case_no} className={`hover:bg-[#F6F9FC] transition-colors duration-100 cursor-pointer ${selectedCase?.case_no === c.case_no ? "bg-[#F6F9FC]" : ""} ${selectedCases.has(c.case_no) ? "bg-[#F0EEFF]" : ""}`} onClick={() => setSelectedCase(c)}>
-                      <td className="px-3 py-3 w-10" onClick={(e) => e.stopPropagation()}>
-                        <input type="checkbox" aria-label={`Select case ${c.case_no}`} className="rounded border-[#E3E8EF] text-[#635BFF] focus:ring-[#635BFF]/20 cursor-pointer" checked={selectedCases.has(c.case_no)} onChange={() => toggleCaseSelection(c.case_no)} />
-                      </td>
+                    <tr key={c.case_no} className={`hover:bg-[#F6F9FC] transition-colors duration-100 cursor-pointer ${selectedCase?.case_no === c.case_no ? "bg-[#F6F9FC]" : ""}`} onClick={() => setSelectedCase(c)}>
                       <td className="px-4 py-3 text-[13px] tabular-nums whitespace-nowrap">
                         {c.case_url ? (<a href={c.case_url} target="_blank" rel="noopener noreferrer" className="text-[#635BFF] font-medium hover:underline transition-colors" onClick={(e) => e.stopPropagation()}>{c.case_no}</a>) : (<span className="font-medium text-[#425466]">{c.case_no}</span>)}
                       </td>

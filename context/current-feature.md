@@ -1,3 +1,29 @@
+# Current Feature: Umobile bill keeps its postcode/state line; bulk bill buttons removed
+
+## Status
+
+CODE COMPLETE (branch `claude/hopeful-euler-v1v6d2`). Vercel-only, no migration. NOT verified in the browser
+or against production data (bizzflow.top and the Neon database were unreachable from the session).
+
+## Notes
+
+Reported 2026-09-25 with a Umobile bill printing `17` / `LORONG SERI MAHKOTA AMAN 19 PERKAMPUNGAN SERI MAHKOTA`
+/ `AMAN` with no postcode or state. `formatInternetAddress` pushed the postcode/city/state line LAST and then
+returned `lines.slice(0, 3)` — the page draws three address lines — so any street that took three lines lost the
+whole locality line. The keyword split made that common: it breaks before `LORONG`, leaving a bare house number
+alone on line one. The utility bill had the same defect and was fixed on 2026-08-22; the internet bill was left on
+the old layout. Now the locality line is reserved first, and a street that does not fit the lines left is
+re-wrapped as plain text before anything is dropped. Re-rendering the reported address through the real generator
+reproduced the screenshot byte-for-byte before the fix and shows `25200 KUANTAN PAHANG MALAYSIA` after (tail
+assumed — the case's real tail was not visible). Bills already stored in R2 keep the missing line until regenerated
+(the row's Umobile button regenerates for free).
+
+Case List: removed Generate Umobile Bill, Generate Utility Bill, Download Umobile Bill and Download Utility Bill;
+Sync to Sheet stays. The row checkboxes and "Select all N cases" only served those four buttons, so they went too,
+along with the bulk progress bars and download confirm modal. `/api/bills/bulk-download` and `/api/cases/ids` are
+now unused by the UI but left in place. `e2e/{internet-bill,utility-bill,case-limit}.spec.ts` still drive the
+removed buttons (those specs were already not running).
+
 # Current Feature: OE Pay none is not Next; no twin-mint retry
 
 ## Status

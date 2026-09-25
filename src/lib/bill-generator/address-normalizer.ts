@@ -418,25 +418,39 @@ function buildPostcodeCity(components: AddressComponents, includeState = true, i
 
 // ── Internet Bill Formatting ────────────────────────────────────
 
-function formatInternetAddress(components: AddressComponents, unitPrefix: string | null, maxChars = 55): string[] {
-  const street = buildStreetLine(components);
+/**
+ * Lay out the Umobile bill's address in the `slots` lines the page draws.
+ *
+ * The postcode / city / state line is reserved first and always survives. It used to be
+ * pushed last and then cut by `slice(0, 3)`, so any street that took three lines — a
+ * keyword split that leaves "17" alone on line one is enough — printed a bill with no
+ * postcode and no state. If the keyword-split street does not fit the lines left, it is
+ * re-wrapped as plain text before anything is dropped.
+ */
+function formatInternetAddress(
+  components: AddressComponents,
+  unitPrefix: string | null,
+  maxChars = 55,
+  slots = 3,
+): string[] {
   const postcodeLine = buildPostcodeCity(components, true, true);
-  const unit = components.street_number || '';
+  const localityLines = postcodeLine ? wrap(postcodeLine, maxChars).slice(0, slots) : [];
+  const streetBudget = Math.max(0, slots - localityLines.length);
 
+  let streetLines: string[];
   if (unitPrefix) {
-    const route = components.route || '';
-    const sublocality = components.sublocality || '';
-    const line1 = `${unitPrefix} ${route}`.trim();
-    const lines = smartSplit(line1, maxChars);
-    if (sublocality) lines.push(...smartSplit(sublocality, maxChars));
-    lines.push(postcodeLine);
-    return lines.slice(0, 3);
+    const line1 = `${unitPrefix} ${components.route || ''}`.trim();
+    streetLines = smartSplit(line1, maxChars);
+    if (components.sublocality) streetLines.push(...smartSplit(components.sublocality, maxChars));
+  } else {
+    const street = buildStreetLine(components);
+    const unit = components.street_number || '';
+    const streetWithUnit = unit ? `${unit} ${street}`.trim() : street;
+    streetLines = streetWithUnit ? smartSplit(streetWithUnit, maxChars) : [];
   }
+  if (streetLines.length > streetBudget) streetLines = wrap(streetLines.join(' '), maxChars);
 
-  const streetWithUnit = unit ? `${unit} ${street}`.trim() : street;
-  const lines = smartSplit(streetWithUnit, maxChars);
-  lines.push(postcodeLine);
-  return lines.slice(0, 3);
+  return [...streetLines.slice(0, streetBudget), ...localityLines];
 }
 
 // ── Utility Bill Formatting ─────────────────────────────────────
