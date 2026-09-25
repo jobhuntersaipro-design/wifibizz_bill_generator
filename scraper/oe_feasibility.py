@@ -401,8 +401,11 @@ async def select_address(frame, addr: dict) -> dict:
                 _longest_title(titles)[:150] for _, titles in rows[:3]) or "(no titles)"
             return {"status": "error", "error": "address_not_matched",
                     "stage": "select_address",
+                    # Both sides, as compared. The grid side alone could not
+                    # say why two strings that PRINT the same did not match.
                     "message": (f"None of {len(rows)} rows' Address == stored "
-                                f"address. Grid showed: {seen}")}
+                                f"address. Grid showed: {seen} | Compared "
+                                f"against: {want[:150]}")}
         target, target_titles = rows[idx]
 
     await target.click()
