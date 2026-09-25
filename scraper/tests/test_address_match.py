@@ -15,7 +15,8 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from oe_feasibility import _norm_addr, bracketless_keyword, match_address_row  # noqa: E402
+from oe_feasibility import (  # noqa: E402
+    _norm_addr, bracketless_keyword, match_address_row, portal_search_error)
 
 # The live grid row: 9 td titles; the 99-char one is the concatAddress with
 # the portal's double space after the blank-segment hyphen.
@@ -128,8 +129,40 @@ def test_brackets_become_a_space_so_words_never_fuse():
     assert "HERMINGTON BLOK B" in _norm_addr("HERMINGTON(BLOK B)")
 
 
-def test_bracketless_keyword_for_the_search_fallback():
-    assert bracketless_keyword(HERMINGTON_GRID) == HERMINGTON_GRID.replace("(BLOK B)", "BLOK B")
+def test_the_search_keyword_never_carries_a_bracket():
+    # The portal parses the keyword as an Oracle Text query, where ( ) group;
+    # a group inside a run of words is a syntax error (ORA-29902, live today).
+    kw = bracketless_keyword(HERMINGTON_GRID)
+    assert "(" not in kw and ")" not in kw
+    assert kw == HERMINGTON_GRID.replace("(BLOK B)", "BLOK B")
     assert bracketless_keyword("HERMINGTON(BLOK B)") == "HERMINGTON BLOK B"
     assert bracketless_keyword("NO BRACKETS") == "NO BRACKETS"
+
+
+def test_the_bracketless_keyword_still_finds_the_bracketed_row():
+    # What the portal returns for the stripped keyword is the SAME bracketed
+    # row, and the match must still take it — both halves have to agree.
+    stored = HERMINGTON_GRID
+    assert match_address_row(HERMINGTON_ROWS, _norm_addr(stored)) == 0
+
+
+# The Warning the portal raised over the empty grid, verbatim from the screenshot.
+ORACLE_WARNING = ("ORA-29902: error in executing ODCIIndexStart() routine "
+                  "ORA-20000: Oracle Text error: DRG-50901: text query parser "
+                  "syntax error on line 1, column 215")
+SELECT_ADDRESS_MODAL = ("Customer Type Consumer Search Type By keyword By Street "
+                        "By Building By Address Id State W.P. KUALA LUMPUR Keywords Query")
+
+
+def test_an_oracle_refusal_is_named_not_read_as_no_address():
+    said = portal_search_error([SELECT_ADDRESS_MODAL, ORACLE_WARNING])
+    assert "DRG-50901" in said
+    # The Select Address modal is a visible dialog too; its text is not the error.
+    assert "Search Type" not in said
+
+
+def test_no_oracle_code_means_nothing_to_report():
+    assert portal_search_error([SELECT_ADDRESS_MODAL]) == ""
+    assert portal_search_error([]) == ""
+    assert portal_search_error(None) == ""
 

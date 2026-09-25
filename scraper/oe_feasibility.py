@@ -295,12 +295,30 @@ def _norm_addr(value: str) -> str:
 
 
 def bracketless_keyword(keyword: str) -> str:
-    """The search keyword with its brackets taken out, for a second query.
+    """The By-keyword search text, with its brackets taken out.
 
-    Only ever the FALLBACK: a bracketed keyword returned the right row live on
-    2026-09-25, so it is tried first and this is used only when it found nothing.
+    The portal runs the keyword through an Oracle Text CONTAINS query, where
+    `( )` are grouping operators — and a group sitting inside a run of plain
+    words is a parser error. Live 2026-09-25, "... HERMINGTON (BLOK B) TAMAN
+    ..." came back as a Warning: "ORA-29902 ... DRG-50901: text query parser
+    syntax error", with an empty grid behind it.
+
+    Safe to drop: Oracle Text indexes WORDS, and brackets are never part of a
+    word, so the bracketless keyword still finds "(BLOK B)". The grid match
+    ignores brackets too (`_norm_addr`), so the row is still recognised.
     """
     return re.sub(r"\s+", " ", re.sub(r"[()]", " ", keyword or "")).strip()
+
+
+def portal_search_error(dialog_texts) -> str:
+    """The portal's Oracle error, if a Warning over the grid carries one.
+
+    Without this an Oracle refusal reads as "No serviceable address returned",
+    which sends an agent to question TM coverage when the portal never ran the
+    search at all. Only lines with an ORA-/DRG- code are kept: the Select
+    Address modal is itself a visible dialog, and its text is noise here.
+    """
+    return " | ".join(t for t in dialog_texts or [] if re.search(r"\b(ORA|DRG)-\d", t))[:300]
 
 
 def match_address_row(title_rows, want: str):
@@ -364,25 +382,21 @@ async def select_address(frame, addr: dict) -> dict:
             return {"status": "error", "error": "address_missing",
                     "stage": "select_address", "message": "No address_id or keywords."}
         await frame.locator("#byKeywords").first.click()
-        await frame.locator('input[name="keywords"]').first.fill(kw)
+        await frame.locator('input[name="keywords"]').first.fill(bracketless_keyword(kw))
 
     await frame.locator(".js-address-form .js-query").first.click()
     await asyncio.sleep(5)
 
     rows = await _grid_rows(frame)
-    if not rows and not address_id:
-        # The keyword search is asked once more without brackets before giving
-        # up — agents have reported the portal refusing a bracketed keyword.
-        plain = bracketless_keyword(kw)
-        if plain and plain != kw:
-            print(f"  address search: nothing for the bracketed keyword, retrying as {plain!r}")
-            await frame.locator('input[name="keywords"]').first.fill(plain)
-            await frame.locator(".js-address-form .js-query").first.click()
-            await asyncio.sleep(5)
-            rows = await _grid_rows(frame)
     if not rows:
+        # The page, not `frame`: `frame` is a FrameLocator, which has no
+        # evaluate(), and read_dialog_texts would swallow that and report
+        # nothing. Its JS reaches into #myIframe from the top document itself.
+        refused = portal_search_error(await read_dialog_texts(frame.locator("body").page))
         return {"status": "error", "error": "address_not_found",
-                "stage": "select_address", "message": "No serviceable address returned."}
+                "stage": "select_address",
+                "message": (f"The portal refused the address search: {refused}" if refused
+                            else "No serviceable address returned.")}
 
     if address_id:
         target, target_titles = rows[0]  # By Address Id returns exactly one row.
