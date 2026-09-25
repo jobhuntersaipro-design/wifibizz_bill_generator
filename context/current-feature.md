@@ -2,21 +2,33 @@
 
 ## Status
 
-CODE COMPLETE (branch `claude/hopeful-euler-v1v6d2`). Vercel-only, no migration. NOT verified in the browser
-or against production data (bizzflow.top and the Neon database were unreachable from the session).
+CODE COMPLETE, VERIFIED AGAINST PRODUCTION DATA (branch `claude/hopeful-euler-v1v6d2`). Vercel-only, no
+migration. NOT verified in the browser.
 
 ## Notes
 
 Reported 2026-09-25 with a Umobile bill printing `17` / `LORONG SERI MAHKOTA AMAN 19 PERKAMPUNGAN SERI MAHKOTA`
 / `AMAN` with no postcode or state. `formatInternetAddress` pushed the postcode/city/state line LAST and then
-returned `lines.slice(0, 3)` — the page draws three address lines — so any street that took three lines lost the
-whole locality line. The keyword split made that common: it breaks before `LORONG`, leaving a bare house number
-alone on line one. The utility bill had the same defect and was fixed on 2026-08-22; the internet bill was left on
-the old layout. Now the locality line is reserved first, and a street that does not fit the lines left is
-re-wrapped as plain text before anything is dropped. Re-rendering the reported address through the real generator
-reproduced the screenshot byte-for-byte before the fix and shows `25200 KUANTAN PAHANG MALAYSIA` after (tail
-assumed — the case's real tail was not visible). Bills already stored in R2 keep the missing line until regenerated
-(the row's Umobile button regenerates for free).
+returned `lines.slice(0, 3)` (the page draws three address lines), so any street that took three lines lost the
+whole locality line. The keyword split made that common by leaving a bare unit number alone on line one. The
+utility bill had the same defect and was fixed on 2026-08-22. Now the locality line is reserved first, and a street
+that does not fit the lines left is re-wrapped as plain text.
+
+The same line also showed only the LAST word of a multi-word town when the postcode comes last (`81500 PATAH JOHOR`,
+`40460 ALAM`). `extractStructure` now takes the longest town the postcode table knows (`GELANG PATAH`, `SHAH ALAM`,
+`BANDAR PUNCAK ALAM`) and falls back to the last-word rule. This is shared code, so the utility bill's locality line
+improves the same way. The state-matcher bug is unchanged.
+
+**Measured on production (account briantan811, 2026-09-25):** 1,233 cases have a stored address (the 500 newest
+cases: 463 blank, filled only when a document is generated). 353 stored Umobile bills were downloaded read-only
+(`preview=1`) and their address block read out of the PDF: **16 printed no postcode/state**. 15 of those had both in
+the stored address and lost them to the 3-line cut. All 15 print them after the fix. Across all 1,233 addresses,
+897 contain both and all 897 now print both, none over 3 lines / 55 chars. The 16th (202672829) has no postcode in
+the WifiBizz address at all. Production's Google lookup found the state but no postcode, so this fix cannot
+supply one. 306 stored addresses lack a postcode. On real bills Google fills most of them (33 of 34 billed ones print
+one).
+
+Bills already stored keep the missing line until regenerated. Clicking the row's Umobile icon regenerates for free.
 
 Case List: removed Generate Umobile Bill, Generate Utility Bill, Download Umobile Bill and Download Utility Bill;
 Sync to Sheet stays. The row checkboxes and "Select all N cases" only served those four buttons, so they went too,

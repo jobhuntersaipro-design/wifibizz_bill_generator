@@ -11,6 +11,7 @@
  */
 
 import { measureText, fitRepeatCount, type BillFont } from './font-metrics';
+import postcodeTable from '../malaysia-postcodes.json';
 
 // ── Malaysian state names ─────────────────────────────────────────
 
@@ -24,6 +25,26 @@ const STATES = [
   'SELANGOR', 'TERENGGANU',
   'KUALA LUMPUR', 'PUTRAJAYA', 'LABUAN',
 ];
+
+/**
+ * Every town the postcode table knows, for spotting a multi-word town at the end of the
+ * street text. Portal addresses put the postcode last ("… GELANG PATAH JOHOR MALAYSIA
+ * 81500"), and taking only the last word printed "81500 PATAH JOHOR" and left "GELANG" at
+ * the end of the street line.
+ */
+const KNOWN_TOWNS = new Set(
+  Object.values(postcodeTable as Record<string, string[]>).map(([town]) => town.toUpperCase()),
+);
+const MAX_TOWN_WORDS = 4;
+
+/** The longest known town that ends `words`, leaving at least one word of street. */
+function trailingKnownTown(words: string[]): string | null {
+  for (let n = Math.min(MAX_TOWN_WORDS, words.length - 1); n >= 1; n--) {
+    const candidate = words.slice(-n).join(' ');
+    if (KNOWN_TOWNS.has(candidate)) return candidate;
+  }
+  return null;
+}
 
 const STREET_KEYWORDS = [
   'JALAN', 'JLN', 'LORONG', 'LRG', 'PERSIARAN', 'LEBUH',
@@ -199,7 +220,11 @@ function extractStructure(cleanedAddress: string, googleComponents?: AddressComp
       const isFt = ['WP KUALA LUMPUR', 'WP PUTRAJAYA', 'WP LABUAN'].includes(state);
       if (!isFt) {
         const words = before.split(' ');
-        if (words.length > 0) {
+        const town = trailingKnownTown(words);
+        if (town) {
+          components.locality = town;
+          streetText = words.slice(0, words.length - town.split(' ').length).join(' ');
+        } else if (words.length > 0) {
           const lastWord = words[words.length - 1];
           const kwSet = new Set(STREET_KEYWORDS.map(k => k.toUpperCase()));
           if (!kwSet.has(lastWord) && !/^\d/.test(lastWord) && lastWord.length >= 4) {

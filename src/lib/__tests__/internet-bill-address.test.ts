@@ -51,4 +51,22 @@ describe("Umobile bill address layout", () => {
       "89000 KENINGAU SABAH MALAYSIA",
     ]);
   });
+
+  it("keeps a multi-word town whole when the postcode comes last (real portal shapes)", async () => {
+    const gelang = await internetLines(
+      "SRB4-A-616 JALAN FOREST CITY 13 - ATARAXIA PARK 4 LAMAN DAMAI EMPAT, PULAU SATU GELANG PATAH JOHOR MALAYSIA 81500",
+    );
+    expect(gelang[gelang.length - 1]).toBe("81500 GELANG PATAH JOHOR MALAYSIA");
+    expect(gelang.join(" ")).not.toMatch(/GELANG\s*$/m);
+
+    const shahAlam = await internetLines(
+      "5 JALAN ANGGERIK ERIA 31/103A KOTA KEMUNING SEKSYEN 31 SHAH ALAM SELANGOR MALAYSIA 40460",
+    );
+    expect(shahAlam[shahAlam.length - 1]).toBe("40460 SHAH ALAM SELANGOR MALAYSIA");
+  });
+
+  it("falls back to the last word when the town is not in the postcode table", async () => {
+    const lines = await internetLines("LOT 3 KAMPUNG BARU TELUPID SABAH MALAYSIA 89300");
+    expect(lines[lines.length - 1]).toMatch(/^89300 \S+ SABAH MALAYSIA$/);
+  });
 });
