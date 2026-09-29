@@ -1,3 +1,25 @@
+# Current Feature: A refusal thrown mid-step keeps its own error code
+
+## Status
+
+CODE COMPLETE (branch `claude/hopeful-euler-v1v6d2`). Vercel + scraper, no migration. The scraper half needs a
+droplet deploy; the BizzFlow half works on its own.
+
+## Notes
+
+Reported 2026-09-28 off ORD-0275 (`cmulaf90i000204jn6m9frn2y`): recorded as `portal_error: This address already has
+TM services installed, please try a different address.` and auto-retried 3 times. When a step throws under a portal
+popup, `enter_full_order`'s exception path filed the popup as a bare `portal_error` without running `map_error`,
+which already maps that sentence to `address_already_has_service` (terminal). Now `exception_outcome()` classifies the
+popup and keeps `portal_code`. BizzFlow mirrors `_RULES` in `src/lib/portal-error-rules.ts` (a test parses the Python
+table and fails on drift), and `applyResult` reclassifies `portal_error` / `unknown_error` / `exception` from the
+message. So this fix holds before the droplet is redeployed, and the refusal is no longer auto-retried. The admin order
+header now shows the portal's sentence without the raw code prefix.
+
+Verified: 4 scraper tests (483 passed + 1 skipped), 6 vitest (1153), build clean, `tsc` 3 pre-existing errors.
+NOT verified: a live run. ORD-0275's stored row keeps `portal_error` (the production database is not reachable from
+the session).
+
 # Current Feature: Umobile bill keeps its postcode/state line; bulk bill buttons removed
 
 ## Status

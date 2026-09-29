@@ -1648,6 +1648,26 @@ async def _capture_dialog_message(page) -> str | None:
         return None
 
 
+def exception_outcome(popup: str | None, exc: BaseException) -> dict:
+    """The result for a step that threw, preferring the portal's popup text.
+
+    The popup is classified the same way every dialog reader does. It used to be
+    filed as a bare `portal_error`, so a refusal `map_error` knows ("This address
+    already has TM services installed") lost its code, read as unclassified, and
+    was auto-retried against an answer that cannot change (ORD-0275, 2026-09-28).
+    """
+    code = map_error(popup) if popup else UNKNOWN_ERROR
+    outcome = {"status": "error", "stage": "order_entry",
+               "error": (code if code != UNKNOWN_ERROR else "portal_error")
+                        if popup else "exception",
+               "message": popup or humanize_error(exc),
+               "exception": f"{type(exc).__name__}: {exc}"}
+    pcode = portal_code(popup) if popup else None
+    if pcode:
+        outcome["portal_code"] = pcode
+    return outcome
+
+
 async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = False,
                            submit: bool = True, do_pay: bool = False,
                            on_stage=None, live_view_job_id: str | None = None) -> dict:
@@ -1771,10 +1791,7 @@ async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = 
                 popup = describe_blocking_dialog(blocker)
         # Prefer the portal's own popup text; otherwise a humanised summary. The
         # verbatim exception still rides along for the job log.
-        outcome = {"status": "error", "stage": "order_entry",
-                   "error": "portal_error" if popup else "exception",
-                   "message": popup or humanize_error(e),
-                   "exception": f"{type(e).__name__}: {e}"}
+        outcome = exception_outcome(popup, e)
         # The page (popup and all) is still up — photograph what actually threw.
         await capture_failure(page, payload, outcome, stage)
         return outcome

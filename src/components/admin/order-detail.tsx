@@ -100,7 +100,6 @@ export function AdminOrderDetail({
         {order.errorMessage && (
           isFailureStatus(order.status) ? (
             <p className="mt-3 rounded-md bg-[#FEF3F2] px-3 py-2 text-sm text-[#B42318]">
-              {order.errorCode ? `${order.errorCode}: ` : ""}
               {order.errorMessage}
             </p>
           ) : (

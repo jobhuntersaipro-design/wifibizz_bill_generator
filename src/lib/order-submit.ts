@@ -12,6 +12,7 @@
  */
 import { prisma } from "@/lib/prisma";
 import { attachStageDetail, recordEvent } from "@/lib/order-history";
+import { resolveErrorCode } from "@/lib/portal-error-rules";
 import {
   CAPTURE_STAGE_PREFIX,
   ERF_NOT_DOWNLOADED,
@@ -300,6 +301,10 @@ async function applyResult(
   orderId: string,
   result: OrderJobResult,
 ): Promise<ProgressState> {
+  // A generic code (`portal_error`) with a portal sentence the scraper's own
+  // table knows is filed under the specific code, so it gets its copy and the
+  // retry policy sees a terminal refusal as terminal.
+  result = { ...result, error: resolveErrorCode(result.error, result.message) ?? undefined };
   const current = await prisma.order.findUnique({
     where: { id: orderId },
     select: {
