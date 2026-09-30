@@ -511,6 +511,19 @@ model LandlordSignatureImage {
 }
 
 // ── Admin AI chatbot (testing feature, admin only) ──────────────────────────
+// The assistant's admin-edited settings. One row (id 1); no row = the
+// built-in defaults. Null instructions = DEFAULT_INSTRUCTIONS; an absent
+// description key = that tool's built-in description.
+model AdminChatSettings {
+  id               Int      @id @default(1)
+  instructions     String?
+  disabledTools    String[] @default([]) @map("disabled_tools")
+  toolDescriptions Json     @default("{}") @map("tool_descriptions")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@map("admin_chat_settings")
+}
+
 // A conversation with the admin assistant. No user relation: the admin login
 // is one shared identity, so the only "who" available is the client IP, kept
 // for the lock rule (a locked IP cannot start a fresh conversation to escape it).

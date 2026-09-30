@@ -8,6 +8,7 @@ import { adminLiveJobs, adminOrderStats } from "@/actions/admin-orders";
 import { sendEmail } from "@/lib/notifications/resend";
 import { appBaseUrl, handoffEmail } from "@/lib/notifications/templates";
 import { applyStrike } from "./guard";
+import type { ChatSettings } from "./settings-rules";
 import {
   classifyOrderLookup,
   explainError,
@@ -275,6 +276,60 @@ const liveJobs = tool({
   },
 });
 
+const IMAGE_POOL_USES = {
+  umobile: "Umobile bills: each generated Umobile (internet) bill gets one modem photo from this pool as an extra page, picked at random.",
+  landlord: "Tenancy agreements, residential authorization letters and business authorization letters: one signature from this pool is stamped on the signing line, picked at random.",
+};
+
+const listImagePools = tool({
+  name: "list_image_pools",
+  description:
+    "The two image pools admins upload for generated documents: Umobile Image (modem photos added to Umobile bills) and " +
+    "Landlord Signature (signatures stamped on tenancy agreements and authorization letters). " +
+    "Returns each pool's image count, what uses it, its admin page, and the newest filenames with upload dates.",
+  schema: z.object({
+    pool: z.enum(["umobile", "landlord", "both"]).optional().describe("Which pool. Default both."),
+    limit: z.number().int().min(1).max(30).optional().describe("Newest images to list per pool. Default 10."),
+  }),
+  run: async (input) => {
+    const want = input.pool ?? "both";
+    const limit = input.limit ?? 10;
+    const pick = { select: { filename: true, createdAt: true }, orderBy: { createdAt: "desc" as const }, take: limit };
+    const describe = (
+      name: string,
+      page: string,
+      usedFor: string,
+      total: number,
+      rows: { filename: string; createdAt: Date }[],
+    ) => ({
+      pool: name,
+      page,
+      usedFor,
+      total,
+      newest: rows.map((r) => ({ filename: r.filename, uploadedAt: r.createdAt.toISOString() })),
+    });
+    const pools = [];
+    if (want !== "landlord") {
+      const [total, rows] = await Promise.all([
+        prisma.umobileModemImage.count(),
+        prisma.umobileModemImage.findMany(pick),
+      ]);
+      pools.push(describe("Umobile Image", "/admin/umobile-image", IMAGE_POOL_USES.umobile, total, rows));
+    }
+    if (want !== "umobile") {
+      const [total, rows] = await Promise.all([
+        prisma.landlordSignatureImage.count(),
+        prisma.landlordSignatureImage.findMany(pick),
+      ]);
+      pools.push(describe("Landlord Signature", "/admin/landlord-signature", IMAGE_POOL_USES.landlord, total, rows));
+    }
+    return toolResult({
+      pools,
+      note: "An empty pool does not block generation: the Umobile bill is made without the photo page, and the signing line is left blank.",
+    });
+  },
+});
+
 const escalateToHuman = tool({
   name: "escalate_to_human",
   description:
@@ -360,6 +415,7 @@ export const CHAT_TOOLS = [
   listPlans,
   orderStats,
   liveJobs,
+  listImagePools,
   escalateToHuman,
   flagOffTopic,
 ] as const;
@@ -371,13 +427,15 @@ export const CHAT_TOOLS = [
  * stops validating them, which is fine because `runTool` validates every input
  * against its zod schema before running anything.
  */
-export function toolDefinitions(): Anthropic.Beta.BetaTool[] {
-  return CHAT_TOOLS.map((t) => {
+export function toolDefinitions(
+  settings: Pick<ChatSettings, "disabledTools" | "toolDescriptions"> = { disabledTools: [], toolDescriptions: {} },
+): Anthropic.Beta.BetaTool[] {
+  return CHAT_TOOLS.filter((t) => !settings.disabledTools.includes(t.name)).map((t) => {
     const { $schema: _drop, ...schema } = z.toJSONSchema(t.schema) as Record<string, unknown>;
     void _drop;
     return {
       name: t.name,
-      description: t.description,
+      description: settings.toolDescriptions[t.name]?.trim() || t.description,
       input_schema: schema as Anthropic.Beta.BetaTool.InputSchema,
       eager_input_streaming: true,
     };
@@ -387,14 +445,21 @@ export function toolDefinitions(): Anthropic.Beta.BetaTool[] {
 /**
  * Run one tool call. Never throws: a failure becomes an error result the model
  * can explain, because a thrown tool would end the reply with nothing.
+ *
+ * A tool an admin switched off is refused here too, not only left out of the
+ * list: the model can still name a tool it was told about in the instructions.
  */
 export async function runTool(
   name: string,
   input: unknown,
   ctx: ToolContext,
+  disabledTools: readonly string[] = [],
 ): Promise<{ content: string; isError: boolean }> {
   const t = CHAT_TOOLS.find((x) => x.name === name);
   if (!t) return { content: toolResult({ error: `Unknown tool ${name}.` }), isError: true };
+  if (disabledTools.includes(name)) {
+    return { content: toolResult({ error: `The ${name} tool is switched off by an admin.` }), isError: true };
+  }
   const parsed = t.schema.safeParse(input ?? {});
   if (!parsed.success) {
     return { content: toolResult({ error: "Invalid input", issues: parsed.error.issues.slice(0, 5) }), isError: true };

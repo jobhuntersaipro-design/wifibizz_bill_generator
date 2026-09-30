@@ -14,6 +14,10 @@ const convUpdate = vi.fn();
 const escCreate = vi.fn();
 const escUpdate = vi.fn();
 const sendEmail = vi.fn();
+const umobileCount = vi.fn();
+const umobileFind = vi.fn();
+const landlordCount = vi.fn();
+const landlordFind = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -29,6 +33,11 @@ vi.mock("@/lib/prisma", () => ({
     },
     user: { findFirst: vi.fn() },
     plan: { findMany: vi.fn() },
+    umobileModemImage: { count: (...a: unknown[]) => umobileCount(...a), findMany: (...a: unknown[]) => umobileFind(...a) },
+    landlordSignatureImage: {
+      count: (...a: unknown[]) => landlordCount(...a),
+      findMany: (...a: unknown[]) => landlordFind(...a),
+    },
   },
 }));
 vi.mock("@/actions/admin-orders", () => ({ adminLiveJobs: vi.fn(), adminOrderStats: vi.fn() }));
@@ -41,7 +50,10 @@ const { parseChatMarkdown, parseInline, isSafeAdminHref } = await import("@/lib/
 const { classifyOrderLookup, maskPhone, orderSummary, orderDetail, toolResult, MAX_TOOL_RESULT_CHARS, explainError } =
   await import("@/lib/admin-chat/format");
 const { CHAT_TOOLS, toolDefinitions, runTool } = await import("@/lib/admin-chat/tools");
-const { systemPrompt, dateBlock } = await import("@/lib/admin-chat/prompt");
+const { systemPrompt, dateBlock, DEFAULT_INSTRUCTIONS, SAFETY_BLOCK } = await import("@/lib/admin-chat/prompt");
+const { normalizeChatSettings, disabledToolsNamedIn, chatSettingsFromRow } = await import(
+  "@/lib/admin-chat/settings-rules"
+);
 const { CHAT_LIMITS } = await import("@/lib/admin-chat/config");
 
 beforeEach(() => vi.clearAllMocks());
@@ -196,7 +208,7 @@ describe("the tool surface is read-only", () => {
   it("exposes exactly these tools", () => {
     expect(CHAT_TOOLS.map((t) => t.name)).toEqual([
       "search_orders", "get_order", "explain_error_code", "list_plans",
-      "order_stats", "live_jobs", "escalate_to_human", "flag_off_topic",
+      "order_stats", "live_jobs", "list_image_pools", "escalate_to_human", "flag_off_topic",
     ]);
   });
   it("the tools module writes only the chatbot's own tables", () => {
@@ -336,5 +348,91 @@ describe("the API key as read from the environment", async () => {
     );
     expect(e).toBeInstanceOf(Anthropic.AuthenticationError);
     expect(describeApiError(e)).toBe("The AI service refused the request (401): invalid x-api-key Request req_401.");
+  });
+});
+
+describe("the image pools tool", () => {
+  it("reports both pools with their counts, pages and uses", async () => {
+    umobileCount.mockResolvedValue(52);
+    umobileFind.mockResolvedValue([{ filename: "modem.jpg", createdAt: new Date("2026-09-30T01:00:00Z") }]);
+    landlordCount.mockResolvedValue(0);
+    landlordFind.mockResolvedValue([]);
+    const r = await runTool("list_image_pools", {}, ctx());
+    expect(r.isError).toBe(false);
+    const out = JSON.parse(r.content);
+    expect(out.pools.map((p: { pool: string; total: number; page: string }) => [p.pool, p.total, p.page])).toEqual([
+      ["Umobile Image", 52, "/admin/umobile-image"],
+      ["Landlord Signature", 0, "/admin/landlord-signature"],
+    ]);
+    expect(out.pools[0].newest[0].filename).toBe("modem.jpg");
+  });
+  it("reads only the pool asked for", async () => {
+    umobileCount.mockResolvedValue(1);
+    umobileFind.mockResolvedValue([]);
+    await runTool("list_image_pools", { pool: "umobile" }, ctx());
+    expect(landlordCount).not.toHaveBeenCalled();
+  });
+});
+
+describe("admin-edited settings", () => {
+  const known = CHAT_TOOLS.map((t) => ({ name: t.name, description: t.description }));
+
+  it("nothing saved gives exactly the built-in prompt", () => {
+    expect(systemPrompt("Sofie", null)).toBe(systemPrompt("Sofie"));
+    expect(systemPrompt("Sofie", "   ")).toBe(systemPrompt("Sofie"));
+  });
+  it("custom instructions replace the default, fill the handoff name, and keep the fixed parts", () => {
+    const p = systemPrompt("Sofie", "You answer about orders only. Hand off to {{handoff_name}} when stuck, please.");
+    expect(p).toContain("Hand off to Sofie when stuck");
+    expect(p).not.toContain("{{handoff_name}}");
+    expect(p).not.toContain(DEFAULT_INSTRUCTIONS.slice(0, 60));
+    expect(p).toContain(SAFETY_BLOCK);
+    expect(p).toContain("Order statuses (stored value → label)");
+  });
+  it("the default instructions cover the image pools", () => {
+    expect(systemPrompt("Sofie")).toContain("/admin/umobile-image");
+  });
+  it("a disabled tool is not offered and cannot run", async () => {
+    const defs = toolDefinitions({ disabledTools: ["get_order"], toolDescriptions: {} });
+    expect(defs.map((d) => d.name)).not.toContain("get_order");
+    expect(defs).toHaveLength(CHAT_TOOLS.length - 1);
+    const r = await runTool("get_order", { order: "ORD-0001" }, ctx(), ["get_order"]);
+    expect(r.isError).toBe(true);
+    expect(orderFindFirst).not.toHaveBeenCalled();
+  });
+  it("a saved description replaces the built-in one; the schema is untouched", () => {
+    const before = toolDefinitions().find((d) => d.name === "list_plans")!;
+    const after = toolDefinitions({ disabledTools: [], toolDescriptions: { list_plans: "Plans and their offers, custom." } })
+      .find((d) => d.name === "list_plans")!;
+    expect(after.description).toBe("Plans and their offers, custom.");
+    expect(after.input_schema).toEqual(before.input_schema);
+  });
+  it("saving the defaults stores nothing, so it is the same as never saving", () => {
+    const res = normalizeChatSettings(
+      {
+        instructions: DEFAULT_INSTRUCTIONS + "\n",
+        disabledTools: [],
+        toolDescriptions: Object.fromEntries(known.map((t) => [t.name, t.description])),
+      },
+      known,
+      DEFAULT_INSTRUCTIONS,
+    );
+    expect(res).toEqual({ ok: true, settings: { instructions: null, disabledTools: [], toolDescriptions: {} } });
+  });
+  it("refuses unknown tools, a gutted prompt and a too-short description", () => {
+    expect(normalizeChatSettings({ instructions: null, disabledTools: ["adminPurge"], toolDescriptions: {} }, known, DEFAULT_INSTRUCTIONS).ok).toBe(false);
+    expect(normalizeChatSettings({ instructions: "be nice", disabledTools: [], toolDescriptions: {} }, known, DEFAULT_INSTRUCTIONS).ok).toBe(false);
+    expect(normalizeChatSettings({ instructions: null, disabledTools: [], toolDescriptions: { get_order: "short" } }, known, DEFAULT_INSTRUCTIONS).ok).toBe(false);
+    expect(normalizeChatSettings({ instructions: null, disabledTools: [], toolDescriptions: { nope: "a long enough description here" } }, known, DEFAULT_INSTRUCTIONS).ok).toBe(false);
+  });
+  it("warns when the instructions name a switched-off tool, by whole word", () => {
+    expect(disabledToolsNamedIn(DEFAULT_INSTRUCTIONS, ["flag_off_topic", "live_jobs"])).toEqual(["flag_off_topic"]);
+  });
+  it("a malformed row reads as defaults rather than throwing", () => {
+    expect(chatSettingsFromRow({ instructions: "", disabledTools: ["live_jobs"], toolDescriptions: [1, 2] })).toEqual({
+      instructions: null,
+      disabledTools: ["live_jobs"],
+      toolDescriptions: {},
+    });
   });
 });
