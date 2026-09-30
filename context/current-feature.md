@@ -2,7 +2,10 @@
 
 ## Status
 
-CODE COMPLETE (branch `claude/hopeful-euler-v1v6d2`). Vercel-only, no migration. ClickUp z8v9xngrde.
+MERGED TO MAIN AND DEPLOYED 2026-09-30 (`a30eb85`, PR #36). Vercel-only, no migration. ClickUp z8v9xngrde.
+On production (read via an admin session, no uploads): heading, sidebar and topbar read Umobile Image /
+Landlord Signature, and the new gallery renders over the live pool of 11 images — one page, so pagination has not
+been seen on production.
 
 ## Notes
 
