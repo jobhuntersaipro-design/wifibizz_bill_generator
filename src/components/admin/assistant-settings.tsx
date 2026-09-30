@@ -11,6 +11,8 @@ import {
   SAFETY_BLOCK,
 } from "@/lib/admin-chat/prompt";
 import {
+  CHAT_EFFORTS,
+  CHAT_MODELS,
   disabledToolsNamedIn,
   MAX_TOOL_DESCRIPTION_CHARS,
   type ChatSettings,
@@ -27,6 +29,7 @@ export interface ToolInfo {
 
 interface Runtime {
   enabled: boolean;
+  /** The deployment's ADMIN_CHAT_MODEL / ADMIN_CHAT_EFFORT — used when nothing is picked here. */
   model: string;
   effort: string;
   handoffName: string;
@@ -37,6 +40,9 @@ interface Draft {
   instructions: string;
   disabled: string[];
   descriptions: Record<string, string>;
+  /** "" = the deployment default. */
+  model: string;
+  effort: string;
 }
 
 function toDraft(s: ChatSettings, tools: ToolInfo[]): Draft {
@@ -46,6 +52,8 @@ function toDraft(s: ChatSettings, tools: ToolInfo[]): Draft {
     descriptions: Object.fromEntries(
       tools.map((t) => [t.name, s.toolDescriptions[t.name] ?? t.defaultDescription]),
     ),
+    model: s.model ?? "",
+    effort: s.effort ?? "",
   };
 }
 
@@ -53,6 +61,8 @@ function sameDraft(a: Draft, b: Draft): boolean {
   return (
     a.instructions.trim() === b.instructions.trim() &&
     a.disabled.join(",") === b.disabled.join(",") &&
+    a.model === b.model &&
+    a.effort === b.effort &&
     Object.keys(a.descriptions).every((k) => a.descriptions[k].trim() === (b.descriptions[k] ?? "").trim())
   );
 }
@@ -89,6 +99,8 @@ export function AssistantSettings({
       instructions: draft.instructions,
       disabledTools: draft.disabled,
       toolDescriptions: draft.descriptions,
+      model: draft.model || null,
+      effort: (draft.effort || null) as ChatSettings["effort"],
     });
     setSaving(false);
     if (!res.success) {
@@ -104,6 +116,14 @@ export function AssistantSettings({
   return (
     <div className="space-y-5 pb-20">
       <RuntimeStrip runtime={runtime} />
+
+      <ModelCard
+        model={draft.model}
+        effort={draft.effort}
+        runtime={runtime}
+        onModel={(model) => setDraft((d) => ({ ...d, model }))}
+        onEffort={(effort) => setDraft((d) => ({ ...d, effort }))}
+      />
 
       <InstructionsCard
         value={draft.instructions}
@@ -179,9 +199,8 @@ function RuntimeStrip({ runtime }: { runtime: Runtime }) {
     >
       {runtime.enabled ? (
         <>
-          <span className="font-medium text-[#0A2540]">The assistant is on.</span> Model{" "}
-          <code className="font-mono text-[12px]">{runtime.model}</code>, effort {runtime.effort}, hands off to{" "}
-          {runtime.handoffName}. These come from the deployment&apos;s environment settings.
+          <span className="font-medium text-[#0A2540]">The assistant is on.</span> It hands off to{" "}
+          {runtime.handoffName}.
         </>
       ) : (
         <>
@@ -190,6 +209,70 @@ function RuntimeStrip({ runtime }: { runtime: Runtime }) {
         </>
       )}
     </div>
+  );
+}
+
+const SELECT_CLASS =
+  "h-10 w-full rounded-lg border border-[#E3E8EF] bg-white px-3 text-[13px] text-[#0A2540] focus:border-[#635BFF] focus:outline-none focus:ring-2 focus:ring-[#635BFF]/20";
+
+function ModelCard({
+  model,
+  effort,
+  runtime,
+  onModel,
+  onEffort,
+}: {
+  model: string;
+  effort: string;
+  runtime: Runtime;
+  onModel: (v: string) => void;
+  onEffort: (v: string) => void;
+}) {
+  const modelNote = CHAT_MODELS.find((m) => m.id === (model || runtime.model))?.note;
+  const effortNote = CHAT_EFFORTS.find((e) => e.id === (effort || runtime.effort))?.note;
+  return (
+    <section className="rounded-xl border border-[#E3E8EF] bg-white">
+      <div className="border-b border-[#E3E8EF] px-5 py-4">
+        <h2 className="flex items-center gap-2 text-[15px] font-semibold text-[#0A2540]">
+          Model
+          <StateChip custom={Boolean(model || effort)} />
+        </h2>
+        <p className="mt-1 text-[13px] text-[#697386]">
+          Which Claude model answers, and how long it thinks before answering. &ldquo;Deployment default&rdquo; uses
+          the environment setting ({runtime.model}, effort {runtime.effort}).
+        </p>
+      </div>
+      <div className="grid gap-4 px-5 py-4 sm:grid-cols-2">
+        <div>
+          <label htmlFor="assistant-model" className="mb-1.5 block text-[12.5px] font-medium text-[#425466]">
+            Model
+          </label>
+          <select id="assistant-model" value={model} onChange={(e) => onModel(e.target.value)} className={SELECT_CLASS}>
+            <option value="">Deployment default ({runtime.model})</option>
+            {CHAT_MODELS.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label} ({m.id})
+              </option>
+            ))}
+          </select>
+          {modelNote && <p className="mt-1.5 text-[12px] text-[#8792A2]">{modelNote}</p>}
+        </div>
+        <div>
+          <label htmlFor="assistant-effort" className="mb-1.5 block text-[12.5px] font-medium text-[#425466]">
+            Effort
+          </label>
+          <select id="assistant-effort" value={effort} onChange={(e) => onEffort(e.target.value)} className={SELECT_CLASS}>
+            <option value="">Deployment default ({runtime.effort})</option>
+            {CHAT_EFFORTS.map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.label}
+              </option>
+            ))}
+          </select>
+          {effortNote && <p className="mt-1.5 text-[12px] text-[#8792A2]">{effortNote}</p>}
+        </div>
+      </div>
+    </section>
   );
 }
 

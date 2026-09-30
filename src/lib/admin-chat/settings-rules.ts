@@ -7,10 +7,29 @@
  */
 
 import { MAX_INSTRUCTIONS_CHARS } from "./prompt";
+import type { ChatEffort } from "./config";
 
 export const MIN_INSTRUCTIONS_CHARS = 50;
 export const MIN_TOOL_DESCRIPTION_CHARS = 20;
 export const MAX_TOOL_DESCRIPTION_CHARS = 2000;
+
+/**
+ * The models an admin may pick. Only models that accept everything the chat
+ * route sends — adaptive thinking, `output_config.effort` and the
+ * `fallbacks: "default"` refusal fallback — so a pick can never turn every
+ * question into an API error. (Haiku 4.5 is left out for exactly that reason.)
+ */
+export const CHAT_MODELS: { id: string; label: string; note: string }[] = [
+  { id: "claude-opus-5-5", label: "Claude Opus 5.5", note: "$4 / $20 per million tokens (in / out). Balanced." },
+  { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", note: "$2 / $10. Faster and half the price." },
+  { id: "claude-fable-5-1", label: "Claude Fable 5.1", note: "$10 / $50. Most capable, slowest." },
+];
+
+export const CHAT_EFFORTS: { id: ChatEffort; label: string; note: string }[] = [
+  { id: "low", label: "Low", note: "Fastest, cheapest; fine for simple lookups." },
+  { id: "medium", label: "Medium", note: "The default balance." },
+  { id: "high", label: "High", note: "Thinks longer; better on tricky failure questions." },
+];
 
 export interface ChatSettings {
   /** Null = the built-in DEFAULT_INSTRUCTIONS. */
@@ -19,13 +38,27 @@ export interface ChatSettings {
   disabledTools: string[];
   /** Tool name → description the model reads instead of the built-in one. */
   toolDescriptions: Record<string, string>;
+  /** Null = the deployment's ADMIN_CHAT_MODEL. */
+  model: string | null;
+  /** Null = the deployment's ADMIN_CHAT_EFFORT. */
+  effort: ChatEffort | null;
 }
 
 export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   instructions: null,
   disabledTools: [],
   toolDescriptions: {},
+  model: null,
+  effort: null,
 };
+
+/** The model and effort a request actually uses: saved choice, else the deployment's. */
+export function effectiveModel(
+  settings: Pick<ChatSettings, "model" | "effort">,
+  deployment: { model: string; effort: ChatEffort },
+): { model: string; effort: ChatEffort } {
+  return { model: settings.model ?? deployment.model, effort: settings.effort ?? deployment.effort };
+}
 
 /** Human names for the settings page, and what each tool is for. */
 export const TOOL_LABELS: Record<string, { label: string; note?: string }> = {
@@ -91,7 +124,16 @@ export function normalizeChatSettings(
     toolDescriptions[name] = text;
   }
 
-  return { ok: true, settings: { instructions, disabledTools, toolDescriptions } };
+  const model = input.model?.trim() || null;
+  if (model !== null && !CHAT_MODELS.some((m) => m.id === model)) {
+    return { ok: false, error: `Unknown model "${model}".` };
+  }
+  const effort = input.effort || null;
+  if (effort !== null && !CHAT_EFFORTS.some((e) => e.id === effort)) {
+    return { ok: false, error: `Unknown effort "${effort}".` };
+  }
+
+  return { ok: true, settings: { instructions, disabledTools, toolDescriptions, model, effort } };
 }
 
 /**
@@ -105,7 +147,13 @@ export function disabledToolsNamedIn(instructions: string, disabledTools: readon
 
 /** Coerce whatever the database row holds into settings, never throwing. */
 export function chatSettingsFromRow(
-  row: { instructions: string | null; disabledTools: string[]; toolDescriptions: unknown } | null,
+  row: {
+    instructions: string | null;
+    disabledTools: string[];
+    toolDescriptions: unknown;
+    model?: string | null;
+    effort?: string | null;
+  } | null,
 ): ChatSettings {
   if (!row) return DEFAULT_CHAT_SETTINGS;
   const descriptions: Record<string, string> = {};
@@ -118,5 +166,9 @@ export function chatSettingsFromRow(
     instructions: row.instructions?.trim() ? row.instructions : null,
     disabledTools: Array.isArray(row.disabledTools) ? row.disabledTools : [],
     toolDescriptions: descriptions,
+    // An id no longer offered (or a hand-edited row) falls back to the
+    // deployment's choice rather than sending the API a model it may refuse.
+    model: CHAT_MODELS.some((m) => m.id === row.model) ? row.model! : null,
+    effort: CHAT_EFFORTS.find((e) => e.id === row.effort)?.id ?? null,
   };
 }

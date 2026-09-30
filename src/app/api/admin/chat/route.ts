@@ -15,6 +15,7 @@ import { checkChatRateLimit } from "@/lib/admin-chat/rate-limit";
 import { runTool, toolDefinitions, type ToolContext } from "@/lib/admin-chat/tools";
 import { describeApiError } from "@/lib/admin-chat/api-error";
 import { loadChatSettings } from "@/lib/admin-chat/settings";
+import { effectiveModel } from "@/lib/admin-chat/settings-rules";
 
 /**
  * POST /api/admin/chat — one turn of the admin assistant.
@@ -131,6 +132,7 @@ export async function POST(req: Request) {
   // Read on every turn, so a save on /admin/assistant applies to the next
   // message without a deploy.
   const settings = await loadChatSettings();
+  const { model, effort } = effectiveModel(settings, cfg);
 
   const conversationId = conversation.id;
   const ctx: ToolContext = {
@@ -178,13 +180,13 @@ export async function POST(req: Request) {
         for (let call = 0; call < CHAT_LIMITS.maxModelCalls && !finished; call++) {
           const turn = client.beta.messages.stream(
             {
-              model: cfg.model,
+              model,
               max_tokens: 16000,
               system,
               // Every tool switched off: send none rather than an empty list.
               ...(tools.length ? { tools } : {}),
               messages,
-              output_config: { effort: cfg.effort },
+              output_config: { effort },
               // Server-side refusal fallback: a safety-classifier decline is
               // retried on the model the API picks for that category.
               betas: ["server-side-fallback-2026-07-01"],

@@ -30,6 +30,8 @@ export async function saveChatSettings(input: ChatSettings) {
             ),
           )
         : {},
+    model: typeof input?.model === "string" ? input.model : null,
+    effort: typeof input?.effort === "string" ? (input.effort as ChatSettings["effort"]) : null,
   };
   const res = normalizeChatSettings(shaped, CHAT_TOOLS, DEFAULT_INSTRUCTIONS);
   if (!res.ok) return { success: false as const, error: res.error };
@@ -39,8 +41,21 @@ export async function saveChatSettings(input: ChatSettings) {
     const s = res.settings;
     await prisma.adminChatSettings.upsert({
       where: { id: 1 },
-      create: { id: 1, instructions: s.instructions, disabledTools: s.disabledTools, toolDescriptions: s.toolDescriptions },
-      update: { instructions: s.instructions, disabledTools: s.disabledTools, toolDescriptions: s.toolDescriptions },
+      create: {
+        id: 1,
+        instructions: s.instructions,
+        disabledTools: s.disabledTools,
+        toolDescriptions: s.toolDescriptions,
+        model: s.model,
+        effort: s.effort,
+      },
+      update: {
+        instructions: s.instructions,
+        disabledTools: s.disabledTools,
+        toolDescriptions: s.toolDescriptions,
+        model: s.model,
+        effort: s.effort,
+      },
     });
 
     // What changed, in words — never the prompt text itself.
@@ -55,6 +70,8 @@ export async function saveChatSettings(input: ChatSettings) {
     const descNames = new Set([...Object.keys(before.toolDescriptions), ...Object.keys(s.toolDescriptions)]);
     const descChanged = [...descNames].filter((n) => before.toolDescriptions[n] !== s.toolDescriptions[n]);
     if (descChanged.length) changed.push(`descriptions changed for ${descChanged.join(", ")}`);
+    if (before.model !== s.model) changed.push(`model set to ${s.model ?? "the deployment default"}`);
+    if (before.effort !== s.effort) changed.push(`effort set to ${s.effort ?? "the deployment default"}`);
     if (changed.length) {
       await recordAudit({ actor: ADMIN_ACTOR, action: "assistant_settings_updated", detail: `${changed.join("; ")}.` });
     }

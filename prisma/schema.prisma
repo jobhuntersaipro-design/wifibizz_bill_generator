@@ -519,6 +519,9 @@ model AdminChatSettings {
   instructions     String?
   disabledTools    String[] @default([]) @map("disabled_tools")
   toolDescriptions Json     @default("{}") @map("tool_descriptions")
+  // Null = the deployment's ADMIN_CHAT_MODEL / ADMIN_CHAT_EFFORT.
+  model            String?
+  effort           String?
   updatedAt        DateTime @updatedAt @map("updated_at")
 
   @@map("admin_chat_settings")
