@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { normalizeAddress } from "@/lib/bill-generator/address-normalizer";
+import { auditBillAddress } from "@/lib/bill-generator/address-audit";
 
-// The Umobile bill draws exactly three address lines (addr1Y..addr3Y), 55 chars each.
-const SLOTS = 3;
+// The Umobile bill draws four address lines (addr1Y..addr4Y), 55 chars each.
+const SLOTS = 4;
 const MAX_CHARS = 55;
 
 async function internetLines(address: string): Promise<string[]> {
@@ -70,3 +71,81 @@ describe("Umobile bill address layout", () => {
     expect(lines[lines.length - 1]).toMatch(/^89300 \S+ SABAH MALAYSIA$/);
   });
 });
+
+describe("Umobile bill keeps every address token (ClickUp z8v9xngra2)", () => {
+  const GOLDEN = "2-T.12-U.01 FTTH BLOK B2 APARTMENT 5R6 JALAN P5 A PRESINT 5 62200 PUTRAJAYA WILAYAH PERSEKUTUAN PUTRAJAYA";
+
+  it("golden: the unit keeps its 01 and BLOK survives the FTTH marker", async () => {
+    expect(await internetLines(GOLDEN)).toEqual([
+      "2-T.12-U.01 BLOK B2 APARTMENT 5R6 JALAN P5 A PRESINT 5",
+      "62200 PUTRAJAYA WP PUTRAJAYA MALAYSIA",
+    ]);
+  });
+
+  it("drops only the word FTTH, not the number before it or the word after it", async () => {
+    const lines = await internetLines(
+      "M9-4-07 JALAN TUN PERAK 1 4 FTTH BLOK M9 WIRA APARTMENT TAMAN TUN PERAK CHERAS SELANGOR MALAYSIA 43200",
+    );
+    expect(lines.join(" ")).toContain("1 4 BLOK M9 WIRA APARTMENT");
+    expect(lines.join(" ")).not.toMatch(/FTTH/);
+  });
+
+  it("keeps the floor number printed after a condo unit", async () => {
+    const lines = await internetLines(
+      "QRS-02-07 2 BLOK QRS PANGSAPURI MELODI PERDANA JALAN PERDANA 1 LBS ALAM PERDANA 42300 BANDAR PUNCAK ALAM SELANGOR",
+    );
+    expect(lines[0]).toMatch(/^QRS-02-07 2 BLOK QRS/);
+  });
+
+  it("takes the state from the end, so a state name in the street stays on the bill", async () => {
+    expect((await internetLines("NO 12 JALAN BUKIT INDAH 2/5 TAMAN BUKIT INDAH 81200 JOHOR BAHRU JOHOR")).at(-1)).toBe(
+      "81200 JOHOR BAHRU JOHOR MALAYSIA",
+    );
+    const cityWalk = await internetLines(
+      "Lot ZZ, Kuala Lumpur City Walk (KLCW), Lot 20005 dan Lot 1383, Seksyen 57, Jalan P. Ramlee/Jalan Pinang, 50450 Kuala Lumpur.",
+    );
+    expect(cityWalk.join(" ")).toContain("LOT ZZ KUALA LUMPUR CITY WALK");
+  });
+
+  it("prints a long street on four lines instead of cutting it", async () => {
+    const source =
+      "B-99-01 META CITY - TOWER B SERVICED APARTMENT, Pusat Perniagaan Metacity Jalan Atmosphere Utama 2 Bandar Putra Permai Seri Kembangan Selangor";
+    const lines = await internetLines(source);
+    expect(lines.length).toBeLessThanOrEqual(SLOTS);
+    expect(auditBillAddress(source, lines)).toEqual({ pass: true, missing: [] });
+  });
+
+  it("drops a pasted order reference without touching the street", async () => {
+    const lines = await internetLines(
+      "99-G G JALAN J-AVENUE CHERAS SELATAN 43200 CHERAS SELANGOR MALAYSIA N:20260101:1300000000000:EAI000000000000000",
+    );
+    expect(lines).toEqual(["99-G G JALAN J-AVENUE CHERAS SELATAN", "43200 CHERAS SELANGOR MALAYSIA"]);
+  });
+
+  it("does not print the state twice when it carries its honorific", async () => {
+    const lines = await internetLines("No 99, Jalan Mutiara Emas 3/1, Taman Mount Austin, 81100 Johor Bahru, Johor Darul Ta'zim");
+    expect(lines.at(-1)).toBe("81100 JOHOR BAHRU JOHOR MALAYSIA");
+  });
+});
+
+describe("auditBillAddress", () => {
+  it("fails the reported bill and names what it lost", () => {
+    const audit = auditBillAddress(
+      "2-T.12-U.01 FTTH BLOK B2 APARTMENT 5R6 JALAN P5 A PRESINT 5 62200 PUTRAJAYA WILAYAH PERSEKUTUAN PUTRAJAYA",
+      ["2-T.12-U. B2 APARTMENT 5R6 JALAN P5 A PRESINT 5", "62200 PUTRAJAYA WP PUTRAJAYA MALAYSIA"],
+    );
+    expect(audit).toEqual({ pass: false, missing: ["2-T.12-U.01", "BLOK"] });
+  });
+
+  it("accepts the listed normalisations and nothing else", () => {
+    const source = "UNIT 1 FLOOR 6 FTTH WISMA, 50300 KUALA LUMPUR W.P. KUALA LUMPUR MALAYSIA";
+    expect(auditBillAddress(source, ["UNIT 1 FLOOR 6 WISMA", "50300 KUALA LUMPUR WP KUALA LUMPUR MALAYSIA"]).pass).toBe(true);
+    expect(auditBillAddress(source, ["UNIT 1 FLOOR WISMA", "50300 KUALA LUMPUR WP KUALA LUMPUR MALAYSIA"]).missing).toEqual(["6"]);
+  });
+
+  it("finds a plain token only as a token, never inside a longer one", () => {
+    expect(auditBillAddress("U.01 01 JALAN X", ["U.01 JALAN X"]).missing).toEqual(["01"]);
+    expect(auditBillAddress("08320 SIK.KEDAH", ["08320 SIK KEDAH MALAYSIA"]).pass).toBe(true);
+  });
+});
+

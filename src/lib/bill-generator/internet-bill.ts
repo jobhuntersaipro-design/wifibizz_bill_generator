@@ -44,10 +44,13 @@ const NAME_ADDR_OVERLAY = {
   addr1Y: 635.95,
   addr2Y: 624.91,
   addr3Y: 613.87,
+  // A fourth line for long addresses, in the white space above the Summary panel. With
+  // three, a long street was cut off the bill (see formatInternetAddress).
+  addr4Y: 602.83,
   boxX: 44,
-  boxY: 610,
+  boxY: 599,
   boxW: 290,
-  boxH: 47,
+  boxH: 58,
   fontSize: 7.92,
   maxChars: 55,
 };
@@ -218,7 +221,7 @@ export async function generateInternetBill(caseData: CaseData): Promise<Buffer> 
       registerStandardFont(pdfDoc, page, '/FH', 'Helvetica');
 
       const o = NAME_ADDR_OVERLAY;
-      const addrYKeys = [o.addr1Y, o.addr2Y, o.addr3Y];
+      const addrYKeys = [o.addr1Y, o.addr2Y, o.addr3Y, o.addr4Y];
       const lines: { text: string; x: number; y: number; font: string; fontSize: number }[] = [
         {
           text: umobileBillCustomerName(decodeCustomerName(caseData.full_name), caseData),

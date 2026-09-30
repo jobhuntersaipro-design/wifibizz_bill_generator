@@ -95,9 +95,15 @@ function preclean(rawAddress: string): { cleaned: string; unitPrefix: string | n
   // Strip leading asterisk
   addr = addr.replace(/^\*+/, '').trim();
 
-  // Strip FTTH artifacts: e.g. "12 FTTH S2D", "8 FTTH G9"
-  addr = addr.replace(/\b\d+\s+FTTH\s+[A-Z0-9]+\b/gi, '');
+  // Strip the portal's FTTH marker ("M9-4-07 JALAN TUN PERAK 1 4 FTTH BLOK M9 …") and nothing
+  // else. The old rule also took the number before it and the word after it, and `\b` sits
+  // between '.' and a digit — so "2-T.12-U.01 FTTH BLOK B2" lost its unit's "01" and "BLOK".
+  addr = addr.replace(/(^|\s)FTTH(?=\s|$)/g, ' ');
   addr = addr.replace(/\s+/g, ' ').trim().replace(/,$/, '').trim();
+
+  // Strip a colon-delimited reference an agent pasted onto the address
+  // ("… MALAYSIA N:20260101:…:EAI…"). Two colons or more: "NO:12" stays.
+  addr = addr.replace(/(^|\s)\S*:\S*:\S*(?=\s|$)/g, ' ').replace(/\s+/g, ' ').trim();
 
   // Strip MALAYSIA
   addr = addr.replace(/\bMALAYSIA\b/g, '').trim().replace(/\s+/g, ' ').trim().replace(/,$/, '').trim();
@@ -178,24 +184,50 @@ function normalizeState(state: string): string {
 
 // ── Local address parsing ─────────────────────────────────────────
 
+/** The state name that starts last in the address (the longer name on a tie). */
+function lastStateMatch(addr: string): { state: string; index: number } | null {
+  let best: { state: string; index: number } | null = null;
+  for (const s of STATES) {
+    const re = new RegExp(`\\b${s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(addr)) !== null) {
+      if (!best || m.index > best.index || (m.index === best.index && s.length > best.state.length)) {
+        best = { state: s, index: m.index };
+      }
+    }
+  }
+  return best;
+}
+
 function extractStructure(cleanedAddress: string, googleComponents?: AddressComponents): AddressComponents {
   let addr = cleanedAddress.replace(/,\s*/g, ' ').replace(/\s+/g, ' ').trim();
 
-  // Remove WILAYAH PERSEKUTUAN
-  addr = addr.replace(/\bWILAYAH\s+PERSEKUTUAN\b/g, '').trim().replace(/\s+/g, ' ').trim().replace(/,$/, '').trim();
+  // Remove the federal-territory prefix in all its spellings: WILAYAH PERSEKUTUAN, FEDERAL
+  // TERRITORY OF, and W.P. / W.P / WP before the territory or at the very end.
+  addr = addr
+    .replace(/\bWILAYAH\s+PERSEKUTUAN\b/g, '')
+    .replace(/\bFEDERAL\s+TERRITORY\s+OF\b/g, '')
+    .replace(/(^|\s)W\.?\s?P\.?(?=\s+(?:KUALA LUMPUR|PUTRAJAYA|LABUAN)\b|\s*$)/g, ' ')
+    .replace(/\s+/g, ' ').trim().replace(/,$/, '').trim();
 
   const components: AddressComponents = {};
 
-  // Extract state from address text
+  // Extract state from address text: the LAST state name in the address. The first one used
+  // to win, and it was removed wherever it sat — so "KUALA LUMPUR CITY WALK … 50450 KUALA
+  // LUMPUR" lost the street's "KUALA LUMPUR" and "81200 JOHOR BAHRU JOHOR" printed
+  // "BAHRU JOHOR". The words are only removed when nothing but a postcode or punctuation
+  // follows them; a state name in the middle of the street stays on the bill.
   let addrRemaining = addr;
-  const sortedStates = [...STATES].sort((a, b) => b.length - a.length);
-  for (const s of sortedStates) {
-    const re = new RegExp(`\\b${s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
-    const m = addrRemaining.match(re);
-    if (m) {
-      components.state = normalizeState(s);
-      addrRemaining = (addrRemaining.slice(0, m.index!) + addrRemaining.slice(m.index! + m[0].length)).trim().replace(/\s+/g, ' ').trim().replace(/,$/, '').trim();
-      break;
+  const stateMatch = lastStateMatch(addrRemaining);
+  if (stateMatch) {
+    components.state = normalizeState(stateMatch.state);
+    // The state's honorific ("SELANGOR DARUL EHSAN", "JOHOR DARUL TA'ZIM") goes with it.
+    const honorific = addrRemaining.slice(stateMatch.index + stateMatch.state.length).match(/^\s+DARUL\s+[A-Z']+/);
+    const end = stateMatch.index + stateMatch.state.length + (honorific ? honorific[0].length : 0);
+    if (/^[\s,.\-]*(?:\d{5})?[\s,.]*$/.test(addrRemaining.slice(end))) {
+      addrRemaining = (addrRemaining.slice(0, stateMatch.index) + ' ' + addrRemaining.slice(end))
+        .replace(/(^|\s)[.,](?=\s|$)/g, ' ')
+        .replace(/\s+/g, ' ').trim().replace(/[,.]$/, '').trim();
     }
   }
 
@@ -444,7 +476,8 @@ function buildPostcodeCity(components: AddressComponents, includeState = true, i
 // ── Internet Bill Formatting ────────────────────────────────────
 
 /**
- * Lay out the Umobile bill's address in the `slots` lines the page draws.
+ * Lay out the Umobile bill's address in the `slots` lines the page draws (four — keep in step
+ * with the address Y positions in internet-bill.ts).
  *
  * The postcode / city / state line is reserved first and always survives. It used to be
  * pushed last and then cut by `slice(0, 3)`, so any street that took three lines — a
@@ -456,7 +489,7 @@ function formatInternetAddress(
   components: AddressComponents,
   unitPrefix: string | null,
   maxChars = 55,
-  slots = 3,
+  slots = 4,
 ): string[] {
   const postcodeLine = buildPostcodeCity(components, true, true);
   const localityLines = postcodeLine ? wrap(postcodeLine, maxChars).slice(0, slots) : [];
@@ -464,7 +497,9 @@ function formatInternetAddress(
 
   let streetLines: string[];
   if (unitPrefix) {
-    const line1 = `${unitPrefix} ${components.route || ''}`.trim();
+    // The number after a condo unit is the portal's floor ("QRS-02-07 2 BLOK QRS") and
+    // parseStreet lifts it into street_number; leaving it out dropped it from the bill.
+    const line1 = [unitPrefix, components.street_number, components.route].filter(Boolean).join(' ');
     streetLines = smartSplit(line1, maxChars);
     if (components.sublocality) streetLines.push(...smartSplit(components.sublocality, maxChars));
   } else {
@@ -473,7 +508,10 @@ function formatInternetAddress(
     const streetWithUnit = unit ? `${unit} ${street}`.trim() : street;
     streetLines = streetWithUnit ? smartSplit(streetWithUnit, maxChars) : [];
   }
-  if (streetLines.length > streetBudget) streetLines = wrap(streetLines.join(' '), maxChars);
+  // A keyword split that costs a line ("9-9-99" alone above "JALAN …") loses to a
+  // plain wrap of the same words.
+  const plain = streetLines.length ? wrap(streetLines.join(' '), maxChars) : [];
+  if (streetLines.length > streetBudget || streetLines.length > plain.length) streetLines = plain;
 
   return [...streetLines.slice(0, streetBudget), ...localityLines];
 }

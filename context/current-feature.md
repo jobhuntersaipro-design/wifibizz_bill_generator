@@ -1,3 +1,30 @@
+# Current Feature: Umobile bill keeps every address token (unit digits, BLOK, street state names)
+
+## Status
+
+CODE COMPLETE (branch `claude/hopeful-euler-v1v6d2`). Vercel-only, no migration. ClickUp z8v9xngra2.
+
+## Notes
+
+Reported: `2-T.12-U.01 FTTH BLOK B2 APARTMENT 5R6 …` printed `2-T.12-U. B2 APARTMENT …`. **Root cause:** `preclean`
+stripped FTTH with `\b\d+\s+FTTH\s+[A-Z0-9]+\b`, which also takes the number before FTTH and the word after it — and
+`\b` sits between `.` and a digit, so the unit's own `01` was the number and `BLOK` the word. Every portal FTTH
+address lost two tokens (43 of 57 in the audit). A new token audit (`auditBillAddress`, `scripts/audit-bill-addresses.ts`)
+over 1,234 production addresses (842 Business, 392 Home) found four more ways the bill dropped words, all fixed:
+the floor number after a condo unit (`QRS-02-07 2 BLOK`) was never printed; the state matcher took the FIRST state
+name and cut it out of the street (`KUALA LUMPUR CITY WALK` lost `KUALA LUMPUR`, `81200 JOHOR BAHRU JOHOR` printed
+`BAHRU JOHOR` — the long-standing state-matcher bug, now fixed for the bills); a street longer than 3 lines was cut
+(the bill now has a 4th address line, in the white space above the Summary panel; 24 of 1,234 use it); a pasted
+`N:2026…:EAI…` reference pushed the whole street off. Before 1,127 / 1,234 PASS, after 1,234 / 1,234. Intentional
+normalisations are listed in `INTENTIONAL_NORMALISATIONS`. `preclean`/`extractStructure` are shared, so the utility
+bill's address changes the same way (its street number is masked; its layout is untouched).
+
+Verified: golden bill rendered from the real generator and looked at; 4-line bill rendered clear of the panel; widest
+printed line 269.7pt of 286pt; 1163 vitest (10 new), build clean, lint clean, `tsc` 3 pre-existing errors.
+NOT verified: a regenerate of the golden case on production (the ticket's aiboot1 password is refused there, and the
+fix is not deployed). Stored bills keep the old address until regenerated. 34 addresses still start with a short
+unit line (`VB-99-01 / PERSIARAN …`) from the keyword split — pre-existing, cosmetic, nothing lost.
+
 # Current Feature: A refusal thrown mid-step keeps its own error code
 
 ## Status
