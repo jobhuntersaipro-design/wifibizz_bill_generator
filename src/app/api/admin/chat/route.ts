@@ -14,6 +14,7 @@ import { dateBlock, systemPrompt } from "@/lib/admin-chat/prompt";
 import { checkChatRateLimit } from "@/lib/admin-chat/rate-limit";
 import { runTool, toolDefinitions, type ToolContext } from "@/lib/admin-chat/tools";
 import { describeApiError } from "@/lib/admin-chat/api-error";
+import { loadChatSettings } from "@/lib/admin-chat/settings";
 
 /**
  * POST /api/admin/chat — one turn of the admin assistant.
@@ -42,6 +43,7 @@ const STATUS_TEXT: Record<string, string> = {
   list_plans: "Checking plans…",
   order_stats: "Crunching the numbers…",
   live_jobs: "Checking running jobs…",
+  list_image_pools: "Checking the image pools…",
   escalate_to_human: "Handing off…",
   flag_off_topic: "…",
 };
@@ -126,6 +128,10 @@ export async function POST(req: Request) {
     { role: "user", content: check.text },
   ];
 
+  // Read on every turn, so a save on /admin/assistant applies to the next
+  // message without a deploy.
+  const settings = await loadChatSettings();
+
   const conversationId = conversation.id;
   const ctx: ToolContext = {
     conversationId,
@@ -157,10 +163,14 @@ export async function POST(req: Request) {
         // Explicit key, and no auth token: left to itself the SDK also reads
         // ANTHROPIC_AUTH_TOKEN and sends it beside the key.
         const client = new Anthropic({ apiKey: cfg.apiKey, authToken: null });
-        const tools = toolDefinitions();
+        const tools = toolDefinitions(settings);
         const system: Anthropic.Beta.BetaTextBlockParam[] = [
           // Tools render before system, so this one breakpoint caches both.
-          { type: "text", text: systemPrompt(cfg.handoffName), cache_control: { type: "ephemeral" } },
+          {
+            type: "text",
+            text: systemPrompt(cfg.handoffName, settings.instructions),
+            cache_control: { type: "ephemeral" },
+          },
           { type: "text", text: dateBlock(now) },
         ];
 
@@ -171,7 +181,8 @@ export async function POST(req: Request) {
               model: cfg.model,
               max_tokens: 16000,
               system,
-              tools,
+              // Every tool switched off: send none rather than an empty list.
+              ...(tools.length ? { tools } : {}),
               messages,
               output_config: { effort: cfg.effort },
               // Server-side refusal fallback: a safety-classifier decline is
@@ -219,7 +230,7 @@ export async function POST(req: Request) {
           // All results go back in ONE user message, as parallel calls require.
           const results = await Promise.all(
             uses.map(async (u) => {
-              const r = await runTool(u.name, u.input, ctx);
+              const r = await runTool(u.name, u.input, ctx, settings.disabledTools);
               toolLog.push({ name: u.name, input: u.input, isError: r.isError });
               return {
                 type: "tool_result" as const,

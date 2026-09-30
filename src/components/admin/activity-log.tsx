@@ -28,6 +28,7 @@ const PHRASE: Record<string, string> = {
   job_released: "released a submit slot",
   password_changed: "changed their password",
   password_reset: "reset their password",
+  assistant_settings_updated: "changed the assistant's settings",
 };
 
 export function ActivityLog() {
