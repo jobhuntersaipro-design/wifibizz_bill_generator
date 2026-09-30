@@ -1,3 +1,29 @@
+# Current Feature: Umobile Image multi-upload + paginated gallery; Title Case admin tabs
+
+## Status
+
+CODE COMPLETE (branch `claude/hopeful-euler-v1v6d2`). Vercel-only, no migration. ClickUp z8v9xngrde.
+
+## Notes
+
+`/admin/umobile-image` took one file at a time and listed the whole pool on one page with uneven cards. Now: the
+picker takes many files and the upload area takes a drop; each file gets its own row (Waiting → Uploading → Added,
+or its reason in red), files that break a rule are refused before they are sent and the rest still go, one at a
+time through the existing server action, each appearing in the gallery as it lands. The gallery is square tiles
+(`object-contain`, image absolutely inside the square so a tall photo cannot stretch the row), 12 per page with page
+numbers (`pageNumbers` in `paginate.ts`), a total count, filename + DD-MM-YYYY date, click-to-preview, and Delete
+behind a confirm. Empty pool has its own state. The upload action now reads the image type from the BYTES
+(`sniffImageMime`) as well as the extension: a renamed non-image used to enter the pool and silently drop the modem
+page from any bill that picked it. Rules shared client/server in `src/lib/umobile-image-rules.ts`. Sidebar, page
+heading and topbar title read **Umobile Image** / **Landlord Signature**; routes unchanged. Bill pick untouched.
+
+Verified: on a throwaway preview route with 27 fake images of three shapes — 12 equal tiles at 1280 (296×348) and
+768 (229×281), no horizontal scroll, page 2 starts at image 13, page 3 holds 3, preview and delete-confirm dialogs,
+Cancel keeps the count; a 4-file batch showed the 6.7MB and .txt files refused by name while the two images reached
+the server action (refused there as Unauthorized — no admin session locally). 8 new vitest (1171), build clean,
+lint clean, `tsc` 3 pre-existing errors. NOT verified: a real upload/delete against production R2 + DB, and a bill
+picking a newly uploaded image.
+
 # Current Feature: Umobile bill keeps every address token (unit digits, BLOK, street state names)
 
 ## Status

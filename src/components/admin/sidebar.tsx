@@ -10,8 +10,8 @@ const navItems = [
   { label: "Users", href: "/admin", icon: UsersIcon },
   { label: "Plan Settings", href: "/admin/plans", icon: PlanIcon },
   { label: "Orders", href: "/admin/orders", icon: OrdersIcon },
-  { label: "umobile image", href: "/admin/umobile-image", icon: ImageIcon },
-  { label: "landlord signature", href: "/admin/landlord-signature", icon: SignatureIcon },
+  { label: "Umobile Image", href: "/admin/umobile-image", icon: ImageIcon },
+  { label: "Landlord Signature", href: "/admin/landlord-signature", icon: SignatureIcon },
 ];
 
 export function AdminSidebar({ open, onClose }: { open?: boolean; onClose?: () => void }) {

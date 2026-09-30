@@ -6,7 +6,7 @@ export default async function AdminUmobileImagePage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold text-[#0A2540]">umobile image</h1>
+        <h1 className="text-2xl font-semibold text-[#0A2540]">Umobile Image</h1>
         <p className="text-sm text-[#697386] mt-1">
           Modem photos for Umobile bills. Generation picks one at random.
         </p>

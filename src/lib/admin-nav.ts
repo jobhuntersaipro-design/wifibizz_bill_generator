@@ -32,8 +32,8 @@ const SECTIONS: { prefix: string; title: string }[] = [
   { prefix: "/admin/orders", title: "Orders" },
   { prefix: "/admin/plans", title: "Plan Settings" },
   { prefix: "/admin/agents", title: "Agents" },
-  { prefix: "/admin/umobile-image", title: "umobile image" },
-  { prefix: "/admin/landlord-signature", title: "landlord signature" },
+  { prefix: "/admin/umobile-image", title: "Umobile Image" },
+  { prefix: "/admin/landlord-signature", title: "Landlord Signature" },
 ];
 
 export function adminNavContext(pathname: string): AdminNavContext {
@@ -41,8 +41,8 @@ export function adminNavContext(pathname: string): AdminNavContext {
 
   if (path === "/admin/orders") return { title: "Orders", back: null };
   if (path === "/admin/plans") return { title: "Plan Settings", back: null };
-  if (path === "/admin/umobile-image") return { title: "umobile image", back: null };
-  if (path === "/admin/landlord-signature") return { title: "landlord signature", back: null };
+  if (path === "/admin/umobile-image") return { title: "Umobile Image", back: null };
+  if (path === "/admin/landlord-signature") return { title: "Landlord Signature", back: null };
   if (path === "/admin") return { title: "Users", back: null };
 
   // The live view of a run belongs to its order, not to the orders list.

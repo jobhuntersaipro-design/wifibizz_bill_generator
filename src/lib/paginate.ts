@@ -41,3 +41,21 @@ export function pageRangeLabel(page: number, total: number, perPage: number): st
   const end = Math.min(p * perPage, total);
   return `${start}–${end} of ${total}`;
 }
+
+/**
+ * The page buttons to draw: every page when there are few, otherwise the first, the
+ * last and the current one with its neighbours, gaps marked "gap".
+ * `pageNumbers(5, 10)` → `[1, "gap", 4, 5, 6, "gap", 10]`.
+ */
+export function pageNumbers(page: number, pages: number): (number | "gap")[] {
+  if (pages <= 7) return Array.from({ length: pages }, (_, i) => i + 1);
+  const keep = new Set([1, pages, page - 1, page, page + 1].filter((p) => p >= 1 && p <= pages));
+  const out: (number | "gap")[] = [];
+  let last = 0;
+  for (const p of [...keep].sort((a, b) => a - b)) {
+    if (p - last > 1) out.push("gap");
+    out.push(p);
+    last = p;
+  }
+  return out;
+}

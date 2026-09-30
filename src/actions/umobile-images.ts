@@ -3,14 +3,7 @@
 import { verifyAdminSession } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
 import { deleteFromR2, uploadToR2 } from "@/lib/r2";
-
-const MAX_BYTES = 5 * 1024 * 1024;
-
-const EXT_CONTENT_TYPE: Record<string, "image/png" | "image/jpeg"> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-};
+import { sniffImageMime, umobileImageFileError } from "@/lib/umobile-image-rules";
 
 export type UmobileImageView = {
   id: string;
@@ -56,21 +49,21 @@ export async function adminUploadUmobileImage(formData: FormData): Promise<{
   }
 
   const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) {
+  if (!(file instanceof File)) {
     return { success: false, error: "No file selected." };
   }
-  if (file.size > MAX_BYTES) {
-    return { success: false, error: "File exceeds the 5MB limit." };
-  }
+  const invalid = umobileImageFileError(file);
+  if (invalid) return { success: false, error: invalid };
 
-  const ext = (file.name.split(".").pop() || "").toLowerCase();
-  const contentType = EXT_CONTENT_TYPE[ext];
-  if (!contentType) {
-    return { success: false, error: "Use a PNG or JPEG image." };
-  }
-
-  const filename = file.name.replace(/[/\\]/g, "").slice(0, 200) || `modem.${ext}`;
   const buf = Buffer.from(await file.arrayBuffer());
+  // The stored type comes from the bytes: a renamed non-image would otherwise sit in the
+  // pool and silently drop the modem page from every bill that picked it.
+  const contentType = sniffImageMime(buf);
+  if (!contentType) {
+    return { success: false, error: "The file is not a readable PNG or JPEG image." };
+  }
+  const ext = contentType === "image/png" ? "png" : "jpg";
+  const filename = file.name.replace(/[/\\]/g, "").slice(0, 200) || `modem.${ext}`;
 
   const row = await prisma.umobileModemImage.create({
     data: {
