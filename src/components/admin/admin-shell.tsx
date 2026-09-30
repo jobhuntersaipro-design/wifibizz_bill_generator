@@ -3,8 +3,16 @@
 import { useState } from "react";
 import { AdminSidebar } from "./sidebar";
 import { AdminTopbar } from "./topbar";
+import { AdminChat } from "./admin-chat";
 
-export function AdminShell({ children }: { children: React.ReactNode }) {
+export function AdminShell({
+  children,
+  chat,
+}: {
+  children: React.ReactNode;
+  /** The admin assistant, when ADMIN_CHAT_ENABLED is on. */
+  chat?: { handoffName: string } | null;
+}) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
@@ -16,6 +24,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+      {chat ? <AdminChat handoffName={chat.handoffName} /> : null}
     </div>
   );
 }

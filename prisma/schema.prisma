@@ -509,3 +509,61 @@ model LandlordSignatureImage {
 
   @@map("landlord_signature_images")
 }
+
+// ── Admin AI chatbot (testing feature, admin only) ──────────────────────────
+// A conversation with the admin assistant. No user relation: the admin login
+// is one shared identity, so the only "who" available is the client IP, kept
+// for the lock rule (a locked IP cannot start a fresh conversation to escape it).
+model AdminChatConversation {
+  id          String                @id @default(cuid())
+  clientKey   String                @map("client_key")
+  // Off-topic refusals the model recorded. The 3rd sets lockedUntil.
+  strikes     Int                   @default(0)
+  lockedUntil DateTime?             @map("locked_until")
+  messages    AdminChatMessage[]
+  escalations AdminChatEscalation[]
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
+
+  @@index([clientKey, lockedUntil])
+  @@map("admin_chat_conversations")
+}
+
+// One turn. The assistant's text only — tool calls are kept as a JSON log for
+// review and never replayed to the model.
+model AdminChatMessage {
+  id             String                @id @default(cuid())
+  conversationId String                @map("conversation_id")
+  conversation   AdminChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String // user | assistant
+  content        String
+  toolCalls      Json?                 @map("tool_calls")
+  inputTokens    Int?                  @map("input_tokens")
+  outputTokens   Int?                  @map("output_tokens")
+  createdAt      DateTime              @default(now()) @map("created_at")
+
+  @@index([conversationId, createdAt])
+  // The daily cap counts user messages across every conversation.
+  @@index([role, createdAt])
+  @@map("admin_chat_messages")
+}
+
+// A question the assistant handed to a person. The assignee is a placeholder
+// name (ADMIN_CHAT_HANDOFF_NAME, "Sofie" today), stored as written so a later
+// rename does not rewrite who an old handoff went to.
+model AdminChatEscalation {
+  id             String                @id @default(cuid())
+  conversationId String                @map("conversation_id")
+  conversation   AdminChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  assignee       String
+  summary        String
+  reason         String
+  orderRef       String?               @map("order_ref")
+  status         String                @default("open") // open | resolved
+  emailed        Boolean               @default(false)
+  createdAt      DateTime              @default(now()) @map("created_at")
+  resolvedAt     DateTime?             @map("resolved_at")
+
+  @@index([status, createdAt])
+  @@map("admin_chat_escalations")
+}

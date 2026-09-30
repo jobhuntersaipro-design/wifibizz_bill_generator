@@ -1,3 +1,24 @@
+# Current Feature: Admin AI Chatbot (testing, admin only)
+
+## Status
+
+CODE COMPLETE, NOT VERIFIED LIVE (branch `claude/gifted-dijkstra-9hfxee`). Vercel-only. **Migration**
+`20260930120000_admin_chat`. Needs `ADMIN_CHAT_ENABLED=1` + `ANTHROPIC_API_KEY` on Vercel. Popup verified in a
+browser against a mocked stream; no real model call has run (no key or database in the build container).
+Spec: [context/features/admin-ai-chatbot.md](features/admin-ai-chatbot.md).
+
+## Goals
+
+- A popup AI chatbot on every `/admin` page, behind `ADMIN_CHAT_ENABLED`
+- Answers about order status/details, plans, agents and failures from read-only database tools
+- Refuses off-topic or manipulative requests; strikes, rate limit and a daily cap stop abuse
+- Hands a question to a human — **Sofie**, a placeholder name/address set by env
+
+## Notes
+
+Tools, not RAG: the knowledge base is the database. No tool can change an order, plan, user or job.
+ID and phone are masked before anything reaches the model. Shared admin login, so limits key on IP.
+
 # Current Feature: Umobile Image multi-upload + paginated gallery; Title Case admin tabs
 
 ## Status

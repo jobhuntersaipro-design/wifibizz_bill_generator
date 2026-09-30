@@ -117,7 +117,10 @@ function pill(bucket: OutcomeBucket, label: string): string {
  * subject: a subject line is gone the moment the mail is open, and the verdict
  * has to survive that.
  */
-function shell(mark: string, title: string, body: string): string {
+const ORDER_MAIL_FOOTER =
+  "You're getting this because order notifications are on for your BizzFlow account. Change the destination address in Settings.";
+
+function shell(mark: string, title: string, body: string, footer = ORDER_MAIL_FOOTER): string {
   const link = ordersUrl();
   return `<!doctype html>
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head><body style="margin:0;padding:24px;background:${SURFACE};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Arial,sans-serif;color:${INK};">
@@ -129,7 +132,7 @@ function shell(mark: string, title: string, body: string): string {
     <tr><td style="padding:8px 24px 24px;font-size:14px;line-height:1.55;color:${INK};">${body}</td></tr>
     <tr><td style="padding:16px 24px;border-top:1px solid ${LINE};font-size:12px;color:${MUTED};">
       ${link ? `<a href="${esc(link)}" style="color:${BRAND};text-decoration:none;font-weight:600;">Open the Orders page</a><br/>` : ""}
-      You're getting this because order notifications are on for your BizzFlow account. Change the destination address in Settings.
+      ${esc(footer)}
     </td></tr>
   </table>
 </body></html>`;
@@ -364,4 +367,39 @@ export function accountEmailShell(
      </div>
      <p style="margin:0;font-size:12px;color:${MUTED};">${esc(footnote)}</p>`,
   );
+}
+
+/**
+ * A question the admin assistant handed to a person. The recipient is a
+ * placeholder (ADMIN_CHAT_HANDOFF_EMAIL) until a real owner is named.
+ */
+export function handoffEmail(h: {
+  assignee: string;
+  summary: string;
+  reason: string;
+  orderRef: string | null;
+  orderUrl: string | null;
+}): { subject: string; html: string } {
+  const orderLine = h.orderRef
+    ? row(
+        "Order",
+        h.orderUrl
+          ? `<a href="${esc(h.orderUrl)}" style="color:${BRAND};text-decoration:none;">${esc(h.orderRef)}</a>`
+          : esc(h.orderRef),
+      )
+    : "";
+  return {
+    subject: `🙋 Admin assistant handoff${h.orderRef ? ` — ${h.orderRef}` : ""}`,
+    html: shell(
+      "🙋",
+      `Handed to ${esc(h.assignee)}`,
+      `<p style="margin:0 0 12px;">${esc(h.summary)}</p>
+       <table role="presentation" cellpadding="0" cellspacing="0">
+         ${row("Why", esc(h.reason))}
+         ${orderLine}
+       </table>
+       <p style="margin:12px 0 0;font-size:12px;color:${MUTED};">Open the admin assistant's Handoffs tab to resolve it.</p>`,
+      "Sent by the BizzFlow admin assistant (testing feature).",
+    ),
+  };
 }
