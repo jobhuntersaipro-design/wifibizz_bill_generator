@@ -13,6 +13,7 @@ import {
 import { dateBlock, systemPrompt } from "@/lib/admin-chat/prompt";
 import { checkChatRateLimit } from "@/lib/admin-chat/rate-limit";
 import { runTool, toolDefinitions, type ToolContext } from "@/lib/admin-chat/tools";
+import { describeApiError } from "@/lib/admin-chat/api-error";
 
 /**
  * POST /api/admin/chat — one turn of the admin assistant.
@@ -246,14 +247,17 @@ export async function POST(req: Request) {
         send({ type: "done" });
       } catch (e) {
         if (!req.signal.aborted) {
-          console.error("[admin-chat] turn failed:", e);
+          console.error(
+            "[admin-chat] turn failed:",
+            e instanceof Anthropic.APIError ? describeApiError(e) : e,
+          );
           const message =
             e instanceof Anthropic.RateLimitError
               ? "The AI service is busy. Try again in a minute."
               : e instanceof Anthropic.AuthenticationError
                 ? "The assistant's API key was rejected."
                 : e instanceof Anthropic.APIError
-                  ? `The AI service answered ${e.status ?? "an error"}. Try again.`
+                  ? describeApiError(e)
                   : "Something went wrong. Try again.";
           send({ type: "error", message });
         }

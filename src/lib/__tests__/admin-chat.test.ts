@@ -273,3 +273,33 @@ describe("the system prompt", () => {
     expect(dateBlock(new Date("2026-09-30T20:30:00Z"))).toContain("2026-10-01 04:30");
   });
 });
+
+describe("API error shown to the admin", async () => {
+  const { describeApiError } = await import("@/lib/admin-chat/api-error");
+  const Anthropic = (await import("@anthropic-ai/sdk")).default;
+
+  it("names the API's own reason and request id, not just the status", () => {
+    const e = Anthropic.APIError.generate(
+      400,
+      { type: "error", error: { type: "invalid_request_error", message: "fallbacks: Extra inputs are not permitted" } },
+      undefined,
+      new Headers({ "request-id": "req_011abc" }),
+    );
+    expect(e).toBeInstanceOf(Anthropic.BadRequestError);
+    expect(describeApiError(e)).toBe(
+      "The AI service refused the request (400): fallbacks: Extra inputs are not permitted Request req_011abc.",
+    );
+  });
+
+  it("still says something when the body carries no message", () => {
+    expect(describeApiError({ status: 500 })).toBe("The AI service refused the request (500).");
+    expect(describeApiError({})).toBe("The AI service refused the request.");
+  });
+
+  it("caps a very long reason", () => {
+    const long = "x".repeat(900);
+    const out = describeApiError({ status: 400, error: { error: { message: long } } });
+    expect(out.length).toBeLessThan(460);
+    expect(out.endsWith("…")).toBe(true);
+  });
+});
