@@ -29,12 +29,36 @@ function intEnv(value: string | undefined, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+/**
+ * The key as pasted into Vercel, minus what a paste commonly adds: surrounding
+ * whitespace and quotes. A quoted key is sent verbatim and the API answers 401.
+ */
+export function cleanApiKey(raw: string | undefined): string {
+  return (raw ?? "").trim().replace(/^(["'])(.*)\1$/, "$2").trim();
+}
+
+/**
+ * Why a key cannot work, judged from its prefix alone — never echoes the key.
+ * Only the two known wrong kinds are refused; an unfamiliar prefix is let
+ * through so a future key format is not blocked by this check.
+ */
+export function apiKeyProblem(key: string): string | null {
+  if (!key) return "ANTHROPIC_API_KEY is not set.";
+  if (key.startsWith("sk-ant-admin")) {
+    return "ANTHROPIC_API_KEY is an Admin API key (sk-ant-admin…), which cannot send messages. Create a regular API key (sk-ant-api…) in the Claude Console.";
+  }
+  if (key.startsWith("sk-ant-oat")) {
+    return "ANTHROPIC_API_KEY is an OAuth token (sk-ant-oat…), not an API key. Create an API key (sk-ant-api…) in the Claude Console.";
+  }
+  return null;
+}
+
 export function chatConfig() {
   const effortRaw = (process.env.ADMIN_CHAT_EFFORT ?? "").trim() as ChatEffort;
   const handoffName = process.env.ADMIN_CHAT_HANDOFF_NAME?.trim() || "Sofie";
   return {
     enabled: process.env.ADMIN_CHAT_ENABLED === "1",
-    apiKeyPresent: !!process.env.ANTHROPIC_API_KEY,
+    apiKey: cleanApiKey(process.env.ANTHROPIC_API_KEY),
     model: process.env.ADMIN_CHAT_MODEL?.trim() || "claude-opus-5-5",
     effort: EFFORTS.includes(effortRaw) ? effortRaw : ("medium" as ChatEffort),
     dailyLimit: intEnv(process.env.ADMIN_CHAT_DAILY_LIMIT, 200),
