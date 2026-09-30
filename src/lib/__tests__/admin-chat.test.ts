@@ -338,3 +338,77 @@ describe("the API key as read from the environment", async () => {
     expect(describeApiError(e)).toBe("The AI service refused the request (401): invalid x-api-key Request req_401.");
   });
 });
+
+describe("the visible trace", async () => {
+  const { applyStreamEvent, traceSummary } = await import("@/lib/admin-chat/stream-state");
+  const { describeToolInput, describeToolResult, HIDDEN_TOOLS } = await import("@/lib/admin-chat/trace");
+  type Msg = import("@/lib/admin-chat/stream-state").AssistantMessage;
+  type Ev = import("@/lib/admin-chat/stream-state").StreamEvent;
+  const fresh = (): Msg => ({ role: "assistant", text: "", steps: [], startedAt: 0 });
+  const fold = (events: Ev[]): Msg => events.reduce<Msg>((m, ev) => applyStreamEvent(m, ev), fresh());
+
+  it("thinking deltas join one step until something else happens", () => {
+    const m = fold([
+      { type: "thinking", delta: "Look up " },
+      { type: "thinking", delta: "the plans." },
+      { type: "tool_start", id: "t1", name: "list_plans", label: "Checked plans", detail: "500M" },
+      { type: "thinking", delta: "Two match." },
+    ]);
+    expect(m.steps.map((s) => s.kind)).toEqual(["thinking", "tool", "thinking"]);
+    expect(m.steps[0]).toEqual({ kind: "thinking", text: "Look up the plans." });
+  });
+
+  it("text written before a tool call moves into the trace; only the last call's text is the answer", () => {
+    const m = fold([
+      { type: "text", delta: "Let me check." },
+      { type: "tool_start", id: "t1", name: "get_order", label: "Read an order", detail: "ORD-0275" },
+      { type: "tool_end", id: "t1", ok: true, summary: "ORD-0275 · Failed" },
+      { type: "text", delta: "It failed because…" },
+    ]);
+    expect(m.text).toBe("It failed because…");
+    expect(m.steps[0]).toEqual({ kind: "note", text: "Let me check." });
+    expect(m.steps[1]).toMatchObject({ kind: "tool", state: "done", summary: "ORD-0275 · Failed" });
+  });
+
+  it("parallel tools finish independently, and a failed one reads as an error", () => {
+    const m = fold([
+      { type: "tool_start", id: "a", name: "search_orders", label: "Searched orders", detail: "" },
+      { type: "tool_start", id: "b", name: "live_jobs", label: "Checked running jobs", detail: "" },
+      { type: "tool_end", id: "b", ok: false, summary: "Could not reach the order service." },
+    ]);
+    expect(m.steps.map((s) => (s.kind === "tool" ? s.state : s.kind))).toEqual(["running", "error"]);
+  });
+
+  it("the live header names a single running lookup, or counts several", async () => {
+    const { liveLabel } = await import("@/lib/admin-chat/stream-state");
+    const one = fold([{ type: "tool_start", id: "a", name: "list_plans", label: "Checked plans", active: "Checking plans", detail: "" }]);
+    expect(liveLabel(one.steps)).toBe("Checking plans…");
+    const two = fold([
+      { type: "tool_start", id: "a", name: "list_plans", label: "Checked plans", active: "Checking plans", detail: "" },
+      { type: "tool_start", id: "b", name: "live_jobs", label: "Checked running jobs", active: "Checking running jobs", detail: "" },
+    ]);
+    expect(liveLabel(two.steps)).toBe("Running 2 lookups…");
+    expect(liveLabel(fold([{ type: "thinking", delta: "x" }]).steps)).toBe("Thinking…");
+  });
+
+  it("the collapsed header counts lookups and time", () => {
+    const m = { ...fold([{ type: "tool_start", id: "a", name: "search_orders", label: "x", detail: "" }]), startedAt: 0, endedAt: 6200 };
+    expect(traceSummary(m)).toBe("Worked for 6s · 1 lookup");
+    expect(traceSummary({ ...fresh(), endedAt: 100 })).toBe("Worked for 1s");
+  });
+
+  it("describes what a call asked for and found, without customer rows", () => {
+    expect(describeToolInput("search_orders", { query: "ORD-0275", status: "failed", createdFrom: "2026-09-24" }))
+      .toBe("“ORD-0275” · failed · since 2026-09-24");
+    expect(describeToolInput("search_orders", {})).toBe("newest orders");
+    expect(describeToolInput("list_plans", { speed: "500M", publishedOnly: true })).toBe("500M · published only");
+    expect(describeToolInput("escalate_to_human", { orderRef: "ORD-0001" }, "Sofie")).toBe("to Sofie · ORD-0001");
+    expect(describeToolResult("search_orders", JSON.stringify({ matched: 1, orders: [{ customer: "ALI" }] }), false)).toBe("1 match");
+    expect(describeToolResult("list_plans", JSON.stringify({ matched: 3, publishedCount: 2 }), false)).toBe("3 plans · 2 published");
+    expect(describeToolResult("order_stats", JSON.stringify({ totals: { submitted: 9, failedAttempts: 1 } }), false))
+      .toBe("9 submitted · 1 failed attempt");
+    expect(describeToolResult("get_order", JSON.stringify({ error: "No order matches \"x\"." }), true)).toBe("No order matches \"x\".");
+    expect(describeToolResult("live_jobs", "not json", false)).toBe("done");
+    expect(HIDDEN_TOOLS.has("flag_off_topic")).toBe(true);
+  });
+});

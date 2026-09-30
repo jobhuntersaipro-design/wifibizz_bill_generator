@@ -14,6 +14,13 @@ import { dateBlock, systemPrompt } from "@/lib/admin-chat/prompt";
 import { checkChatRateLimit } from "@/lib/admin-chat/rate-limit";
 import { runTool, toolDefinitions, type ToolContext } from "@/lib/admin-chat/tools";
 import { describeApiError } from "@/lib/admin-chat/api-error";
+import {
+  describeToolInput,
+  describeToolResult,
+  HIDDEN_TOOLS,
+  TOOL_ACTIVE_LABEL,
+  TOOL_LABEL,
+} from "@/lib/admin-chat/trace";
 
 /**
  * POST /api/admin/chat — one turn of the admin assistant.
@@ -21,8 +28,12 @@ import { describeApiError } from "@/lib/admin-chat/api-error";
  * Body: `{ conversationId?: string, message: string }`.
  * Answers with NDJSON, one event per line:
  *   { type: "conversation", id }        the conversation this turn belongs to
- *   { type: "status", text }            a tool is running ("Looking up the order…")
- *   { type: "text", delta }             streamed answer text
+ *   { type: "thinking", delta }         streamed thinking summary
+ *   { type: "tool_start", id, name, label, active, detail }   a lookup began
+ *   { type: "tool_end", id, ok, summary }             …and what it found
+ *   { type: "text", delta }             streamed text; text written before a
+ *                                       tool call is a working note, not the
+ *                                       answer (the panel moves it into the trace)
  *   { type: "handoff", assignee }       escalate_to_human ran
  *   { type: "locked", message }         the 3rd strike locked the chat
  *   { type: "done" } | { type: "error", message }
@@ -34,17 +45,6 @@ import { describeApiError } from "@/lib/admin-chat/api-error";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
-
-const STATUS_TEXT: Record<string, string> = {
-  search_orders: "Searching orders…",
-  get_order: "Reading the order…",
-  explain_error_code: "Looking up the error…",
-  list_plans: "Checking plans…",
-  order_stats: "Crunching the numbers…",
-  live_jobs: "Checking running jobs…",
-  escalate_to_human: "Handing off…",
-  flag_off_topic: "…",
-};
 
 function refuse(status: number, error: string) {
   return NextResponse.json({ error }, { status });
@@ -147,6 +147,9 @@ export async function POST(req: Request) {
       let handoffSent = false;
 
       let answer = "";
+      // Text from the model call in progress. It only becomes the answer when
+      // that call ends without a tool call; otherwise it was a working note.
+      let callText = "";
       let inputTokens = 0;
       let outputTokens = 0;
       const toolLog: { name: string; input: unknown; isError: boolean }[] = [];
@@ -174,6 +177,10 @@ export async function POST(req: Request) {
               tools,
               messages,
               output_config: { effort: cfg.effort },
+              // Readable summaries of the reasoning, shown in the panel's trace.
+              // Thinking is always on for this model; this only sets what is
+              // returned. Blocks go back unchanged in the tool loop below.
+              thinking: { type: "adaptive", display: "summarized" },
               // Server-side refusal fallback: a safety-classifier decline is
               // retried on the model the API picks for that category.
               betas: ["server-side-fallback-2026-07-01"],
@@ -181,17 +188,19 @@ export async function POST(req: Request) {
             },
             { signal: req.signal },
           );
+          callText = "";
           turn.on("text", (delta) => {
-            answer += delta;
+            callText += delta;
             send({ type: "text", delta });
           });
+          turn.on("thinking", (delta) => send({ type: "thinking", delta }));
           const msg = await turn.finalMessage();
           inputTokens += msg.usage.input_tokens + (msg.usage.cache_read_input_tokens ?? 0);
           outputTokens += msg.usage.output_tokens;
 
           if (msg.stop_reason === "refusal") {
             const note = "\n\nI can't help with that one.";
-            answer += note;
+            answer = callText + note;
             send({ type: "text", delta: note });
             break;
           }
@@ -199,28 +208,43 @@ export async function POST(req: Request) {
             (b): b is Anthropic.Beta.BetaToolUseBlock => b.type === "tool_use",
           );
           if (uses.length === 0) {
+            answer = callText;
             finished = true;
             break;
           }
           if (msg.stop_reason === "max_tokens") {
             // A tool input cut off mid-way is never run.
             const note = "\n\n(The answer ran too long. Ask a narrower question.)";
-            answer += note;
+            answer = callText + note;
             send({ type: "text", delta: note });
             break;
           }
 
           messages.push({ role: "assistant", content: msg.content });
           for (const u of uses) {
-            if (STATUS_TEXT[u.name] && u.name !== "flag_off_topic") {
-              send({ type: "status", text: STATUS_TEXT[u.name] });
-            }
+            if (HIDDEN_TOOLS.has(u.name)) continue;
+            send({
+              type: "tool_start",
+              id: u.id,
+              name: u.name,
+              label: TOOL_LABEL[u.name] ?? u.name,
+              active: TOOL_ACTIVE_LABEL[u.name] ?? u.name,
+              detail: describeToolInput(u.name, u.input, cfg.handoffName),
+            });
           }
           // All results go back in ONE user message, as parallel calls require.
           const results = await Promise.all(
             uses.map(async (u) => {
               const r = await runTool(u.name, u.input, ctx);
               toolLog.push({ name: u.name, input: u.input, isError: r.isError });
+              if (!HIDDEN_TOOLS.has(u.name)) {
+                send({
+                  type: "tool_end",
+                  id: u.id,
+                  ok: !r.isError,
+                  summary: describeToolResult(u.name, r.content, r.isError),
+                });
+              }
               return {
                 type: "tool_result" as const,
                 tool_use_id: u.id,
@@ -249,6 +273,7 @@ export async function POST(req: Request) {
         }
         send({ type: "done" });
       } catch (e) {
+        answer ||= callText;
         if (!req.signal.aborted) {
           console.error(
             "[admin-chat] turn failed:",
