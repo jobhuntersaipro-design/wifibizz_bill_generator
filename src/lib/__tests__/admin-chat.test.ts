@@ -303,3 +303,38 @@ describe("API error shown to the admin", async () => {
     expect(out.endsWith("…")).toBe(true);
   });
 });
+
+describe("the API key as read from the environment", async () => {
+  const { cleanApiKey, apiKeyProblem } = await import("@/lib/admin-chat/config");
+  const { describeApiError } = await import("@/lib/admin-chat/api-error");
+  const Anthropic = (await import("@anthropic-ai/sdk")).default;
+
+  it("strips the whitespace and quotes a paste adds", () => {
+    expect(cleanApiKey('  "sk-ant-api03-abc"\n')).toBe("sk-ant-api03-abc");
+    expect(cleanApiKey("'sk-ant-api03-abc'")).toBe("sk-ant-api03-abc");
+    expect(cleanApiKey(undefined)).toBe("");
+    // A quote on one side only is not a pair; left for the API to reject.
+    expect(cleanApiKey('"sk-ant-api03-abc')).toBe('"sk-ant-api03-abc');
+  });
+
+  it("refuses the two wrong kinds of key by prefix, never echoing the key", () => {
+    expect(apiKeyProblem("")).toMatch(/not set/);
+    const admin = apiKeyProblem("sk-ant-admin01-SECRETPART");
+    expect(admin).toMatch(/Admin API key/);
+    expect(admin).not.toContain("SECRETPART");
+    expect(apiKeyProblem("sk-ant-oat01-SECRETPART")).toMatch(/OAuth token/);
+    expect(apiKeyProblem("sk-ant-api03-abc")).toBeNull();
+    expect(apiKeyProblem("some-future-format")).toBeNull();
+  });
+
+  it("a 401 names the API's reason", () => {
+    const e = Anthropic.APIError.generate(
+      401,
+      { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } },
+      undefined,
+      new Headers({ "request-id": "req_401" }),
+    );
+    expect(e).toBeInstanceOf(Anthropic.AuthenticationError);
+    expect(describeApiError(e)).toBe("The AI service refused the request (401): invalid x-api-key Request req_401.");
+  });
+});

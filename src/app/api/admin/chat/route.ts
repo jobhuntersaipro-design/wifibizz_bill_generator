@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyAdminSession } from "@/lib/admin-auth";
-import { CHAT_LIMITS, chatConfig } from "@/lib/admin-chat/config";
+import { apiKeyProblem, CHAT_LIMITS, chatConfig } from "@/lib/admin-chat/config";
 import {
   checkMessage,
   clientKeyFrom,
@@ -55,7 +55,8 @@ export async function POST(req: Request) {
   // Disabled reads as absent: a testing feature should not advertise itself.
   if (!cfg.enabled) return refuse(404, "Not found");
   if (!(await verifyAdminSession())) return refuse(401, "Your admin session has expired. Log in again.");
-  if (!cfg.apiKeyPresent) return refuse(503, "The assistant is not configured (ANTHROPIC_API_KEY is missing).");
+  const keyProblem = apiKeyProblem(cfg.apiKey);
+  if (keyProblem) return refuse(503, `The assistant is not configured: ${keyProblem}`);
 
   let body: { conversationId?: unknown; message?: unknown };
   try {
@@ -153,7 +154,9 @@ export async function POST(req: Request) {
       send({ type: "conversation", id: conversationId });
 
       try {
-        const client = new Anthropic();
+        // Explicit key, and no auth token: left to itself the SDK also reads
+        // ANTHROPIC_AUTH_TOKEN and sends it beside the key.
+        const client = new Anthropic({ apiKey: cfg.apiKey, authToken: null });
         const tools = toolDefinitions();
         const system: Anthropic.Beta.BetaTextBlockParam[] = [
           // Tools render before system, so this one breakpoint caches both.
@@ -251,11 +254,13 @@ export async function POST(req: Request) {
             "[admin-chat] turn failed:",
             e instanceof Anthropic.APIError ? describeApiError(e) : e,
           );
+          // Every API failure carries the API's own reason; the prefix only
+          // says which of our settings to look at first.
           const message =
-            e instanceof Anthropic.RateLimitError
-              ? "The AI service is busy. Try again in a minute."
-              : e instanceof Anthropic.AuthenticationError
-                ? "The assistant's API key was rejected."
+            e instanceof Anthropic.AuthenticationError
+              ? `The assistant's API key was rejected. ${describeApiError(e)}`
+              : e instanceof Anthropic.RateLimitError
+                ? `The AI service is busy; try again in a minute. ${describeApiError(e)}`
                 : e instanceof Anthropic.APIError
                   ? describeApiError(e)
                   : "Something went wrong. Try again.";
