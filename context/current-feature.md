@@ -1,3 +1,18 @@
+# Current Feature: Pick the assistant's model and effort on /admin/assistant
+
+## Status
+
+CODE COMPLETE, NOT VERIFIED AGAINST A DATABASE (branch `claude/cool-gauss-34mx8z`, restarted from main after
+PR #41 merged). Vercel-only. **Migration `20260930140000_admin_chat_settings_model`** (two nullable columns).
+
+## Notes
+
+A Model card on `/admin/assistant`: model (Opus 5.5 / Sonnet 5.5 / Fable 5.1) and effort (low / medium / high),
+each with "Deployment default", which keeps `ADMIN_CHAT_MODEL` / `ADMIN_CHAT_EFFORT`. Only models that accept what
+the route sends (effort + `fallbacks: "default"`) are offered — Haiku 4.5 is left out. A stored id no longer
+offered reads back as the default. Changes are audited. 4 new vitest (49 in the file), build + lint clean, page
+checked in Chromium at 1440 / 375 (no database, so Save not exercised).
+
 # Current Feature: Admin can edit the assistant's prompt and tools
 
 ## Status

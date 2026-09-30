@@ -51,7 +51,7 @@ const { classifyOrderLookup, maskPhone, orderSummary, orderDetail, toolResult, M
   await import("@/lib/admin-chat/format");
 const { CHAT_TOOLS, toolDefinitions, runTool } = await import("@/lib/admin-chat/tools");
 const { systemPrompt, dateBlock, DEFAULT_INSTRUCTIONS, SAFETY_BLOCK } = await import("@/lib/admin-chat/prompt");
-const { normalizeChatSettings, disabledToolsNamedIn, chatSettingsFromRow } = await import(
+const { normalizeChatSettings, disabledToolsNamedIn, chatSettingsFromRow, effectiveModel, CHAT_MODELS } = await import(
   "@/lib/admin-chat/settings-rules"
 );
 const { CHAT_LIMITS } = await import("@/lib/admin-chat/config");
@@ -376,6 +376,7 @@ describe("the image pools tool", () => {
 
 describe("admin-edited settings", () => {
   const known = CHAT_TOOLS.map((t) => ({ name: t.name, description: t.description }));
+  const base = { instructions: null, disabledTools: [] as string[], toolDescriptions: {}, model: null, effort: null };
 
   it("nothing saved gives exactly the built-in prompt", () => {
     expect(systemPrompt("Sofie", null)).toBe(systemPrompt("Sofie"));
@@ -410,6 +411,7 @@ describe("admin-edited settings", () => {
   it("saving the defaults stores nothing, so it is the same as never saving", () => {
     const res = normalizeChatSettings(
       {
+        ...base,
         instructions: DEFAULT_INSTRUCTIONS + "\n",
         disabledTools: [],
         toolDescriptions: Object.fromEntries(known.map((t) => [t.name, t.description])),
@@ -417,13 +419,13 @@ describe("admin-edited settings", () => {
       known,
       DEFAULT_INSTRUCTIONS,
     );
-    expect(res).toEqual({ ok: true, settings: { instructions: null, disabledTools: [], toolDescriptions: {} } });
+    expect(res).toEqual({ ok: true, settings: base });
   });
   it("refuses unknown tools, a gutted prompt and a too-short description", () => {
-    expect(normalizeChatSettings({ instructions: null, disabledTools: ["adminPurge"], toolDescriptions: {} }, known, DEFAULT_INSTRUCTIONS).ok).toBe(false);
-    expect(normalizeChatSettings({ instructions: "be nice", disabledTools: [], toolDescriptions: {} }, known, DEFAULT_INSTRUCTIONS).ok).toBe(false);
-    expect(normalizeChatSettings({ instructions: null, disabledTools: [], toolDescriptions: { get_order: "short" } }, known, DEFAULT_INSTRUCTIONS).ok).toBe(false);
-    expect(normalizeChatSettings({ instructions: null, disabledTools: [], toolDescriptions: { nope: "a long enough description here" } }, known, DEFAULT_INSTRUCTIONS).ok).toBe(false);
+    expect(normalizeChatSettings({ ...base, instructions: null, disabledTools: ["adminPurge"], toolDescriptions: {} }, known, DEFAULT_INSTRUCTIONS).ok).toBe(false);
+    expect(normalizeChatSettings({ ...base, instructions: "be nice", disabledTools: [], toolDescriptions: {} }, known, DEFAULT_INSTRUCTIONS).ok).toBe(false);
+    expect(normalizeChatSettings({ ...base, instructions: null, disabledTools: [], toolDescriptions: { get_order: "short" } }, known, DEFAULT_INSTRUCTIONS).ok).toBe(false);
+    expect(normalizeChatSettings({ ...base, instructions: null, disabledTools: [], toolDescriptions: { nope: "a long enough description here" } }, known, DEFAULT_INSTRUCTIONS).ok).toBe(false);
   });
   it("warns when the instructions name a switched-off tool, by whole word", () => {
     expect(disabledToolsNamedIn(DEFAULT_INSTRUCTIONS, ["flag_off_topic", "live_jobs"])).toEqual(["flag_off_topic"]);
@@ -433,6 +435,32 @@ describe("admin-edited settings", () => {
       instructions: null,
       disabledTools: ["live_jobs"],
       toolDescriptions: {},
+      model: null,
+      effort: null,
+    });
+  });
+  it("a model or effort picked on the page wins over the deployment's", () => {
+    const deployment = { model: "claude-opus-5-5", effort: "medium" as const };
+    expect(effectiveModel({ model: null, effort: null }, deployment)).toEqual(deployment);
+    expect(effectiveModel({ model: "claude-sonnet-5-5", effort: "low" }, deployment)).toEqual({
+      model: "claude-sonnet-5-5",
+      effort: "low",
+    });
+  });
+  it("only offered models and efforts can be saved", () => {
+    expect(normalizeChatSettings({ ...base, model: "claude-sonnet-5-5", effort: "high" }, known, DEFAULT_INSTRUCTIONS)).toEqual({
+      ok: true,
+      settings: { ...base, model: "claude-sonnet-5-5", effort: "high" },
+    });
+    expect(normalizeChatSettings({ ...base, model: "claude-haiku-4-5" }, known, DEFAULT_INSTRUCTIONS).ok).toBe(false);
+    expect(normalizeChatSettings({ ...base, effort: "max" as never }, known, DEFAULT_INSTRUCTIONS).ok).toBe(false);
+  });
+  it("a stored model no longer offered falls back to the deployment's", () => {
+    const row = { instructions: null, disabledTools: [], toolDescriptions: {} };
+    expect(chatSettingsFromRow({ ...row, model: "claude-old-1", effort: "extreme" })).toMatchObject({ model: null, effort: null });
+    expect(chatSettingsFromRow({ ...row, model: CHAT_MODELS[1].id, effort: "low" })).toMatchObject({
+      model: CHAT_MODELS[1].id,
+      effort: "low",
     });
   });
 });
