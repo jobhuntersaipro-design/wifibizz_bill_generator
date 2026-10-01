@@ -49,7 +49,10 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${inter.variable} ${geist.variable} ${jetbrainsMono.variable} h-full antialiased`}
-      // The design script below sets data-design / data-accent before hydration.
+      // Arc is the default design; the script below removes these before first paint
+      // for a viewer who chose Classic, and sets their stored Arc accent otherwise.
+      data-design="arc"
+      data-accent="neutral"
       suppressHydrationWarning
     >
       <head>

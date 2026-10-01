@@ -17,6 +17,7 @@ import {
 } from "./shared";
 import { FileStackIcon, CheckCircleIcon, FileTextIcon } from "./icons";
 import { Button } from "@/components/ui/button";
+import { Segmented } from "@/components/ui/segmented";
 
 // ── KPI Card ──
 
@@ -421,17 +422,25 @@ export default function AnalyticsSection({ surface }: { surface: AnalyticsSurfac
                 {hasChartFilters && (
                   <button className="text-[11px] text-danger hover:underline" onClick={() => setChartProvider("")}>Clear</button>
                 )}
-                <div className="flex items-center bg-wash rounded-md p-0.5 border border-line">
-                  {GRANULARITY_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      className={`px-2.5 py-1 text-[11px] font-medium rounded transition-all ${granularity === opt.value ? "bg-white text-ink shadow-sm" : "text-ink-muted hover:text-ink-soft"}`}
-                      onClick={() => setGranularity(opt.value)}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
+                <Segmented
+                  label="Chart granularity"
+                  options={GRANULARITY_OPTIONS}
+                  value={granularity}
+                  onValueChange={(v) => setGranularity(v as typeof granularity)}
+                  classic={
+                    <div className="flex items-center bg-wash rounded-md p-0.5 border border-line">
+                      {GRANULARITY_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          className={`px-2.5 py-1 text-[11px] font-medium rounded transition-all ${granularity === opt.value ? "bg-white text-ink shadow-sm" : "text-ink-muted hover:text-ink-soft"}`}
+                          onClick={() => setGranularity(opt.value)}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  }
+                />
               </div>
             </div>
           </div>

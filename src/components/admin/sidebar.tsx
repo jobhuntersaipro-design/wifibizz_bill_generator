@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { adminLogout } from "@/actions/admin-auth";
+import { Button } from "@/components/ui/button";
 
 const navItems = [
   { label: "Users", href: "/admin", icon: UsersIcon },
@@ -35,7 +36,7 @@ export function AdminSidebar({ open, onClose }: { open?: boolean; onClose?: () =
       )}>
       {/* Close — mobile only. The drawer used to be dismissable only by tapping
           the backdrop, which nothing on screen suggested. */}
-      <button
+      <Button unstyled variant="ghost" size="icon-sm"
         type="button"
         onClick={onClose}
         aria-label="Close menu"
@@ -44,7 +45,7 @@ export function AdminSidebar({ open, onClose }: { open?: boolean; onClose?: () =
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
           <path d="M18 6 6 18M6 6l12 12" />
         </svg>
-      </button>
+      </Button>
 
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-5 py-5">

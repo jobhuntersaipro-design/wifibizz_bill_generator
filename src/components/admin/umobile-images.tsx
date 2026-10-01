@@ -21,6 +21,8 @@ import { clampPage, pageCount, pageNumbers, pageSlice } from "@/lib/paginate";
 import { createdParts } from "@/lib/order-types";
 import { UMOBILE_GALLERY_PAGE_SIZE, umobileImageFileError } from "@/lib/umobile-image-rules";
 import { Button } from "@/components/ui/button";
+import { Pagination } from "@/components/arc/components/pagination/pagination";
+import { useIsArc } from "@/components/design/use-design";
 
 type UploadStatus = "queued" | "uploading" | "done" | "error";
 
@@ -34,6 +36,7 @@ interface UploadItem {
 const PER_PAGE = UMOBILE_GALLERY_PAGE_SIZE;
 
 export function UmobileImages({ initialImages }: { initialImages: UmobileImageView[] }) {
+  const arc = useIsArc();
   const [images, setImages] = useState<UmobileImageView[]>(initialImages);
   const [page, setPage] = useState(1);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
@@ -177,14 +180,14 @@ export function UmobileImages({ initialImages }: { initialImages: UmobileImageVi
               {busy ? "Uploading…" : "Upload finished"} · {doneCount} of {uploads.length} added
             </p>
             {!busy && (
-              <button
+              <Button unstyled variant="ghost" size="icon-sm"
                 type="button"
                 onClick={() => setUploads([])}
                 className="rounded-md p-1 text-ink-muted hover:bg-wash"
                 aria-label="Dismiss upload results"
               >
                 <X className="h-3.5 w-3.5" />
-              </button>
+              </Button>
             )}
           </div>
           <ul className="max-h-56 divide-y divide-line overflow-y-auto">
@@ -248,7 +251,7 @@ export function UmobileImages({ initialImages }: { initialImages: UmobileImageVi
                     {createdParts(image.createdAt)?.date ?? "—"}
                   </p>
                 </div>
-                <button
+                <Button unstyled variant="ghost" size="icon-sm"
                   type="button"
                   onClick={() => setDeleteTarget(image)}
                   className="shrink-0 rounded-md p-1.5 text-danger hover:bg-red-50"
@@ -256,14 +259,18 @@ export function UmobileImages({ initialImages }: { initialImages: UmobileImageVi
                   title="Delete"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
-                </button>
+                </Button>
               </div>
             </li>
           ))}
         </ul>
       )}
 
-      {pages > 1 && (
+      {pages > 1 && (arc ? (
+        <div className="flex justify-center">
+          <Pagination page={current} pageCount={pages} onPageChange={setPage} label="Gallery pages" />
+        </div>
+      ) : (
         <nav className="flex items-center justify-center gap-1" aria-label="Gallery pages">
           <PageButton label="Previous page" disabled={current <= 1} onClick={() => setPage(current - 1)}>
             <ChevronLeft className="h-4 w-4" />
@@ -288,7 +295,7 @@ export function UmobileImages({ initialImages }: { initialImages: UmobileImageVi
             <ChevronRight className="h-4 w-4" />
           </PageButton>
         </nav>
-      )}
+      ))}
 
       {preview && (
         <Dialog open onOpenChange={(open) => !open && setPreview(null)}>

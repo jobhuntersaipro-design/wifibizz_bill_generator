@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { formatAddress } from "../OrderRow";
 import { SectionCard } from "./shared";
+import { Button } from "@/components/ui/button";
 
 // The vocabulary the order form writes (identity types + the supporting-doc
 // select). Anything unrecognised prettifies its slug rather than showing raw
@@ -74,14 +75,14 @@ function DocumentPreviewDialog({ doc, onClose }: { doc: OrderDocument; onClose: 
           >
             Download <Download className="h-3 w-3" aria-hidden="true" />
           </a>
-          <button
+          <Button unstyled variant="ghost" size="icon-sm"
             type="button"
             onClick={onClose}
             aria-label="Close document preview"
             className="group -mr-1 flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-md text-ink-muted transition-colors duration-150 hover:bg-wash hover:text-ink focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
           >
             <X className="h-4 w-4 transition-transform duration-200 group-hover:rotate-90" aria-hidden="true" />
-          </button>
+          </Button>
         </header>
 
         <div className="flex min-h-0 flex-1 items-stretch justify-center overflow-auto bg-wash p-3">

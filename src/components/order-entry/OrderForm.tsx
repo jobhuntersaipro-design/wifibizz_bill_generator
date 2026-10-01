@@ -58,6 +58,8 @@ import {
 } from "@/lib/device-catalog";
 import { MALAYSIA_STATES } from "@/lib/malaysia-states";
 import { parseMalaysianAddress } from "@/lib/malaysia-address";
+import { Segmented } from "@/components/ui/segmented";
+import { useIsArc } from "@/components/design/use-design";
 
 // Shared field styles — light border + hover to signal clickability.
 const inputCls =
@@ -149,6 +151,7 @@ export function OrderForm({
    * load-bearing exclusion — documents are never carried. See clone-order.ts. */
   cloneId?: string | null;
 }) {
+  const arc = useIsArc();
   const [draftId, setDraftId] = useState<string | null>(editingId ?? null);
   const [loadingDraft, setLoadingDraft] = useState(!!editingId || !!cloneId);
 
@@ -1136,7 +1139,7 @@ export function OrderForm({
           <div className="space-y-1.5">
             <Label className={labelCls}>Contact Number <span className="text-danger">*</span></Label>
             <div className="flex gap-2">
-              <div className={`flex items-center gap-1 px-3 h-10 rounded-lg border bg-wash text-sm text-ink-soft ${mobilePrefix.startsWith("0") ? "border-danger" : "border-line"}`}>
+              <div className={`flex items-center gap-1 px-3 border bg-wash text-sm text-ink-soft ${arc ? "h-(--control-height-md) rounded-(--radius-control)" : "h-10 rounded-lg"} ${mobilePrefix.startsWith("0") ? "border-danger" : "border-line"}`}>
                 <span>+</span>
                 <input value={mobilePrefix} onChange={(e) => handlePrefixChange(e.target.value)} className="w-8 bg-transparent focus:outline-none" inputMode="numeric" aria-label="Country code" />
               </div>
@@ -1291,35 +1294,43 @@ export function OrderForm({
               60 offers down to at most 18. */}
           <div className="space-y-1.5">
             <Label className={labelCls}>Speed</Label>
-            <div className="flex flex-wrap gap-1.5">
-              <button
-                type="button"
-                onClick={() => setSpeedFilter("")}
-                aria-pressed={speedFilter === ""}
-                className={`h-8 rounded-full px-3 text-[12px] font-medium cursor-pointer transition-colors duration-200 border ${
-                  speedFilter === ""
-                    ? "bg-ink text-white border-ink"
-                    : "bg-white text-ink-soft border-line hover:border-brand hover:text-ink"
-                }`}
-              >
-                All <span className="tabular-nums opacity-70">{sellableCount}</span>
-              </button>
-              {speedChips.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setSpeedFilter(speedFilter === s ? "" : s)}
-                  aria-pressed={speedFilter === s}
-                  className={`h-8 rounded-full px-3 text-[12px] font-medium cursor-pointer transition-colors duration-200 border ${
-                    speedFilter === s
-                      ? "bg-ink text-white border-ink"
-                      : "bg-white text-ink-soft border-line hover:border-brand hover:text-ink"
-                  }`}
-                >
-                  {speedChipLabel(s)} <span className="tabular-nums opacity-70">{speedCounts[s] ?? 0}</span>
-                </button>
-              ))}
-            </div>
+            <Segmented
+              label="Speed"
+              options={[{ value: "", label: "All", count: sellableCount }, ...speedChips.map((s) => ({ value: s, label: speedChipLabel(s), count: speedCounts[s] ?? 0 }))]}
+              value={speedFilter}
+              onValueChange={setSpeedFilter}
+              classic={
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setSpeedFilter("")}
+                    aria-pressed={speedFilter === ""}
+                    className={`h-8 rounded-full px-3 text-[12px] font-medium cursor-pointer transition-colors duration-200 border ${
+                      speedFilter === ""
+                        ? "bg-ink text-white border-ink"
+                        : "bg-white text-ink-soft border-line hover:border-brand hover:text-ink"
+                    }`}
+                  >
+                    All <span className="tabular-nums opacity-70">{sellableCount}</span>
+                  </button>
+                  {speedChips.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setSpeedFilter(speedFilter === s ? "" : s)}
+                      aria-pressed={speedFilter === s}
+                      className={`h-8 rounded-full px-3 text-[12px] font-medium cursor-pointer transition-colors duration-200 border ${
+                        speedFilter === s
+                          ? "bg-ink text-white border-ink"
+                          : "bg-white text-ink-soft border-line hover:border-brand hover:text-ink"
+                      }`}
+                    >
+                      {speedChipLabel(s)} <span className="tabular-nums opacity-70">{speedCounts[s] ?? 0}</span>
+                    </button>
+                  ))}
+                </div>
+              }
+            />
           </div>
 
           <div className="space-y-1.5">
@@ -1420,35 +1431,43 @@ export function OrderForm({
                 and pure line items (Stamp Duty, Promo Discount) in one list. */}
             <div className="space-y-1.5">
               <Label className={labelCls}>Type</Label>
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setDevCategory("")}
-                  aria-pressed={devCategory === ""}
-                  className={`h-8 rounded-full px-3 text-[12px] font-medium cursor-pointer transition-colors duration-200 border ${
-                    devCategory === ""
-                      ? "bg-ink text-white border-ink"
-                      : "bg-white text-ink-soft border-line hover:border-brand hover:text-ink"
-                  }`}
-                >
-                  All <span className="tabular-nums opacity-70">{planDevices?.length ?? DEALER_DEVICES.length}</span>
-                </button>
-                {DEVICE_CATEGORIES.filter((c) => deviceCounts[c]).map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => setDevCategory(devCategory === c ? "" : c)}
-                    aria-pressed={devCategory === c}
-                    className={`h-8 rounded-full px-3 text-[12px] font-medium cursor-pointer transition-colors duration-200 border ${
-                      devCategory === c
-                        ? "bg-ink text-white border-ink"
-                        : "bg-white text-ink-soft border-line hover:border-brand hover:text-ink"
-                    }`}
-                  >
-                    {c} <span className="tabular-nums opacity-70">{deviceCounts[c]}</span>
-                  </button>
-                ))}
-              </div>
+              <Segmented
+                label="Device type"
+                options={[{ value: "", label: "All", count: planDevices?.length ?? DEALER_DEVICES.length }, ...DEVICE_CATEGORIES.filter((c) => deviceCounts[c]).map((c) => ({ value: c, label: c, count: deviceCounts[c] }))]}
+                value={devCategory}
+                onValueChange={(v) => setDevCategory(v as typeof devCategory)}
+                classic={
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setDevCategory("")}
+                      aria-pressed={devCategory === ""}
+                      className={`h-8 rounded-full px-3 text-[12px] font-medium cursor-pointer transition-colors duration-200 border ${
+                        devCategory === ""
+                          ? "bg-ink text-white border-ink"
+                          : "bg-white text-ink-soft border-line hover:border-brand hover:text-ink"
+                      }`}
+                    >
+                      All <span className="tabular-nums opacity-70">{planDevices?.length ?? DEALER_DEVICES.length}</span>
+                    </button>
+                    {DEVICE_CATEGORIES.filter((c) => deviceCounts[c]).map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setDevCategory(devCategory === c ? "" : c)}
+                        aria-pressed={devCategory === c}
+                        className={`h-8 rounded-full px-3 text-[12px] font-medium cursor-pointer transition-colors duration-200 border ${
+                          devCategory === c
+                            ? "bg-ink text-white border-ink"
+                            : "bg-white text-ink-soft border-line hover:border-brand hover:text-ink"
+                        }`}
+                      >
+                        {c} <span className="tabular-nums opacity-70">{deviceCounts[c]}</span>
+                      </button>
+                    ))}
+                  </div>
+                }
+              />
             </div>
 
             <div className="space-y-1.5">
@@ -1751,42 +1770,54 @@ export function OrderForm({
 
           {/* Source picker. role=tablist so the two panels are announced as what
               they are, and so arrow keys are expected to move between them. */}
-          <div
-            role="tablist"
-            aria-label="How to add a supporting document"
-            className="inline-flex w-full max-w-md rounded-lg border border-line bg-wash p-1"
-          >
-            {DOC_SOURCES.map((s) => {
-              const active = docSource === s.id;
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  aria-controls={`doc-panel-${s.id}`}
-                  id={`doc-tab-${s.id}`}
-                  onClick={() => {
-                    setDocSource(s.id);
-                    if (s.id === "generate" && !umobilePick) void rollUmobile();
-                  }}
-                  className={`flex-1 inline-flex items-center justify-center gap-2 min-h-10 rounded-md text-[13px] font-medium whitespace-nowrap transition-colors duration-200 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
-                    active
-                      ? "bg-white text-ink shadow-[0_1px_2px_rgba(10,37,64,0.10)]"
-                      : "text-ink-muted hover:text-ink"
-                  }`}
-                >
-                  {s.id === "upload" ? (
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" /></svg>
-                  ) : (
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M9.9 15.5A2 2 0 0 0 8.5 14.1l-6.1-1.6a.5.5 0 0 1 0-1L8.5 9.9A2 2 0 0 0 9.9 8.5l1.6-6.1a.5.5 0 0 1 1 0l1.6 6.1a2 2 0 0 0 1.4 1.4l6.1 1.6a.5.5 0 0 1 0 1l-6.1 1.6a2 2 0 0 0-1.4 1.4l-1.6 6.1a.5.5 0 0 1-1 0z" /></svg>
-                  )}
-                  <span className="sm:hidden">{s.short}</span>
-                  <span className="hidden sm:inline">{s.label}</span>
-                </button>
-              );
-            })}
-          </div>
+          <Segmented
+            label="How to add a supporting document"
+            options={DOC_SOURCES.map((s) => ({ value: s.id, label: s.label }))}
+            value={docSource}
+            onValueChange={(v) => {
+              setDocSource(v as typeof docSource);
+              if (v === "generate" && !umobilePick) void rollUmobile();
+            }}
+            className="w-full max-w-md"
+            classic={
+              <div
+                role="tablist"
+                aria-label="How to add a supporting document"
+                className="inline-flex w-full max-w-md rounded-lg border border-line bg-wash p-1"
+              >
+                {DOC_SOURCES.map((s) => {
+                  const active = docSource === s.id;
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      aria-controls={`doc-panel-${s.id}`}
+                      id={`doc-tab-${s.id}`}
+                      onClick={() => {
+                        setDocSource(s.id);
+                        if (s.id === "generate" && !umobilePick) void rollUmobile();
+                      }}
+                      className={`flex-1 inline-flex items-center justify-center gap-2 min-h-10 rounded-md text-[13px] font-medium whitespace-nowrap transition-colors duration-200 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
+                        active
+                          ? "bg-white text-ink shadow-[0_1px_2px_rgba(10,37,64,0.10)]"
+                          : "text-ink-muted hover:text-ink"
+                      }`}
+                    >
+                      {s.id === "upload" ? (
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" /></svg>
+                      ) : (
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M9.9 15.5A2 2 0 0 0 8.5 14.1l-6.1-1.6a.5.5 0 0 1 0-1L8.5 9.9A2 2 0 0 0 9.9 8.5l1.6-6.1a.5.5 0 0 1 1 0l1.6 6.1a2 2 0 0 0 1.4 1.4l6.1 1.6a.5.5 0 0 1 0 1l-6.1 1.6a2 2 0 0 0-1.4 1.4l-1.6 6.1a.5.5 0 0 1-1 0z" /></svg>
+                      )}
+                      <span className="sm:hidden">{s.short}</span>
+                      <span className="hidden sm:inline">{s.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            }
+          />
 
           {/* ── Upload panel ── */}
           {docSource === "upload" && (
@@ -2044,7 +2075,7 @@ export function OrderForm({
                       {/* Order is page order in the combined PDF. Arrows rather
                           than drag — drag is unreachable from a keyboard. */}
                       <span className="flex shrink-0 items-center">
-                        <button
+                        <Button unstyled variant="ghost" size="icon-sm"
                           type="button"
                           onClick={() => moveSupporting(i, -1)}
                           disabled={i === 0}
@@ -2052,8 +2083,8 @@ export function OrderForm({
                           className="p-1 rounded text-ink-muted hover:text-ink hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors duration-200"
                         >
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m18 15-6-6-6 6" /></svg>
-                        </button>
-                        <button
+                        </Button>
+                        <Button unstyled variant="ghost" size="icon-sm"
                           type="button"
                           onClick={() => moveSupporting(i, 1)}
                           disabled={i === supportingDocs.length - 1}
@@ -2061,7 +2092,7 @@ export function OrderForm({
                           className="p-1 rounded text-ink-muted hover:text-ink hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors duration-200"
                         >
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m6 9 6 6 6-6" /></svg>
-                        </button>
+                        </Button>
                       </span>
 
                       <button type="button" onClick={() => setDocuments((docs) => docs.filter((x) => x.key !== d.key))} className="ml-1 shrink-0 text-[11px] text-danger hover:underline cursor-pointer">

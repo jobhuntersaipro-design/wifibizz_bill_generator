@@ -19,6 +19,8 @@ interface ModalProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "classNa
   overlayClassName: string
   /** The panel's classes, used as-is in Classic; in Arc only spacing, layout and max-w-* are read. */
   className: string
+  /** Extra props for the Classic panel (an inline transition, a stopPropagation). Arc draws its own panel. */
+  panelProps?: React.HTMLAttributes<HTMLDivElement>
   children: React.ReactNode
 }
 
@@ -30,12 +32,12 @@ interface ModalProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "classNa
  * the original, which only closed from its own buttons.
  */
 /** Any other prop (role, aria-*, onKeyDown, style) lands on the Classic backdrop, where the original had it. */
-export function Modal({ label, onClose, overlayClassName, className, children, ...overlayProps }: ModalProps) {
+export function Modal({ label, onClose, overlayClassName, className, panelProps, children, ...overlayProps }: ModalProps) {
   const arc = useIsArc()
   if (!arc) {
     return (
       <div {...overlayProps} className={overlayClassName}>
-        <div className={className}>{children}</div>
+        <div {...panelProps} className={className}>{children}</div>
       </div>
     )
   }

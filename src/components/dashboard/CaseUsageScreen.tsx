@@ -8,6 +8,7 @@ import {
   Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ComposedChart, Line,
 } from "recharts";
+import { Segmented } from "@/components/ui/segmented";
 
 // ── Types ──
 
@@ -363,21 +364,29 @@ function UsageProgressCard({ usage }: { usage: UsageSummary }) {
 
 function ChartDatePresets({ days, onChange, isCustom }: { days: number; onChange: (d: number) => void; isCustom?: boolean }) {
   return (
-    <div className="flex items-center gap-1">
-      {DATE_PRESETS.map((p) => (
-        <button
-          key={p.days}
-          onClick={() => onChange(p.days)}
-          className={`px-2 py-0.5 text-[11px] font-medium rounded-md transition-colors ${
-            !isCustom && days === p.days
-              ? "bg-brand text-white"
-              : "bg-wash text-ink-muted hover:bg-line"
-          }`}
-        >
-          {p.label}
-        </button>
-      ))}
-    </div>
+    <Segmented
+      label="Chart range"
+      options={DATE_PRESETS.map((p) => ({ value: String(p.days), label: p.label }))}
+      value={isCustom ? "" : String(days)}
+      onValueChange={(v) => onChange(Number(v))}
+      classic={
+        <div className="flex items-center gap-1">
+          {DATE_PRESETS.map((p) => (
+            <button
+              key={p.days}
+              onClick={() => onChange(p.days)}
+              className={`px-2 py-0.5 text-[11px] font-medium rounded-md transition-colors ${
+                !isCustom && days === p.days
+                  ? "bg-brand text-white"
+                  : "bg-wash text-ink-muted hover:bg-line"
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      }
+    />
   );
 }
 

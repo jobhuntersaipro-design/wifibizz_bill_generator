@@ -3,8 +3,14 @@ import { DESIGN_INIT_SCRIPT, isArcAccent, isDesign } from "../design";
 
 /** Runs the pre-paint script against a fake <html> and storage, the way the browser would. */
 function runInit(stored: Record<string, string>, opts: { storageThrows?: boolean } = {}) {
-  const attrs: Record<string, string> = {};
-  const document = { documentElement: { setAttribute: (k: string, v: string) => { attrs[k] = v; } } };
+  // The server renders <html data-design="arc" data-accent="neutral">.
+  const attrs: Record<string, string> = { "data-design": "arc", "data-accent": "neutral" };
+  const document = {
+    documentElement: {
+      setAttribute: (k: string, v: string) => { attrs[k] = v; },
+      removeAttribute: (k: string) => { delete attrs[k]; },
+    },
+  };
   const localStorage = {
     getItem: (k: string) => {
       if (opts.storageThrows) throw new Error("blocked");
@@ -16,8 +22,12 @@ function runInit(stored: Record<string, string>, opts: { storageThrows?: boolean
 }
 
 describe("design preference", () => {
-  it("leaves the classic design alone when nothing is stored", () => {
-    expect(runInit({})).toEqual({});
+  it("keeps Arc, the default, when nothing is stored", () => {
+    expect(runInit({})).toEqual({ "data-design": "arc", "data-accent": "neutral" });
+  });
+
+  it("removes Arc for a viewer who chose Classic", () => {
+    expect(runInit({ "bf-design": "classic", "bf-arc-accent": "violet" })).toEqual({});
   });
 
   it("applies Arc with the stored accent", () => {
@@ -28,12 +38,12 @@ describe("design preference", () => {
     expect(runInit({ "bf-design": "arc", "bf-arc-accent": "amber" })).toEqual({ "data-design": "arc", "data-accent": "neutral" });
   });
 
-  it("ignores a stored value that is not a design", () => {
-    expect(runInit({ "bf-design": "neon" })).toEqual({});
+  it("treats a stored value that is not a design as the default", () => {
+    expect(runInit({ "bf-design": "neon" })).toEqual({ "data-design": "arc", "data-accent": "neutral" });
   });
 
-  it("never throws when storage is blocked", () => {
-    expect(runInit({}, { storageThrows: true })).toEqual({});
+  it("never throws when storage is blocked, and leaves the server's Arc in place", () => {
+    expect(runInit({}, { storageThrows: true })).toEqual({ "data-design": "arc", "data-accent": "neutral" });
   });
 
   it("validates designs and accents", () => {

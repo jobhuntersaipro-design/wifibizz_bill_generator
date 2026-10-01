@@ -206,7 +206,7 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
                     RM{it.monthly}/mth
                   </span>
                 )}
-                <button
+                <Button unstyled variant="ghost" size="icon-sm"
                   type="button"
                   onClick={() => removeItem(it.id)}
                   aria-label={`Remove ${it.name}`}
@@ -215,7 +215,7 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
                   <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden="true">
                     <path d="M18 6 6 18M6 6l12 12" />
                   </svg>
-                </button>
+                </Button>
               </div>
 
               {/* The third level — the tiers under a channel row. */}
@@ -235,7 +235,7 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
                       <span className="shrink-0 text-[10px] tabular-nums text-ink-faint">
                         {o.monthly ? `RM${o.monthly}/mth` : "RM0"}
                       </span>
-                      <button
+                      <Button unstyled variant="ghost" size="icon-sm"
                         type="button"
                         onClick={() => removeItem(o.id)}
                         aria-label={`Remove ${o.name}`}
@@ -244,7 +244,7 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
                         <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden="true">
                           <path d="M18 6 6 18M6 6l12 12" />
                         </svg>
-                      </button>
+                      </Button>
                     </li>
                   ))}
                 </ul>
@@ -556,7 +556,7 @@ function PlanRow({
         >
           {plan.published ? "Unpublish" : "Publish"}
         </Button>
-        <button
+        <Button unstyled variant="ghost" size="icon-sm"
           type="button"
           onClick={() => setConfirmRemove(true)}
           aria-label={`Remove plan ${plan.name}`}
@@ -566,7 +566,7 @@ function PlanRow({
           <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6" />
           </svg>
-        </button>
+        </Button>
       </div>
 
       {confirmRemove && (
@@ -585,7 +585,7 @@ function PlanRow({
               <div className="min-w-0 flex-1">
                 <GroupBlock group={g} onChanged={onChanged} />
               </div>
-              <button
+              <Button unstyled variant="ghost" size="icon-sm"
                 type="button"
                 onClick={() => removeGroup(g.id)}
                 aria-label={`Remove group ${g.name}`}
@@ -595,7 +595,7 @@ function PlanRow({
                 <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
                   <path d="M18 6 6 18M6 6l12 12" />
                 </svg>
-              </button>
+              </Button>
             </div>
           ))}
         </ul>

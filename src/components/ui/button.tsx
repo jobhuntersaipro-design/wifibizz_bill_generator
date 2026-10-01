@@ -32,6 +32,16 @@ function arcSize(size: Size): { size: ArcButtonProps["size"]; icon: boolean } {
   return { size: "sm", icon: size.startsWith("icon") }
 }
 
+const POSITIONED = /(^|\s)([a-z0-9-]+:)*(absolute|fixed|sticky)(\s|$)/
+const HIDES = /(^|\s)([a-z0-9-]+:)*hidden(\s|$)/
+const SIZED = /(^|\s)([a-z0-9-]+:)*(w|size)-/
+
+/** Keeps a caller's position and responsive hiding over Arc's own position/display. */
+function layoutClasses(className: string | undefined) {
+  if (!className) return undefined
+  return cx(POSITIONED.test(className) && bridge.keepPosition, HIDES.test(className) && bridge.keepDisplay)
+}
+
 function Button({ unstyled, ...props }: ButtonProps) {
   const arc = useIsArc()
   // base-ui's `render` swaps the element, which Arc's Button cannot do: keep the classic one.
@@ -47,7 +57,11 @@ function Button({ unstyled, ...props }: ButtonProps) {
         variant={ARC_VARIANT[variant ?? "default"]}
         size={mapped.size}
         data-slot="button"
-        className={cx(mapped.icon && bridge.icon, classOf(className))}
+        className={cx(
+          mapped.icon && (SIZED.test(classOf(className) ?? "") ? bridge.iconSized : bridge.icon),
+          layoutClasses(classOf(className)),
+          classOf(className),
+        )}
       />
     )
   }

@@ -391,7 +391,7 @@ export default function MergePdfDialog({
                         </span>
                       )}
                       {/* Drag is not reachable from a keyboard, so ordering has buttons too. */}
-                      <button
+                      <Button unstyled variant="ghost" size="icon-sm"
                         type="button"
                         aria-label={`Move ${item.label} up`}
                         disabled={merging || index === 0}
@@ -399,8 +399,8 @@ export default function MergePdfDialog({
                         className="cursor-pointer rounded px-1 text-ink-muted hover:text-brand disabled:cursor-not-allowed disabled:opacity-30"
                       >
                         ↑
-                      </button>
-                      <button
+                      </Button>
+                      <Button unstyled variant="ghost" size="icon-sm"
                         type="button"
                         aria-label={`Move ${item.label} down`}
                         disabled={merging || index === items.length - 1}
@@ -408,8 +408,8 @@ export default function MergePdfDialog({
                         className="cursor-pointer rounded px-1 text-ink-muted hover:text-brand disabled:cursor-not-allowed disabled:opacity-30"
                       >
                         ↓
-                      </button>
-                      <button
+                      </Button>
+                      <Button unstyled variant="ghost" size="icon-sm"
                         type="button"
                         aria-label={`Remove ${item.label}`}
                         disabled={merging}
@@ -417,7 +417,7 @@ export default function MergePdfDialog({
                         className="cursor-pointer rounded p-1 text-ink-muted hover:text-danger disabled:cursor-not-allowed disabled:opacity-30"
                       >
                         <CloseIcon className="h-3 w-3" />
-                      </button>
+                      </Button>
                     </span>
                   )}
                 </li>

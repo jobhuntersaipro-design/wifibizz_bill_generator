@@ -24,6 +24,7 @@ import { useFlashOnChange } from "@/lib/use-flash";
 import type { ConnectionView } from "@/lib/agent-connection";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { Segmented } from "@/components/ui/segmented";
 
 const DAY = 86400_000;
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
@@ -175,16 +176,24 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
 
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-white p-3">
         <span className="text-xs text-ink-muted">Charts:</span>
-        <div className="flex overflow-hidden rounded-md border border-line">
-          {(["day", "week", "month"] as Granularity[]).map((g) => (
-            <button key={g} type="button" onClick={() => setGranularity(g)}
-              className={`px-3 py-1.5 text-xs capitalize transition-colors ${
-                (granularity ?? stats?.granularity) === g
-                  ? "bg-brand text-white" : "text-ink-soft hover:bg-wash"}`}>
-              {g}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          label="Chart granularity"
+          options={(["day", "week", "month"] as Granularity[]).map((g) => ({ value: g, label: g[0].toUpperCase() + g.slice(1) }))}
+          value={granularity ?? stats?.granularity ?? ""}
+          onValueChange={(v) => setGranularity(v as Granularity)}
+          classic={
+            <div className="flex overflow-hidden rounded-md border border-line">
+              {(["day", "week", "month"] as Granularity[]).map((g) => (
+                <button key={g} type="button" onClick={() => setGranularity(g)}
+                  className={`px-3 py-1.5 text-xs capitalize transition-colors ${
+                    (granularity ?? stats?.granularity) === g
+                      ? "bg-brand text-white" : "text-ink-soft hover:bg-wash"}`}>
+                  {g}
+                </button>
+              ))}
+            </div>
+          }
+        />
         {granularity && (
           <button type="button" onClick={() => setGranularity(null)}
             className="text-xs text-brand hover:underline">Auto</button>
@@ -793,15 +802,24 @@ function BulkPurgeDialog({ onClose, onDone }: { onClose: () => void; onDone: () 
   return (
     <Modal label="Purge old deleted orders?" onClose={onClose} overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
         <h3 className="text-base font-semibold text-ink">Purge old deleted orders?</h3>
-        <div className="mt-3 flex gap-2">
-          {([30, 90, 180] as const).map((d) => (
-            <button key={d} type="button" onClick={() => setDays(d)}
-              className={`rounded-md border px-3 py-1.5 text-xs ${days === d
-                ? "border-brand bg-[#EFF4FF] text-[#3538CD]" : "border-line text-ink-soft"}`}>
-              Older than {d} days
-            </button>
-          ))}
-        </div>
+        <Segmented
+          label="Purge orders older than"
+          options={([30, 90, 180] as const).map((d) => ({ value: String(d), label: `Older than ${d} days` }))}
+          value={String(days)}
+          onValueChange={(v) => setDays(Number(v) as 30 | 90 | 180)}
+          className="mt-3"
+          classic={
+            <div className="mt-3 flex gap-2">
+              {([30, 90, 180] as const).map((d) => (
+                <button key={d} type="button" onClick={() => setDays(d)}
+                  className={`rounded-md border px-3 py-1.5 text-xs ${days === d
+                    ? "border-brand bg-[#EFF4FF] text-[#3538CD]" : "border-line text-ink-soft"}`}>
+                  Older than {d} days
+                </button>
+              ))}
+            </div>
+          }
+        />
         {/* Keyed on `days`: switching cutoffs REMOUNTS the body with a fresh
             null preview — the same key-not-effect pattern the plans page set,
             and what keeps setState out of the effect (lint:
