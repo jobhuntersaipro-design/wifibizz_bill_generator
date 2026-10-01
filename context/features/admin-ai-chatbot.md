@@ -161,3 +161,17 @@ separate classifier call before the main one (add only if the logs show it is ne
   not run. First live test: set the env on a preview/production deploy and ask about a known order.
 - The migration has not been applied anywhere (Vercel's build applies it on deploy).
 - The handoff e-mail rendered in a mail client; the Upstash chat limiter against real Redis.
+
+## Follow-up (2026-09-30): the working is visible
+
+The reply now shows its reasoning and lookups above the answer, animated:
+- typing dots before anything arrives;
+- a timeline of thinking summaries (`thinking.display: "summarized"`) and each lookup, with what it
+  asked for and a one-line result chip (counts and statuses only, never a customer row);
+- a live header ("Checking plans…", "Running 2 lookups…") that folds to "Worked for 7s · 2 lookups"
+  when the answer starts, and can be reopened;
+- text the model writes before a tool call moves into the timeline, so the bubble holds only the
+  answer (and only that is saved).
+
+Event folding and wording are pure (`stream-state.ts`, `trace.ts`) and tested. Verified in a browser
+at 390 px against a delayed mock stream; not yet against the live model.

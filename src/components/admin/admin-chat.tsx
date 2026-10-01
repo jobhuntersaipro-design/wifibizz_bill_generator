@@ -1,11 +1,39 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
-import { CheckCircle2, Loader2, MessageCircle, RotateCcw, Send, UserRound, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  Activity,
+  Brain,
+  ChartColumn,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  CircleAlert,
+  FileText,
+  Images,
+  Layers,
+  Loader2,
+  MessageCircle,
+  RotateCcw,
+  Search,
+  Send,
+  Sparkles,
+  UserRound,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { parseChatMarkdown, type Block, type Inline } from "@/lib/admin-chat/markdown";
 import { listChatHandoffs, resolveChatHandoff, type HandoffRow } from "@/actions/admin-chat";
+import {
+  applyStreamEvent,
+  liveLabel,
+  traceSummary,
+  type AssistantMessage,
+  type StreamEvent,
+  type TraceStep,
+} from "@/lib/admin-chat/stream-state";
 
 /**
  * The admin assistant popup — a testing feature, read-only.
@@ -14,14 +42,7 @@ import { listChatHandoffs, resolveChatHandoff, type HandoffRow } from "@/actions
  * admin pages. A reload starts a new chat; the old one stays in the database.
  */
 
-interface ChatMessage {
-  role: "user" | "assistant";
-  text: string;
-  /** A tool is running ("Reading the order…"). Cleared by the next text. */
-  status?: string;
-  handoff?: string;
-  error?: boolean;
-}
+type ChatMessage = { role: "user"; text: string } | AssistantMessage;
 
 const SUGGESTIONS = [
   "Which orders failed today, and why?",
@@ -51,11 +72,12 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
     });
 
   /** Update the assistant message being streamed (always the last one). */
-  const patchLast = (fn: (m: ChatMessage) => ChatMessage) =>
+  const patchLast = (fn: (m: AssistantMessage) => AssistantMessage) =>
     setMessages((list) => {
-      if (list.length === 0) return list;
+      const last = list[list.length - 1];
+      if (!last || last.role !== "assistant") return list;
       const copy = list.slice();
-      copy[copy.length - 1] = fn(copy[copy.length - 1]);
+      copy[copy.length - 1] = fn(last);
       return copy;
     });
 
@@ -87,7 +109,11 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
     if (!text || busy || locked) return;
     setInput("");
     setBusy(true);
-    setMessages((list) => [...list, { role: "user", text }, { role: "assistant", text: "" }]);
+    setMessages((list) => [
+      ...list,
+      { role: "user", text },
+      { role: "assistant", text: "", steps: [], startedAt: Date.now() },
+    ]);
     scrollToEnd();
 
     const ctrl = new AbortController();
@@ -118,7 +144,7 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
         while ((nl = buf.indexOf("\n")) >= 0) {
           const line = buf.slice(0, nl).trim();
           buf = buf.slice(nl + 1);
-          if (line) handleEvent(JSON.parse(line) as Record<string, string>);
+          if (line) handleEvent(JSON.parse(line) as StreamEvent);
         }
       }
     } catch (e) {
@@ -127,34 +153,23 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
       }
     } finally {
       setBusy(false);
-      patchLast((m) => ({ ...m, status: undefined }));
+      patchLast((m) => ({ ...m, endedAt: Date.now() }));
       scrollToEnd();
     }
   }
 
-  function handleEvent(ev: Record<string, string>) {
-    switch (ev.type) {
-      case "conversation":
-        setConversationId(ev.id);
-        break;
-      case "status":
-        patchLast((m) => ({ ...m, status: ev.text }));
-        break;
-      case "text":
-        patchLast((m) => ({ ...m, text: m.text + ev.delta, status: undefined }));
-        scrollToEnd();
-        break;
-      case "handoff":
-        patchLast((m) => ({ ...m, handoff: ev.assignee }));
-        void loadHandoffs();
-        break;
-      case "locked":
-        setLocked(ev.message);
-        break;
-      case "error":
-        patchLast((m) => ({ ...m, text: m.text ? `${m.text}\n\n${ev.message}` : ev.message, error: !m.text }));
-        break;
+  function handleEvent(ev: StreamEvent) {
+    if (ev.type === "conversation") {
+      setConversationId(String(ev.id));
+      return;
     }
+    if (ev.type === "locked") {
+      setLocked(String(ev.message));
+      return;
+    }
+    patchLast((m) => applyStreamEvent(m, ev));
+    if (ev.type === "handoff") void loadHandoffs();
+    if (ev.type === "text" || ev.type === "tool_start") scrollToEnd();
   }
 
   async function resolve(id: string) {
@@ -255,9 +270,18 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
                 ))}
               </div>
             )}
-            {messages.map((m, i) => (
-              <MessageBubble key={i} message={m} />
-            ))}
+            {messages.map((m, i) =>
+              m.role === "user" ? (
+                <div
+                  key={i}
+                  className="ml-10 animate-[fade-in-up_0.25s_ease-out_both] rounded-lg bg-[#635BFF] px-3 py-2 text-sm whitespace-pre-wrap text-white"
+                >
+                  {m.text}
+                </div>
+              ) : (
+                <AssistantBubble key={i} message={m} streaming={busy && i === messages.length - 1} />
+              ),
+            )}
           </div>
 
           <form
@@ -304,36 +328,158 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
   );
 }
 
-function MessageBubble({ message: m }: { message: ChatMessage }) {
-  if (m.role === "user") {
-    return (
-      <div className="ml-10 rounded-lg bg-[#635BFF] px-3 py-2 text-sm whitespace-pre-wrap text-white">{m.text}</div>
-    );
-  }
+const TOOL_ICON: Record<string, LucideIcon> = {
+  search_orders: Search,
+  get_order: FileText,
+  explain_error_code: CircleAlert,
+  list_plans: Layers,
+  order_stats: ChartColumn,
+  live_jobs: Activity,
+  list_image_pools: Images,
+  escalate_to_human: UserRound,
+};
+
+/** Re-renders once a second while `active`, for the live elapsed time. */
+function useTicking(active: boolean) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const t = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [active]);
+}
+
+function AssistantBubble({ message: m, streaming }: { message: AssistantMessage; streaming: boolean }) {
+  useTicking(streaming);
+  const hasTrace = m.steps.length > 0;
+  const nothingYet = streaming && !hasTrace && !m.text;
+
   return (
     <div className="mr-6 space-y-2">
+      {nothingYet && <TypingDots />}
+      {hasTrace && <Trace message={m} streaming={streaming} />}
       {m.text ? (
         <div
-          className={`rounded-lg px-3 py-2 text-sm ${
+          className={`animate-[fade-in_0.3s_ease-out_both] rounded-lg px-3 py-2 text-sm ${
             m.error ? "bg-[#FDECEC] text-[#9B1C1C]" : "bg-[#F6F9FC] text-[#0A2540]"
           }`}
         >
           <ChatText blocks={parseChatMarkdown(m.text)} />
+          {streaming && !m.error && (
+            <span
+              aria-hidden
+              className="ml-0.5 inline-block h-3.5 w-1.5 translate-y-0.5 animate-pulse rounded-sm bg-[#635BFF]"
+            />
+          )}
         </div>
       ) : null}
-      {(m.status || !m.text) && !m.error && (
-        <p className="flex items-center gap-2 text-xs text-[#697386]">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          {m.status ?? "Thinking…"}
-        </p>
-      )}
       {m.handoff && (
-        <p className="flex items-center gap-1.5 text-xs font-medium text-[#0A7B3E]">
+        <p className="flex animate-[scale-in_0.3s_ease-out_both] items-center gap-1.5 text-xs font-medium text-[#0A7B3E]">
           <UserRound className="h-3.5 w-3.5" />
           Handed off to {m.handoff}
         </p>
       )}
     </div>
+  );
+}
+
+function TypingDots() {
+  return (
+    <div className="inline-flex items-center gap-1 rounded-lg bg-[#F6F9FC] px-3 py-2.5" aria-label="Thinking">
+      {["[animation-delay:0ms]", "[animation-delay:160ms]", "[animation-delay:320ms]"].map((d) => (
+        <span key={d} className={`h-1.5 w-1.5 animate-[dot-pulse_1.2s_ease-in-out_infinite] rounded-full bg-[#635BFF] ${d}`} />
+      ))}
+    </div>
+  );
+}
+
+function Trace({ message: m, streaming }: { message: AssistantMessage; streaming: boolean }) {
+  // Open while it works; once the answer starts, fold away unless the admin
+  // chose otherwise.
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  const open = userOpen ?? (streaming && !m.text);
+  const working = streaming && !m.text;
+
+  return (
+    <div className="rounded-lg border border-[#E3E8EF] bg-white">
+      <button
+        type="button"
+        onClick={() => setUserOpen(!open)}
+        aria-expanded={open}
+        className="flex min-h-9 w-full items-center gap-2 px-3 py-1.5 text-left text-xs"
+      >
+        <Sparkles className={`h-3.5 w-3.5 shrink-0 text-[#635BFF] ${working ? "animate-pulse" : ""}`} />
+        {working ? (
+          <span className="animate-shimmer truncate bg-[linear-gradient(90deg,#697386_0%,#C4B5FD_50%,#697386_100%)] bg-[length:200%_100%] bg-clip-text font-medium text-transparent">
+            {liveLabel(m.steps)}
+          </span>
+        ) : (
+          <span className="truncate font-medium text-[#697386]">{traceSummary(m)}</span>
+        )}
+        <ChevronDown
+          className={`ml-auto h-3.5 w-3.5 shrink-0 text-[#697386] transition-transform duration-300 ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      <div
+        className={`grid transition-[grid-template-rows] duration-300 ease-out ${open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
+      >
+        <div className="overflow-hidden">
+          <ol className="relative max-h-72 space-y-2.5 overflow-y-auto px-3 pt-1 pb-3 before:absolute before:top-3 before:bottom-4 before:left-[21px] before:w-px before:bg-[#E3E8EF]">
+            {m.steps.map((st, i) => (
+              <TraceRow key={st.kind === "tool" ? st.id : `${st.kind}-${i}`} step={st} />
+            ))}
+          </ol>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TraceRow({ step }: { step: TraceStep }) {
+  if (step.kind === "tool") {
+    const Icon = TOOL_ICON[step.name] ?? Search;
+    return (
+      <li className="relative flex animate-[fade-in-up_0.3s_ease-out_both] gap-2.5 text-xs">
+        <span
+          className={`relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ring-4 ring-white ${
+            step.state === "error" ? "bg-[#FDECEC] text-[#9B1C1C]" : "bg-[#EEF0FF] text-[#635BFF]"
+          }`}
+        >
+          {step.state === "running" ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Icon className="h-3 w-3" />
+          )}
+        </span>
+        <div className="min-w-0 flex-1 pt-0.5">
+          <p className="flex flex-wrap items-center gap-x-1.5 text-[#0A2540]">
+            <span className="font-medium">{step.state === "running" ? step.active : step.label}</span>
+            {step.detail && <span className="truncate text-[#697386]">{step.detail}</span>}
+          </p>
+          {step.state !== "running" && step.summary && (
+            <p
+              className={`mt-1 inline-flex animate-[scale-in_0.25s_ease-out_both] items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                step.state === "error" ? "bg-[#FDECEC] text-[#9B1C1C]" : "bg-[#E8F6EE] text-[#0A7B3E]"
+              }`}
+            >
+              {step.state === "error" ? <X className="h-3 w-3" /> : <Check className="h-3 w-3" />}
+              {step.summary}
+            </p>
+          )}
+        </div>
+      </li>
+    );
+  }
+  const Icon = step.kind === "thinking" ? Brain : Sparkles;
+  return (
+    <li className="relative flex animate-[fade-in-up_0.3s_ease-out_both] gap-2.5 text-xs">
+      <span className="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#F6F9FC] text-[#697386] ring-4 ring-white">
+        <Icon className="h-3 w-3" />
+      </span>
+      <div className="min-w-0 flex-1 pt-0.5 text-[#697386] italic">
+        <ChatText blocks={parseChatMarkdown(step.text)} />
+      </div>
+    </li>
   );
 }
 
