@@ -638,14 +638,14 @@ export default function OrderEntryShell({
                       required
                       className="rounded-lg h-10 pr-10 border-line focus:border-brand"
                     />
-                    <button
+                    <Button unstyled variant="ghost" size="icon-sm"
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-muted hover:text-ink transition-colors"
                       aria-label={showPassword ? "Hide password" : "Show password"}
                     >
                       {showPassword ? <EyeOffIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
-                    </button>
+                    </Button>
                   </div>
                   <p className="text-[11px] text-ink-muted">
                     Your password is used once to log in and is never stored.

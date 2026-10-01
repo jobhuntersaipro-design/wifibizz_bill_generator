@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/lib/toast";
 import { Modal } from "@/components/ui/modal";
+import { Segmented } from "@/components/ui/segmented";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
 
 interface UserRow {
   id: string;
@@ -216,22 +218,29 @@ export function UserManagement() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-center">
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={!!user.orderEntryEnabled}
+                    <ToggleSwitch
+                      checked={!!user.orderEntryEnabled}
+                      onCheckedChange={(next) => handleToggleOrderEntry(user, next)}
                       aria-label={`Order Entry access for ${user.name || user.email}`}
-                      onClick={() => handleToggleOrderEntry(user, !user.orderEntryEnabled)}
-                      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
-                        user.orderEntryEnabled ? "bg-brand" : "bg-line-strong"
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                          user.orderEntryEnabled ? "translate-x-4.5" : "translate-x-0.5"
-                        }`}
-                      />
-                    </button>
+                      classic={
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={!!user.orderEntryEnabled}
+                          aria-label={`Order Entry access for ${user.name || user.email}`}
+                          onClick={() => handleToggleOrderEntry(user, !user.orderEntryEnabled)}
+                          className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                            user.orderEntryEnabled ? "bg-brand" : "bg-line-strong"
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                              user.orderEntryEnabled ? "translate-x-4.5" : "translate-x-0.5"
+                            }`}
+                          />
+                        </button>
+                      }
+                    />
                   </td>
                   {/* Beside Order Entry deliberately: both answer "can this
                       agent work right now", and access being on while the
@@ -447,7 +456,7 @@ function UserFormModal({
                   placeholder={mode === "edit" ? "••••••••" : "leave blank to invite instead"}
                   className="rounded-lg h-9 border-line pr-9"
                 />
-                <button
+                <Button unstyled variant="ghost" size="icon-sm"
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-muted hover:text-ink transition-colors"
@@ -458,7 +467,7 @@ function UserFormModal({
                   ) : (
                     <EyeIcon className="w-4 h-4" />
                   )}
-                </button>
+                </Button>
               </div>
             </div>
 
@@ -589,7 +598,7 @@ function PasswordCell({ password }: { password: string }) {
       <span className="font-mono text-xs tabular-nums">
         {visible ? password : "••••••••"}
       </span>
-      <button
+      <Button unstyled variant="ghost" size="icon-sm"
         type="button"
         onClick={() => setVisible(!visible)}
         className="text-ink-muted hover:text-ink p-0.5 rounded transition-colors"
@@ -600,7 +609,7 @@ function PasswordCell({ password }: { password: string }) {
         ) : (
           <EyeIcon className="w-3.5 h-3.5" />
         )}
-      </button>
+      </Button>
     </span>
   );
 }
@@ -716,22 +725,31 @@ function TopupModal({
               className="rounded-lg h-9 border-line"
               autoFocus
             />
-            <div className="flex gap-1.5 pt-1">
-              {QUICK_AMOUNTS.map((qty) => (
-                <button
-                  key={qty}
-                  type="button"
-                  onClick={() => setAmount(String(qty))}
-                  className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors ${
-                    amount === String(qty)
-                      ? "bg-brand text-white"
-                      : "bg-wash text-ink-muted hover:bg-line"
-                  }`}
-                >
-                  +{qty.toLocaleString()}
-                </button>
-              ))}
-            </div>
+            <Segmented
+              label="Quick amounts"
+              options={QUICK_AMOUNTS.map((qty) => ({ value: String(qty), label: `+${qty.toLocaleString()}` }))}
+              value={amount}
+              onValueChange={setAmount}
+              className="pt-1"
+              classic={
+                <div className="flex gap-1.5 pt-1">
+                  {QUICK_AMOUNTS.map((qty) => (
+                    <button
+                      key={qty}
+                      type="button"
+                      onClick={() => setAmount(String(qty))}
+                      className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors ${
+                        amount === String(qty)
+                          ? "bg-brand text-white"
+                          : "bg-wash text-ink-muted hover:bg-line"
+                      }`}
+                    >
+                      +{qty.toLocaleString()}
+                    </button>
+                  ))}
+                </div>
+              }
+            />
           </div>
 
           {parsedAmount > 0 && (
@@ -826,9 +844,9 @@ function UserHistoryPanel({ user, onClose }: { user: UserRow; onClose: () => voi
             <h2 className="text-sm font-semibold text-ink">{user.name || user.email}</h2>
             <p className="text-xs text-ink-muted mt-0.5">Usage history & limit changes</p>
           </div>
-          <button onClick={onClose} className="text-ink-muted hover:text-ink transition-colors p-1">
+          <Button unstyled variant="ghost" size="icon-sm" onClick={onClose} className="text-ink-muted hover:text-ink transition-colors p-1">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-          </button>
+          </Button>
         </div>
 
         {loading ? (
@@ -856,20 +874,29 @@ function UserHistoryPanel({ user, onClose }: { user: UserRow; onClose: () => voi
             </div>
 
             {/* Tabs */}
-            <div className="px-6 border-b border-line flex gap-4 shrink-0">
-              <button
-                onClick={() => setTab("usage")}
-                className={`py-2.5 text-xs font-medium border-b-2 transition-colors ${tab === "usage" ? "border-brand text-ink" : "border-transparent text-ink-muted hover:text-ink-soft"}`}
-              >
-                Usage Log ({data.usageLog.length})
-              </button>
-              <button
-                onClick={() => setTab("limits")}
-                className={`py-2.5 text-xs font-medium border-b-2 transition-colors ${tab === "limits" ? "border-brand text-ink" : "border-transparent text-ink-muted hover:text-ink-soft"}`}
-              >
-                Limit History ({data.limitChangeLog.length})
-              </button>
-            </div>
+            <Segmented
+              label="History"
+              options={[{ value: "usage", label: `Usage Log (${data.usageLog.length})` }, { value: "limits", label: `Limit History (${data.limitChangeLog.length})` }]}
+              value={tab}
+              onValueChange={(v) => setTab(v as typeof tab)}
+              className="mx-6 my-2 shrink-0"
+              classic={
+                <div className="px-6 border-b border-line flex gap-4 shrink-0">
+                  <button
+                    onClick={() => setTab("usage")}
+                    className={`py-2.5 text-xs font-medium border-b-2 transition-colors ${tab === "usage" ? "border-brand text-ink" : "border-transparent text-ink-muted hover:text-ink-soft"}`}
+                  >
+                    Usage Log ({data.usageLog.length})
+                  </button>
+                  <button
+                    onClick={() => setTab("limits")}
+                    className={`py-2.5 text-xs font-medium border-b-2 transition-colors ${tab === "limits" ? "border-brand text-ink" : "border-transparent text-ink-muted hover:text-ink-soft"}`}
+                  >
+                    Limit History ({data.limitChangeLog.length})
+                  </button>
+                </div>
+              }
+            />
 
             {/* Tab Content */}
             <div className="overflow-y-auto flex-1">

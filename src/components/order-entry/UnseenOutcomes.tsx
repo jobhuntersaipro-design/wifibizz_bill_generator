@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { markOutcomeSeen, unseenOutcomes, type UnseenOutcome } from "@/actions/order";
 import { SubmitErrorBlock } from "@/components/order-entry/SubmitErrorBlock";
+import { Button } from "@/components/ui/button";
 
 /**
  * "While you were away" — terminal outcomes no signed-in eye has seen.
@@ -61,7 +62,7 @@ export function UnseenOutcomes({ onChanged }: { onChanged?: () => void }) {
               </p>
               <div className="flex shrink-0 items-center gap-2">
                 <OutcomePill status={o.status} />
-                <button
+                <Button unstyled variant="ghost" size="icon-sm"
                   type="button"
                   onClick={() => dismiss([o.id])}
                   aria-label={`Dismiss ${o.reference ?? o.fullName}`}
@@ -70,7 +71,7 @@ export function UnseenOutcomes({ onChanged }: { onChanged?: () => void }) {
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-3.5 w-3.5" aria-hidden>
                     <path d="M18 6 6 18M6 6l12 12" />
                   </svg>
-                </button>
+                </Button>
               </div>
             </div>
             {o.status === "submitted" ? (

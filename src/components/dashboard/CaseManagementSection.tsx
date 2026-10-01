@@ -31,6 +31,7 @@ import {
   isInvalidCaseDateRange,
   setCaseListQueryParams,
 } from "@/lib/case-list-filters";
+import { Segmented } from "@/components/ui/segmented";
 
 // ── Case Detail Panel ──
 
@@ -112,9 +113,9 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
               )}
             </div>
           </div>
-          <button onClick={requestClose} aria-label="Close case details" className="group -mr-2.5 -mt-1.5 flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-md text-ink-muted transition-colors duration-150 hover:bg-wash hover:text-ink focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand">
+          <Button unstyled variant="ghost" size="icon-sm" onClick={requestClose} aria-label="Close case details" className="group -mr-2.5 -mt-1.5 flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-md text-ink-muted transition-colors duration-150 hover:bg-wash hover:text-ink focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand">
             <CloseIcon className="w-4 h-4 transition-transform duration-200 group-hover:rotate-90" />
-          </button>
+          </Button>
         </div>
         <div className="flex-1 overflow-y-auto px-6 py-5">
           {sections.map((section, sectionIndex) => {
@@ -679,24 +680,32 @@ export default function CaseManagementSection() {
               </Select>
               <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
             </div>
-            <div role="group" aria-label="Date filter field" className="inline-flex h-9 rounded-lg border border-line bg-wash p-0.5">
-              <button
-                type="button"
-                aria-pressed={dateField === "case_created_at"}
-                onClick={() => { setDateField("case_created_at"); setPage(0); }}
-                className={`rounded-md px-2.5 text-xs font-medium transition-colors ${dateField === "case_created_at" ? "bg-white text-ink shadow-sm" : "text-ink-muted hover:text-ink"}`}
-              >
-                Created At
-              </button>
-              <button
-                type="button"
-                aria-pressed={dateField === "updated_at"}
-                onClick={() => { setDateField("updated_at"); setPage(0); }}
-                className={`rounded-md px-2.5 text-xs font-medium transition-colors ${dateField === "updated_at" ? "bg-white text-ink shadow-sm" : "text-ink-muted hover:text-ink"}`}
-              >
-                Updated At
-              </button>
-            </div>
+            <Segmented
+              label="Filter dates by"
+              options={[{ value: "case_created_at", label: "Created At" }, { value: "updated_at", label: "Updated At" }]}
+              value={dateField}
+              onValueChange={(v) => { setDateField(v as typeof dateField); setPage(0); }}
+              classic={
+                <div role="group" aria-label="Date filter field" className="inline-flex h-9 rounded-lg border border-line bg-wash p-0.5">
+                  <button
+                    type="button"
+                    aria-pressed={dateField === "case_created_at"}
+                    onClick={() => { setDateField("case_created_at"); setPage(0); }}
+                    className={`rounded-md px-2.5 text-xs font-medium transition-colors ${dateField === "case_created_at" ? "bg-white text-ink shadow-sm" : "text-ink-muted hover:text-ink"}`}
+                  >
+                    Created At
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={dateField === "updated_at"}
+                    onClick={() => { setDateField("updated_at"); setPage(0); }}
+                    className={`rounded-md px-2.5 text-xs font-medium transition-colors ${dateField === "updated_at" ? "bg-white text-ink shadow-sm" : "text-ink-muted hover:text-ink"}`}
+                  >
+                    Updated At
+                  </button>
+                </div>
+              }
+            />
             <div className="flex flex-wrap items-center gap-2">
               <label className="text-xs text-ink-muted whitespace-nowrap font-medium hidden sm:inline">From</label>
               <Input unstyled type="date" aria-label="From date" aria-invalid={invalidDateRange} max={dateTo || undefined} className={`h-9 rounded-lg border bg-white px-2 sm:px-3 text-sm text-ink-soft focus:ring-1 transition-all outline-none max-w-37.5 ${invalidDateRange ? "border-danger focus:border-danger focus:ring-danger/20" : "border-line focus:border-brand focus:ring-brand/20"}`} value={dateFrom} onChange={(e) => applyDateRange(e.target.value, dateTo)} />

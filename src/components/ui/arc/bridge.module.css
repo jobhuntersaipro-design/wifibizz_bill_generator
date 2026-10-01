@@ -69,3 +69,15 @@ tbody > .tableRow:hover { background: var(--surface-muted); }
    side back to the caller's utility (revert-layer) instead of Arc's padding. */
 .keepPadStart.keepPadStart { padding-inline-start: revert-layer; }
 .keepPadEnd.keepPadEnd { padding-inline-end: revert-layer; }
+
+/* Arc's .button sets position and display unlayered, which would beat a caller's
+   Tailwind `absolute`/`fixed` (a close button pinned in a corner) and `hidden` /
+   `md:hidden` (a menu button only on phones). These roll that one property back to
+   the caller's utility. Doubled to outrank Arc's single-class rule. */
+.keepPosition.keepPosition { position: revert-layer; }
+.keepDisplay.keepDisplay { display: revert-layer; }
+/* An icon button whose caller sets its own w-* / size-* (a 44px touch target) keeps that size. */
+.iconSized.iconSized { padding: 0; }
+/* A textarea whose caller sizes it (a one-line chat composer) keeps that size over Arc's 110px minimum. */
+.keepMinHeight.keepMinHeight { min-height: revert-layer; }
+.keepResize.keepResize { resize: revert-layer; }

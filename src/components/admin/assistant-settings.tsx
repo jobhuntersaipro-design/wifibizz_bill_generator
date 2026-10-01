@@ -21,6 +21,7 @@ import {
 } from "@/lib/admin-chat/settings-rules";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
 
 export interface ToolInfo {
   name: string;
@@ -378,28 +379,35 @@ function ToolRow({
           </p>
           {tool.note && <p className="mt-1 text-[12.5px] text-ink-muted">{tool.note}</p>}
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={enabled}
+        <ToggleSwitch
+          checked={enabled}
+          onCheckedChange={onToggle}
           aria-label={`${tool.label} tool`}
-          onClick={() => onToggle(!enabled)}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-        >
-          <span
-            className={cn(
-              "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
-              enabled ? "bg-brand" : "bg-line-strong",
-            )}
-          >
-            <span
-              className={cn(
-                "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
-                enabled ? "translate-x-4.5" : "translate-x-0.5",
-              )}
-            />
-          </span>
-        </button>
+          classic={
+            <button
+              type="button"
+              role="switch"
+              aria-checked={enabled}
+              aria-label={`${tool.label} tool`}
+              onClick={() => onToggle(!enabled)}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+            >
+              <span
+                className={cn(
+                  "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
+                  enabled ? "bg-brand" : "bg-line-strong",
+                )}
+              >
+                <span
+                  className={cn(
+                    "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
+                    enabled ? "translate-x-4.5" : "translate-x-0.5",
+                  )}
+                />
+              </span>
+            </button>
+          }
+        />
       </div>
 
       <div className="mt-3">

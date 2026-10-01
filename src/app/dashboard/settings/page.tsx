@@ -273,7 +273,7 @@ export default function SettingsPage() {
                       required={!hasPassword}
                       className="rounded-lg h-10 pr-10 border-line focus:border-brand"
                     />
-                    <button
+                    <Button unstyled variant="ghost" size="icon-sm"
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-muted hover:text-ink transition-colors"
@@ -289,7 +289,7 @@ export default function SettingsPage() {
                           <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
                         </svg>
                       )}
-                    </button>
+                    </Button>
                   </div>
                 </div>
 
@@ -508,7 +508,7 @@ export default function SettingsPage() {
                         <code className="text-[11px] text-brand bg-wash px-2 py-1 rounded border border-line flex-1 truncate">
                           {serviceAccountEmail}
                         </code>
-                        <button
+                        <Button unstyled variant="ghost" size="icon-sm"
                           type="button"
                           onClick={() => {
                             navigator.clipboard.writeText(serviceAccountEmail);
@@ -518,7 +518,7 @@ export default function SettingsPage() {
                           aria-label="Copy service account email"
                         >
                           <CopyIcon className="w-3.5 h-3.5" />
-                        </button>
+                        </Button>
                       </div>
                     )}
                   </div>

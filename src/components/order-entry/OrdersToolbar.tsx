@@ -15,6 +15,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { DateRangeFilter } from "./DateRangeFilter";
 import { BlockedHint } from "./OrderRow";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 /**
  * Search, the filter bar, and the bulk bar that appears once rows are selected.
@@ -126,7 +127,8 @@ export function OrdersToolbar({
           <label htmlFor="drafts-search" className="sr-only">
             Search orders by name, ID number, phone or reference
           </label>
-          <input
+          <Input
+            unstyled
             id="drafts-search"
             value={filters.query}
             onChange={(e) => set("query", e.target.value)}

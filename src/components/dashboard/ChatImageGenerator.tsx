@@ -9,6 +9,9 @@ import { CloseIcon, DownloadIcon } from "./icons";
 import { buildConversationChatScript, formatMobileRaw, type ChatScriptVariant } from "@/lib/chat-script";
 import { decodeCustomerName } from "@/lib/html-entities";
 import { buildBizzChatScript } from "@/lib/bizz-chat-script";
+import { Modal } from "@/components/ui/modal";
+import { Button } from "@/components/ui/button";
+import { useIsArc } from "@/components/design/use-design";
 
 /**
  * The number in the chat header.
@@ -407,6 +410,7 @@ interface ChatImageGeneratorProps {
 }
 
 export default function ChatImageGenerator({ caseData, onClose, variant = "conversation" }: ChatImageGeneratorProps) {
+  const arc = useIsArc();
   const chat = CHAT_VARIANTS[variant];
   const chatRef = useRef<HTMLDivElement>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -457,33 +461,37 @@ export default function ChatImageGenerator({ caseData, onClose, variant = "conve
   }
 
   return createPortal(
-    <div
-      className={`fixed inset-0 z-50 flex items-center justify-center transition-colors duration-300 ${isVisible ? "bg-black/40" : "bg-transparent"}`}
+    <Modal
+      label="Closing script"
+      // Arc animates its own exit, so it closes at once; Classic plays its 300ms fade first.
+      onClose={arc ? onClose : handleClose}
+      overlayClassName={`fixed inset-0 z-50 flex items-center justify-center transition-colors duration-300 ${isVisible ? "bg-black/40" : "bg-transparent"}`}
       onClick={handleClose}
-    >
-      <div
-        className="bg-white rounded-xl shadow-2xl border border-[#E3E8EF] w-full max-w-lg mx-4 max-h-[90vh] flex flex-col"
-        style={{
+      className="bg-card rounded-xl shadow-2xl border border-line w-full max-w-lg mx-4 max-h-[90vh] flex flex-col"
+      panelProps={{
+        style: {
           opacity: isVisible ? 1 : 0,
           transform: isVisible ? "translateY(0) scale(1)" : "translateY(16px) scale(0.97)",
           transition: "opacity 300ms ease-out, transform 300ms ease-out",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
+        },
+        onClick: (e) => e.stopPropagation(),
+      }}
+    >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#E3E8EF]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-line">
           <div>
-            <h3 className="text-sm font-semibold text-[#0A2540]">Closing Script</h3>
-            <p className="text-xs text-[#697386] mt-0.5">
+            <h3 className="text-sm font-semibold text-ink">Closing Script</h3>
+            <p className="text-xs text-ink-muted mt-0.5">
               {caseData.case_no} &middot; {chat.kind(caseData)}
             </p>
           </div>
-          <button
-            onClick={handleClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#F6F9FC] text-[#697386] hover:text-[#0A2540] transition-colors"
+          <Button unstyled variant="ghost" size="icon-sm"
+            onClick={arc ? onClose : handleClose}
+            aria-label="Close"
+            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-wash text-ink-muted hover:text-ink transition-colors"
           >
             <CloseIcon className="w-4 h-4" />
-          </button>
+          </Button>
         </div>
 
         {/* Content */}
@@ -505,12 +513,12 @@ export default function ChatImageGenerator({ caseData, onClose, variant = "conve
           {/* Preview */}
           {generating && (
             <div className="flex flex-col items-center gap-3 py-12">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />
-              <span className="text-sm text-[#697386]">Generating image...</span>
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-brand border-t-transparent" />
+              <span className="text-sm text-ink-muted">Generating image...</span>
             </div>
           )}
           {imageUrl && !generating && (
-            <div className="rounded-lg overflow-hidden border border-[#E3E8EF] bg-[#0B141A]">
+            <div className="rounded-lg overflow-hidden border border-line bg-[#0B141A]">
               <Image
                 src={imageUrl}
                 alt={`Closing script for case ${caseData.case_no}`}
@@ -524,28 +532,27 @@ export default function ChatImageGenerator({ caseData, onClose, variant = "conve
         </div>
 
         {/* Footer */}
-        <div className="flex items-center gap-3 px-6 py-4 border-t border-[#E3E8EF]">
-          <button
+        <div className="flex items-center gap-3 px-6 py-4 border-t border-line">
+          <Button unstyled variant="outline"
             onClick={() => setRand(makeRandomization())}
             disabled={generating}
-            className="flex items-center gap-2 px-4 h-9 rounded-lg border border-[#E3E8EF] text-sm font-medium text-[#425466] hover:text-[#0A2540] hover:border-[#635BFF] transition-all disabled:opacity-50"
+            className="flex items-center gap-2 px-4 h-9 rounded-lg border border-line text-sm font-medium text-ink-soft hover:text-ink hover:border-brand transition-all disabled:opacity-50"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
             </svg>
             Regenerate
-          </button>
-          <button
+          </Button>
+          <Button unstyled
             onClick={handleDownload}
             disabled={!imageUrl || generating}
-            className="flex items-center gap-2 px-4 h-9 rounded-lg bg-[#635BFF] hover:bg-[#5851DB] text-white text-sm font-medium transition-all disabled:opacity-50 ml-auto"
+            className="flex items-center gap-2 px-4 h-9 rounded-lg bg-brand hover:bg-brand-strong text-white text-sm font-medium transition-all disabled:opacity-50 ml-auto"
           >
             <DownloadIcon className="w-4 h-4" />
             Download PNG
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>,
+    </Modal>,
     document.body
   );
 }

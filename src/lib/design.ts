@@ -1,10 +1,11 @@
 /**
  * Which design the app renders in: today's Stripe-style "classic", or Arc (uiarc.dev).
  *
- * The choice is a per-viewer preference, so it lives in localStorage and is
- * applied as data-design / data-accent on <html> by an inline script that runs
- * before first paint — reading a cookie in the root layout instead would turn
- * every route dynamic just to pick a stylesheet.
+ * Arc is the default: the root layout renders <html data-design="arc"> so the
+ * first paint is Arc even before any script runs. Choosing Classic is a per-viewer
+ * preference kept in localStorage, and an inline script removes the attributes
+ * before first paint for that viewer — reading a cookie in the root layout instead
+ * would turn every route dynamic just to pick a stylesheet.
  */
 export const DESIGNS = ["classic", "arc"] as const;
 export type Design = (typeof DESIGNS)[number];
@@ -15,7 +16,7 @@ export type ArcAccent = (typeof ARC_ACCENTS)[number];
 
 export const DESIGN_STORAGE_KEY = "bf-design";
 export const ACCENT_STORAGE_KEY = "bf-arc-accent";
-export const DEFAULT_DESIGN: Design = "classic";
+export const DEFAULT_DESIGN: Design = "arc";
 export const DEFAULT_ACCENT: ArcAccent = "neutral";
 const CHANGE_EVENT = "bf-design-change";
 
@@ -30,13 +31,13 @@ export function isArcAccent(value: unknown): value is ArcAccent {
 /**
  * Runs in <head> before the body paints. Kept dependency-free and wrapped in
  * try/catch: storage can throw (private mode, blocked site data) and a failure
- * here must leave the classic design, never a blank page.
+ * here must leave the server-rendered default (Arc), never a blank page.
  */
 export const DESIGN_INIT_SCRIPT = `(function(){try{var d=localStorage.getItem(${JSON.stringify(
   DESIGN_STORAGE_KEY,
 )}),a=localStorage.getItem(${JSON.stringify(ACCENT_STORAGE_KEY)}),r=document.documentElement;if(d===${JSON.stringify(
-  "arc",
-)}){r.setAttribute("data-design","arc");r.setAttribute("data-accent",${JSON.stringify(
+  "classic",
+)}){r.removeAttribute("data-design");r.removeAttribute("data-accent");}else{r.setAttribute("data-design","arc");r.setAttribute("data-accent",${JSON.stringify(
   ARC_ACCENTS,
 )}.indexOf(a)>-1?a:${JSON.stringify(DEFAULT_ACCENT)});}}catch(e){}})();`;
 
@@ -44,9 +45,11 @@ function root(): HTMLElement | null {
   return typeof document === "undefined" ? null : document.documentElement;
 }
 
+/** On the server there is no <html> to read, so the default (Arc) is what renders first. */
 export function readDesign(): Design {
-  const value = root()?.getAttribute("data-design");
-  return isDesign(value) ? value : DEFAULT_DESIGN;
+  const el = root();
+  if (!el) return DEFAULT_DESIGN;
+  return el.getAttribute("data-design") === "arc" ? "arc" : "classic";
 }
 
 export function readAccent(): ArcAccent {

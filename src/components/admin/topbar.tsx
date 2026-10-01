@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { adminNavContext } from "@/lib/admin-nav";
 import { DesignToggle } from "@/components/design/DesignToggle";
+import { Button } from "@/components/ui/button";
 
 /**
  * The admin topbar.
@@ -43,14 +44,14 @@ export function AdminTopbar({
             <ChevronLeftIcon className="h-5 w-5 text-ink-muted" />
           </Link>
         ) : (
-          <button
+          <Button unstyled variant="ghost" size="icon-sm"
             type="button"
             onClick={onMenuToggle}
             aria-label="Open menu"
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-wash focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:hidden"
           >
             <MenuIcon className="h-5 w-5 text-ink-muted" />
-          </button>
+          </Button>
         )}
         {/* Truncates rather than pushing the ADMIN pill off the right edge. */}
         <h2 className="truncate text-sm font-medium text-ink md:text-ink-muted">

@@ -2,9 +2,9 @@
 
 ## Status
 
-CODE COMPLETE, VERIFIED IN BROWSER WITHOUT A DATABASE (branch `claude/blissful-maxwell-iphluh`). Vercel-only, no
-migration. Adds `motion` + Radix primitives for Arc. In Arc mode the app's buttons, inputs, selects, dialogs, menus,
-tabs, tooltips and toasts render Arc's components; Classic is unchanged.
+MERGED TO MAIN (`4b8869e`), then **Arc made the default** (asked 2026-10-01: "implement all", answered: Arc default,
+keep the toggle) on branch `claude/blissful-maxwell-iphluh`, restarted from main. Vercel-only, no migration. Every
+viewer now opens in Arc; Classic is one click away in the topbar and unchanged for anyone who picks it.
 
 ## Notes
 
@@ -67,6 +67,37 @@ verified: any screen with real data (order form, orders table, case rows, admin 
 one-frame Classic→Arc swap on load (the switch reads localStorage after hydration); the chat composer, the orders
 search box and the ChatImageGenerator modal deliberately stay as they were. Arc controls are taller (44px fields,
 36px buttons), so dense rows grow in Arc.
+
+**Arc is the default (2026-10-01).** The root layout renders `<html data-design="arc" data-accent="neutral">`, so the
+first paint is Arc before any script runs; the pre-paint script now *removes* the attributes only for a viewer whose
+stored choice is `classic` (and sets their stored accent otherwise). `DEFAULT_DESIGN` is `arc`, which is also the
+server snapshot, so the one-frame Classic→Arc component swap on load is gone for Arc viewers (a Classic chooser now
+gets the reverse, one frame). `readDesign()` treats a missing attribute as Classic. 7 tests (the blocked-storage and
+unknown-value cases now leave the server's Arc in place).
+
+**The rest of the controls.** Arc's `.button` sets `position` and `display` unlayered, which would have broken a
+caller's `absolute`/`fixed` (eye toggles, corner close buttons) and `md:hidden` (the phone menu button showed on
+desktop); `Button` now rolls those back to the caller's utility (`revert-layer`), and an icon button with its own
+`w-*`/`size-*` keeps its 44px target. Converted: 25 icon buttons (close, menu, dismiss, remove, move, copy, password
+eye) → Arc ghost icon buttons; 11 single-choice toggles → Arc's `SegmentedControl` via a new `Segmented` (Classic
+markup kept inline as `classic={…}`): chart granularity (dashboard + admin), Created/Updated At, crawl presets, usage
+presets, purge age, top-up amounts, admin history tabs, assistant Chat/Handoffs, order-form speed and device-type chips
+(counts kept), Upload/Generate; 2 switches → Arc `Switch` via `ToggleSwitch`; the admin assistant composer → `Textarea`
+(a caller's `min-h-*`/`resize-*` now beat Arc's 110px minimum); the Orders search box → `Input` (icon padding kept);
+the phone country-code box takes Arc's control height; the Umobile gallery pager → Arc `Pagination`; the closing-script
+chat dialog → `Modal` + Arc buttons (its chrome's palette hex classes became tokens, identical in Classic; the
+photographed WhatsApp replica is untouched). Left on purpose: inline text links (already accent-coloured), structural
+rows/tiles (list rows, thumbnails, plan disclosures, picker options, the Bills tiles, sidebar nav), the dark capture
+carousel, the admin assistant's floating button; Avatar and Separator are unused; Calendar only renders in Classic.
+
+Verified on `next start` with a minted session, no database: the server HTML carries `data-design="arc"`; with nothing
+stored every page opens in Arc at 1440 and 390 (44px fields, search padding 36px, phone menu hidden at 1440 and shown at
+390, segmented controls present, no overflow, no new console errors); with `classic` stored every page is Classic (36/40px
+fields) and the dashboard matches the earlier Classic capture. On a throwaway preview route (deleted): segmented
+selection, switch toggle, eye button inside its field, a one-line composer (46px), and the chat dialog as an Arc dialog
+closing on Escape, Classic keeping its own shell. 1234 vitest, build clean, lint/tsc at baseline. Found, not fixed (not
+this change): `/dashboard/usage` crashes when `/api/cases/usage/history` errors, because `CaseUsageScreen` never checks
+`res.ok` (seen here because there is no database).
 
 Gallery verified on `next start` at 1440 and 390: all 122 demos mount, 0 failed, 0 console errors, 0 broken
 images, no page overflow; dialog opens styled over the page; dark + violet preview; leaving restores classic.

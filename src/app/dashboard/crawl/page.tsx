@@ -13,6 +13,7 @@ import {
   formatCrawlDate,
   isCrawlDateInLookback,
 } from "@/lib/crawler/date-window";
+import { Segmented } from "@/components/ui/segmented";
 
 interface CrawlProgress {
   step: string;
@@ -304,22 +305,32 @@ export default function CrawlPage() {
         </div>
 
         {/* Preset buttons */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          {PRESETS.map((p) => (
-            <button
-              key={p.key}
-              onClick={() => applyPreset(p)}
-              disabled={crawling}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-150 press-effect ${
-                activePreset === p.key
-                  ? "bg-brand text-white shadow-sm shadow-brand/20"
-                  : "bg-wash text-ink-soft border border-line hover:bg-line hover:text-ink"
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          label="Date presets"
+          options={PRESETS.map((p) => ({ value: p.key, label: p.label }))}
+          value={activePreset ?? ""}
+          // A crawl in progress keeps its range: the presets only apply between crawls, as before.
+          onValueChange={(v) => { const p = PRESETS.find((x) => x.key === v); if (p && !crawling) applyPreset(p); }}
+          className="mb-4"
+          classic={
+            <div className="flex flex-wrap gap-2 mb-4">
+              {PRESETS.map((p) => (
+                <button
+                  key={p.key}
+                  onClick={() => applyPreset(p)}
+                  disabled={crawling}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-150 press-effect ${
+                    activePreset === p.key
+                      ? "bg-brand text-white shadow-sm shadow-brand/20"
+                      : "bg-wash text-ink-soft border border-line hover:bg-line hover:text-ink"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          }
+        />
 
         {/* Date inputs */}
         <div className="flex flex-col sm:flex-row gap-3">

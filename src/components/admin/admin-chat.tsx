@@ -35,6 +35,8 @@ import {
   type TraceStep,
 } from "@/lib/admin-chat/stream-state";
 import { Button } from "@/components/ui/button";
+import { Segmented } from "@/components/ui/segmented";
+import { Textarea } from "@/components/ui/textarea";
 
 /**
  * The admin assistant popup — a testing feature, read-only.
@@ -211,7 +213,7 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
           <h2 className="text-sm font-semibold text-ink">Admin assistant</h2>
           <p className="text-[11px] text-ink-muted">Testing · read-only · answers from BizzFlow data</p>
         </div>
-        <button
+        <Button unstyled variant="ghost" size="icon-sm"
           type="button"
           onClick={newChat}
           aria-label="New chat"
@@ -219,36 +221,48 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
           className="flex h-11 w-11 items-center justify-center rounded-lg text-ink-muted hover:bg-wash focus-visible:outline-2 focus-visible:outline-brand"
         >
           <RotateCcw className="h-4 w-4" />
-        </button>
-        <button
+        </Button>
+        <Button unstyled variant="ghost" size="icon-sm"
           type="button"
           onClick={() => setOpen(false)}
           aria-label="Close admin assistant"
           className="flex h-11 w-11 items-center justify-center rounded-lg text-ink-muted hover:bg-wash focus-visible:outline-2 focus-visible:outline-brand"
         >
           <X className="h-5 w-5" />
-        </button>
+        </Button>
       </header>
 
-      <div role="tablist" className="flex border-b border-line px-3 text-sm">
-        {(["chat", "handoffs"] as const).map((t) => (
-          <button
-            key={t}
-            role="tab"
-            type="button"
-            aria-selected={tab === t}
-            onClick={() => {
-              setTab(t);
-              if (t === "handoffs") void loadHandoffs();
-            }}
-            className={`-mb-px min-h-11 border-b-2 px-3 font-medium ${
-              tab === t ? "border-brand text-ink" : "border-transparent text-ink-muted hover:text-ink"
-            }`}
-          >
-            {t === "chat" ? "Chat" : `Handoffs${openCount ? ` (${openCount})` : ""}`}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        label="Assistant view"
+        options={[{ value: "chat", label: "Chat" }, { value: "handoffs", label: `Handoffs${openCount ? ` (${openCount})` : ""}` }]}
+        value={tab}
+        onValueChange={(v) => {
+          setTab(v as typeof tab);
+          if (v === "handoffs") void loadHandoffs();
+        }}
+        className="mx-3 my-2"
+        classic={
+          <div role="tablist" className="flex border-b border-line px-3 text-sm">
+            {(["chat", "handoffs"] as const).map((t) => (
+              <button
+                key={t}
+                role="tab"
+                type="button"
+                aria-selected={tab === t}
+                onClick={() => {
+                  setTab(t);
+                  if (t === "handoffs") void loadHandoffs();
+                }}
+                className={`-mb-px min-h-11 border-b-2 px-3 font-medium ${
+                  tab === t ? "border-brand text-ink" : "border-transparent text-ink-muted hover:text-ink"
+                }`}
+              >
+                {t === "chat" ? "Chat" : `Handoffs${openCount ? ` (${openCount})` : ""}`}
+              </button>
+            ))}
+          </div>
+        }
+      />
 
       {tab === "chat" ? (
         <>
@@ -294,7 +308,7 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
           >
             {locked && <p className="mb-2 rounded-md bg-[#FFF4E5] px-2 py-1.5 text-xs text-[#9A4B00]">{locked}</p>}
             <div className="flex items-end gap-2">
-              <textarea
+              <Textarea
                 ref={inputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -311,14 +325,14 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
                 aria-label="Your question"
                 className="max-h-32 min-h-11 flex-1 resize-none rounded-lg border border-line px-3 py-2.5 text-sm text-ink placeholder:text-[#A3ACB9] focus:border-brand focus:outline-none disabled:bg-wash"
               />
-              <button
+              <Button unstyled variant="default" size="icon-sm"
                 type="submit"
                 disabled={busy || !input.trim() || !!locked}
                 aria-label="Send"
                 className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-brand text-white disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
               >
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              </button>
+              </Button>
             </div>
           </form>
         </>

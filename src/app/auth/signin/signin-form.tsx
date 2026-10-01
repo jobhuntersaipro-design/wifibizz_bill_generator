@@ -122,7 +122,7 @@ export function SignInForm() {
                   autoComplete="current-password"
                   className="rounded-lg h-10 pr-10 border-line focus:border-brand focus:ring-1 focus:ring-brand/20"
                 />
-                <button
+                <Button unstyled variant="ghost" size="icon-sm"
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-muted hover:text-ink transition-colors"
@@ -138,7 +138,7 @@ export function SignInForm() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
                     </svg>
                   )}
-                </button>
+                </Button>
               </div>
               {error && (
                 <div className="text-sm text-danger bg-red-50 border border-red-200 rounded-lg px-4 py-2.5">
