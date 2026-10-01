@@ -1,4 +1,6 @@
 "use client";
+import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 
 import { useCallback, useEffect, useState, useRef } from "react";
 import {
@@ -14,6 +16,7 @@ import {
   getHeatColor, getHeatLegendColors, getStatusColor, useAnimatedCounter,
 } from "./shared";
 import { FileStackIcon, CheckCircleIcon, FileTextIcon } from "./icons";
+import { Button } from "@/components/ui/button";
 
 // ── KPI Card ──
 
@@ -23,12 +26,12 @@ function KpiCard({ label, value, icon, accent, delay = 0 }: { label: string; val
   const animatedValue = useAnimatedCounter(isNumeric ? numericValue : 0, 800);
 
   return (
-    <div className="bg-white rounded-lg border border-[#E3E8EF] px-5 py-4 hover-lift animate-fade-in-up chart-card-hover">
+    <div className="bg-white rounded-lg border border-line px-5 py-4 hover-lift animate-fade-in-up chart-card-hover">
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-[#697386] animate-scale-in" style={{ animationDelay: `${delay + 200}ms` }}>{icon}</span>
-        <span className="text-xs font-medium text-[#697386] truncate">{label}</span>
+        <span className="text-ink-muted animate-scale-in" style={{ animationDelay: `${delay + 200}ms` }}>{icon}</span>
+        <span className="text-xs font-medium text-ink-muted truncate">{label}</span>
       </div>
-      <p className={`text-2xl font-semibold tabular-nums number-pop ${accent ?? "text-[#0A2540]"}`} style={{ animationDelay: `${delay + 100}ms` }}>
+      <p className={`text-2xl font-semibold tabular-nums number-pop ${accent ?? "text-ink"}`} style={{ animationDelay: `${delay + 100}ms` }}>
         {isNumeric ? animatedValue : value}
       </p>
     </div>
@@ -44,30 +47,30 @@ function CaseUsageCard({ usage, delay = 0 }: { usage: { casesUsed: number; limit
   const allUsed = usage ? usage.casesUsed >= limit && limit > 0 : false;
 
   return (
-    <div className="bg-white rounded-lg border border-[#E3E8EF] px-5 py-4 hover-lift animate-fade-in-up chart-card-hover">
+    <div className="bg-white rounded-lg border border-line px-5 py-4 hover-lift animate-fade-in-up chart-card-hover">
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-[#697386] animate-scale-in" style={{ animationDelay: `${delay + 200}ms` }}>
+        <span className="text-ink-muted animate-scale-in" style={{ animationDelay: `${delay + 200}ms` }}>
           <FileTextIcon className="w-4 h-4" />
         </span>
-        <span className="text-xs font-medium text-[#697386] truncate">Cases Used</span>
+        <span className="text-xs font-medium text-ink-muted truncate">Cases Used</span>
       </div>
       <div className="flex items-baseline gap-1.5">
-        <p className={`text-2xl font-semibold tabular-nums number-pop ${allUsed ? "text-[#DF1B41]" : "text-[#0A2540]"}`} style={{ animationDelay: `${delay + 100}ms` }}>
+        <p className={`text-2xl font-semibold tabular-nums number-pop ${allUsed ? "text-danger" : "text-ink"}`} style={{ animationDelay: `${delay + 100}ms` }}>
           {usage ? animatedCurrent : "—"}
         </p>
-        <span className="text-sm text-[#697386] tabular-nums">/ {limit || "—"}</span>
-        <span className={`ml-auto text-xs font-medium tabular-nums ${allUsed ? "text-[#DF1B41]" : "text-[#697386]"}`}>
+        <span className="text-sm text-ink-muted tabular-nums">/ {limit || "—"}</span>
+        <span className={`ml-auto text-xs font-medium tabular-nums ${allUsed ? "text-danger" : "text-ink-muted"}`}>
           {usage ? `${percentage}%` : ""}
         </span>
       </div>
-      <div className="mt-2 h-1.5 rounded-full bg-[#F6F9FC] overflow-hidden">
+      <div className="mt-2 h-1.5 rounded-full bg-wash overflow-hidden">
         <div
-          className={`h-full rounded-full transition-all duration-700 ease-out ${allUsed ? "bg-[#DF1B41]" : "bg-[#635BFF]"}`}
+          className={`h-full rounded-full transition-all duration-700 ease-out ${allUsed ? "bg-danger" : "bg-brand"}`}
           style={{ width: `${usage ? percentage : 0}%` }}
         />
       </div>
       {usage && (
-        <div className="flex gap-3 mt-2 text-[11px] text-[#697386] tabular-nums">
+        <div className="flex gap-3 mt-2 text-[11px] text-ink-muted tabular-nums">
           <span>Umobile: {usage.internetBills}</span>
           <span>Utility: {usage.utilityBills}</span>
         </div>
@@ -80,10 +83,10 @@ function CaseUsageCard({ usage, delay = 0 }: { usage: { casesUsed: number; limit
 
 function ChartCard({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden hover-lift chart-card-hover">
+    <div className="bg-white rounded-lg border border-line overflow-hidden hover-lift chart-card-hover">
       <div className="px-5 pt-5 pb-3">
-        <h3 className="text-sm font-semibold text-[#0A2540]">{title}</h3>
-        <p className="text-xs text-[#697386] mt-0.5">{subtitle}</p>
+        <h3 className="text-sm font-semibold text-ink">{title}</h3>
+        <p className="text-xs text-ink-muted mt-0.5">{subtitle}</p>
       </div>
       <div className="px-4 pb-5">{children}</div>
     </div>
@@ -94,8 +97,8 @@ function ChartSkeleton() {
   return (
     <div className="flex items-center justify-center h-[240px]">
       <div className="flex flex-col items-center gap-3">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />
-        <span className="text-xs text-[#697386]">Loading...</span>
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-brand border-t-transparent" />
+        <span className="text-xs text-ink-muted">Loading...</span>
       </div>
     </div>
   );
@@ -103,7 +106,7 @@ function ChartSkeleton() {
 
 function EmptyChart({ message }: { message: string }) {
   return (
-    <div className="flex items-center justify-center h-[240px] text-sm text-[#697386]">{message}</div>
+    <div className="flex items-center justify-center h-[240px] text-sm text-ink-muted">{message}</div>
   );
 }
 
@@ -185,15 +188,15 @@ function MalaysiaMap({ stateData, maxValue, selectedState, onStateClick, status 
       </svg>
       {tooltip && (
         <div
-          className="absolute pointer-events-none z-10 bg-white rounded-lg shadow-lg border border-[#E3E8EF] px-3 py-2 tooltip-enter"
+          className="absolute pointer-events-none z-10 bg-white rounded-lg shadow-lg border border-line px-3 py-2 tooltip-enter"
           style={{
             left: Math.min(tooltip.x + 14, (tooltip.w || 400) - 150),
             top: Math.max(tooltip.y - 52, 4),
           }}
         >
-          <p className="text-xs font-semibold text-[#0A2540]">{tooltip.name}</p>
-          <p className="text-[11px] text-[#697386] tabular-nums">{tooltip.value} {tooltip.value === 1 ? "case" : "cases"}</p>
-          <p className="text-[10px] text-[#635BFF] mt-0.5">Click for details</p>
+          <p className="text-xs font-semibold text-ink">{tooltip.name}</p>
+          <p className="text-[11px] text-ink-muted tabular-nums">{tooltip.value} {tooltip.value === 1 ? "case" : "cases"}</p>
+          <p className="text-[10px] text-brand mt-0.5">Click for details</p>
         </div>
       )}
     </div>
@@ -394,19 +397,19 @@ export default function AnalyticsSection({ surface }: { surface: AnalyticsSurfac
       <>
       {/* Cases Over Time */}
       <div className="animate-fade-in-up" style={{ animationDelay: "200ms" }}>
-        <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden hover-lift chart-card-hover">
+        <div className="bg-white rounded-lg border border-line overflow-hidden hover-lift chart-card-hover">
           <div className="px-5 pt-5 pb-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold text-[#0A2540]">Cases Over Time</h3>
-                <p className="text-xs text-[#697386] mt-0.5">
+                <h3 className="text-sm font-semibold text-ink">Cases Over Time</h3>
+                <p className="text-xs text-ink-muted mt-0.5">
                   Case creation trend by {granularity}
                   {hasChartFilters && " (filtered)"}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <select
-                  className="h-7 rounded-md border border-[#E3E8EF] bg-white px-2 text-[11px] text-[#425466] focus:border-[#635BFF] outline-none transition-all max-w-[160px]"
+                <Select
+                  className="h-7 rounded-md border border-line bg-white px-2 text-[11px] text-ink-soft focus:border-brand outline-none transition-all max-w-[160px]"
                   value={chartProvider}
                   onChange={(e) => setChartProvider(e.target.value)}
                 >
@@ -414,15 +417,15 @@ export default function AnalyticsSection({ surface }: { surface: AnalyticsSurfac
                   {(analytics?.allProviders ?? []).map((p) => (
                     <option key={p} value={p}>{truncateLabel(p, 30)}</option>
                   ))}
-                </select>
+                </Select>
                 {hasChartFilters && (
-                  <button className="text-[11px] text-[#DF1B41] hover:underline" onClick={() => setChartProvider("")}>Clear</button>
+                  <button className="text-[11px] text-danger hover:underline" onClick={() => setChartProvider("")}>Clear</button>
                 )}
-                <div className="flex items-center bg-[#F6F9FC] rounded-md p-0.5 border border-[#E3E8EF]">
+                <div className="flex items-center bg-wash rounded-md p-0.5 border border-line">
                   {GRANULARITY_OPTIONS.map((opt) => (
                     <button
                       key={opt.value}
-                      className={`px-2.5 py-1 text-[11px] font-medium rounded transition-all ${granularity === opt.value ? "bg-white text-[#0A2540] shadow-sm" : "text-[#697386] hover:text-[#425466]"}`}
+                      className={`px-2.5 py-1 text-[11px] font-medium rounded transition-all ${granularity === opt.value ? "bg-white text-ink shadow-sm" : "text-ink-muted hover:text-ink-soft"}`}
                       onClick={() => setGranularity(opt.value)}
                     >
                       {opt.label}
@@ -444,7 +447,7 @@ export default function AnalyticsSection({ surface }: { surface: AnalyticsSurfac
                   title={`Click to ${selectedStatuses.has(s) ? "deselect" : "select"} ${s}`}
                 >
                   <div className={`w-2.5 h-2.5 rounded-full transition-transform duration-200 ${selectedStatuses.size > 0 && !selectedStatuses.has(s) ? "scale-75" : ""}`} style={{ backgroundColor: getStatusColor(s, i) }} />
-                  <span className="text-[11px] text-[#697386] select-none">{s}</span>
+                  <span className="text-[11px] text-ink-muted select-none">{s}</span>
                 </button>
               ))}
             </div>
@@ -516,17 +519,17 @@ export default function AnalyticsSection({ surface }: { surface: AnalyticsSurfac
 
       {/* Cases by State — Full Width with Filters */}
       <div className="animate-fade-in-up" style={{ animationDelay: "300ms" }}>
-        <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden hover-lift chart-card-hover">
+        <div className="bg-white rounded-lg border border-line overflow-hidden hover-lift chart-card-hover">
           <div className="px-5 pt-5 pb-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold text-[#0A2540]">Cases by State</h3>
-                <p className="text-xs text-[#697386] mt-0.5">
+                <h3 className="text-sm font-semibold text-ink">Cases by State</h3>
+                <p className="text-xs text-ink-muted mt-0.5">
                   Geographic distribution across Malaysia
                   {mapHasFilters && " (filtered)"}
                 </p>
               </div>
-              <div className="flex items-center gap-1.5 text-[10px] text-[#697386]">
+              <div className="flex items-center gap-1.5 text-[10px] text-ink-muted">
                 <span>Low</span>
                 <div className="flex gap-0.5">
                   {getHeatLegendColors(mapStatus).map((c) => (
@@ -540,37 +543,37 @@ export default function AnalyticsSection({ surface }: { surface: AnalyticsSurfac
             {/* Map filters row */}
             <div className="flex flex-wrap items-center gap-2 mt-3">
               <div className="relative">
-                <select className="h-7 rounded-md border border-[#E3E8EF] bg-white pl-2 pr-7 text-[11px] text-[#425466] focus:border-[#635BFF] outline-none transition-all appearance-none" value={mapStatus} onChange={(e) => setMapStatus(e.target.value)}>
+                <Select className="h-7 rounded-md border border-line bg-white pl-2 pr-7 text-[11px] text-ink-soft focus:border-brand outline-none transition-all appearance-none" value={mapStatus} onChange={(e) => setMapStatus(e.target.value)}>
                   <option value="">All Statuses</option>
                   {(analytics?.allStatuses ?? []).map((s) => (<option key={s} value={s}>{s}</option>))}
-                </select>
-                <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[#697386]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                </Select>
+                <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
               </div>
               <div className="relative max-w-40">
-                <select className="h-7 w-full rounded-md border border-[#E3E8EF] bg-white pl-2 pr-7 text-[11px] text-[#425466] focus:border-[#635BFF] outline-none transition-all appearance-none" value={mapProvider} onChange={(e) => setMapProvider(e.target.value)}>
+                <Select className="h-7 w-full rounded-md border border-line bg-white pl-2 pr-7 text-[11px] text-ink-soft focus:border-brand outline-none transition-all appearance-none" value={mapProvider} onChange={(e) => setMapProvider(e.target.value)}>
                   <option value="">All Providers</option>
                   {(analytics?.allProviders ?? []).map((p) => (<option key={p} value={p}>{truncateLabel(p, 28)}</option>))}
-                </select>
-                <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[#697386]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                </Select>
+                <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
               </div>
               <div className="relative max-w-50">
-                <select className="h-7 w-full rounded-md border border-[#E3E8EF] bg-white pl-2 pr-7 text-[11px] text-[#425466] focus:border-[#635BFF] outline-none transition-all appearance-none" value={mapPackage} onChange={(e) => setMapPackage(e.target.value)}>
+                <Select className="h-7 w-full rounded-md border border-line bg-white pl-2 pr-7 text-[11px] text-ink-soft focus:border-brand outline-none transition-all appearance-none" value={mapPackage} onChange={(e) => setMapPackage(e.target.value)}>
                   <option value="">All Packages</option>
                   {(analytics?.allPackages ?? []).map((p) => (<option key={p} value={p}>{truncateLabel(p, 35)}</option>))}
-                </select>
-                <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[#697386]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                </Select>
+                <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
               </div>
-              <div className="h-5 w-px bg-[#E3E8EF]" />
-              <select className="h-7 rounded-md border border-[#E3E8EF] bg-white px-2 text-[11px] text-[#425466] focus:border-[#635BFF] outline-none transition-all" value={mapDateRange} onChange={(e) => handleMapDatePreset(e.target.value)}>
+              <div className="h-5 w-px bg-line" />
+              <Select className="h-7 rounded-md border border-line bg-white px-2 text-[11px] text-ink-soft focus:border-brand outline-none transition-all" value={mapDateRange} onChange={(e) => handleMapDatePreset(e.target.value)}>
                 {DATE_RANGE_PRESETS.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}
-              </select>
+              </Select>
               <div className="flex items-center gap-1.5">
-                <input type="date" className="h-7 rounded-md border border-[#E3E8EF] bg-white px-1.5 sm:px-2 text-[11px] text-[#425466] focus:border-[#635BFF] outline-none transition-all max-w-[130px]" value={mapDateFrom} onChange={(e) => handleMapDateFrom(e.target.value)} placeholder="From" />
-                <span className="text-[10px] text-[#697386]">to</span>
-                <input type="date" className="h-7 rounded-md border border-[#E3E8EF] bg-white px-1.5 sm:px-2 text-[11px] text-[#425466] focus:border-[#635BFF] outline-none transition-all max-w-[130px]" value={mapDateTo} onChange={(e) => handleMapDateTo(e.target.value)} />
+                <Input unstyled type="date" className="h-7 rounded-md border border-line bg-white px-1.5 sm:px-2 text-[11px] text-ink-soft focus:border-brand outline-none transition-all max-w-[130px]" value={mapDateFrom} onChange={(e) => handleMapDateFrom(e.target.value)} placeholder="From" />
+                <span className="text-[10px] text-ink-muted">to</span>
+                <Input unstyled type="date" className="h-7 rounded-md border border-line bg-white px-1.5 sm:px-2 text-[11px] text-ink-soft focus:border-brand outline-none transition-all max-w-[130px]" value={mapDateTo} onChange={(e) => handleMapDateTo(e.target.value)} />
               </div>
               {mapHasFilters && (
-                <button className="h-7 px-2.5 rounded-md text-[11px] font-medium text-[#697386] bg-[#F6F9FC] border border-[#E3E8EF] hover:bg-[#EDF0F4] hover:text-[#425466] transition-all" onClick={clearMapFilters}>Reset</button>
+                <Button unstyled variant="outline" className="h-7 px-2.5 rounded-md text-[11px] font-medium text-ink-muted bg-wash border border-line hover:bg-[#EDF0F4] hover:text-ink-soft transition-all" onClick={clearMapFilters}>Reset</Button>
               )}
             </div>
           </div>
@@ -584,8 +587,8 @@ export default function AnalyticsSection({ surface }: { surface: AnalyticsSurfac
               <div className="relative">
                 {mapLoading && (
                   <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] z-10 flex items-center justify-center rounded-lg transition-opacity duration-200">
-                    <div className="flex items-center gap-2 text-[#697386]">
-                      <svg className="animate-spin h-4 w-4 text-[#635BFF]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <div className="flex items-center gap-2 text-ink-muted">
+                      <svg className="animate-spin h-4 w-4 text-brand" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                       </svg>
@@ -598,22 +601,22 @@ export default function AnalyticsSection({ surface }: { surface: AnalyticsSurfac
                     <MalaysiaMap stateData={stateMap} maxValue={maxStateValue} selectedState={selectedState} onStateClick={handleStateClick} status={mapStatus} />
                   </div>
                   <div className="w-full md:w-[200px] md:shrink-0">
-                    <p className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-2">Top States</p>
+                    <p className="text-[11px] font-semibold text-ink-muted uppercase tracking-wider mb-2">Top States</p>
                     <div className="space-y-2">
                       {mergedStates.slice(0, 8).map((state, i) => (
                         <div
                           key={state.name}
-                          className={`flex items-center gap-2 cursor-pointer rounded-md px-1 py-0.5 transition-all duration-200 animate-fade-in-left ${selectedState === state.name ? "bg-[#F0EEFF]" : "hover:bg-[#F6F9FC]"}`}
+                          className={`flex items-center gap-2 cursor-pointer rounded-md px-1 py-0.5 transition-all duration-200 animate-fade-in-left ${selectedState === state.name ? "bg-[#F0EEFF]" : "hover:bg-wash"}`}
                           style={{ animationDelay: `${i * 60}ms` }}
                           onClick={() => handleStateClick(state.name)}
                         >
-                          <span className="text-[10px] font-semibold text-[#697386] w-3 tabular-nums">{i + 1}</span>
+                          <span className="text-[10px] font-semibold text-ink-muted w-3 tabular-nums">{i + 1}</span>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-medium text-[#0A2540] truncate">{state.name}</span>
-                              <span className="text-[11px] font-semibold text-[#0A2540] tabular-nums ml-2">{state.value}</span>
+                              <span className="text-[11px] font-medium text-ink truncate">{state.name}</span>
+                              <span className="text-[11px] font-semibold text-ink tabular-nums ml-2">{state.value}</span>
                             </div>
-                            <div className="h-1 bg-[#F6F9FC] rounded-full mt-1 overflow-hidden">
+                            <div className="h-1 bg-wash rounded-full mt-1 overflow-hidden">
                               <div
                                 className="h-full rounded-full progress-fill"
                                 style={{
@@ -633,67 +636,67 @@ export default function AnalyticsSection({ surface }: { surface: AnalyticsSurfac
 
                 {/* State detail panel */}
                 {selectedState && (
-                  <div className="mt-4 border-t border-[#E3E8EF] pt-4 animate-fade-in-up">
+                  <div className="mt-4 border-t border-line pt-4 animate-fade-in-up">
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
                         <div className="w-2 h-2 rounded-full transition-colors duration-300" style={{ backgroundColor: STATUS_COLORS[mapStatus] ?? "#635BFF" }} />
-                        <h4 className="text-sm font-semibold text-[#0A2540]">{selectedState}</h4>
+                        <h4 className="text-sm font-semibold text-ink">{selectedState}</h4>
                         {stateDetailLoading ? (
-                          <svg className="animate-spin h-3.5 w-3.5 text-[#635BFF]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <svg className="animate-spin h-3.5 w-3.5 text-brand" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                           </svg>
                         ) : (
-                          <span className="text-xs text-[#697386] tabular-nums">{stateDetail?.total ?? 0} cases</span>
+                          <span className="text-xs text-ink-muted tabular-nums">{stateDetail?.total ?? 0} cases</span>
                         )}
                       </div>
-                      <button onClick={() => setSelectedState(null)} className="text-[11px] text-[#697386] hover:text-[#0A2540] transition-colors">Close</button>
+                      <button onClick={() => setSelectedState(null)} className="text-[11px] text-ink-muted hover:text-ink transition-colors">Close</button>
                     </div>
                     {!stateDetailLoading && stateDetail && (
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="bg-[#F6F9FC] rounded-lg p-3">
-                          <p className="text-[10px] font-semibold text-[#697386] uppercase tracking-wider mb-2">By Status</p>
-                          {stateDetail.byStatus.length === 0 ? (<p className="text-[11px] text-[#697386]">No data</p>) : (
+                        <div className="bg-wash rounded-lg p-3">
+                          <p className="text-[10px] font-semibold text-ink-muted uppercase tracking-wider mb-2">By Status</p>
+                          {stateDetail.byStatus.length === 0 ? (<p className="text-[11px] text-ink-muted">No data</p>) : (
                             <div className="space-y-1.5">
                               {stateDetail.byStatus.map((s) => (
                                 <div key={s.name} className="flex items-center justify-between">
                                   <div className="flex items-center gap-1.5">
                                     <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: STATUS_COLORS[s.name] ?? "#697386" }} />
-                                    <span className="text-[11px] text-[#425466]">{s.name}</span>
+                                    <span className="text-[11px] text-ink-soft">{s.name}</span>
                                   </div>
-                                  <span className="text-[11px] font-semibold text-[#0A2540] tabular-nums">{s.value}</span>
+                                  <span className="text-[11px] font-semibold text-ink tabular-nums">{s.value}</span>
                                 </div>
                               ))}
                             </div>
                           )}
                         </div>
-                        <div className="bg-[#F6F9FC] rounded-lg p-3">
-                          <p className="text-[10px] font-semibold text-[#697386] uppercase tracking-wider mb-2">By Provider</p>
-                          {stateDetail.byProvider.length === 0 ? (<p className="text-[11px] text-[#697386]">No data</p>) : (
+                        <div className="bg-wash rounded-lg p-3">
+                          <p className="text-[10px] font-semibold text-ink-muted uppercase tracking-wider mb-2">By Provider</p>
+                          {stateDetail.byProvider.length === 0 ? (<p className="text-[11px] text-ink-muted">No data</p>) : (
                             <div className="space-y-1.5">
                               {stateDetail.byProvider.map((p, i) => (
                                 <div key={p.name} className="flex items-center justify-between">
                                   <div className="flex items-center gap-1.5">
                                     <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }} />
-                                    <span className="text-[11px] text-[#425466] truncate max-w-[140px]">{p.name}</span>
+                                    <span className="text-[11px] text-ink-soft truncate max-w-[140px]">{p.name}</span>
                                   </div>
-                                  <span className="text-[11px] font-semibold text-[#0A2540] tabular-nums">{p.value}</span>
+                                  <span className="text-[11px] font-semibold text-ink tabular-nums">{p.value}</span>
                                 </div>
                               ))}
                             </div>
                           )}
                         </div>
-                        <div className="bg-[#F6F9FC] rounded-lg p-3">
-                          <p className="text-[10px] font-semibold text-[#697386] uppercase tracking-wider mb-2">By Package</p>
-                          {stateDetail.byPackage.length === 0 ? (<p className="text-[11px] text-[#697386]">No data</p>) : (
+                        <div className="bg-wash rounded-lg p-3">
+                          <p className="text-[10px] font-semibold text-ink-muted uppercase tracking-wider mb-2">By Package</p>
+                          {stateDetail.byPackage.length === 0 ? (<p className="text-[11px] text-ink-muted">No data</p>) : (
                             <div className="space-y-1.5">
                               {stateDetail.byPackage.map((p, i) => (
                                 <div key={p.name} className="flex items-center justify-between gap-2">
                                   <div className="flex items-center gap-1.5 min-w-0">
                                     <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: PIE_COLORS[(i + 3) % PIE_COLORS.length] }} />
-                                    <span className="text-[11px] text-[#425466] truncate">{p.name}</span>
+                                    <span className="text-[11px] text-ink-soft truncate">{p.name}</span>
                                   </div>
-                                  <span className="text-[11px] font-semibold text-[#0A2540] tabular-nums shrink-0">{p.value}</span>
+                                  <span className="text-[11px] font-semibold text-ink tabular-nums shrink-0">{p.value}</span>
                                 </div>
                               ))}
                             </div>
@@ -756,7 +759,7 @@ export default function AnalyticsSection({ surface }: { surface: AnalyticsSurfac
                   {analytics?.byStatus.map((entry, index) => (
                     <div key={entry.name} className="flex items-center gap-1.5">
                       <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: STATUS_COLORS[entry.name] ?? PIE_COLORS[index % PIE_COLORS.length] }} />
-                      <span className="text-[11px] text-[#697386]">{entry.name} ({entry.value})</span>
+                      <span className="text-[11px] text-ink-muted">{entry.name} ({entry.value})</span>
                     </div>
                   ))}
                 </div>

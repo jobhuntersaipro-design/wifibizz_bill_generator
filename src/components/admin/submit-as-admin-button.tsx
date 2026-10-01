@@ -1,8 +1,12 @@
 "use client";
+import { Select } from "@/components/ui/select";
+import { CheckboxInput } from "@/components/ui/checkbox-input";
 
 import { useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { adminSubmitOrder, adminSubmitTargets, type SubmitTarget } from "@/actions/admin-submit";
+import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 
 const ELIGIBLE = new Set(["draft", "failed", "warning"]);
 const STOP_BEFORE_PAY_HELP = "The run stops on the Pay screen. The portal will already hold an unpaid order number for this customer, which must be paid or voided by hand.";
@@ -53,26 +57,23 @@ export function SubmitAsAdminButton({ orderId, label, status, portalOrderNo }: {
 
   return (
     <>
-      <button type="button" onClick={openDialog}
-        className="min-h-9 rounded-md bg-[#635BFF] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#5851E0] focus-visible:outline-2 focus-visible:outline-[#635BFF]">
+      <Button unstyled variant="default" type="button" onClick={openDialog}
+        className="min-h-9 rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-[#5851E0] focus-visible:outline-2 focus-visible:outline-brand">
         Submit as…
-      </button>
+      </Button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0A2540]/40 p-4"
-          role="dialog" aria-modal="true" aria-labelledby="submit-admin-title"
-          onKeyDown={(e) => { if (e.key === "Escape") setOpen(false); }}>
-          <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
-            <h3 id="submit-admin-title" className="text-base font-semibold text-[#0A2540]">Submit {label} as an agent</h3>
+        <Modal label="Submit as an agent" onClose={() => setOpen(false)} overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="submit-admin-title" onKeyDown={(e) => { if (e.key === "Escape") setOpen(false); }}>
+            <h3 id="submit-admin-title" className="text-base font-semibold text-ink">Submit {label} as an agent</h3>
 
             {notEligible ? (
               <p className="mt-2 rounded-md bg-[#FFFAEB] px-3 py-2 text-sm text-[#B54708]">
                 {status === "submitting" ? "A run is already in flight for this order." : `An order in status "${status}" cannot be submitted.`}
               </p>
             ) : fallbackUrl ? (
-              <p className="mt-2 text-sm text-[#425466]">
+              <p className="mt-2 text-sm text-ink-soft">
                 The run has started, but the browser blocked the new tab.{" "}
-                <a href={fallbackUrl} target="_blank" rel="noreferrer" className="text-[#635BFF] underline">Open the live view</a>
+                <a href={fallbackUrl} target="_blank" rel="noreferrer" className="text-brand underline">Open the live view</a>
               </p>
             ) : (
               <>
@@ -82,10 +83,10 @@ export function SubmitAsAdminButton({ orderId, label, status, portalOrderNo }: {
                     <> The portal already holds order <span className="font-mono">{portalOrderNo}</span> for this customer — a second run creates a <strong>second</strong> order that will need voiding.</>
                   )}
                 </p>
-                <label className="mt-4 block text-xs text-[#697386]">
+                <label className="mt-4 block text-xs text-ink-muted">
                   Submit under
-                  <select value={targetId} onChange={(e) => setTargetId(e.target.value)} disabled={!targets}
-                    className="mt-1 w-full rounded-md border border-[#E3E8EF] bg-white px-3 py-2 text-sm text-[#0A2540]">
+                  <Select value={targetId} onChange={(e) => setTargetId(e.target.value)} disabled={!targets}
+                    className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-ink">
                     {!targets && <option>Loading accounts…</option>}
                     {targets?.length === 0 && <option value="">No Order Entry accounts</option>}
                     {targets?.map((t) => (
@@ -93,30 +94,29 @@ export function SubmitAsAdminButton({ orderId, label, status, portalOrderNo }: {
                         {t.email ?? t.name ?? t.id}{t.staffCode ? ` · ${t.staffCode}` : ""} — {t.connection.label}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </label>
-                <label className="mt-3 flex items-start gap-2 text-sm text-[#0A2540]">
-                  <input type="checkbox" checked={stopBeforePay} onChange={(e) => setStopBeforePay(e.target.checked)} className="mt-1" />
-                  <span>Stop before Pay<span className="block text-xs text-[#697386]">{STOP_BEFORE_PAY_HELP}</span></span>
+                <label className="mt-3 flex items-start gap-2 text-sm text-ink">
+                  <CheckboxInput checked={stopBeforePay} onChange={(e) => setStopBeforePay(e.target.checked)} className="mt-1" />
+                  <span>Stop before Pay<span className="block text-xs text-ink-muted">{STOP_BEFORE_PAY_HELP}</span></span>
                 </label>
-                <p className="mt-3 text-xs text-[#697386]">Automatic retry is switched off for this order from now on.</p>
+                <p className="mt-3 text-xs text-ink-muted">Automatic retry is switched off for this order from now on.</p>
                 {error && <p className="mt-3 rounded-md bg-[#FEF3F2] px-3 py-2 text-sm text-[#B42318]">{error}</p>}
                 <div className="mt-5 flex justify-end gap-2">
-                  <button type="button" onClick={() => setOpen(false)} className="rounded-md border border-[#E3E8EF] px-3 py-2 text-sm text-[#425466]">Cancel</button>
-                  <button type="button" onClick={confirm} disabled={!canConfirm}
-                    className="rounded-md bg-[#635BFF] px-3 py-2 text-sm text-white disabled:opacity-50">
+                  <Button unstyled variant="outline" type="button" onClick={() => setOpen(false)} className="rounded-md border border-line px-3 py-2 text-sm text-ink-soft">Cancel</Button>
+                  <Button unstyled variant="default" type="button" onClick={confirm} disabled={!canConfirm}
+                    className="rounded-md bg-brand px-3 py-2 text-sm text-white disabled:opacity-50">
                     {busy ? "Starting…" : "Start and watch"}
-                  </button>
+                  </Button>
                 </div>
               </>
             )}
             {(notEligible || fallbackUrl) && (
               <div className="mt-5 flex justify-end">
-                <button type="button" onClick={() => setOpen(false)} className="rounded-md border border-[#E3E8EF] px-3 py-2 text-sm text-[#425466]">Close</button>
+                <Button unstyled variant="outline" type="button" onClick={() => setOpen(false)} className="rounded-md border border-line px-3 py-2 text-sm text-ink-soft">Close</Button>
               </div>
             )}
-          </div>
-        </div>
+          </Modal>
       )}
     </>
   );

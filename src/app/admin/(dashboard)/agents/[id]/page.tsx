@@ -22,7 +22,7 @@ export default async function AdminAgentPage({
 
   return (
     <div className="space-y-5">
-      <Link href="/admin" className="text-sm text-[#635BFF] hover:underline">← All users</Link>
+      <Link href="/admin" className="text-sm text-brand hover:underline">← All users</Link>
       <AgentDetail
         agent={{
           id: a.id,

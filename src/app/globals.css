@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "../components/arc/foundation.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -245,6 +246,19 @@
 }
 
 @theme inline {
+  /* BizzFlow palette. Components use these names (text-ink, bg-brand, border-line…) instead of hex,
+     so the design toggle can repaint every screen: classic values in :root, Arc values under [data-design="arc"]. */
+  --color-brand: var(--bf-brand);
+  --color-brand-strong: var(--bf-brand-strong);
+  --color-brand-wash: var(--bf-brand-wash);
+  --color-ink: var(--bf-ink);
+  --color-ink-soft: var(--bf-ink-soft);
+  --color-ink-muted: var(--bf-ink-muted);
+  --color-ink-faint: var(--bf-ink-faint);
+  --color-line: var(--bf-line);
+  --color-line-strong: var(--bf-line-strong);
+  --color-wash: var(--bf-wash);
+  --color-danger: var(--bf-danger);
   --font-heading: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-sans: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: var(--font-jetbrains-mono), 'Roboto Mono', monospace;
@@ -289,6 +303,18 @@
 }
 
 :root {
+  /* Classic (Stripe-inspired) BizzFlow palette. */
+  --bf-brand: #635BFF;
+  --bf-brand-strong: #5851DB;
+  --bf-brand-wash: #EDEBFF;
+  --bf-ink: #0A2540;
+  --bf-ink-soft: #425466;
+  --bf-ink-muted: #697386;
+  --bf-ink-faint: #8792A2;
+  --bf-line: #E3E8EF;
+  --bf-line-strong: #CBD2DC;
+  --bf-wash: #F6F9FC;
+  --bf-danger: #DF1B41;
   /* Stripe-inspired palette */
   --background: #FFFFFF;
   --foreground: #0A2540;
@@ -366,7 +392,7 @@
     @apply bg-background text-foreground;
     font-size: 14px;
     line-height: 1.5;
-    color: #0A2540;
+    color: var(--bf-ink);
   }
   html {
     @apply font-sans;
@@ -801,5 +827,104 @@
   /* Snap open/closed instead of sliding the height. */
   .collapse-panel {
     transition: none;
+  }
+}
+
+/* ── Arc design (uiarc.dev) ────────────────────────────────────────────────
+   The design toggle sets data-design="arc" on <html>. Arc's own tokens come from
+   src/components/arc/foundation.css; this block points BizzFlow's palette and the
+   shadcn tokens at them, so every existing screen repaints without a second copy
+   of any component. Same selector weight as the foundation, and later, so it wins. */
+:is(:root[data-design="arc"], [data-design="arc"]) {
+  --bf-brand: var(--arc-accent);
+  --bf-brand-strong: var(--arc-accent-strong);
+  --bf-brand-wash: var(--arc-accent-subtle);
+  --bf-ink: var(--foreground);
+  --bf-ink-soft: var(--text-secondary);
+  --bf-ink-muted: var(--text-secondary);
+  --bf-ink-faint: var(--text-muted);
+  --bf-line: var(--border);
+  --bf-line-strong: var(--border-strong);
+  --bf-wash: var(--surface-muted);
+  --bf-danger: var(--danger);
+
+  --card: var(--surface);
+  --card-foreground: var(--foreground);
+  --popover: var(--surface-raised);
+  --popover-foreground: var(--foreground);
+  --primary: var(--arc-accent);
+  --primary-foreground: var(--arc-accent-foreground);
+  --secondary: var(--surface-muted);
+  --secondary-foreground: var(--foreground);
+  --muted: var(--surface-muted);
+  --muted-foreground: var(--text-secondary);
+  --accent: var(--surface-muted);
+  --accent-foreground: var(--foreground);
+  --destructive: var(--danger);
+  --input: var(--border);
+  --ring: var(--arc-accent);
+  --chart-1: var(--series-1);
+  --chart-2: var(--series-2);
+  --chart-3: var(--series-3);
+  --chart-4: var(--series-4);
+  --chart-5: var(--text-muted);
+  --radius: 0.875rem;
+  --sidebar: var(--surface-muted);
+  --sidebar-foreground: var(--text-secondary);
+  --sidebar-primary: var(--arc-accent);
+  --sidebar-primary-foreground: var(--arc-accent-foreground);
+  --sidebar-accent: var(--border);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--arc-accent);
+  /* Arc ships without focus rings; BizzFlow keeps a visible one for keyboard users. */
+  --focus-ring: color-mix(in oklch, var(--arc-accent) 40%, transparent);
+  font-family: var(--font-body);
+  letter-spacing: var(--tracking-body);
+}
+
+/* Text on a brand fill uses the accent's own foreground: white on dark accents, dark on
+   light ones (amber, green, and every accent in dark mode). Classic keeps its text-white. */
+:is(:root[data-design="arc"], [data-design="arc"]) .bg-brand {
+  color: var(--arc-accent-foreground);
+}
+
+/* Headings take Arc's display face and tracking. */
+:is(:root[data-design="arc"], [data-design="arc"]) :is(h1, h2, h3) {
+  font-family: var(--font-display);
+  letter-spacing: var(--tracking-display);
+}
+
+/* Arc's press: a short scale on the standard ease, on every shadcn button. */
+:is(:root[data-design="arc"], [data-design="arc"]) [data-slot="button"] {
+  transition: background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard),
+    transform var(--duration-instant) var(--ease-standard);
+}
+:is(:root[data-design="arc"], [data-design="arc"]) [data-slot="button"]:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+/* Floating layers get Arc's soft, deep shadows. */
+:is(:root[data-design="arc"], [data-design="arc"])
+  :is([data-slot="dialog-content"], [data-slot="popover-content"], [data-slot="dropdown-menu-content"]) {
+  box-shadow: var(--shadow-floating);
+  border-radius: var(--radius-panel);
+}
+/* Arc sizes a select's list to its trigger. The app's filter selects are compact, so the list
+   may grow to its longest option instead of wrapping it ("All / Statuses"). */
+:is(:root[data-design="arc"], [data-design="arc"]) [role="listbox"][data-state] {
+  width: max-content;
+}
+:is(:root[data-design="arc"], [data-design="arc"]) :focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(:root[data-design="arc"], [data-design="arc"]) [data-slot="button"]:active {
+    transform: none;
   }
 }

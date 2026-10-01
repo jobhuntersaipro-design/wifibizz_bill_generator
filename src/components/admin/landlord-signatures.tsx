@@ -1,7 +1,8 @@
 "use client";
+import { Button } from "@/components/ui/button";
 
 import { useRef, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import {
   adminDeleteLandlordSignature,
   adminListLandlordSignatures,
@@ -57,9 +58,9 @@ export function LandlordSignatures({
 
   return (
     <div className="space-y-5">
-      <div className="rounded-lg border border-[#E3E8EF] bg-white p-5">
+      <div className="rounded-lg border border-line bg-white p-5">
         <label className="block">
-          <span className="block text-[11px] font-medium text-[#425466] mb-2">
+          <span className="block text-[11px] font-medium text-ink-soft mb-2">
             Upload a landlord signature
           </span>
           <input
@@ -71,10 +72,10 @@ export function LandlordSignatures({
               const file = event.target.files?.[0];
               if (file) void onUpload(file);
             }}
-            className="block w-full text-[12px] text-[#425466] file:mr-3 file:rounded-lg file:border-0 file:bg-[#635BFF] file:px-3 file:py-2 file:text-[12px] file:font-medium file:text-white hover:file:bg-[#5348e0] disabled:opacity-60"
+            className="block w-full text-[12px] text-ink-soft file:mr-3 file:rounded-lg file:border-0 file:bg-brand file:px-3 file:py-2 file:text-[12px] file:font-medium file:text-white hover:file:bg-[#5348e0] disabled:opacity-60"
           />
         </label>
-        <p className="mt-2 text-[12px] text-[#697386]">
+        <p className="mt-2 text-[12px] text-ink-muted">
           PNG or JPEG, max 5MB. TA and Auth Letter pick one at random and pair it
           to the invented landlord. An empty pool still generates — the signature
           line stays blank.
@@ -82,7 +83,7 @@ export function LandlordSignatures({
       </div>
 
       {images.length === 0 ? (
-        <p className="text-sm text-[#697386]">
+        <p className="text-sm text-ink-muted">
           No signatures yet. Documents still generate with a blank landlord signature.
         </p>
       ) : (
@@ -90,9 +91,9 @@ export function LandlordSignatures({
           {images.map((image) => (
             <li
               key={image.id}
-              className="overflow-hidden rounded-lg border border-[#E3E8EF] bg-white"
+              className="overflow-hidden rounded-lg border border-line bg-white"
             >
-              <div className="flex h-44 items-center justify-center bg-[#F6F9FC]">
+              <div className="flex h-44 items-center justify-center bg-wash">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={image.previewUrl}
@@ -101,17 +102,17 @@ export function LandlordSignatures({
                 />
               </div>
               <div className="flex items-center justify-between gap-3 px-3 py-2">
-                <p className="truncate text-[12px] text-[#425466]" title={image.filename}>
+                <p className="truncate text-[12px] text-ink-soft" title={image.filename}>
                   {image.filename}
                 </p>
-                <button
+                <Button unstyled variant="destructive"
                   type="button"
                   disabled={deletingId === image.id}
                   onClick={() => void onDelete(image.id)}
-                  className="shrink-0 rounded-md px-2 py-1 text-[12px] font-medium text-[#DF1B41] hover:bg-red-50 disabled:opacity-60"
+                  className="shrink-0 rounded-md px-2 py-1 text-[12px] font-medium text-danger hover:bg-red-50 disabled:opacity-60"
                 >
                   {deletingId === image.id ? "Deleting…" : "Delete"}
-                </button>
+                </Button>
               </div>
             </li>
           ))}

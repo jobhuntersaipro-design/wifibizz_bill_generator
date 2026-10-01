@@ -1,17 +1,19 @@
 "use client";
 
+import { DesignToggle } from "@/components/design/DesignToggle";
+
 export function Topbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
   return (
-    <header className="flex items-center justify-between h-14 px-4 md:px-8 border-b border-[#E3E8EF] bg-white animate-fade-in-down" style={{ animationDuration: "350ms" }}>
+    <header className="flex items-center justify-between h-14 px-4 md:px-8 border-b border-line bg-card animate-fade-in-down" style={{ animationDuration: "350ms" }}>
       {/* Left side — hamburger on mobile */}
       <button
         onClick={onMenuToggle}
-        className="md:hidden p-2 rounded-lg hover:bg-[#F6F9FC] transition-colors"
+        className="md:hidden p-2 rounded-lg hover:bg-wash transition-colors"
       >
-        <MenuIcon className="w-5 h-5 text-[#697386]" />
+        <MenuIcon className="w-5 h-5 text-ink-muted" />
       </button>
       <div className="hidden md:block" />
-      <div />
+      <DesignToggle />
     </header>
   );
 }

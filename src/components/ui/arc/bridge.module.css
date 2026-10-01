@@ -1,0 +1,71 @@
+/*
+ * Arc adapters' own rules — only what Arc's component stylesheets do not already
+ * cover when Arc renders this app's compound primitives. Every value is an Arc token.
+ * Like Arc's modules these are unlayered, so they win over a caller's Tailwind
+ * utilities (which live in @layer utilities) wherever both set the same property.
+ */
+
+/* Icon-only buttons: square, on Arc's small control height. Doubled to outrank Arc's .sm padding. */
+.icon.icon { padding: 0; width: var(--control-height-sm); min-width: var(--control-height-sm); }
+
+/* Dialog widths. A caller's sm:max-w-* picks one; Arc's default is 440px. Two classes outrank Arc's .content. */
+.content.sm { width: min(calc(100vw - var(--space-8)), 24rem); }
+.content.md { width: min(calc(100vw - var(--space-8)), 28rem); }
+.content.lg { width: min(calc(100vw - var(--space-8)), 32rem); }
+.content.xl { width: min(calc(100vw - var(--space-8)), 36rem); }
+.content.x2l { width: min(calc(100vw - var(--space-8)), 42rem); }
+.content.x3l { width: min(calc(100vw - var(--space-8)), 48rem); }
+.content.x4l { width: min(calc(100vw - var(--space-8)), 56rem); }
+.content { display: flex; flex-direction: column; }
+
+/* The header holds the title block and Arc's close button, as Arc's own DialogContent lays it out. */
+.headerText { display: grid; gap: var(--space-1); min-width: 0; }
+.closeOnly { position: absolute; top: var(--space-4); right: var(--space-4); z-index: 1; }
+.footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); padding: 0 var(--space-6) var(--space-6); }
+.title { margin: 0; font-family: var(--font-body); font-size: var(--arc-text-lg); font-weight: 500; letter-spacing: var(--tracking-body); line-height: var(--leading-body); color: var(--foreground); }
+.description { margin: 0; color: var(--text-secondary); font-size: var(--arc-text-sm); line-height: var(--leading-body); }
+
+/* Sheets are Arc drawers whose body the caller lays out itself. */
+.sheetBody { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* Labels: Arc's field-label type, without the margin Arc's own Input adds below it (callers space their own fields). */
+.label { display: flex; align-items: center; gap: var(--space-2); color: var(--foreground); font-size: var(--arc-text-sm); font-weight: 500; line-height: var(--leading-body); letter-spacing: var(--tracking-body); }
+
+/* Box skeletons pulse like Arc's skeleton lines. */
+.skeleton { display: block; border-radius: var(--radius-control); background: color-mix(in oklch, var(--border-strong) 38%, var(--surface)); animation: bridge-pulse 1.8s var(--arc-ease-in-out) infinite both; }
+@keyframes bridge-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .52; } }
+
+/* Cards: Arc's resting surface. */
+.card { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-6) 0; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--surface); color: var(--foreground); box-shadow: var(--shadow-resting); }
+.cardHeader { display: grid; gap: var(--space-1); padding: 0 var(--space-6); }
+.cardTitle { font-family: var(--font-display); font-size: var(--arc-text-base); font-weight: 600; letter-spacing: var(--tracking-display); line-height: var(--leading-display); }
+.cardDescription { color: var(--text-secondary); font-size: var(--arc-text-sm); }
+.cardContent { padding: 0 var(--space-6); }
+.cardFooter { display: flex; align-items: center; padding: 0 var(--space-6); }
+
+/* Tables: Arc's data-table type and hairlines. */
+.table { width: 100%; border-collapse: collapse; font-size: var(--arc-text-sm); color: var(--foreground); font-variant-numeric: tabular-nums; }
+.tableHead { height: var(--control-height-md); padding: 0 var(--space-3); color: var(--text-muted); font-size: var(--arc-text-xs); font-weight: 500; text-align: left; white-space: nowrap; }
+.tableRow { border-bottom: 1px solid var(--border-subtle); transition: background-color var(--duration-fast) var(--ease-standard); }
+
+
+/* Dropdown menu items inherit Arc's menu; the separator and label are Arc-toned. */
+.menuLabel { padding: var(--space-2) var(--space-3) var(--space-1); color: var(--text-muted); font-size: var(--arc-text-xs); font-weight: 500; }
+
+/* A native select's label stays for assistive tech; Arc's Select draws its own visible value. */
+.selectField > div > label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.selectField { display: contents; }
+
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+
+/* Arc's own menu draws one gliding highlight span; the compound menu here highlights each item in place, in the same tone. */
+.menuItem[data-highlighted] { background: var(--surface-muted); }
+.menuItem[data-highlighted][data-tone="danger"] { background: color-mix(in oklch, var(--danger) 9%, transparent); }
+.menuSeparator { height: 1px; margin: 5px 6px; background: var(--border); }
+tbody > .tableRow:hover { background: var(--surface-muted); }
+
+/* A field with an icon inside it reserves room with pl-N or pr-N. Arc's control sets
+   `padding` unlayered, which beats Tailwind's layered utility, so these roll the
+   side back to the caller's utility (revert-layer) instead of Arc's padding. */
+.keepPadStart.keepPadStart { padding-inline-start: revert-layer; }
+.keepPadEnd.keepPadEnd { padding-inline-end: revert-layer; }

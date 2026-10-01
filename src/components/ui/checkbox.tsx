@@ -1,28 +1,31 @@
 "use client"
 
-import { Checkbox as CheckboxPrimitive } from "@base-ui/react/checkbox"
+import * as React from "react"
+import { Checkbox as ArcCheckbox } from "@/components/arc/components/checkbox/checkbox"
+import { useIsArc } from "@/components/design/use-design"
+import { Checkbox as ClassicCheckbox } from "./classic/checkbox"
+import { classOf } from "./arc/shared"
 
-import { cn } from "@/lib/utils"
-import { CheckIcon } from "lucide-react"
+type Props = React.ComponentProps<typeof ClassicCheckbox>
 
-function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
+function Checkbox(props: Props) {
+  const arc = useIsArc()
+  if (!arc) return <ClassicCheckbox {...props} />
+  const { checked, defaultChecked, indeterminate, onCheckedChange, disabled, id, name, required, className } = props
   return (
-    <CheckboxPrimitive.Root
-      data-slot="checkbox"
-      className={cn(
-        "peer relative flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-input transition-colors outline-none group-has-disabled/field:opacity-50 after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 aria-invalid:aria-checked:border-primary dark:bg-input/30 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground dark:data-checked:bg-primary",
-        className
-      )}
-      {...props}
-    >
-      <CheckboxPrimitive.Indicator
-        data-slot="checkbox-indicator"
-        className="grid place-content-center text-current transition-none [&>svg]:size-3.5"
-      >
-        <CheckIcon
-        />
-      </CheckboxPrimitive.Indicator>
-    </CheckboxPrimitive.Root>
+    <ArcCheckbox
+      id={id}
+      name={name}
+      required={required}
+      disabled={disabled}
+      className={classOf(className)}
+      aria-label={props["aria-label"]}
+      aria-labelledby={props["aria-labelledby"]}
+      defaultChecked={defaultChecked}
+      checked={indeterminate ? "indeterminate" : checked}
+      // base-ui reports a boolean plus event details; callers here only read the boolean.
+      onCheckedChange={onCheckedChange ? (next) => onCheckedChange(next === true, undefined as never) : undefined}
+    />
   )
 }
 

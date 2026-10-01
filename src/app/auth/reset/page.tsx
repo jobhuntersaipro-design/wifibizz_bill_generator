@@ -3,7 +3,7 @@
 import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { resetPassword } from "@/actions/account";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -56,17 +56,17 @@ function ResetInner() {
           </p>
         )}
         <div className="space-y-1.5">
-          <label htmlFor="pw" className="text-xs font-medium text-[#425466]">New password</label>
+          <label htmlFor="pw" className="text-xs font-medium text-ink-soft">New password</label>
           <Input id="pw" type="password" required minLength={8} autoComplete="new-password" autoFocus
             value={next} onChange={(e) => setNext(e.target.value)} />
         </div>
         <div className="space-y-1.5">
-          <label htmlFor="pw2" className="text-xs font-medium text-[#425466]">Repeat it</label>
+          <label htmlFor="pw2" className="text-xs font-medium text-ink-soft">Repeat it</label>
           <Input id="pw2" type="password" required minLength={8} autoComplete="new-password"
             value={confirm} onChange={(e) => setConfirm(e.target.value)} />
         </div>
         <Button type="submit" disabled={busy}
-          className="w-full h-10 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540]">
+          className="w-full h-10 rounded-lg text-sm font-semibold bg-brand hover:bg-ink">
           {busy ? "Saving…" : welcome ? "Set my password" : "Set new password"}
         </Button>
       </form>

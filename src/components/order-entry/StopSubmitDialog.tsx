@@ -1,4 +1,5 @@
 "use client";
+import { Button } from "@/components/ui/button";
 
 import { Square } from "lucide-react";
 import type { OrderListItem } from "@/lib/order-types";
@@ -42,7 +43,7 @@ export function StopSubmitDialog({
         aria-describedby="stop-warning"
       >
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-[15px] font-semibold text-[#0A2540]">
+          <DialogTitle className="flex items-center gap-2 text-[15px] font-semibold text-ink">
             <span
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-100"
               aria-hidden="true"
@@ -55,12 +56,12 @@ export function StopSubmitDialog({
 
         <DialogDescription
           id="stop-warning"
-          className="text-[13px] leading-relaxed text-[#425466]"
+          className="text-[13px] leading-relaxed text-ink-soft"
         >
           {"The portal run for "}
-          <span className="font-medium text-[#0A2540]">{order.fullName}</span>
+          <span className="font-medium text-ink">{order.fullName}</span>
           {" will be shut down wherever it has got to. The order goes back to "}
-          <span className="font-medium text-[#0A2540]">Failed</span>
+          <span className="font-medium text-ink">Failed</span>
           {" and can be submitted again when you are ready — it will not retry on its own."}
         </DialogDescription>
 
@@ -90,17 +91,17 @@ export function StopSubmitDialog({
         </p>
 
         <DialogFooter className="gap-2 sm:gap-2">
-          <DialogClose className="inline-flex h-9 cursor-pointer items-center justify-center rounded-lg border border-[#E3E8EF] px-4 text-[13px] font-medium text-[#425466] transition-colors duration-150 hover:bg-[#F6F9FC]">
+          <DialogClose className="inline-flex h-9 cursor-pointer items-center justify-center rounded-lg border border-line px-4 text-[13px] font-medium text-ink-soft transition-colors duration-150 hover:bg-wash">
             Keep running
           </DialogClose>
-          <button
+          <Button unstyled variant="destructive"
             type="button"
             onClick={onConfirm}
             className="inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-red-600 px-4 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600"
           >
             <Square className="h-3.5 w-3.5" aria-hidden="true" />
             Stop the submit
-          </button>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

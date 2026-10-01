@@ -1,48 +1,52 @@
 "use client"
 
 import * as React from "react"
-import { Popover as PopoverPrimitive } from "@base-ui/react/popover"
+import * as PopoverPrimitive from "@radix-ui/react-popover"
+import * as ArcPopover from "@/components/arc/components/popover/popover"
+import { useIsArc } from "@/components/design/use-design"
+import * as Classic from "./classic/popover"
+import { classOf, renderTarget } from "./arc/shared"
 
-import { cn } from "@/lib/utils"
+type ClassicProps<T extends (props: never) => unknown> = Parameters<T>[0]
 
-function Popover({ ...props }: PopoverPrimitive.Root.Props) {
-  return <PopoverPrimitive.Root data-slot="popover" {...props} />
-}
-
-function PopoverTrigger({ ...props }: PopoverPrimitive.Trigger.Props) {
-  return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />
-}
-
-function PopoverContent({
-  className,
-  align = "start",
-  side = "bottom",
-  sideOffset = 6,
-  children,
-  ...props
-}: PopoverPrimitive.Popup.Props &
-  Pick<PopoverPrimitive.Positioner.Props, "align" | "side" | "sideOffset">) {
+/** In Arc: Arc's Popover (Radix underneath) with its anchor and panel styling. */
+function Popover(props: ClassicProps<typeof Classic.Popover>) {
+  const arc = useIsArc()
+  if (!arc) return <Classic.Popover {...props} />
+  const { open, defaultOpen, onOpenChange, modal, children } = props
   return (
-    <PopoverPrimitive.Portal>
-      <PopoverPrimitive.Positioner
-        className="isolate z-50 outline-none"
-        align={align}
-        side={side}
-        sideOffset={sideOffset}
-      >
-        <PopoverPrimitive.Popup
-          data-slot="popover-content"
-          className={cn(
-            "z-50 origin-(--transform-origin) rounded-xl border border-[#E3E8EF] bg-white p-3 text-[#0A2540] shadow-lg duration-100 outline-none",
-            "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-            className,
-          )}
-          {...props}
-        >
-          {children}
-        </PopoverPrimitive.Popup>
-      </PopoverPrimitive.Positioner>
-    </PopoverPrimitive.Portal>
+    <PopoverPrimitive.Root
+      open={open}
+      defaultOpen={defaultOpen}
+      modal={modal === true}
+      onOpenChange={onOpenChange ? (next) => onOpenChange(next, undefined as never) : undefined}
+    >
+      {children as React.ReactNode}
+    </PopoverPrimitive.Root>
+  )
+}
+
+function PopoverTrigger(props: ClassicProps<typeof Classic.PopoverTrigger>) {
+  const arc = useIsArc()
+  if (!arc) return <Classic.PopoverTrigger {...props} />
+  const target = renderTarget(props.render, props.children as React.ReactNode)
+  if (target) return <ArcPopover.PopoverTrigger asChild>{target}</ArcPopover.PopoverTrigger>
+  return <ArcPopover.PopoverTrigger className={classOf(props.className)}>{props.children as React.ReactNode}</ArcPopover.PopoverTrigger>
+}
+
+function PopoverContent(props: ClassicProps<typeof Classic.PopoverContent>) {
+  const arc = useIsArc()
+  if (!arc) return <Classic.PopoverContent {...props} />
+  const { align = "start", side = "bottom", sideOffset = 6, className, children } = props
+  return (
+    <ArcPopover.PopoverContent
+      align={align === "center" || align === "end" ? align : "start"}
+      side={side === "top" || side === "left" || side === "right" ? side : "bottom"}
+      sideOffset={typeof sideOffset === "number" ? sideOffset : 6}
+      className={classOf(className)}
+    >
+      {children as React.ReactNode}
+    </ArcPopover.PopoverContent>
   )
 }
 

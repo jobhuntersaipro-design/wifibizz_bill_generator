@@ -1,3 +1,80 @@
+# Current Feature: Classic ⇄ Arc (uiarc.dev) design toggle
+
+## Status
+
+CODE COMPLETE, VERIFIED IN BROWSER WITHOUT A DATABASE (branch `claude/blissful-maxwell-iphluh`). Vercel-only, no
+migration. Adds `motion` + Radix primitives for Arc. In Arc mode the app's buttons, inputs, selects, dialogs, menus,
+tabs, tooltips and toasts render Arc's components; Classic is unchanged.
+
+## Notes
+
+A Classic / Arc switch in the dashboard and admin topbars repaints the whole app in the Arc design system
+(uiarc.dev): Arc's monochrome accent, neutral greys, Geist headings, larger radii, soft floating shadows, and a
+short press on buttons. It is a per-viewer preference in localStorage, applied to `<html>` (`data-design`,
+`data-accent`) by an inline script before first paint, so there is no flash and no route turns dynamic.
+
+**How every screen follows without a second copy of any component.** The app's ~1,600 hardcoded hex colours were
+95% eight values. 2,040 Tailwind arbitrary-colour classes in 71 files became named tokens (`text-ink`, `bg-brand`,
+`border-line`, `bg-wash`, `text-ink-muted`…), defined in `globals.css` with the classic values in `:root` and Arc
+values under `[data-design="arc"]`; the shadcn tokens are remapped the same way. Pixel-identical in classic.
+`ChatImageGenerator.tsx` is deliberately untouched (it photographs a WhatsApp replica). Status colours (greens,
+ambers) stay hardcoded. Emails and PDFs live in `src/lib` and were never touched.
+
+**Arc's tokens** (`src/components/arc/foundation.css`, MIT, from github.com/kuratlielia/arc-library) are scoped to
+`[data-design="arc"]`, and the names that collide with shadcn/Tailwind (`--accent*`, `--text-<size>`,
+`--ease-in-out`) carry an `arc-` prefix. Arc's global "no focus rings" rule was dropped; Arc mode has a visible ring.
+
+**All of Arc is in the repo** (user accepted the source, 2026-10-01): 100 components + 22 blocks under
+`src/components/arc/{components,blocks,lib}`, pinned to upstream `b454cf80`, imports rewritten to
+`@/components/arc/…`, same token renames as the foundation. Skimmed before adding: no network calls, no eval;
+`innerHTML` only inside the rich-text editor, which sanitizes its input. Vendored code is excluded from ESLint
+(upstream doesn't satisfy this repo's React-compiler rules) and `arc-env.d.ts` adds `FocusOptions.focusVisible`
+for TS 5.9. New deps: `motion` and nine `@radix-ui/react-*` primitives.
+
+**`/dashboard/design` (sidebar: Design)** shows every item live, 122 cards, with search, category chips, all eight
+Arc accents and a light/dark preview; the four theme-switch demos drive that preview. Demos use BizzFlow-flavoured
+sample data (`src/components/design/demos/*`), mount when scrolled near, and each sits in its own error boundary.
+Arc's dialogs/sheets/menus portal into `<body>`, so the gallery previews Arc on `<html>` while open (nothing saved)
+and `restoreStoredDesign()` puts the viewer's choice back on leave. Arc's demo photos/logos are not in its
+open-source repo: `scripts/generate-arc-media.mjs` writes neutral placeholders to `public/arc-media/` (initials,
+gradients, plain geometric marks — no imitation of real brand logos). In Arc mode, text on `bg-brand` now uses the
+accent's own foreground (dark on light accents and in dark mode). Topbars use `bg-card` (identical in classic).
+
+**In Arc mode the app's own controls ARE Arc's components** (asked 2026-10-01: "swap the app's buttons, inputs and
+dialogs for Arc's components, use everything"). Classic is unchanged: each shadcn file moved verbatim to
+`src/components/ui/classic/`, and `src/components/ui/<name>.tsx` is now a switch on `useIsArc()` that renders the
+classic file in Classic and Arc's component (or Arc's styling) in Arc. Button → Arc Button (variants mapped,
+`type="button"` kept); Input / Textarea / Label keep the SAME element and only swap classes, so flipping the design
+mid-form keeps what was typed (checked in the browser); Checkbox, Badge, Tabs, Progress, Tooltip, Popover → Arc's;
+Dialog / Sheet → Arc's overlay, panel and keyframes on Radix, header/body/footer laid out the Arc way and the
+caller's `max-w-*` mapped to a width; DropdownMenu → Arc's menu styling; Card, Table, Skeleton → Arc surface classes.
+New design-aware primitives replaced raw controls across the app: 70 `<button>`s → `<Button unstyled>` (links,
+icon-only, tabs, chips, nav and the Bills tiles left alone), 24 inputs, 6 checkboxes (`CheckboxInput`), 21 native
+selects (`Select` — Arc's listbox in Arc, the same `<select>` in Classic, empty option values via a sentinel), 3
+textareas. 13 hand-built `fixed inset-0` modals (admin users/plans/orders/live run, clone, submit-as, settings
+confirm) go through a new `Modal`: the original two divs in Classic, Arc's dialog in Arc (Escape closes, a press
+outside does not — as before). Toasts: `@/lib/toast` mirrors sonner's API and routes to Arc's toast stack in Arc (22
+importers repointed). The Order list's date filter is Arc's DateRangePicker in Arc. Two fixes found in the browser:
+Arc's control padding beat a caller's `pl-9`, so the search icon overlapped the text (the side now `revert-layer`s to
+the caller's utility); and Arc's select list was trigger-wide, wrapping "All Statuses" (now `max-content`).
+
+Verified on `next start` with a locally minted session (no database): sign-in, dashboard, crawl, usage, settings,
+admin, admin/orders and the gallery at 1440 and 390 in both designs — inputs 36/40px in Classic (unchanged), 44px in
+Arc, no horizontal overflow, no new console errors. On a throwaway preview route (deleted): the real
+`DeleteOrderDialog`, a `Modal`, a dropdown, a tooltip, a sheet, tabs and the date filter all open/close in both designs
+at both widths; the Arc select picks a value; a crawl error toasts through Arc's stack and not sonner in Arc. NOT
+verified: any screen with real data (order form, orders table, case rows, admin tables) — no database here; the
+one-frame Classic→Arc swap on load (the switch reads localStorage after hydration); the chat composer, the orders
+search box and the ChatImageGenerator modal deliberately stay as they were. Arc controls are taller (44px fields,
+36px buttons), so dense rows grow in Arc.
+
+Gallery verified on `next start` at 1440 and 390: all 122 demos mount, 0 failed, 0 console errors, 0 broken
+images, no page overflow; dialog opens styled over the page; dark + violet preview; leaving restores classic.
+Toggle verified: classic vs Arc at 1440 and 390 on `next start` — tokens resolve, Geist on headings, toggle switches live,
+persists across reload and switches back, no horizontal overflow, no hydration error. 6 new vitest (pre-paint
+script incl. blocked storage). Build clean, lint and the 10 failing tests identical to baseline. NOT verified: any
+signed-in screen with data (no database here), the admin topbar on screen, Arc mode on dialogs/popovers.
+
 # Current Feature: Pick the assistant's model and effort on /admin/assistant
 
 ## Status

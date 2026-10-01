@@ -7,10 +7,10 @@ function OrderEntryShellFallback() {
   return (
     <div className="flex flex-col items-center gap-3 py-16">
       <div
-        className="h-8 w-8 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent"
+        className="h-8 w-8 animate-spin rounded-full border-2 border-brand border-t-transparent"
         aria-hidden="true"
       />
-      <p className="text-sm text-[#697386]">Loading…</p>
+      <p className="text-sm text-ink-muted">Loading…</p>
     </div>
   );
 }

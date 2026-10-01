@@ -23,7 +23,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { parseChatMarkdown, type Block, type Inline } from "@/lib/admin-chat/markdown";
 import { listChatHandoffs, resolveChatHandoff, type HandoffRow } from "@/actions/admin-chat";
 import {
@@ -34,6 +34,7 @@ import {
   type StreamEvent,
   type TraceStep,
 } from "@/lib/admin-chat/stream-state";
+import { Button } from "@/components/ui/button";
 
 /**
  * The admin assistant popup — a testing feature, read-only.
@@ -189,7 +190,7 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
         type="button"
         onClick={openPanel}
         aria-label="Open admin assistant"
-        className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-[#635BFF] text-white shadow-lg transition-transform hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
+        className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-brand text-white shadow-lg transition-transform hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
       >
         <MessageCircle className="h-6 w-6" />
       </button>
@@ -203,19 +204,19 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
       onKeyDown={(e) => {
         if (e.key === "Escape") setOpen(false);
       }}
-      className="fixed inset-0 z-50 flex flex-col bg-white md:inset-auto md:bottom-5 md:right-5 md:h-[600px] md:max-h-[calc(100vh-2.5rem)] md:w-[400px] md:rounded-xl md:border md:border-[#E3E8EF] md:shadow-2xl"
+      className="fixed inset-0 z-50 flex flex-col bg-white md:inset-auto md:bottom-5 md:right-5 md:h-[600px] md:max-h-[calc(100vh-2.5rem)] md:w-[400px] md:rounded-xl md:border md:border-line md:shadow-2xl"
     >
-      <header className="flex items-center gap-2 border-b border-[#E3E8EF] px-3 py-2">
+      <header className="flex items-center gap-2 border-b border-line px-3 py-2">
         <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-semibold text-[#0A2540]">Admin assistant</h2>
-          <p className="text-[11px] text-[#697386]">Testing · read-only · answers from BizzFlow data</p>
+          <h2 className="text-sm font-semibold text-ink">Admin assistant</h2>
+          <p className="text-[11px] text-ink-muted">Testing · read-only · answers from BizzFlow data</p>
         </div>
         <button
           type="button"
           onClick={newChat}
           aria-label="New chat"
           title="New chat"
-          className="flex h-11 w-11 items-center justify-center rounded-lg text-[#697386] hover:bg-[#F6F9FC] focus-visible:outline-2 focus-visible:outline-[#635BFF]"
+          className="flex h-11 w-11 items-center justify-center rounded-lg text-ink-muted hover:bg-wash focus-visible:outline-2 focus-visible:outline-brand"
         >
           <RotateCcw className="h-4 w-4" />
         </button>
@@ -223,13 +224,13 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
           type="button"
           onClick={() => setOpen(false)}
           aria-label="Close admin assistant"
-          className="flex h-11 w-11 items-center justify-center rounded-lg text-[#697386] hover:bg-[#F6F9FC] focus-visible:outline-2 focus-visible:outline-[#635BFF]"
+          className="flex h-11 w-11 items-center justify-center rounded-lg text-ink-muted hover:bg-wash focus-visible:outline-2 focus-visible:outline-brand"
         >
           <X className="h-5 w-5" />
         </button>
       </header>
 
-      <div role="tablist" className="flex border-b border-[#E3E8EF] px-3 text-sm">
+      <div role="tablist" className="flex border-b border-line px-3 text-sm">
         {(["chat", "handoffs"] as const).map((t) => (
           <button
             key={t}
@@ -241,7 +242,7 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
               if (t === "handoffs") void loadHandoffs();
             }}
             className={`-mb-px min-h-11 border-b-2 px-3 font-medium ${
-              tab === t ? "border-[#635BFF] text-[#0A2540]" : "border-transparent text-[#697386] hover:text-[#0A2540]"
+              tab === t ? "border-brand text-ink" : "border-transparent text-ink-muted hover:text-ink"
             }`}
           >
             {t === "chat" ? "Chat" : `Handoffs${openCount ? ` (${openCount})` : ""}`}
@@ -254,7 +255,7 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
           <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-3 py-3" aria-live="polite">
             {messages.length === 0 && (
               <div className="space-y-2">
-                <p className="text-sm text-[#697386]">
+                <p className="text-sm text-ink-muted">
                   Ask about orders, failures, plans or agents. I can&apos;t change anything — for that, I hand off to{" "}
                   {handoffName}.
                 </p>
@@ -263,7 +264,7 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
                     key={s}
                     type="button"
                     onClick={() => void ask(s)}
-                    className="block w-full rounded-lg border border-[#E3E8EF] px-3 py-2 text-left text-sm text-[#0A2540] hover:border-[#635BFF] hover:bg-[#F6F9FC]"
+                    className="block w-full rounded-lg border border-line px-3 py-2 text-left text-sm text-ink hover:border-brand hover:bg-wash"
                   >
                     {s}
                   </button>
@@ -274,7 +275,7 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
               m.role === "user" ? (
                 <div
                   key={i}
-                  className="ml-10 animate-[fade-in-up_0.25s_ease-out_both] rounded-lg bg-[#635BFF] px-3 py-2 text-sm whitespace-pre-wrap text-white"
+                  className="ml-10 animate-[fade-in-up_0.25s_ease-out_both] rounded-lg bg-brand px-3 py-2 text-sm whitespace-pre-wrap text-white"
                 >
                   {m.text}
                 </div>
@@ -285,7 +286,7 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
           </div>
 
           <form
-            className="border-t border-[#E3E8EF] p-2"
+            className="border-t border-line p-2"
             onSubmit={(e) => {
               e.preventDefault();
               void ask(input);
@@ -308,13 +309,13 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
                 disabled={!!locked}
                 placeholder={locked ? "Locked" : "Ask about an order, plan or agent…"}
                 aria-label="Your question"
-                className="max-h-32 min-h-11 flex-1 resize-none rounded-lg border border-[#E3E8EF] px-3 py-2.5 text-sm text-[#0A2540] placeholder:text-[#A3ACB9] focus:border-[#635BFF] focus:outline-none disabled:bg-[#F6F9FC]"
+                className="max-h-32 min-h-11 flex-1 resize-none rounded-lg border border-line px-3 py-2.5 text-sm text-ink placeholder:text-[#A3ACB9] focus:border-brand focus:outline-none disabled:bg-wash"
               />
               <button
                 type="submit"
                 disabled={busy || !input.trim() || !!locked}
                 aria-label="Send"
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#635BFF] text-white disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-brand text-white disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
               >
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </button>
@@ -361,14 +362,14 @@ function AssistantBubble({ message: m, streaming }: { message: AssistantMessage;
       {m.text ? (
         <div
           className={`animate-[fade-in_0.3s_ease-out_both] rounded-lg px-3 py-2 text-sm ${
-            m.error ? "bg-[#FDECEC] text-[#9B1C1C]" : "bg-[#F6F9FC] text-[#0A2540]"
+            m.error ? "bg-[#FDECEC] text-[#9B1C1C]" : "bg-wash text-ink"
           }`}
         >
           <ChatText blocks={parseChatMarkdown(m.text)} />
           {streaming && !m.error && (
             <span
               aria-hidden
-              className="ml-0.5 inline-block h-3.5 w-1.5 translate-y-0.5 animate-pulse rounded-sm bg-[#635BFF]"
+              className="ml-0.5 inline-block h-3.5 w-1.5 translate-y-0.5 animate-pulse rounded-sm bg-brand"
             />
           )}
         </div>
@@ -385,9 +386,9 @@ function AssistantBubble({ message: m, streaming }: { message: AssistantMessage;
 
 function TypingDots() {
   return (
-    <div className="inline-flex items-center gap-1 rounded-lg bg-[#F6F9FC] px-3 py-2.5" aria-label="Thinking">
+    <div className="inline-flex items-center gap-1 rounded-lg bg-wash px-3 py-2.5" aria-label="Thinking">
       {["[animation-delay:0ms]", "[animation-delay:160ms]", "[animation-delay:320ms]"].map((d) => (
-        <span key={d} className={`h-1.5 w-1.5 animate-[dot-pulse_1.2s_ease-in-out_infinite] rounded-full bg-[#635BFF] ${d}`} />
+        <span key={d} className={`h-1.5 w-1.5 animate-[dot-pulse_1.2s_ease-in-out_infinite] rounded-full bg-brand ${d}`} />
       ))}
     </div>
   );
@@ -401,30 +402,30 @@ function Trace({ message: m, streaming }: { message: AssistantMessage; streaming
   const working = streaming && !m.text;
 
   return (
-    <div className="rounded-lg border border-[#E3E8EF] bg-white">
+    <div className="rounded-lg border border-line bg-white">
       <button
         type="button"
         onClick={() => setUserOpen(!open)}
         aria-expanded={open}
         className="flex min-h-9 w-full items-center gap-2 px-3 py-1.5 text-left text-xs"
       >
-        <Sparkles className={`h-3.5 w-3.5 shrink-0 text-[#635BFF] ${working ? "animate-pulse" : ""}`} />
+        <Sparkles className={`h-3.5 w-3.5 shrink-0 text-brand ${working ? "animate-pulse" : ""}`} />
         {working ? (
           <span className="animate-shimmer truncate bg-[linear-gradient(90deg,#697386_0%,#C4B5FD_50%,#697386_100%)] bg-[length:200%_100%] bg-clip-text font-medium text-transparent">
             {liveLabel(m.steps)}
           </span>
         ) : (
-          <span className="truncate font-medium text-[#697386]">{traceSummary(m)}</span>
+          <span className="truncate font-medium text-ink-muted">{traceSummary(m)}</span>
         )}
         <ChevronDown
-          className={`ml-auto h-3.5 w-3.5 shrink-0 text-[#697386] transition-transform duration-300 ${open ? "rotate-180" : ""}`}
+          className={`ml-auto h-3.5 w-3.5 shrink-0 text-ink-muted transition-transform duration-300 ${open ? "rotate-180" : ""}`}
         />
       </button>
       <div
         className={`grid transition-[grid-template-rows] duration-300 ease-out ${open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
       >
         <div className="overflow-hidden">
-          <ol className="relative max-h-72 space-y-2.5 overflow-y-auto px-3 pt-1 pb-3 before:absolute before:top-3 before:bottom-4 before:left-[21px] before:w-px before:bg-[#E3E8EF]">
+          <ol className="relative max-h-72 space-y-2.5 overflow-y-auto px-3 pt-1 pb-3 before:absolute before:top-3 before:bottom-4 before:left-[21px] before:w-px before:bg-line">
             {m.steps.map((st, i) => (
               <TraceRow key={st.kind === "tool" ? st.id : `${st.kind}-${i}`} step={st} />
             ))}
@@ -442,7 +443,7 @@ function TraceRow({ step }: { step: TraceStep }) {
       <li className="relative flex animate-[fade-in-up_0.3s_ease-out_both] gap-2.5 text-xs">
         <span
           className={`relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ring-4 ring-white ${
-            step.state === "error" ? "bg-[#FDECEC] text-[#9B1C1C]" : "bg-[#EEF0FF] text-[#635BFF]"
+            step.state === "error" ? "bg-[#FDECEC] text-[#9B1C1C]" : "bg-[#EEF0FF] text-brand"
           }`}
         >
           {step.state === "running" ? (
@@ -452,9 +453,9 @@ function TraceRow({ step }: { step: TraceStep }) {
           )}
         </span>
         <div className="min-w-0 flex-1 pt-0.5">
-          <p className="flex flex-wrap items-center gap-x-1.5 text-[#0A2540]">
+          <p className="flex flex-wrap items-center gap-x-1.5 text-ink">
             <span className="font-medium">{step.state === "running" ? step.active : step.label}</span>
-            {step.detail && <span className="truncate text-[#697386]">{step.detail}</span>}
+            {step.detail && <span className="truncate text-ink-muted">{step.detail}</span>}
           </p>
           {step.state !== "running" && step.summary && (
             <p
@@ -473,10 +474,10 @@ function TraceRow({ step }: { step: TraceStep }) {
   const Icon = step.kind === "thinking" ? Brain : Sparkles;
   return (
     <li className="relative flex animate-[fade-in-up_0.3s_ease-out_both] gap-2.5 text-xs">
-      <span className="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#F6F9FC] text-[#697386] ring-4 ring-white">
+      <span className="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-wash text-ink-muted ring-4 ring-white">
         <Icon className="h-3 w-3" />
       </span>
-      <div className="min-w-0 flex-1 pt-0.5 text-[#697386] italic">
+      <div className="min-w-0 flex-1 pt-0.5 text-ink-muted italic">
         <ChatText blocks={parseChatMarkdown(step.text)} />
       </div>
     </li>
@@ -528,7 +529,7 @@ function InlineParts({ parts }: { parts: Inline[] }) {
             );
           case "link":
             return (
-              <Link key={i} href={p.href} className="font-medium text-[#635BFF] underline-offset-2 hover:underline">
+              <Link key={i} href={p.href} className="font-medium text-brand underline-offset-2 hover:underline">
                 {p.text}
               </Link>
             );
@@ -554,35 +555,35 @@ function HandoffList({
   }
   if (rows === null) {
     return (
-      <div className="flex flex-1 items-center justify-center text-sm text-[#697386]">
+      <div className="flex flex-1 items-center justify-center text-sm text-ink-muted">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…
       </div>
     );
   }
   if (rows.length === 0) {
-    return <p className="flex-1 px-3 py-6 text-center text-sm text-[#697386]">No open handoffs.</p>;
+    return <p className="flex-1 px-3 py-6 text-center text-sm text-ink-muted">No open handoffs.</p>;
   }
   return (
     <ul className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
       {rows.map((h) => (
-        <li key={h.id} className="rounded-lg border border-[#E3E8EF] p-3 text-sm">
+        <li key={h.id} className="rounded-lg border border-line p-3 text-sm">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-xs text-[#697386]">
+              <p className="text-xs text-ink-muted">
                 To {h.assignee}
                 {h.orderRef ? ` · ${h.orderRef}` : ""} · {new Date(h.createdAt).toLocaleString("en-GB", { timeZone: "Asia/Kuala_Lumpur", dateStyle: "short", timeStyle: "short" })}
                 {h.emailed ? " · e-mailed" : " · not e-mailed"}
               </p>
-              <p className="mt-1 text-[#0A2540]">{h.summary}</p>
-              <p className="mt-1 text-xs text-[#697386]">Why: {h.reason}</p>
+              <p className="mt-1 text-ink">{h.summary}</p>
+              <p className="mt-1 text-xs text-ink-muted">Why: {h.reason}</p>
             </div>
-            <button
+            <Button unstyled variant="ghost"
               type="button"
               onClick={() => onResolve(h.id)}
-              className="flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-2 text-xs font-medium text-[#0A7B3E] hover:bg-[#F6F9FC]"
+              className="flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-2 text-xs font-medium text-[#0A7B3E] hover:bg-wash"
             >
               <CheckCircle2 className="h-4 w-4" /> Resolve
-            </button>
+            </Button>
           </div>
         </li>
       ))}

@@ -1,7 +1,9 @@
 "use client";
+import { Textarea } from "@/components/ui/textarea";
+import { Select } from "@/components/ui/select";
 
 import { useMemo, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { saveChatSettings } from "@/actions/admin-chat-settings";
 import {
   DEFAULT_INSTRUCTIONS,
@@ -18,6 +20,7 @@ import {
   type ChatSettings,
 } from "@/lib/admin-chat/settings-rules";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 export interface ToolInfo {
   name: string;
@@ -132,16 +135,16 @@ export function AssistantSettings({
         onChange={(instructions) => setDraft((d) => ({ ...d, instructions }))}
       />
 
-      <section className="rounded-xl border border-[#E3E8EF] bg-white">
-        <div className="border-b border-[#E3E8EF] px-5 py-4">
-          <h2 className="text-[15px] font-semibold text-[#0A2540]">Tools</h2>
-          <p className="mt-1 text-[13px] text-[#697386]">
+      <section className="rounded-xl border border-line bg-white">
+        <div className="border-b border-line px-5 py-4">
+          <h2 className="text-[15px] font-semibold text-ink">Tools</h2>
+          <p className="mt-1 text-[13px] text-ink-muted">
             The lookups the assistant can run. All of them only read. A switched-off tool is not offered to the
             assistant and is refused if it asks for it. The description is what the assistant reads to decide when to
             use a tool; what the tool actually looks up is fixed in code.
           </p>
         </div>
-        <ul className="divide-y divide-[#E3E8EF]">
+        <ul className="divide-y divide-line">
           {tools.map((t) => (
             <ToolRow
               key={t.name}
@@ -159,31 +162,31 @@ export function AssistantSettings({
 
       <div
         className={cn(
-          "fixed inset-x-0 bottom-0 z-30 border-t border-[#E3E8EF] bg-white/95 backdrop-blur md:left-[240px]",
+          "fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white/95 backdrop-blur md:left-[240px]",
           // Right padding clears the assistant's own round launcher (bottom-right, 56px).
           "flex items-center justify-end gap-3 py-3 pl-4 sm:pl-6",
           runtime.enabled ? "pr-24" : "pr-4 sm:pr-6",
         )}
       >
-        <p className="mr-auto text-[13px] text-[#697386]" aria-live="polite">
+        <p className="mr-auto text-[13px] text-ink-muted" aria-live="polite">
           {dirty ? "Unsaved changes" : "All changes saved"}
         </p>
-        <button
+        <Button unstyled variant="outline"
           type="button"
           onClick={() => setDraft(saved)}
           disabled={!dirty || saving}
-          className="h-10 rounded-lg border border-[#E3E8EF] px-4 text-[13px] font-medium text-[#425466] transition-colors hover:bg-[#F6F9FC] disabled:opacity-40"
+          className="h-10 rounded-lg border border-line px-4 text-[13px] font-medium text-ink-soft transition-colors hover:bg-wash disabled:opacity-40"
         >
           Discard
-        </button>
-        <button
+        </Button>
+        <Button unstyled variant="default"
           type="button"
           onClick={save}
           disabled={!dirty || saving}
-          className="h-10 rounded-lg bg-[#635BFF] px-5 text-[13px] font-semibold text-white transition-colors hover:bg-[#5249E0] disabled:opacity-40"
+          className="h-10 rounded-lg bg-brand px-5 text-[13px] font-semibold text-white transition-colors hover:bg-[#5249E0] disabled:opacity-40"
         >
           {saving ? "Saving…" : "Save"}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -194,12 +197,12 @@ function RuntimeStrip({ runtime }: { runtime: Runtime }) {
     <div
       className={cn(
         "rounded-xl border px-4 py-3 text-[13px]",
-        runtime.enabled ? "border-[#E3E8EF] bg-[#F6F9FC] text-[#425466]" : "border-amber-200 bg-amber-50 text-amber-900",
+        runtime.enabled ? "border-line bg-wash text-ink-soft" : "border-amber-200 bg-amber-50 text-amber-900",
       )}
     >
       {runtime.enabled ? (
         <>
-          <span className="font-medium text-[#0A2540]">The assistant is on.</span> It hands off to{" "}
+          <span className="font-medium text-ink">The assistant is on.</span> It hands off to{" "}
           {runtime.handoffName}.
         </>
       ) : (
@@ -213,7 +216,7 @@ function RuntimeStrip({ runtime }: { runtime: Runtime }) {
 }
 
 const SELECT_CLASS =
-  "h-10 w-full rounded-lg border border-[#E3E8EF] bg-white px-3 text-[13px] text-[#0A2540] focus:border-[#635BFF] focus:outline-none focus:ring-2 focus:ring-[#635BFF]/20";
+  "h-10 w-full rounded-lg border border-line bg-white px-3 text-[13px] text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20";
 
 function ModelCard({
   model,
@@ -231,45 +234,45 @@ function ModelCard({
   const modelNote = CHAT_MODELS.find((m) => m.id === (model || runtime.model))?.note;
   const effortNote = CHAT_EFFORTS.find((e) => e.id === (effort || runtime.effort))?.note;
   return (
-    <section className="rounded-xl border border-[#E3E8EF] bg-white">
-      <div className="border-b border-[#E3E8EF] px-5 py-4">
-        <h2 className="flex items-center gap-2 text-[15px] font-semibold text-[#0A2540]">
+    <section className="rounded-xl border border-line bg-white">
+      <div className="border-b border-line px-5 py-4">
+        <h2 className="flex items-center gap-2 text-[15px] font-semibold text-ink">
           Model
           <StateChip custom={Boolean(model || effort)} />
         </h2>
-        <p className="mt-1 text-[13px] text-[#697386]">
+        <p className="mt-1 text-[13px] text-ink-muted">
           Which Claude model answers, and how long it thinks before answering. &ldquo;Deployment default&rdquo; uses
           the environment setting ({runtime.model}, effort {runtime.effort}).
         </p>
       </div>
       <div className="grid gap-4 px-5 py-4 sm:grid-cols-2">
         <div>
-          <label htmlFor="assistant-model" className="mb-1.5 block text-[12.5px] font-medium text-[#425466]">
+          <label htmlFor="assistant-model" className="mb-1.5 block text-[12.5px] font-medium text-ink-soft">
             Model
           </label>
-          <select id="assistant-model" value={model} onChange={(e) => onModel(e.target.value)} className={SELECT_CLASS}>
+          <Select id="assistant-model" value={model} onChange={(e) => onModel(e.target.value)} className={SELECT_CLASS}>
             <option value="">Deployment default ({runtime.model})</option>
             {CHAT_MODELS.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.label} ({m.id})
               </option>
             ))}
-          </select>
-          {modelNote && <p className="mt-1.5 text-[12px] text-[#8792A2]">{modelNote}</p>}
+          </Select>
+          {modelNote && <p className="mt-1.5 text-[12px] text-ink-faint">{modelNote}</p>}
         </div>
         <div>
-          <label htmlFor="assistant-effort" className="mb-1.5 block text-[12.5px] font-medium text-[#425466]">
+          <label htmlFor="assistant-effort" className="mb-1.5 block text-[12.5px] font-medium text-ink-soft">
             Effort
           </label>
-          <select id="assistant-effort" value={effort} onChange={(e) => onEffort(e.target.value)} className={SELECT_CLASS}>
+          <Select id="assistant-effort" value={effort} onChange={(e) => onEffort(e.target.value)} className={SELECT_CLASS}>
             <option value="">Deployment default ({runtime.effort})</option>
             {CHAT_EFFORTS.map((e) => (
               <option key={e.id} value={e.id}>
                 {e.label}
               </option>
             ))}
-          </select>
-          {effortNote && <p className="mt-1.5 text-[12px] text-[#8792A2]">{effortNote}</p>}
+          </Select>
+          {effortNote && <p className="mt-1.5 text-[12px] text-ink-faint">{effortNote}</p>}
         </div>
       </div>
     </section>
@@ -290,40 +293,40 @@ function InstructionsCard({
   const isDefault = value.trim() === DEFAULT_INSTRUCTIONS.trim();
   const over = value.length > MAX_INSTRUCTIONS_CHARS;
   return (
-    <section className="rounded-xl border border-[#E3E8EF] bg-white">
-      <div className="flex flex-wrap items-start gap-3 border-b border-[#E3E8EF] px-5 py-4">
+    <section className="rounded-xl border border-line bg-white">
+      <div className="flex flex-wrap items-start gap-3 border-b border-line px-5 py-4">
         <div className="min-w-0 flex-1">
-          <h2 className="flex items-center gap-2 text-[15px] font-semibold text-[#0A2540]">
+          <h2 className="flex items-center gap-2 text-[15px] font-semibold text-ink">
             Instructions
             <StateChip custom={!isDefault} />
           </h2>
-          <p className="mt-1 text-[13px] text-[#697386]">
+          <p className="mt-1 text-[13px] text-ink-muted">
             The assistant&apos;s system prompt: what it is, what it may answer, and how.{" "}
             <code className="font-mono text-[12px]">{HANDOFF_PLACEHOLDER}</code> is replaced with {handoffName}.
           </p>
         </div>
-        <button
+        <Button unstyled variant="outline"
           type="button"
           onClick={() => onChange(DEFAULT_INSTRUCTIONS)}
           disabled={isDefault}
-          className="h-9 rounded-lg border border-[#E3E8EF] px-3 text-[13px] font-medium text-[#425466] transition-colors hover:bg-[#F6F9FC] disabled:opacity-40"
+          className="h-9 rounded-lg border border-line px-3 text-[13px] font-medium text-ink-soft transition-colors hover:bg-wash disabled:opacity-40"
         >
           Reset to default
-        </button>
+        </Button>
       </div>
       <div className="space-y-3 px-5 py-4">
         <label htmlFor="assistant-instructions" className="sr-only">
           Instructions
         </label>
-        <textarea
+        <Textarea
           id="assistant-instructions"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           rows={22}
           spellCheck={false}
-          className="block w-full resize-y rounded-lg border border-[#E3E8EF] bg-[#FBFCFD] px-3 py-2.5 font-mono text-[12.5px] leading-relaxed text-[#0A2540] focus:border-[#635BFF] focus:outline-none focus:ring-2 focus:ring-[#635BFF]/20"
+          className="block w-full resize-y rounded-lg border border-line bg-[#FBFCFD] px-3 py-2.5 font-mono text-[12.5px] leading-relaxed text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
         />
-        <p className={cn("text-right text-[12px] tabular-nums", over ? "text-[#DF1B41]" : "text-[#8792A2]")}>
+        <p className={cn("text-right text-[12px] tabular-nums", over ? "text-danger" : "text-ink-faint")}>
           {value.length.toLocaleString()} / {MAX_INSTRUCTIONS_CHARS.toLocaleString()}
         </p>
         {warnings.length > 0 && (
@@ -332,11 +335,11 @@ function InstructionsCard({
             switched off below. The assistant will be told to use a tool it does not have.
           </p>
         )}
-        <details className="group rounded-lg border border-[#E3E8EF] bg-[#F6F9FC]">
-          <summary className="cursor-pointer select-none px-3 py-2.5 text-[13px] font-medium text-[#425466]">
+        <details className="group rounded-lg border border-line bg-wash">
+          <summary className="cursor-pointer select-none px-3 py-2.5 text-[13px] font-medium text-ink-soft">
             Always added after your instructions (not editable)
           </summary>
-          <pre className="max-h-80 overflow-auto whitespace-pre-wrap border-t border-[#E3E8EF] px-3 py-2.5 font-mono text-[12px] leading-relaxed text-[#425466]">
+          <pre className="max-h-80 overflow-auto whitespace-pre-wrap border-t border-line px-3 py-2.5 font-mono text-[12px] leading-relaxed text-ink-soft">
             {`${SAFETY_BLOCK}\n\n${referenceBlock()}`}
           </pre>
         </details>
@@ -364,16 +367,16 @@ function ToolRow({
     <li className={cn("px-5 py-4 transition-opacity", !enabled && "opacity-60")}>
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <p className="flex flex-wrap items-center gap-2 text-[14px] font-semibold text-[#0A2540]">
+          <p className="flex flex-wrap items-center gap-2 text-[14px] font-semibold text-ink">
             {tool.label}
-            <code className="rounded bg-[#F6F9FC] px-1.5 py-0.5 font-mono text-[11.5px] font-normal text-[#697386]">
+            <code className="rounded bg-wash px-1.5 py-0.5 font-mono text-[11.5px] font-normal text-ink-muted">
               {tool.name}
             </code>
             {!enabled && (
-              <span className="rounded-full bg-[#E3E8EF] px-2 py-0.5 text-[11px] font-medium text-[#425466]">Off</span>
+              <span className="rounded-full bg-line px-2 py-0.5 text-[11px] font-medium text-ink-soft">Off</span>
             )}
           </p>
-          {tool.note && <p className="mt-1 text-[12.5px] text-[#697386]">{tool.note}</p>}
+          {tool.note && <p className="mt-1 text-[12.5px] text-ink-muted">{tool.note}</p>}
         </div>
         <button
           type="button"
@@ -381,12 +384,12 @@ function ToolRow({
           aria-checked={enabled}
           aria-label={`${tool.label} tool`}
           onClick={() => onToggle(!enabled)}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
         >
           <span
             className={cn(
               "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
-              enabled ? "bg-[#635BFF]" : "bg-[#CBD2DC]",
+              enabled ? "bg-brand" : "bg-line-strong",
             )}
           >
             <span
@@ -401,7 +404,7 @@ function ToolRow({
 
       <div className="mt-3">
         <div className="mb-1.5 flex items-center gap-2">
-          <label htmlFor={id} className="text-[12.5px] font-medium text-[#425466]">
+          <label htmlFor={id} className="text-[12.5px] font-medium text-ink-soft">
             Description
           </label>
           <StateChip custom={custom} />
@@ -409,22 +412,22 @@ function ToolRow({
             <button
               type="button"
               onClick={() => onDescription(tool.defaultDescription)}
-              className="ml-auto text-[12.5px] font-medium text-[#635BFF] hover:underline"
+              className="ml-auto text-[12.5px] font-medium text-brand hover:underline"
             >
               Reset
             </button>
           )}
         </div>
-        <textarea
+        <Textarea
           id={id}
           value={description}
           onChange={(e) => onDescription(e.target.value)}
           rows={3}
           maxLength={MAX_TOOL_DESCRIPTION_CHARS}
-          className="block w-full resize-y rounded-lg border border-[#E3E8EF] bg-[#FBFCFD] px-3 py-2 text-[13px] leading-relaxed text-[#0A2540] focus:border-[#635BFF] focus:outline-none focus:ring-2 focus:ring-[#635BFF]/20"
+          className="block w-full resize-y rounded-lg border border-line bg-[#FBFCFD] px-3 py-2 text-[13px] leading-relaxed text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
         />
         {tool.inputs.length > 0 && (
-          <p className="mt-1.5 text-[12px] text-[#8792A2]">
+          <p className="mt-1.5 text-[12px] text-ink-faint">
             Inputs:{" "}
             {tool.inputs.map((i, n) => (
               <span key={i.name}>
@@ -443,8 +446,8 @@ function ToolRow({
 
 function StateChip({ custom }: { custom: boolean }) {
   return custom ? (
-    <span className="rounded-full bg-[#EEF0FF] px-2 py-0.5 text-[11px] font-medium text-[#635BFF]">Edited</span>
+    <span className="rounded-full bg-[#EEF0FF] px-2 py-0.5 text-[11px] font-medium text-brand">Edited</span>
   ) : (
-    <span className="rounded-full bg-[#F6F9FC] px-2 py-0.5 text-[11px] font-medium text-[#697386]">Default</span>
+    <span className="rounded-full bg-wash px-2 py-0.5 text-[11px] font-medium text-ink-muted">Default</span>
   );
 }

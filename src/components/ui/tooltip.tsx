@@ -1,55 +1,55 @@
 "use client"
 
 import * as React from "react"
-import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip"
+import { Tooltip as ArcTooltip } from "@/components/arc/components/tooltip/tooltip"
+import { useIsArc } from "@/components/design/use-design"
+import * as Classic from "./classic/tooltip"
+import { classOf, partition, renderTarget } from "./arc/shared"
 
-import { cn } from "@/lib/utils"
+type ClassicProps<T extends (props: never) => unknown> = Parameters<T>[0]
 
-function TooltipProvider({ ...props }: TooltipPrimitive.Provider.Props) {
-  return <TooltipPrimitive.Provider data-slot="tooltip-provider" {...props} />
+/*
+ * Arc's Tooltip is one component — `<Tooltip content={…}>{trigger}</Tooltip>` —
+ * with its own provider, delay and shared skip window. The compound shadcn
+ * parts are collected here and handed to it.
+ */
+
+function TooltipProvider(props: ClassicProps<typeof Classic.TooltipProvider>) {
+  const arc = useIsArc()
+  if (!arc) return <Classic.TooltipProvider {...props} />
+  return <>{props.children as React.ReactNode}</>
 }
 
-function Tooltip({ ...props }: TooltipPrimitive.Root.Props) {
-  return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
-}
-
-function TooltipTrigger({ ...props }: TooltipPrimitive.Trigger.Props) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
-}
-
-function TooltipContent({
-  className,
-  side = "top",
-  sideOffset = 6,
-  children,
-  ...props
-}: TooltipPrimitive.Popup.Props &
-  Pick<TooltipPrimitive.Positioner.Props, "side" | "sideOffset">) {
+function Tooltip(props: ClassicProps<typeof Classic.Tooltip>) {
+  const arc = useIsArc()
+  if (!arc) return <Classic.Tooltip {...props} />
+  const { found: [trigger, content] } = partition(props.children as React.ReactNode, TooltipTrigger, TooltipContent)
+  if (!trigger) return <>{props.children as React.ReactNode}</>
+  const triggerProps = trigger.props as ClassicProps<typeof Classic.TooltipTrigger>
+  const target =
+    renderTarget(triggerProps.render, triggerProps.children as React.ReactNode) ?? (
+      <button type="button" className={classOf(triggerProps.className)}>{triggerProps.children as React.ReactNode}</button>
+    )
+  const contentProps = content?.props as ClassicProps<typeof Classic.TooltipContent> | undefined
+  if (props.disabled || !contentProps) return target
   return (
-    <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Positioner
-        className="isolate z-50 outline-none"
-        side={side}
-        sideOffset={sideOffset}
-      >
-        <TooltipPrimitive.Popup
-          data-slot="tooltip-content"
-          className={cn(
-            // Wraps rather than runs off: the whole reason this exists is to
-            // show a value too long for its cell, so a single-line popup that
-            // clips again would solve nothing.
-            "z-50 max-w-[min(28rem,calc(100vw-2rem))] origin-(--transform-origin) rounded-lg bg-[#0A2540] px-2.5 py-1.5 text-[12px] leading-snug text-white shadow-md duration-100 outline-none",
-            "break-words whitespace-pre-wrap",
-            "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-            className,
-          )}
-          {...props}
-        >
-          {children}
-        </TooltipPrimitive.Popup>
-      </TooltipPrimitive.Positioner>
-    </TooltipPrimitive.Portal>
+    <ArcTooltip content={contentProps.children as React.ReactNode} side={contentProps.side === "bottom" ? "bottom" : "top"}>
+      {target}
+    </ArcTooltip>
   )
+}
+
+/** In Arc these only carry props for Tooltip to collect. */
+function TooltipTrigger(props: ClassicProps<typeof Classic.TooltipTrigger>) {
+  const arc = useIsArc()
+  if (!arc) return <Classic.TooltipTrigger {...props} />
+  return renderTarget(props.render, props.children as React.ReactNode) ?? <>{props.children as React.ReactNode}</>
+}
+
+function TooltipContent(props: ClassicProps<typeof Classic.TooltipContent>) {
+  const arc = useIsArc()
+  if (!arc) return <Classic.TooltipContent {...props} />
+  return null
 }
 
 export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger }

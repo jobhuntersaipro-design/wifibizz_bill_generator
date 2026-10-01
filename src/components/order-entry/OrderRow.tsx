@@ -1,4 +1,5 @@
 "use client";
+import { Button } from "@/components/ui/button";
 
 import { useEffect, useRef, useState } from "react";
 
@@ -36,13 +37,13 @@ import {
 } from "@/components/ui/tooltip";
 
 const STATUS_STYLES: Record<string, string> = {
-  draft: "bg-[#E3E8EF] text-[#425466]",
+  draft: "bg-line text-ink-soft",
   submitting: "bg-amber-100 text-amber-700",
   order_entered: "bg-green-100 text-green-700",
   submitted: "bg-green-100 text-green-700",
   warning: "bg-amber-100 text-amber-800",
   failed: "bg-red-100 text-red-700",
-  cancelled: "bg-[#E3E8EF] text-[#697386]",
+  cancelled: "bg-line text-ink-muted",
 };
 
 /**
@@ -197,7 +198,7 @@ function OneLine({
   const full = title ?? text ?? "";
   const worthShowing = has && (clipped || (!!title && title !== text));
 
-  if (!has) return <span className="text-[#8792A2]">—</span>;
+  if (!has) return <span className="text-ink-faint">—</span>;
 
   return (
     <Tooltip disabled={!worthShowing}>
@@ -210,7 +211,7 @@ function OneLine({
           <div
             ref={ref}
             tabIndex={worthShowing ? 0 : undefined}
-            className={`truncate rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF] ${className}`}
+            className={`truncate rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${className}`}
           >
             {text}
           </div>
@@ -273,7 +274,7 @@ function FailureReason({ o }: { o: OrderListItem }) {
   const label = errorShortLabel(o.errorCode) ?? (o.errorMessage ? "Unclassified" : null);
   if (!label) return null;
   return (
-    <p className="mt-1 max-w-[160px] truncate text-[11px] text-[#8792A2]" title={label}>
+    <p className="mt-1 max-w-[160px] truncate text-[11px] text-ink-faint" title={label}>
       {label}
     </p>
   );
@@ -284,13 +285,13 @@ function FailureReason({ o }: { o: OrderListItem }) {
  * explanation when it is only the owner's current code on a never-submitted row.
  */
 function StaffCode({ o }: { o: OrderListItem }) {
-  if (!o.staffCode) return <span className="text-[#8792A2]">—</span>;
+  if (!o.staffCode) return <span className="text-ink-faint">—</span>;
   if (o.staffCodeRecorded) {
-    return <span className="font-medium text-[#0A2540]">{o.staffCode}</span>;
+    return <span className="font-medium text-ink">{o.staffCode}</span>;
   }
   return (
     <span
-      className="text-[#8792A2]"
+      className="text-ink-faint"
       title="Not submitted yet — this is the owner's current staff code"
     >
       {o.staffCode}
@@ -303,7 +304,7 @@ function OrderNumber({ o }: { o: OrderListItem }) {
   if (!o.orderId) {
     // Absence is meaningful: the portal has not minted a number for this draft
     // yet, which is not the same as "unknown".
-    return <span className="text-[12px] text-[#8792A2]">Not yet issued</span>;
+    return <span className="text-[12px] text-ink-faint">Not yet issued</span>;
   }
   // The portal mints the number early, so a run that stopped part-way owns a
   // REAL order — one the agent may need to open in order to quote it, check it,
@@ -322,7 +323,7 @@ function OrderNumber({ o }: { o: OrderListItem }) {
       target="_blank"
       rel="noopener noreferrer"
       className={`group inline-flex items-center gap-1 whitespace-nowrap text-[13px] tabular-nums hover:underline ${
-        done ? "font-medium text-[#635BFF]" : "text-[#8792A2]"
+        done ? "font-medium text-brand" : "text-ink-faint"
       }`}
       title={
         done
@@ -356,7 +357,7 @@ function OrderNumber({ o }: { o: OrderListItem }) {
 
 function Remarks({ text }: { text: string }) {
   return (
-    <div className="mt-1 flex min-w-0 items-start gap-1 text-[11px] text-[#8792A2]">
+    <div className="mt-1 flex min-w-0 items-start gap-1 text-[11px] text-ink-faint">
       <MessageSquare className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
       <OneLine text={text} className="leading-snug" />
     </div>
@@ -365,7 +366,7 @@ function Remarks({ text }: { text: string }) {
 
 function Address({ o }: { o: OrderListItem }) {
   const address = formatAddress(o);
-  if (!address) return <span className="text-[#8792A2]">—</span>;
+  if (!address) return <span className="text-ink-faint">—</span>;
   return (
     <div className="min-w-0">
       <OneLine text={address} className="leading-snug" />
@@ -421,7 +422,7 @@ export function BlockedHint({ reason, children }: { reason: string | null; child
   return (
     <Tooltip>
       <TooltipTrigger
-        render={<span tabIndex={0} className="inline-flex rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]" />}
+        render={<span tabIndex={0} className="inline-flex rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand" />}
       >
         {children}
       </TooltipTrigger>
@@ -453,25 +454,25 @@ function PrimaryAction({ o, a }: { o: OrderListItem; a: RowActions }) {
   if (isRetryPending(o)) {
     return (
       <BlockedHint reason="This order is being submitted again automatically. Nothing to do.">
-        <button
+        <Button unstyled variant="default"
           type="button"
           disabled
-          className="inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-lg bg-[#635BFF] px-3 py-2 text-[13px] font-semibold text-white opacity-50"
+          className="inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-lg bg-brand px-3 py-2 text-[13px] font-semibold text-white opacity-50"
         >
           <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
           Submitting…
-        </button>
+        </Button>
       </BlockedHint>
     );
   }
   if (canSubmit(o)) {
     return (
       <BlockedHint reason={blocked}>
-      <button
+      <Button unstyled variant="default"
         type="button"
         disabled={a.busy || a.batchRunning || a.serverBusy}
         onClick={a.onSubmit}
-        className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg bg-[#635BFF] px-3 py-2 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-[#0A2540] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF] disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg bg-brand px-3 py-2 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-50"
       >
         {a.busy ? (
           <>
@@ -481,14 +482,14 @@ function PrimaryAction({ o, a }: { o: OrderListItem; a: RowActions }) {
         ) : (
           "Submit"
         )}
-      </button>
+      </Button>
       </BlockedHint>
     );
   }
   if (canResubmit(o)) {
     return (
       <BlockedHint reason={blocked}>
-      <button
+      <Button unstyled variant="outline"
         type="button"
         disabled={a.busy || a.batchRunning || a.serverBusy}
         onClick={a.onResubmit}
@@ -503,7 +504,7 @@ function PrimaryAction({ o, a }: { o: OrderListItem; a: RowActions }) {
         ) : (
           "Resubmit"
         )}
-      </button>
+      </Button>
       </BlockedHint>
     );
   }
@@ -558,7 +559,7 @@ function RowMenu({ o, a }: { o: OrderListItem; a: RowActions }) {
         // control it disables — the one moment the menu has to open.
         disabled={(a.busy || a.batchRunning) && !showStop}
         aria-label={`More actions for ${o.fullName}`}
-        className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-[#697386] transition-colors duration-150 hover:bg-[#F6F9FC] hover:text-[#0A2540] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#635BFF] disabled:opacity-40"
+        className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors duration-150 hover:bg-wash hover:text-ink focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand disabled:opacity-40"
       >
         <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
       </DropdownMenuTrigger>
@@ -566,7 +567,7 @@ function RowMenu({ o, a }: { o: OrderListItem; a: RowActions }) {
         {showDetails && (
           <DropdownMenuItem
             onClick={a.onShowHistory}
-            className="cursor-pointer text-[13px] text-[#425466]"
+            className="cursor-pointer text-[13px] text-ink-soft"
           >
             <ListTree className="h-3.5 w-3.5" aria-hidden="true" />
             Details
@@ -574,7 +575,7 @@ function RowMenu({ o, a }: { o: OrderListItem; a: RowActions }) {
                 quickest signal that a row has been retried, so it moves with
                 the action rather than being dropped. */}
             {o.attempt > 1 && (
-              <span className="ml-auto tabular-nums text-[11px] text-[#8792A2]">
+              <span className="ml-auto tabular-nums text-[11px] text-ink-faint">
                 {o.attempt}
               </span>
             )}
@@ -583,7 +584,7 @@ function RowMenu({ o, a }: { o: OrderListItem; a: RowActions }) {
         {showEdit && (
           <DropdownMenuItem
             onClick={a.onEdit}
-            className="cursor-pointer text-[13px] text-[#425466]"
+            className="cursor-pointer text-[13px] text-ink-soft"
           >
             <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
             Edit draft
@@ -595,7 +596,7 @@ function RowMenu({ o, a }: { o: OrderListItem; a: RowActions }) {
             clean". Run state and documents never carry — see clone-order.ts. */}
         <DropdownMenuItem
           onClick={a.onClone}
-          className="cursor-pointer text-[13px] text-[#425466]"
+          className="cursor-pointer text-[13px] text-ink-soft"
         >
           <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
           Clone to new draft
@@ -644,14 +645,14 @@ function RowMenu({ o, a }: { o: OrderListItem; a: RowActions }) {
  */
 function CreatedAt({ iso }: { iso: string }) {
   const parts = createdParts(iso);
-  if (!parts) return <span className="text-[12px] text-[#8792A2]">—</span>;
+  if (!parts) return <span className="text-[12px] text-ink-faint">—</span>;
   return (
     <span
-      className="block whitespace-nowrap text-[12px] leading-tight tabular-nums text-[#425466]"
+      className="block whitespace-nowrap text-[12px] leading-tight tabular-nums text-ink-soft"
       title={formatCreatedFull(iso)}
     >
       {parts.date}
-      <span className="mt-0.5 block text-[11px] text-[#8792A2]">{parts.time}</span>
+      <span className="mt-0.5 block text-[11px] text-ink-faint">{parts.time}</span>
     </span>
   );
 }
@@ -667,15 +668,15 @@ function CreatedAt({ iso }: { iso: string }) {
  */
 function InstallationDate({ value }: { value: string | null }) {
   const parts = installationParts(value);
-  if (!parts) return <span className="text-[12px] text-[#8792A2]">—</span>;
+  if (!parts) return <span className="text-[12px] text-ink-faint">—</span>;
   return (
     <span
-      className="block whitespace-nowrap text-[12px] leading-tight tabular-nums text-[#425466]"
+      className="block whitespace-nowrap text-[12px] leading-tight tabular-nums text-ink-soft"
       title={`Installation appointment, as printed on the e-RF: ${value}`}
     >
       {parts.date}
       {parts.time && (
-        <span className="mt-0.5 block text-[11px] text-[#8792A2]">{parts.time}</span>
+        <span className="mt-0.5 block text-[11px] text-ink-faint">{parts.time}</span>
       )}
     </span>
   );
@@ -718,7 +719,7 @@ export function OrderRow({
        inherit — without it they are transparent and the scrolled columns show
        straight through them. */
     <TableRow
-      className={`border-b border-[#E3E8EF] bg-white transition-colors duration-150 hover:bg-[#F6F9FC] ${
+      className={`border-b border-line bg-white transition-colors duration-150 hover:bg-wash ${
         entranceDelayMs !== undefined ? "animate-fade-in-up" : ""
       }`}
       style={entranceDelayMs !== undefined ? { animationDelay: `${entranceDelayMs}ms` } : undefined}
@@ -730,7 +731,7 @@ export function OrderRow({
             checked={a.selected}
             disabled={a.batchRunning}
             onCheckedChange={a.onToggleSelect}
-            className="cursor-pointer border-[#CBD2DC] data-checked:border-[#635BFF] data-checked:bg-[#635BFF]"
+            className="cursor-pointer border-line-strong data-checked:border-brand data-checked:bg-brand"
           />
         )}
       </TableCell>
@@ -738,11 +739,11 @@ export function OrderRow({
       <TableCell className="sticky left-10 z-20 max-w-[200px] bg-inherit px-4 py-4 align-middle">
         <OneLine
           text={o.fullName}
-          className="text-[14px] font-semibold leading-snug text-[#0A2540]"
+          className="text-[14px] font-semibold leading-snug text-ink"
         />
         {/* The reference rides under the name below lg, where its own column is
             hidden — losing the quotable id entirely would be worse. */}
-        <span className="mt-0.5 block text-[11px] font-medium tabular-nums text-[#635BFF] lg:hidden">
+        <span className="mt-0.5 block text-[11px] font-medium tabular-nums text-brand lg:hidden">
           {o.reference ?? "—"}
         </span>
       </TableCell>
@@ -756,13 +757,13 @@ export function OrderRow({
       </TableCell>
 
       <TableCell className="hidden px-4 py-4 align-middle lg:table-cell">
-        <span className="whitespace-nowrap text-[12px] font-medium tabular-nums text-[#635BFF]">
+        <span className="whitespace-nowrap text-[12px] font-medium tabular-nums text-brand">
           {o.reference ?? "—"}
         </span>
       </TableCell>
 
       {isSuperAdmin && (
-        <TableCell className="hidden max-w-[170px] px-4 py-4 align-middle text-[12px] text-[#425466] 2xl:table-cell">
+        <TableCell className="hidden max-w-[170px] px-4 py-4 align-middle text-[12px] text-ink-soft 2xl:table-cell">
           <OneLine text={o.createdByEmail} />
         </TableCell>
       )}
@@ -775,16 +776,16 @@ export function OrderRow({
         <StaffCode o={o} />
       </TableCell>
 
-      <TableCell className="max-w-[220px] px-4 py-4 align-middle text-[13px] text-[#425466]">
+      <TableCell className="max-w-[220px] px-4 py-4 align-middle text-[13px] text-ink-soft">
         <OneLine text={o.offerName} className="leading-snug" />
         {o.remarks?.trim() && <Remarks text={o.remarks} />}
       </TableCell>
 
-      <TableCell className="hidden max-w-[190px] px-4 py-4 align-middle text-[13px] text-[#425466] 2xl:table-cell">
+      <TableCell className="hidden max-w-[190px] px-4 py-4 align-middle text-[13px] text-ink-soft 2xl:table-cell">
         <OneLine text={o.deviceName} className="leading-snug" />
       </TableCell>
 
-      <TableCell className="hidden max-w-[240px] px-4 py-4 align-middle text-[13px] text-[#425466] xl:table-cell">
+      <TableCell className="hidden max-w-[240px] px-4 py-4 align-middle text-[13px] text-ink-soft xl:table-cell">
         <Address o={o} />
       </TableCell>
 
@@ -803,7 +804,7 @@ export function OrderRow({
       {/* Pinned right — see PIN_ACTIONS in OrdersTable. The left border is what
           separates it from whatever scrolls underneath; without it the pinned
           cell reads as part of the column it happens to be covering. */}
-      <TableCell className="sticky right-0 z-20 border-l border-[#E3E8EF] bg-inherit px-4 py-4 align-middle">
+      <TableCell className="sticky right-0 z-20 border-l border-line bg-inherit px-4 py-4 align-middle">
         <div className="flex items-center justify-end gap-1">
           <PrimaryAction o={o} a={a} />
           <RowMenu o={o} a={a} />
@@ -836,7 +837,7 @@ export function OrderCard({
   const address = formatAddress(o);
   return (
     <li
-      className={`border-b border-[#E3E8EF] px-4 py-4 last:border-0 ${
+      className={`border-b border-line px-4 py-4 last:border-0 ${
         entranceDelayMs !== undefined ? "animate-fade-in-up" : ""
       }`}
       style={entranceDelayMs !== undefined ? { animationDelay: `${entranceDelayMs}ms` } : undefined}
@@ -848,16 +849,16 @@ export function OrderCard({
             checked={a.selected}
             disabled={a.batchRunning}
             onCheckedChange={a.onToggleSelect}
-            className="mt-1 cursor-pointer border-[#CBD2DC] data-checked:border-[#635BFF] data-checked:bg-[#635BFF]"
+            className="mt-1 cursor-pointer border-line-strong data-checked:border-brand data-checked:bg-brand"
           />
         )}
         <div className="min-w-0 flex-1">
-          <p className="text-[15px] font-semibold leading-snug text-[#0A2540]">
+          <p className="text-[15px] font-semibold leading-snug text-ink">
             {o.fullName}
           </p>
-          <p className="mt-0.5 text-[11px] font-medium tabular-nums text-[#635BFF]">
+          <p className="mt-0.5 text-[11px] font-medium tabular-nums text-brand">
             {o.reference ?? "—"}
-            <span className="ml-2 font-normal text-[#8792A2]">
+            <span className="ml-2 font-normal text-ink-faint">
               {o.idType} · {o.idNumber}
             </span>
           </p>
@@ -881,14 +882,14 @@ export function OrderCard({
         {isSuperAdmin && <Field label="Made by" value={o.createdByEmail ?? null} />}
         {o.staffCode && (
         <div className="flex gap-2">
-          <dt className="w-20 shrink-0 text-[#8792A2]">Staff Code</dt>
+          <dt className="w-20 shrink-0 text-ink-faint">Staff Code</dt>
           <dd className="min-w-0 flex-1">
             <StaffCode o={o} />
           </dd>
         </div>
         )}
         <div className="flex gap-2">
-          <dt className="w-20 shrink-0 text-[#8792A2]">Order No.</dt>
+          <dt className="w-20 shrink-0 text-ink-faint">Order No.</dt>
           <dd className="min-w-0 flex-1">
             <OrderNumber o={o} />
           </dd>
@@ -914,8 +915,8 @@ function Field({ label, value }: { label: string; value: string | null }) {
   if (!value?.trim()) return null;
   return (
     <div className="flex gap-2">
-      <dt className="w-20 shrink-0 text-[#8792A2]">{label}</dt>
-      <dd className="min-w-0 flex-1 break-words text-[#425466]">{value}</dd>
+      <dt className="w-20 shrink-0 text-ink-faint">{label}</dt>
+      <dd className="min-w-0 flex-1 break-words text-ink-soft">{value}</dd>
     </div>
   );
 }

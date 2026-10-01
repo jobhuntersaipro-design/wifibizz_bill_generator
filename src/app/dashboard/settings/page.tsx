@@ -16,7 +16,8 @@ import {
   saveNotificationEmail,
   sendTestNotification,
 } from "@/actions/settings";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
+import { Modal } from "@/components/ui/modal";
 
 export default function SettingsPage() {
   const [email, setEmail] = useState("");
@@ -193,12 +194,12 @@ export default function SettingsPage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-semibold text-[#0A2540]">Settings</h1>
+          <h1 className="text-2xl font-semibold text-ink">Settings</h1>
         </div>
-        <div className="bg-white rounded-lg border border-[#E3E8EF] p-12">
+        <div className="bg-white rounded-lg border border-line p-12">
           <div className="flex flex-col items-center gap-3">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />
-            <p className="text-sm text-[#697386]">Loading...</p>
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-brand border-t-transparent" />
+            <p className="text-sm text-ink-muted">Loading...</p>
           </div>
         </div>
       </div>
@@ -209,8 +210,8 @@ export default function SettingsPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="animate-fade-in-up" style={{ animationDelay: "100ms" }}>
-        <h1 className="text-2xl font-semibold text-[#0A2540]">Settings</h1>
-        <p className="text-sm text-[#697386] mt-1">
+        <h1 className="text-2xl font-semibold text-ink">Settings</h1>
+        <p className="text-sm text-ink-muted mt-1">
           Manage your WifiBizz integration credentials
         </p>
       </div>
@@ -220,17 +221,17 @@ export default function SettingsPage() {
       </div>
 
       <div className="max-w-xl animate-fade-in-up" style={{ animationDelay: "200ms" }}>
-        <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden">
-          <div className="px-6 py-4 border-b border-[#E3E8EF]">
+        <div className="bg-white rounded-lg border border-line overflow-hidden">
+          <div className="px-6 py-4 border-b border-line">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-[#F6F9FC] flex items-center justify-center">
-                <KeyIcon className="w-4 h-4 text-[#635BFF]" />
+              <div className="w-9 h-9 rounded-lg bg-wash flex items-center justify-center">
+                <KeyIcon className="w-4 h-4 text-brand" />
               </div>
               <div>
-                <h2 className="text-sm font-semibold text-[#0A2540]">
+                <h2 className="text-sm font-semibold text-ink">
                   WifiBizz Credentials
                 </h2>
-                <p className="text-xs text-[#697386] mt-0.5">
+                <p className="text-xs text-ink-muted mt-0.5">
                   {email
                     ? "Your email is set by admin. Enter your password below."
                     : "No email assigned. Contact your administrator."}
@@ -243,7 +244,7 @@ export default function SettingsPage() {
             {email ? (
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="wifibizz-email" className="text-xs font-medium text-[#425466]">
+                  <Label htmlFor="wifibizz-email" className="text-xs font-medium text-ink-soft">
                     WifiBizz Email
                   </Label>
                   <Input
@@ -251,15 +252,15 @@ export default function SettingsPage() {
                     type="email"
                     value={email}
                     disabled
-                    className="bg-[#F6F9FC] border-[#E3E8EF] rounded-lg h-10 text-[#697386]"
+                    className="bg-wash border-line rounded-lg h-10 text-ink-muted"
                   />
-                  <p className="text-[11px] text-[#697386]">
+                  <p className="text-[11px] text-ink-muted">
                     Set by administrator. Contact admin to change.
                   </p>
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="wifibizz-password" className="text-xs font-medium text-[#425466]">
+                  <Label htmlFor="wifibizz-password" className="text-xs font-medium text-ink-soft">
                     WifiBizz Password
                   </Label>
                   <div className="relative">
@@ -270,12 +271,12 @@ export default function SettingsPage() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required={!hasPassword}
-                      className="rounded-lg h-10 pr-10 border-[#E3E8EF] focus:border-[#635BFF]"
+                      className="rounded-lg h-10 pr-10 border-line focus:border-brand"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#697386] hover:text-[#0A2540] transition-colors"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-muted hover:text-ink transition-colors"
                       aria-label={showPassword ? "Hide password" : "Show password"}
                     >
                       {showPassword ? (
@@ -293,7 +294,7 @@ export default function SettingsPage() {
                 </div>
 
                 {lastCrawlAt && (
-                  <div className="flex items-center gap-2 text-xs text-[#697386] bg-[#F6F9FC] rounded-lg px-4 py-2.5">
+                  <div className="flex items-center gap-2 text-xs text-ink-muted bg-wash rounded-lg px-4 py-2.5">
                     <ClockIcon className="w-3.5 h-3.5" />
                     Last crawl: {new Date(lastCrawlAt).toLocaleString()}
                   </div>
@@ -303,7 +304,7 @@ export default function SettingsPage() {
                   <Button
                     type="submit"
                     disabled={saving}
-                    className="h-10 px-5 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] hover-glow"
+                    className="h-10 px-5 rounded-lg text-sm font-semibold bg-brand hover:bg-ink hover-glow"
                   >
                     {saving
                       ? "Saving..."
@@ -318,11 +319,11 @@ export default function SettingsPage() {
                       variant="outline"
                       disabled={testing}
                       onClick={handleTestConnection}
-                      className="h-10 px-5 rounded-lg text-sm font-medium border-[#E3E8EF] text-[#425466] hover:border-[#635BFF] hover:text-[#635BFF] press-effect"
+                      className="h-10 px-5 rounded-lg text-sm font-medium border-line text-ink-soft hover:border-brand hover:text-brand press-effect"
                     >
                       {testing ? (
                         <>
-                          <span className="h-3.5 w-3.5 mr-2 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent inline-block" />
+                          <span className="h-3.5 w-3.5 mr-2 animate-spin rounded-full border-2 border-brand border-t-transparent inline-block" />
                           Testing...
                         </>
                       ) : (
@@ -351,13 +352,13 @@ export default function SettingsPage() {
               </form>
             ) : (
               <div className="flex flex-col items-center py-8 text-center">
-                <div className="w-12 h-12 rounded-lg bg-[#F6F9FC] flex items-center justify-center mb-4">
-                  <AlertIcon className="w-5 h-5 text-[#697386]" />
+                <div className="w-12 h-12 rounded-lg bg-wash flex items-center justify-center mb-4">
+                  <AlertIcon className="w-5 h-5 text-ink-muted" />
                 </div>
-                <p className="text-sm font-medium text-[#425466] mb-1">
+                <p className="text-sm font-medium text-ink-soft mb-1">
                   No email assigned
                 </p>
-                <p className="text-xs text-[#697386] max-w-[280px]">
+                <p className="text-xs text-ink-muted max-w-[280px]">
                   Your administrator has not assigned a WifiBizz email to your
                   account yet. Please contact them to get started.
                 </p>
@@ -369,15 +370,15 @@ export default function SettingsPage() {
 
       {/* Order notifications */}
       <div className="max-w-xl animate-fade-in-up" style={{ animationDelay: "250ms" }}>
-        <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden">
-          <div className="px-6 py-4 border-b border-[#E3E8EF]">
+        <div className="bg-white rounded-lg border border-line overflow-hidden">
+          <div className="px-6 py-4 border-b border-line">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-[#F6F9FC] flex items-center justify-center">
-                <MailIcon className="w-4 h-4 text-[#635BFF]" />
+              <div className="w-9 h-9 rounded-lg bg-wash flex items-center justify-center">
+                <MailIcon className="w-4 h-4 text-brand" />
               </div>
               <div>
-                <h2 className="text-sm font-semibold text-[#0A2540]">Notification email</h2>
-                <p className="text-xs text-[#697386] mt-0.5">
+                <h2 className="text-sm font-semibold text-ink">Notification email</h2>
+                <p className="text-xs text-ink-muted mt-0.5">
                   Where order submit results and batch summaries are sent
                 </p>
               </div>
@@ -385,7 +386,7 @@ export default function SettingsPage() {
           </div>
           <form onSubmit={handleSaveNotifyEmail} className="px-6 py-5 space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="notifyEmail" className="text-[13px] font-medium text-[#425466]">
+              <Label htmlFor="notifyEmail" className="text-[13px] font-medium text-ink-soft">
                 Send notifications to
               </Label>
               <Input
@@ -396,7 +397,7 @@ export default function SettingsPage() {
                 placeholder={loginEmail ?? "you@example.com"}
                 className="text-[13px]"
               />
-              <p className="text-xs text-[#697386]">
+              <p className="text-xs text-ink-muted">
                 One email per single submit, and one summary per batch. Leave blank to use
                 your login email{loginEmail ? ` (${loginEmail})` : ""}.
               </p>
@@ -414,7 +415,7 @@ export default function SettingsPage() {
               <Button
                 type="submit"
                 disabled={savingNotify || notifyEmail.trim() === savedNotifyEmail.trim()}
-                className="bg-[#635BFF] hover:bg-[#0A2540] text-white text-[13px]"
+                className="bg-brand hover:bg-ink text-white text-[13px]"
               >
                 {savingNotify ? "Saving…" : "Save"}
               </Button>
@@ -427,11 +428,11 @@ export default function SettingsPage() {
                 variant="outline"
                 disabled={sendingTest}
                 onClick={handleSendTest}
-                className="text-[13px] border-[#E3E8EF] text-[#425466] hover:border-[#635BFF] hover:text-[#635BFF]"
+                className="text-[13px] border-line text-ink-soft hover:border-brand hover:text-brand"
               >
                 {sendingTest ? "Sending…" : "Send test email"}
               </Button>
-              <span className="text-xs text-[#697386]">
+              <span className="text-xs text-ink-muted">
                 Sends “Email setup successfully” to the address above.
               </span>
             </div>
@@ -452,17 +453,17 @@ export default function SettingsPage() {
 
       {/* Google Sheets Sync */}
       <div className="max-w-xl animate-fade-in-up" style={{ animationDelay: "300ms" }}>
-        <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden">
-          <div className="px-6 py-4 border-b border-[#E3E8EF]">
+        <div className="bg-white rounded-lg border border-line overflow-hidden">
+          <div className="px-6 py-4 border-b border-line">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-[#F6F9FC] flex items-center justify-center">
+              <div className="w-9 h-9 rounded-lg bg-wash flex items-center justify-center">
                 <SheetIcon className="w-4 h-4 text-[#34A853]" />
               </div>
               <div>
-                <h2 className="text-sm font-semibold text-[#0A2540]">
+                <h2 className="text-sm font-semibold text-ink">
                   Google Sheets Sync
                 </h2>
-                <p className="text-xs text-[#697386] mt-0.5">
+                <p className="text-xs text-ink-muted mt-0.5">
                   Automatically append new cases to your Google Sheet
                 </p>
               </div>
@@ -474,7 +475,7 @@ export default function SettingsPage() {
             <button
               type="button"
               onClick={() => setShowGuide(!showGuide)}
-              className="flex items-center gap-2 text-xs font-medium text-[#635BFF] hover:text-[#5851DB] transition-colors w-full"
+              className="flex items-center gap-2 text-xs font-medium text-brand hover:text-brand-strong transition-colors w-full"
             >
               <ChevronIcon className={`w-3.5 h-3.5 transition-transform duration-200 ${showGuide ? "rotate-90" : ""}`} />
               How to set up Google Sheets sync
@@ -485,26 +486,26 @@ export default function SettingsPage() {
               <div className="space-y-3 animate-fade-in-up" style={{ animationDuration: "200ms" }}>
                 {/* Step 1 */}
                 <div className="flex gap-3">
-                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-[#635BFF] text-white flex items-center justify-center text-[11px] font-bold mt-0.5">1</div>
+                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-brand text-white flex items-center justify-center text-[11px] font-bold mt-0.5">1</div>
                   <div>
-                    <p className="text-xs font-semibold text-[#0A2540]">Create a new Google Sheet</p>
-                    <p className="text-[11px] text-[#697386] mt-0.5 leading-relaxed">
-                      Go to <span className="font-medium text-[#425466]">sheets.google.com </span> and create a blank spreadsheet. Give it a name like &quot;My Cases&quot;.
+                    <p className="text-xs font-semibold text-ink">Create a new Google Sheet</p>
+                    <p className="text-[11px] text-ink-muted mt-0.5 leading-relaxed">
+                      Go to <span className="font-medium text-ink-soft">sheets.google.com </span> and create a blank spreadsheet. Give it a name like &quot;My Cases&quot;.
                     </p>
                   </div>
                 </div>
 
                 {/* Step 2 */}
                 <div className="flex gap-3">
-                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-[#635BFF] text-white flex items-center justify-center text-[11px] font-bold mt-0.5">2</div>
+                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-brand text-white flex items-center justify-center text-[11px] font-bold mt-0.5">2</div>
                   <div>
-                    <p className="text-xs font-semibold text-[#0A2540]">Share with the service account</p>
-                    <p className="text-[11px] text-[#697386] mt-0.5 leading-relaxed">
-                      Click <span className="font-medium text-[#425466]">Share</span> in the top right, then paste the service account email below and give it <span className="font-medium text-[#425466]">Editor</span> access.
+                    <p className="text-xs font-semibold text-ink">Share with the service account</p>
+                    <p className="text-[11px] text-ink-muted mt-0.5 leading-relaxed">
+                      Click <span className="font-medium text-ink-soft">Share</span> in the top right, then paste the service account email below and give it <span className="font-medium text-ink-soft">Editor</span> access.
                     </p>
                     {serviceAccountEmail && (
                       <div className="flex items-center gap-2 mt-2">
-                        <code className="text-[11px] text-[#635BFF] bg-[#F6F9FC] px-2 py-1 rounded border border-[#E3E8EF] flex-1 truncate">
+                        <code className="text-[11px] text-brand bg-wash px-2 py-1 rounded border border-line flex-1 truncate">
                           {serviceAccountEmail}
                         </code>
                         <button
@@ -513,7 +514,7 @@ export default function SettingsPage() {
                             navigator.clipboard.writeText(serviceAccountEmail);
                             toast.success("Email copied to clipboard");
                           }}
-                          className="text-[#697386] hover:text-[#0A2540] transition-colors shrink-0"
+                          className="text-ink-muted hover:text-ink transition-colors shrink-0"
                           aria-label="Copy service account email"
                         >
                           <CopyIcon className="w-3.5 h-3.5" />
@@ -525,16 +526,16 @@ export default function SettingsPage() {
 
                 {/* Step 3 */}
                 <div className="flex gap-3">
-                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-[#635BFF] text-white flex items-center justify-center text-[11px] font-bold mt-0.5">3</div>
+                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-brand text-white flex items-center justify-center text-[11px] font-bold mt-0.5">3</div>
                   <div>
-                    <p className="text-xs font-semibold text-[#0A2540]">Copy the Sheet ID from the URL</p>
-                    <p className="text-[11px] text-[#697386] mt-0.5 leading-relaxed">
-                      Open your Google Sheet and look at the URL in your browser. The Sheet ID is the long string between <span className="font-medium text-[#425466]">/d/</span> and <span className="font-medium text-[#425466]">/edit</span>.
+                    <p className="text-xs font-semibold text-ink">Copy the Sheet ID from the URL</p>
+                    <p className="text-[11px] text-ink-muted mt-0.5 leading-relaxed">
+                      Open your Google Sheet and look at the URL in your browser. The Sheet ID is the long string between <span className="font-medium text-ink-soft">/d/</span> and <span className="font-medium text-ink-soft">/edit</span>.
                     </p>
-                    <div className="mt-2 bg-[#F6F9FC] rounded-lg px-3 py-2 border border-[#E3E8EF]">
-                      <p className="text-[10px] text-[#697386] mb-1">Example URL:</p>
-                      <p className="text-[11px] text-[#425466] break-all leading-relaxed font-mono">
-                        docs.google.com/spreadsheets/d/<span className="text-[#635BFF] font-semibold bg-[#EBE9FE] px-0.5 rounded">1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms</span>/edit
+                    <div className="mt-2 bg-wash rounded-lg px-3 py-2 border border-line">
+                      <p className="text-[10px] text-ink-muted mb-1">Example URL:</p>
+                      <p className="text-[11px] text-ink-soft break-all leading-relaxed font-mono">
+                        docs.google.com/spreadsheets/d/<span className="text-brand font-semibold bg-[#EBE9FE] px-0.5 rounded">1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms</span>/edit
                       </p>
                     </div>
                   </div>
@@ -542,21 +543,21 @@ export default function SettingsPage() {
 
                 {/* Step 4 */}
                 <div className="flex gap-3">
-                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-[#635BFF] text-white flex items-center justify-center text-[11px] font-bold mt-0.5">4</div>
+                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-brand text-white flex items-center justify-center text-[11px] font-bold mt-0.5">4</div>
                   <div>
-                    <p className="text-xs font-semibold text-[#0A2540]">Paste the Sheet ID below and save</p>
-                    <p className="text-[11px] text-[#697386] mt-0.5 leading-relaxed">
-                      Paste the highlighted part into the field below, then click <span className="font-medium text-[#425466]">Save Sheet ID</span>. New cases will automatically sync after each crawl.
+                    <p className="text-xs font-semibold text-ink">Paste the Sheet ID below and save</p>
+                    <p className="text-[11px] text-ink-muted mt-0.5 leading-relaxed">
+                      Paste the highlighted part into the field below, then click <span className="font-medium text-ink-soft">Save Sheet ID</span>. New cases will automatically sync after each crawl.
                     </p>
                   </div>
                 </div>
 
-                <div className="border-t border-[#E3E8EF] my-1" />
+                <div className="border-t border-line my-1" />
               </div>
             )}
 
             <div className="space-y-1.5">
-              <Label htmlFor="google-sheet-id" className="text-xs font-medium text-[#425466]">
+              <Label htmlFor="google-sheet-id" className="text-xs font-medium text-ink-soft">
                 Google Sheet ID
               </Label>
               <Input
@@ -565,7 +566,7 @@ export default function SettingsPage() {
                 placeholder="e.g. 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
                 value={googleSheetId}
                 onChange={(e) => setGoogleSheetId(e.target.value)}
-                className="rounded-lg h-10 border-[#E3E8EF] focus:border-[#635BFF] font-mono text-xs"
+                className="rounded-lg h-10 border-line focus:border-brand font-mono text-xs"
               />
             </div>
 
@@ -574,7 +575,7 @@ export default function SettingsPage() {
                 type="button"
                 disabled={savingSheet || googleSheetId === savedSheetId}
                 onClick={handleSaveSheetId}
-                className="h-10 px-5 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] hover-glow"
+                className="h-10 px-5 rounded-lg text-sm font-semibold bg-brand hover:bg-ink hover-glow"
               >
                 {savingSheet ? "Saving..." : savedSheetId ? "Update Sheet ID" : "Save Sheet ID"}
               </Button>
@@ -585,7 +586,7 @@ export default function SettingsPage() {
                   variant="outline"
                   disabled={syncing}
                   onClick={handleSyncToSheet}
-                  className="h-10 px-5 rounded-lg text-sm font-medium border-[#E3E8EF] text-[#425466] hover:border-[#34A853] hover:text-[#34A853] press-effect"
+                  className="h-10 px-5 rounded-lg text-sm font-medium border-line text-ink-soft hover:border-[#34A853] hover:text-[#34A853] press-effect"
                 >
                   {syncing ? (
                     <>
@@ -607,36 +608,34 @@ export default function SettingsPage() {
 
       {/* Confirmation modal */}
       {showConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 animate-fade-in" style={{ animationDuration: "200ms" }}>
-          <div className="bg-white rounded-lg border border-[#E3E8EF] shadow-xl w-full max-w-sm mx-4 animate-scale-in">
+        <Modal label="Update password" onClose={() => setShowConfirm(false)} overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/20 animate-fade-in" className="bg-white rounded-lg border border-line shadow-xl w-full max-w-sm mx-4 animate-scale-in" style={{ animationDuration: "200ms" }}>
             <div className="p-6">
               <div className="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center mb-4">
                 <AlertIcon className="w-5 h-5 text-amber-600" />
               </div>
-              <h3 className="text-base font-semibold text-[#0A2540] mb-1">
+              <h3 className="text-base font-semibold text-ink mb-1">
                 Update password?
               </h3>
-              <p className="text-sm text-[#697386] leading-relaxed">
+              <p className="text-sm text-ink-muted leading-relaxed">
                 Are you sure you want to update your WifiBizz password? This will replace your current saved password.
               </p>
             </div>
-            <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-[#E3E8EF]">
+            <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-line">
               <Button
                 variant="outline"
-                className="h-9 px-4 rounded-lg text-sm border-[#E3E8EF] text-[#425466] press-effect"
+                className="h-9 px-4 rounded-lg text-sm border-line text-ink-soft press-effect"
                 onClick={() => setShowConfirm(false)}
               >
                 Cancel
               </Button>
               <Button
-                className="h-9 px-4 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] hover-glow"
+                className="h-9 px-4 rounded-lg text-sm font-semibold bg-brand hover:bg-ink hover-glow"
                 onClick={doSave}
               >
                 Yes, update
               </Button>
             </div>
-          </div>
-        </div>
+          </Modal>
       )}
     </div>
   );

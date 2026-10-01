@@ -20,7 +20,7 @@ export default async function StandaloneOrderEntryLayout({
     redirect("/dashboard");
   }
   return (
-    <div className="min-h-screen bg-[#F6F9FC]">
+    <div className="min-h-screen bg-wash">
       <PullToRefresh>{children}</PullToRefresh>
     </div>
   );

@@ -38,21 +38,21 @@ export function OrderDetailView({ order }: { order: OrderListItem }) {
         <button
           type="button"
           onClick={back}
-          className="group -ml-1.5 inline-flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1 text-[12px] font-medium text-[#697386] transition-colors duration-150 hover:bg-[#F6F9FC] hover:text-[#0A2540] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
+          className="group -ml-1.5 inline-flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1 text-[12px] font-medium text-ink-muted transition-colors duration-150 hover:bg-wash hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
         >
           <ArrowLeft className="h-3.5 w-3.5 transition-transform duration-150 group-hover:-translate-x-0.5" aria-hidden="true" />
           Orders
         </button>
         <header className="mt-2 flex items-start gap-3">
           <span
-            className="panel-item-in flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#EDEBFF] text-[13px] font-semibold text-[#635BFF]"
+            className="panel-item-in flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-wash text-[13px] font-semibold text-brand"
             aria-hidden="true"
           >
             {initialsFor(order.fullName)}
           </span>
           <div className="min-w-0 flex-1">
             <h1
-              className="panel-item-in truncate text-[18px] font-semibold leading-tight text-[#0A2540]"
+              className="panel-item-in truncate text-[18px] font-semibold leading-tight text-ink"
               style={{ animationDelay: "40ms" }}
             >
               {order.fullName}
@@ -61,10 +61,10 @@ export function OrderDetailView({ order }: { order: OrderListItem }) {
               className="panel-item-in mt-1 flex flex-wrap items-center gap-1.5"
               style={{ animationDelay: "80ms" }}
             >
-              <Badge className="rounded-md border-0 bg-[#EDEBFF] px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-[#635BFF] transition-colors duration-150 hover:bg-[#DEDAFF]">
+              <Badge className="rounded-md border-0 bg-brand-wash px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-brand transition-colors duration-150 hover:bg-[#DEDAFF]">
                 {order.reference ?? "No reference"}
               </Badge>
-              <Badge className="rounded-md border-0 bg-[#F6F9FC] px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-[#425466] transition-colors duration-150 hover:bg-[#E3E8EF]">
+              <Badge className="rounded-md border-0 bg-wash px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-ink-soft transition-colors duration-150 hover:bg-line">
                 {order.idType} · {order.idNumber}
               </Badge>
             </div>
@@ -76,23 +76,23 @@ export function OrderDetailView({ order }: { order: OrderListItem }) {
 
       {/* ── Tabs ──────────────────────────────────────────────────────────── */}
       <Tabs defaultValue={live ? "progress" : "history"} className="mt-1 gap-3">
-        <TabsList variant="line" className="w-full justify-start gap-3 border-b border-[#E3E8EF] p-0">
+        <TabsList variant="line" className="w-full justify-start gap-3 border-b border-line p-0">
           <TabsTrigger
             value="progress"
-            className="min-h-10 flex-none cursor-pointer px-1 pb-2 text-[12px] text-[#697386] after:bottom-[-1px] after:bg-[#635BFF] data-active:text-[#0A2540]"
+            className="min-h-10 flex-none cursor-pointer px-1 pb-2 text-[12px] text-ink-muted after:bottom-[-1px] after:bg-brand data-active:text-ink"
           >
             Progress
           </TabsTrigger>
           <TabsTrigger
             value="history"
-            className="min-h-10 flex-none cursor-pointer px-1 pb-2 text-[12px] text-[#697386] after:bottom-[-1px] after:bg-[#635BFF] data-active:text-[#0A2540]"
+            className="min-h-10 flex-none cursor-pointer px-1 pb-2 text-[12px] text-ink-muted after:bottom-[-1px] after:bg-brand data-active:text-ink"
           >
             <History className="h-3.5 w-3.5" aria-hidden="true" />
             History{attempts?.length ? ` · ${attempts.length}` : ""}
           </TabsTrigger>
           <TabsTrigger
             value="details"
-            className="min-h-10 flex-none cursor-pointer px-1 pb-2 text-[12px] text-[#697386] after:bottom-[-1px] after:bg-[#635BFF] data-active:text-[#0A2540]"
+            className="min-h-10 flex-none cursor-pointer px-1 pb-2 text-[12px] text-ink-muted after:bottom-[-1px] after:bg-brand data-active:text-ink"
           >
             <FileText className="h-3.5 w-3.5" aria-hidden="true" />
             Details

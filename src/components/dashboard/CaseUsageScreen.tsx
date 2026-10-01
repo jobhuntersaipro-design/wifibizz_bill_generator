@@ -160,20 +160,20 @@ export function CaseUsageScreen() {
       <LimitPurchaseHistory entries={limitChangeLog} />
 
       {/* History table */}
-      <Card className="border-[#E3E8EF] bg-white animate-fade-in-up" style={{ animationDelay: "400ms" }}>
+      <Card className="border-line bg-white animate-fade-in-up" style={{ animationDelay: "400ms" }}>
         <CardHeader className="pb-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <CardTitle className="text-sm font-semibold text-[#0A2540]">Usage History</CardTitle>
-              <span className="text-xs text-[#697386] tabular-nums">{total} entries</span>
+              <CardTitle className="text-sm font-semibold text-ink">Usage History</CardTitle>
+              <span className="text-xs text-ink-muted tabular-nums">{total} entries</span>
             </div>
             <div className="relative w-full sm:w-64">
-              <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#697386]" />
+              <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-muted" />
               <Input
                 placeholder="Search case no. or name..."
                 value={searchInput}
                 onChange={(e) => handleSearchChange(e.target.value)}
-                className="h-8 pl-8 text-xs rounded-lg border-[#E3E8EF]"
+                className="h-8 pl-8 text-xs rounded-lg border-line"
               />
             </div>
           </div>
@@ -181,17 +181,17 @@ export function CaseUsageScreen() {
         <CardContent>
           {loading && entries.length === 0 ? (
             <div className="flex justify-center py-12">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-brand border-t-transparent" />
             </div>
           ) : entries.length === 0 ? (
             <div className="text-center py-12">
-              <div className="w-10 h-10 rounded-lg bg-[#F6F9FC] flex items-center justify-center mx-auto mb-3">
-                <EmptyIcon className="w-5 h-5 text-[#697386]" />
+              <div className="w-10 h-10 rounded-lg bg-wash flex items-center justify-center mx-auto mb-3">
+                <EmptyIcon className="w-5 h-5 text-ink-muted" />
               </div>
-              <p className="text-sm font-medium text-[#0A2540]">
+              <p className="text-sm font-medium text-ink">
                 {search ? "No matching results" : "No bills generated yet"}
               </p>
-              <p className="text-xs text-[#697386] mt-1">
+              <p className="text-xs text-ink-muted mt-1">
                 {search ? "Try a different search term" : "Generate bills from the dashboard to see usage here"}
               </p>
             </div>
@@ -200,18 +200,18 @@ export function CaseUsageScreen() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-[#E3E8EF]">
-                      <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Case No.</th>
-                      <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-[#697386] uppercase tracking-wider hidden sm:table-cell">Customer Name</th>
-                      <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Bills Generated</th>
-                      <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-[#697386] uppercase tracking-wider">Charged At</th>
+                    <tr className="border-b border-line">
+                      <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-muted uppercase tracking-wider">Case No.</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-muted uppercase tracking-wider hidden sm:table-cell">Customer Name</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-muted uppercase tracking-wider">Bills Generated</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-ink-muted uppercase tracking-wider">Charged At</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#E3E8EF]/60">
+                  <tbody className="divide-y divide-line/60">
                     {entries.map((entry, i) => (
-                      <tr key={`${entry.caseNo}-${i}`} className="hover:bg-[#F6F9FC] transition-colors duration-100">
-                        <td className="px-3 py-2.5 font-medium text-[#0A2540] tabular-nums">{entry.caseNo}</td>
-                        <td className="px-3 py-2.5 text-[#425466] hidden sm:table-cell max-w-[200px] truncate">{entry.caseName || "—"}</td>
+                      <tr key={`${entry.caseNo}-${i}`} className="hover:bg-wash transition-colors duration-100">
+                        <td className="px-3 py-2.5 font-medium text-ink tabular-nums">{entry.caseNo}</td>
+                        <td className="px-3 py-2.5 text-ink-soft hidden sm:table-cell max-w-[200px] truncate">{entry.caseName || "—"}</td>
                         <td className="px-3 py-2.5">
                           <div className="flex items-center gap-1.5">
                             <span className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-md ${
@@ -230,7 +230,7 @@ export function CaseUsageScreen() {
                             </span>
                           </div>
                         </td>
-                        <td className="px-3 py-2.5 text-xs text-[#697386] tabular-nums">
+                        <td className="px-3 py-2.5 text-xs text-ink-muted tabular-nums">
                           {new Date(entry.chargedAt).toLocaleDateString("en-GB", {
                             day: "2-digit",
                             month: "short",
@@ -247,8 +247,8 @@ export function CaseUsageScreen() {
 
               {/* Pagination */}
               {totalPages > 1 && (
-                <div className="flex items-center justify-between pt-3 border-t border-[#E3E8EF] mt-3">
-                  <span className="text-xs text-[#697386]">
+                <div className="flex items-center justify-between pt-3 border-t border-line mt-3">
+                  <span className="text-xs text-ink-muted">
                     Page {currentPage} of {totalPages}
                   </span>
                   <div className="flex gap-1">
@@ -257,7 +257,7 @@ export function CaseUsageScreen() {
                       size="sm"
                       disabled={offset === 0 || loading}
                       onClick={() => goToPage(offset - PAGE_SIZE)}
-                      className="h-7 px-2.5 text-xs rounded-md border-[#E3E8EF]"
+                      className="h-7 px-2.5 text-xs rounded-md border-line"
                     >
                       Previous
                     </Button>
@@ -266,7 +266,7 @@ export function CaseUsageScreen() {
                       size="sm"
                       disabled={offset + PAGE_SIZE >= total || loading}
                       onClick={() => goToPage(offset + PAGE_SIZE)}
-                      className="h-7 px-2.5 text-xs rounded-md border-[#E3E8EF]"
+                      className="h-7 px-2.5 text-xs rounded-md border-line"
                     >
                       Next
                     </Button>
@@ -289,31 +289,31 @@ function UsageProgressCard({ usage }: { usage: UsageSummary }) {
   const isNearLimit = usage.remaining > 0 && usage.remaining <= 2;
 
   return (
-    <Card className="border-[#E3E8EF] bg-white animate-fade-in-up" style={{ animationDelay: "100ms" }}>
+    <Card className="border-line bg-white animate-fade-in-up" style={{ animationDelay: "100ms" }}>
       <CardContent className="pt-6">
         <div className="flex flex-col sm:flex-row sm:items-center gap-6">
           {/* Progress section */}
           <div className="flex-1 space-y-3">
             <div className="flex items-baseline justify-between">
               <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-semibold text-[#0A2540] tabular-nums">{usage.casesUsed}</span>
-                <span className="text-sm text-[#697386]">/ {usage.limit} cases used</span>
+                <span className="text-3xl font-semibold text-ink tabular-nums">{usage.casesUsed}</span>
+                <span className="text-sm text-ink-muted">/ {usage.limit} cases used</span>
               </div>
               <span className={`text-sm font-medium tabular-nums ${
-                isAtLimit ? "text-[#DF1B41]" : isNearLimit ? "text-amber-500" : "text-[#697386]"
+                isAtLimit ? "text-danger" : isNearLimit ? "text-amber-500" : "text-ink-muted"
               }`}>
                 {Math.round(percentage)}%
               </span>
             </div>
 
-            <div className="h-3 rounded-full bg-[#F6F9FC] overflow-hidden">
+            <div className="h-3 rounded-full bg-wash overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-700 ease-out ${
                   isAtLimit
-                    ? "bg-[#DF1B41]"
+                    ? "bg-danger"
                     : isNearLimit
                       ? "bg-amber-500"
-                      : "bg-[#635BFF]"
+                      : "bg-brand"
                 }`}
                 style={{ width: `${percentage}%` }}
               />
@@ -321,10 +321,10 @@ function UsageProgressCard({ usage }: { usage: UsageSummary }) {
 
             {isAtLimit && (
               <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm">
-                <p className="font-medium text-[#DF1B41]">Case limit reached</p>
-                <p className="text-[#697386] mt-0.5">
+                <p className="font-medium text-danger">Case limit reached</p>
+                <p className="text-ink-muted mt-0.5">
                   Need more?{" "}
-                  <a href="mailto:support@wifibizz.com" className="text-[#635BFF] underline underline-offset-2">
+                  <a href="mailto:support@wifibizz.com" className="text-brand underline underline-offset-2">
                     Contact us
                   </a>
                 </p>
@@ -341,15 +341,15 @@ function UsageProgressCard({ usage }: { usage: UsageSummary }) {
           {/* Stats */}
           <div className="grid grid-cols-3 gap-4 sm:gap-6 shrink-0">
             <div className="text-center">
-              <p className="text-[11px] font-medium text-[#697386] uppercase tracking-wider">Remaining</p>
-              <p className="text-xl font-semibold text-[#0A2540] tabular-nums mt-1">{usage.remaining}</p>
+              <p className="text-[11px] font-medium text-ink-muted uppercase tracking-wider">Remaining</p>
+              <p className="text-xl font-semibold text-ink tabular-nums mt-1">{usage.remaining}</p>
             </div>
             <div className="text-center">
-              <p className="text-[11px] font-medium text-[#697386] uppercase tracking-wider">Umobile</p>
-              <p className="text-xl font-semibold text-[#635BFF] tabular-nums mt-1">{usage.internetBills}</p>
+              <p className="text-[11px] font-medium text-ink-muted uppercase tracking-wider">Umobile</p>
+              <p className="text-xl font-semibold text-brand tabular-nums mt-1">{usage.internetBills}</p>
             </div>
             <div className="text-center">
-              <p className="text-[11px] font-medium text-[#697386] uppercase tracking-wider">Utility</p>
+              <p className="text-[11px] font-medium text-ink-muted uppercase tracking-wider">Utility</p>
               <p className="text-xl font-semibold text-amber-500 tabular-nums mt-1">{usage.utilityBills}</p>
             </div>
           </div>
@@ -370,8 +370,8 @@ function ChartDatePresets({ days, onChange, isCustom }: { days: number; onChange
           onClick={() => onChange(p.days)}
           className={`px-2 py-0.5 text-[11px] font-medium rounded-md transition-colors ${
             !isCustom && days === p.days
-              ? "bg-[#635BFF] text-white"
-              : "bg-[#F6F9FC] text-[#697386] hover:bg-[#E3E8EF]"
+              ? "bg-brand text-white"
+              : "bg-wash text-ink-muted hover:bg-line"
           }`}
         >
           {p.label}
@@ -403,62 +403,62 @@ function DailyCaseUsageChart({
   const presetLabel = isCustomRange ? "Custom" : (DATE_PRESETS.find((p) => p.days === days)?.label ?? `${days}d`);
 
   return (
-    <Card className="border-[#E3E8EF] bg-white animate-fade-in-up" style={{ animationDelay: "200ms" }}>
+    <Card className="border-line bg-white animate-fade-in-up" style={{ animationDelay: "200ms" }}>
       <CardHeader className="pb-2">
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-sm font-semibold text-[#0A2540]">Daily Case Usage</CardTitle>
-              <p className="text-xs text-[#697386] mt-0.5">{isCustomRange ? `${from} to ${to}` : `Last ${presetLabel}`}</p>
+              <CardTitle className="text-sm font-semibold text-ink">Daily Case Usage</CardTitle>
+              <p className="text-xs text-ink-muted mt-0.5">{isCustomRange ? `${from} to ${to}` : `Last ${presetLabel}`}</p>
             </div>
             <ChartDatePresets days={days} onChange={onDaysChange} isCustom={!!isCustomRange} />
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <label className="text-[11px] text-[#697386] font-medium">From</label>
+            <label className="text-[11px] text-ink-muted font-medium">From</label>
             <Input
               type="date"
               value={from}
               onChange={(e) => onDateRangeChange(e.target.value, to)}
-              className="h-7 text-xs rounded-md border-[#E3E8EF] w-[140px]"
+              className="h-7 text-xs rounded-md border-line w-[140px]"
             />
-            <label className="text-[11px] text-[#697386] font-medium">To</label>
+            <label className="text-[11px] text-ink-muted font-medium">To</label>
             <Input
               type="date"
               value={to}
               onChange={(e) => onDateRangeChange(from, e.target.value)}
-              className="h-7 text-xs rounded-md border-[#E3E8EF] w-[140px]"
+              className="h-7 text-xs rounded-md border-line w-[140px]"
             />
             {isCustomRange && (
-              <button
+              <Button unstyled variant="outline"
                 onClick={() => {
                   onDateRangeChange("", "");
                   onDaysChange(days);
                 }}
-                className="px-2 py-0.5 text-[11px] font-medium rounded-md bg-[#F6F9FC] text-[#697386] hover:bg-[#E3E8EF] transition-colors"
+                className="px-2 py-0.5 text-[11px] font-medium rounded-md bg-wash text-ink-muted hover:bg-line transition-colors"
               >
                 Reset
-              </button>
+              </Button>
             )}
           </div>
         </div>
       </CardHeader>
       <CardContent>
         {!hasData ? (
-          <div className="text-center py-8 text-sm text-[#697386]">No activity in this period</div>
+          <div className="text-center py-8 text-sm text-ink-muted">No activity in this period</div>
         ) : (
           <>
             <div className="flex items-center gap-4 mb-3">
               <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded-sm bg-[#635BFF]" />
-                <span className="text-[11px] text-[#697386]">Case Usage</span>
+                <div className="w-3 h-3 rounded-sm bg-brand" />
+                <span className="text-[11px] text-ink-muted">Case Usage</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded-sm bg-[#E3E8EF]" />
-                <span className="text-[11px] text-[#697386]">Case Limit</span>
+                <div className="w-3 h-3 rounded-sm bg-line" />
+                <span className="text-[11px] text-ink-muted">Case Limit</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <div className="w-3 h-0.5 bg-[#DF1B41]" />
-                <span className="text-[11px] text-[#697386]">Usage %</span>
+                <div className="w-3 h-0.5 bg-danger" />
+                <span className="text-[11px] text-ink-muted">Usage %</span>
               </div>
             </div>
             <div className="h-[240px]">
@@ -543,31 +543,31 @@ function LimitPurchaseHistory({ entries }: { entries: LimitChangeEntry[] }) {
   const increases = entries.filter((e) => e.newLimit > e.previousLimit);
 
   return (
-    <Card className="border-[#E3E8EF] bg-white animate-fade-in-up" style={{ animationDelay: "350ms" }}>
+    <Card className="border-line bg-white animate-fade-in-up" style={{ animationDelay: "350ms" }}>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-sm font-semibold text-[#0A2540]">Purchase History</CardTitle>
-            <p className="text-xs text-[#697386] mt-0.5">Your case topup transactions</p>
+            <CardTitle className="text-sm font-semibold text-ink">Purchase History</CardTitle>
+            <p className="text-xs text-ink-muted mt-0.5">Your case topup transactions</p>
           </div>
           {increases.length > 0 && (
-            <span className="text-xs text-[#697386] tabular-nums">{increases.length} topup{increases.length !== 1 ? "s" : ""}</span>
+            <span className="text-xs text-ink-muted tabular-nums">{increases.length} topup{increases.length !== 1 ? "s" : ""}</span>
           )}
         </div>
       </CardHeader>
       <CardContent>
         {increases.length === 0 ? (
           <div className="text-center py-8">
-            <div className="w-10 h-10 rounded-lg bg-[#F6F9FC] flex items-center justify-center mx-auto mb-3">
-              <CartIcon className="w-5 h-5 text-[#697386]" />
+            <div className="w-10 h-10 rounded-lg bg-wash flex items-center justify-center mx-auto mb-3">
+              <CartIcon className="w-5 h-5 text-ink-muted" />
             </div>
-            <p className="text-sm font-medium text-[#0A2540]">No purchases yet</p>
-            <p className="text-xs text-[#697386] mt-1">
+            <p className="text-sm font-medium text-ink">No purchases yet</p>
+            <p className="text-xs text-ink-muted mt-1">
               Case topups will appear here when purchased
             </p>
           </div>
         ) : (
-          <div className="divide-y divide-[#E3E8EF]">
+          <div className="divide-y divide-line">
             {increases.map((entry, i) => {
               const added = entry.newLimit - entry.previousLimit;
               return (
@@ -575,27 +575,27 @@ function LimitPurchaseHistory({ entries }: { entries: LimitChangeEntry[] }) {
                   key={i}
                   className="flex items-center gap-4 py-3 first:pt-0 last:pb-0"
                 >
-                  <div className="w-9 h-9 rounded-full bg-[#635BFF]/10 flex items-center justify-center shrink-0">
-                    <TopupIcon className="w-4 h-4 text-[#635BFF]" />
+                  <div className="w-9 h-9 rounded-full bg-brand/10 flex items-center justify-center shrink-0">
+                    <TopupIcon className="w-4 h-4 text-brand" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-[#0A2540]">
+                    <p className="text-sm font-semibold text-ink">
                       Topup +{added.toLocaleString()} case{added !== 1 ? "s" : ""}
                     </p>
-                    <p className="text-xs text-[#697386] mt-0.5">
+                    <p className="text-xs text-ink-muted mt-0.5">
                       New balance: {entry.newLimit.toLocaleString()} cases
-                      {entry.reason && <span className="text-[#425466]"> &middot; {entry.reason}</span>}
+                      {entry.reason && <span className="text-ink-soft"> &middot; {entry.reason}</span>}
                     </p>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="text-xs text-[#697386] tabular-nums">
+                    <p className="text-xs text-ink-muted tabular-nums">
                       {new Date(entry.changedAt).toLocaleDateString("en-GB", {
                         day: "2-digit",
                         month: "short",
                         year: "numeric",
                       })}
                     </p>
-                    <p className="text-[11px] text-[#697386]">
+                    <p className="text-[11px] text-ink-muted">
                       {new Date(entry.changedAt).toLocaleTimeString("en-GB", {
                         hour: "2-digit",
                         minute: "2-digit",

@@ -1,4 +1,6 @@
 "use client";
+import { Textarea } from "@/components/ui/textarea";
+import { Select } from "@/components/ui/select";
 
 import { groupMissing, isFormSection, sectionAnchor, sectionOf, SECTION_SHORT, type FormSection, type MissingField } from "@/lib/order-sections";
 import { ordersForIc } from "@/actions/order";
@@ -6,7 +8,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import LottieSpot from "./LottieSpot";
 import {
   saveOrder,
@@ -59,10 +61,10 @@ import { parseMalaysianAddress } from "@/lib/malaysia-address";
 
 // Shared field styles — light border + hover to signal clickability.
 const inputCls =
-  "rounded-lg h-10 border-[#E3E8EF] hover:border-[#635BFF]/60 focus:border-[#635BFF] transition-colors";
+  "rounded-lg h-10 border-line hover:border-brand/60 focus:border-brand transition-colors";
 const selectCls =
-  "select-chevron w-full pl-3 h-10 rounded-lg border border-[#CBD2DC] bg-white text-sm text-[#0A2540] hover:border-[#635BFF] focus:border-[#635BFF] focus:outline-none cursor-pointer transition-colors";
-const labelCls = "text-xs font-medium text-[#425466]";
+  "select-chevron w-full pl-3 h-10 rounded-lg border border-line-strong bg-white text-sm text-ink hover:border-brand focus:border-brand focus:outline-none cursor-pointer transition-colors";
+const labelCls = "text-xs font-medium text-ink-soft";
 // The two ways a supporting document reaches an order. `short` is used below
 // 640px, where "Generate from order" wraps to two lines and leaves the two tabs
 // at different heights.
@@ -70,8 +72,8 @@ const DOC_SOURCES = [
   { id: "upload" as const, label: "Upload a file", short: "Upload" },
   { id: "generate" as const, label: "Generate from order", short: "Generate" },
 ];
-const cardCls = "bg-white rounded-lg border border-[#E3E8EF]";
-const headCls = "px-6 py-3 border-b border-[#E3E8EF] text-sm font-semibold text-[#0A2540]";
+const cardCls = "bg-white rounded-lg border border-line";
+const headCls = "px-6 py-3 border-b border-line text-sm font-semibold text-ink";
 
 // Add-on flavour of an offer, derived from its portal name. Display order —
 // plain packages first, then the bundles, since plain is the common case.
@@ -118,7 +120,7 @@ function AutoIcon() {
   return (
     <svg
       viewBox="0 0 24 24"
-      className="h-3.5 w-3.5 shrink-0 text-[#635BFF]"
+      className="h-3.5 w-3.5 shrink-0 text-brand"
       fill="none"
       stroke="currentColor"
       strokeWidth="2"
@@ -1011,9 +1013,9 @@ export function OrderForm({
 
   if (loadingDraft) {
     return (
-      <div className="bg-white rounded-lg border border-[#E3E8EF] p-12 flex flex-col items-center gap-3">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />
-        <p className="text-sm text-[#697386]">Loading draft…</p>
+      <div className="bg-white rounded-lg border border-line p-12 flex flex-col items-center gap-3">
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-brand border-t-transparent" />
+        <p className="text-sm text-ink-muted">Loading draft…</p>
       </div>
     );
   }
@@ -1024,7 +1026,7 @@ export function OrderForm({
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-[#635BFF] hover:text-[#0A2540] transition-colors"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:text-ink transition-colors"
         >
           <span aria-hidden>←</span> Back to drafts
         </button>
@@ -1036,15 +1038,15 @@ export function OrderForm({
         <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1.5">
             <Label className={labelCls}>ID Type</Label>
-            <select value={idType} onChange={(e) => handleIdTypeChange(e.target.value as IdType)} className={selectCls}>
+            <Select value={idType} onChange={(e) => handleIdTypeChange(e.target.value as IdType)} className={selectCls}>
               {ID_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
+            </Select>
           </div>
           <div className="space-y-1.5">
             <Label className={labelCls}>
-              ID Number <span className="text-[#DF1B41]">*</span>{" "}
+              ID Number <span className="text-danger">*</span>{" "}
               {isMykadLike && (
-                <span className="text-[#697386] font-normal tabular-nums">
+                <span className="text-ink-muted font-normal tabular-nums">
                   ({idNumber.length}/12)
                 </span>
               )}
@@ -1054,43 +1056,43 @@ export function OrderForm({
               onChange={(e) => handleIdNumberChange(e.target.value)}
               required
               aria-invalid={idNumberIncomplete}
-              className={`${inputCls} uppercase tabular-nums ${idNumberIncomplete ? "border-[#DF1B41] focus:border-[#DF1B41]" : ""}`}
+              className={`${inputCls} uppercase tabular-nums ${idNumberIncomplete ? "border-danger focus:border-danger" : ""}`}
               placeholder={isMykadLike ? "XXXXXX-XX-XXXX" : "ID / Passport number"}
               inputMode={isMykadLike ? "numeric" : "text"}
               autoComplete="off"
             />
             {idNumberIncomplete && (
-              <p className="flex items-center gap-1.5 text-[11px] text-[#DF1B41]">
+              <p className="flex items-center gap-1.5 text-[11px] text-danger">
                 <WarnIcon />
                 <span>MyKad must be 12 digits — {12 - idNumber.length} more to go.</span>
               </p>
             )}
           </div>
           <div className="space-y-1.5 sm:col-span-2">
-            <Label className={labelCls}>Full Name <span className="text-[#DF1B41]">*</span></Label>
+            <Label className={labelCls}>Full Name <span className="text-danger">*</span></Label>
             <Input value={fullName} onChange={(e) => setFullName(e.target.value.toUpperCase())} onBlur={handleNameBlur} required className={`${inputCls} uppercase`} placeholder="AS PER ID" />
           </div>
           <div className="space-y-1.5">
-            <Label className={labelCls}>Gender {isMykadLike && <span className="text-[#697386]">(auto)</span>}</Label>
-            <select value={gender} onChange={(e) => setGender(e.target.value)} className={selectCls}>
+            <Label className={labelCls}>Gender {isMykadLike && <span className="text-ink-muted">(auto)</span>}</Label>
+            <Select value={gender} onChange={(e) => setGender(e.target.value)} className={selectCls}>
               <option value="">---</option>
               <option value="Male">Male</option>
               <option value="Female">Female</option>
-            </select>
+            </Select>
           </div>
           <div className="space-y-1.5">
-            <Label className={labelCls}>Birthday {isMykadLike && <span className="text-[#697386]">(auto)</span>}</Label>
+            <Label className={labelCls}>Birthday {isMykadLike && <span className="text-ink-muted">(auto)</span>}</Label>
             <Input value={birthday} onChange={(e) => setBirthday(e.target.value)} className={inputCls} placeholder="dd-mm-yyyy" />
           </div>
           <div className="space-y-1.5">
             <Label className={labelCls}>Race</Label>
-            <select value={race} onChange={(e) => setRace(e.target.value)} className={selectCls}>
+            <Select value={race} onChange={(e) => setRace(e.target.value)} className={selectCls}>
               <option value="">---</option>
               <option value="Malay">Malay</option>
               <option value="Chinese">Chinese</option>
               <option value="Indian">Indian</option>
               <option value="Others">Others</option>
-            </select>
+            </Select>
           </div>
           {!isMykadLike && (
             <div className="space-y-1.5">
@@ -1112,7 +1114,7 @@ export function OrderForm({
                 href={`/order-entry/orders/${m.id}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="underline hover:text-[#0A2540]"
+                className="underline hover:text-ink"
               >
                 {m.reference ?? "draft"} ({m.status})
               </a>
@@ -1132,9 +1134,9 @@ export function OrderForm({
         <div className={headCls}>Contact</div>
         <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1.5">
-            <Label className={labelCls}>Contact Number <span className="text-[#DF1B41]">*</span></Label>
+            <Label className={labelCls}>Contact Number <span className="text-danger">*</span></Label>
             <div className="flex gap-2">
-              <div className={`flex items-center gap-1 px-3 h-10 rounded-lg border bg-[#F6F9FC] text-sm text-[#425466] ${mobilePrefix.startsWith("0") ? "border-[#DF1B41]" : "border-[#E3E8EF]"}`}>
+              <div className={`flex items-center gap-1 px-3 h-10 rounded-lg border bg-wash text-sm text-ink-soft ${mobilePrefix.startsWith("0") ? "border-danger" : "border-line"}`}>
                 <span>+</span>
                 <input value={mobilePrefix} onChange={(e) => handlePrefixChange(e.target.value)} className="w-8 bg-transparent focus:outline-none" inputMode="numeric" aria-label="Country code" />
               </div>
@@ -1142,13 +1144,13 @@ export function OrderForm({
               <Input ref={mobileRef} value={mobile} onChange={(e) => setMobile(e.target.value.replace(/\D/g, "").replace(/^0+/, ""))} className={`flex-1 ${inputCls}`} placeholder="123456789" inputMode="numeric" />
             </div>
             {mobilePrefix.startsWith("0") ? (
-              <p className="text-[11px] text-[#DF1B41]">That looks like a trunk prefix. Use the country code (e.g. 60 for Malaysia).</p>
+              <p className="text-[11px] text-danger">That looks like a trunk prefix. Use the country code (e.g. 60 for Malaysia).</p>
             ) : (
-              <p className="text-[11px] text-[#697386]">Country code (e.g. 60), then the number without the leading 0.</p>
+              <p className="text-[11px] text-ink-muted">Country code (e.g. 60), then the number without the leading 0.</p>
             )}
           </div>
           <div className="space-y-1.5">
-            <Label className={labelCls}>Email Address <span className="text-[#DF1B41]">*</span></Label>
+            <Label className={labelCls}>Email Address <span className="text-danger">*</span></Label>
             <Input
               type="email"
               value={email}
@@ -1156,11 +1158,11 @@ export function OrderForm({
               required
               autoComplete="email"
               aria-invalid={email.length > 0 && !emailValid}
-              className={`${inputCls} ${email.length > 0 && !emailValid ? "border-[#DF1B41] focus:border-[#DF1B41]" : ""}`}
+              className={`${inputCls} ${email.length > 0 && !emailValid ? "border-danger focus:border-danger" : ""}`}
               placeholder="name@example.com"
             />
             {email.length > 0 && !emailValid && (
-              <p className="flex items-center gap-1.5 text-[11px] text-[#DF1B41]">
+              <p className="flex items-center gap-1.5 text-[11px] text-danger">
                 <WarnIcon />
                 <span>That email address isn&apos;t valid.</span>
               </p>
@@ -1175,12 +1177,12 @@ export function OrderForm({
           accuracy is entirely the agent's responsibility. */}
       <div id={sectionAnchor("address")} className={`${cardCls} overflow-hidden`}>
         <div className={headCls}>
-          Installation Address <span className="text-[#697386] font-normal">— paste the full address from the Unifi portal</span>
+          Installation Address <span className="text-ink-muted font-normal">— paste the full address from the Unifi portal</span>
         </div>
         <div className="p-6 space-y-4">
           <div className="space-y-1.5">
             <Label className={labelCls}>
-              Full Address <span className="text-[#DF1B41]">*</span>
+              Full Address <span className="text-danger">*</span>
             </Label>
             <Input
               value={street}
@@ -1191,28 +1193,28 @@ export function OrderForm({
 
             {/* Guidance: what "full address" means, in the order the portal
                 writes it, with the parts named so the agent can self-check. */}
-            <div className="rounded-lg border border-[#E3E8EF] bg-[#F6F9FC] px-3 py-2.5 space-y-1.5">
-              <p className="text-[11px] text-[#0A2540]">
+            <div className="rounded-lg border border-line bg-wash px-3 py-2.5 space-y-1.5">
+              <p className="text-[11px] text-ink">
                 <span className="font-medium">Copy the address exactly as the Unifi portal shows it — you are fully responsible for its accuracy.</span>{" "}
                 It is not checked against the portal here: the order is submitted with this address as-is, and a wrong or
                 unserviceable one fails at submit time.
               </p>
-              <p className="text-[11px] text-[#697386]">
+              <p className="text-[11px] text-ink-muted">
                 Order of parts:{" "}
-                <span className="text-[#0A2540]">unit</span> · <span className="text-[#0A2540]">street</span> ·{" "}
-                <span className="text-[#0A2540]">area</span> · <span className="text-[#0A2540]">city</span> ·{" "}
-                <span className="text-[#0A2540]">state</span> · <span className="text-[#0A2540]">MALAYSIA</span> ·{" "}
-                <span className="text-[#0A2540]">postcode</span>
+                <span className="text-ink">unit</span> · <span className="text-ink">street</span> ·{" "}
+                <span className="text-ink">area</span> · <span className="text-ink">city</span> ·{" "}
+                <span className="text-ink">state</span> · <span className="text-ink">MALAYSIA</span> ·{" "}
+                <span className="text-ink">postcode</span>
               </p>
-              <p className="text-[11px] text-[#697386]">
+              <p className="text-[11px] text-ink-muted">
                 Example:{" "}
-                <code className="rounded bg-white px-1.5 py-0.5 text-[10px] text-[#0A2540] border border-[#E3E8EF]">
+                <code className="rounded bg-white px-1.5 py-0.5 text-[10px] text-ink border border-line">
                   A-07-15 PERSIARAN SAUJANA PUTRA UTAMA 7 BANDAR SAUJANA PUTRA JENJAROM SELANGOR MALAYSIA 42610
                 </code>
               </p>
             </div>
             {addrError && (
-              <p className="flex items-start gap-1.5 text-[11px] text-[#DF1B41]" role="alert">
+              <p className="flex items-start gap-1.5 text-[11px] text-danger" role="alert">
                 <svg viewBox="0 0 24 24" className="mt-px h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <circle cx="12" cy="12" r="10" /><path d="M12 8v4" /><path d="M12 16h.01" />
                 </svg>
@@ -1226,14 +1228,14 @@ export function OrderForm({
           <div className="border-t border-[#F0F3F8] pt-4 space-y-3">
             <div className="flex items-center gap-2">
               <AutoIcon />
-              <span className="text-[11px] font-medium text-[#0A2540]">Extracted from the address above</span>
-              <span className="text-[11px] text-[#697386]">— check these, edit if the portal disagrees</span>
+              <span className="text-[11px] font-medium text-ink">Extracted from the address above</span>
+              <span className="text-[11px] text-ink-muted">— check these, edit if the portal disagrees</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label className={labelCls}>
-                  Postcode <span className="text-[#DF1B41]">*</span>{" "}
-                  {detecting && <span className="text-[#697386] font-normal">(detecting…)</span>}
+                  Postcode <span className="text-danger">*</span>{" "}
+                  {detecting && <span className="text-ink-muted font-normal">(detecting…)</span>}
                 </Label>
                 <Input
                   value={postcode}
@@ -1245,20 +1247,20 @@ export function OrderForm({
               </div>
               <div className="space-y-1.5">
                 <Label className={labelCls}>
-                  State <span className="text-[#DF1B41]">*</span>
+                  State <span className="text-danger">*</span>
                 </Label>
-                <select
+                <Select
                   value={stateVal}
                   onChange={(e) => setStateVal(e.target.value)}
                   className={selectCls}
                 >
                   <option value="">---</option>
                   {MALAYSIA_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
+                </Select>
               </div>
               <div className="space-y-1.5 sm:col-span-2">
                 <Label className={labelCls}>
-                  City <span className="text-[#DF1B41]">*</span>
+                  City <span className="text-danger">*</span>
                 </Label>
                 <Input
                   value={city}
@@ -1281,8 +1283,8 @@ export function OrderForm({
           must also outrank Device, whose own dropdown sits below it. */}
       <div id={sectionAnchor("package")} className={`${cardCls} relative z-30`}>
         <div className={headCls}>
-          Package <span className="text-[#DF1B41]">*</span>{" "}
-          <span className="text-[#697386] font-normal">— pick the speed, then the bundle</span>
+          Package <span className="text-danger">*</span>{" "}
+          <span className="text-ink-muted font-normal">— pick the speed, then the bundle</span>
         </div>
         <div className="p-6 space-y-3">
           {/* Speed first: it's what the customer actually asked for, and it cuts
@@ -1296,8 +1298,8 @@ export function OrderForm({
                 aria-pressed={speedFilter === ""}
                 className={`h-8 rounded-full px-3 text-[12px] font-medium cursor-pointer transition-colors duration-200 border ${
                   speedFilter === ""
-                    ? "bg-[#0A2540] text-white border-[#0A2540]"
-                    : "bg-white text-[#425466] border-[#E3E8EF] hover:border-[#635BFF] hover:text-[#0A2540]"
+                    ? "bg-ink text-white border-ink"
+                    : "bg-white text-ink-soft border-line hover:border-brand hover:text-ink"
                 }`}
               >
                 All <span className="tabular-nums opacity-70">{sellableCount}</span>
@@ -1310,8 +1312,8 @@ export function OrderForm({
                   aria-pressed={speedFilter === s}
                   className={`h-8 rounded-full px-3 text-[12px] font-medium cursor-pointer transition-colors duration-200 border ${
                     speedFilter === s
-                      ? "bg-[#0A2540] text-white border-[#0A2540]"
-                      : "bg-white text-[#425466] border-[#E3E8EF] hover:border-[#635BFF] hover:text-[#0A2540]"
+                      ? "bg-ink text-white border-ink"
+                      : "bg-white text-ink-soft border-line hover:border-brand hover:text-ink"
                   }`}
                 >
                   {speedChipLabel(s)} <span className="tabular-nums opacity-70">{speedCounts[s] ?? 0}</span>
@@ -1331,9 +1333,9 @@ export function OrderForm({
                 placeholder={speedFilter ? `Search ${speedChipLabel(speedFilter)} packages…` : "Search all packages, or pick a speed above"}
               />
               {pkgOpen && (
-                <div className="absolute z-20 mt-1 w-full max-h-80 overflow-auto rounded-lg border border-[#E3E8EF] bg-white shadow-lg py-1 animate-fade-in">
+                <div className="absolute z-20 mt-1 w-full max-h-80 overflow-auto rounded-lg border border-line bg-white shadow-lg py-1 animate-fade-in">
                   {groupedOffers.length === 0 && (
-                    <div className="px-3 py-3 text-xs text-[#697386]">
+                    <div className="px-3 py-3 text-xs text-ink-muted">
                       No package matches{pkgQuery && ` “${pkgQuery}”`}
                       {speedFilter && ` in ${speedChipLabel(speedFilter)}`}.
                       {speedFilter && " Try the All chip to search every speed."}
@@ -1341,7 +1343,7 @@ export function OrderForm({
                   )}
                   {groupedOffers.map(([flavour, offers]) => (
                     <div key={flavour}>
-                      <div className="sticky top-0 z-10 flex items-center justify-between bg-[#F6F9FC] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-[#697386] border-y border-[#E3E8EF]">
+                      <div className="sticky top-0 z-10 flex items-center justify-between bg-wash px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-ink-muted border-y border-line">
                         <span>{flavour}</span>
                         <span className="tabular-nums">{offers.length}</span>
                       </div>
@@ -1350,10 +1352,10 @@ export function OrderForm({
                           key={o.name}
                           type="button"
                           onClick={() => { setOfferName(o.name); setOfferCategory(o.category); setPkgQuery(""); setPkgOpen(false); }}
-                          className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[13px] text-[#0A2540] cursor-pointer transition-colors duration-200 hover:bg-[#F6F9FC] focus:bg-[#F6F9FC] focus:outline-none"
+                          className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[13px] text-ink cursor-pointer transition-colors duration-200 hover:bg-wash focus:bg-wash focus:outline-none"
                         >
                           <span>{o.name}</span>
-                          <span className="ml-3 shrink-0 text-[11px] text-[#697386] tabular-nums">{o.bandwidth}</span>
+                          <span className="ml-3 shrink-0 text-[11px] text-ink-muted tabular-nums">{o.bandwidth}</span>
                         </button>
                       ))}
                     </div>
@@ -1383,7 +1385,7 @@ export function OrderForm({
         <div id={sectionAnchor("device")} className={`${cardCls} relative z-20`}>
           <div className={headCls}>
             Device{" "}
-            <span className="text-[#697386] font-normal">
+            <span className="text-ink-muted font-normal">
               {planOfferPending
                 ? "— loading this plan's offer"
                 : showDevicePicker
@@ -1396,19 +1398,19 @@ export function OrderForm({
                 not contain one — React says so at runtime and the markup is
                 invalid either way. */}
             {planOfferPending && (
-              <div className="flex items-center gap-2 text-[12px] text-[#425466]">
+              <div className="flex items-center gap-2 text-[12px] text-ink-soft">
                 <LottieSpot
                   name="processing"
                   size={22}
                   fallback={
-                    <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-[#635BFF]" />
+                    <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-brand" />
                   }
                 />
                 Checking what this plan offers…
               </div>
             )}
             {isWithDevice && !planOfferPending && !showDevicePicker && (
-              <p className="text-[12px] text-[#425466]">
+              <p className="text-[12px] text-ink-soft">
                 This plan has no device to pick — everything it carries is applied by the portal
                 itself and listed below.
               </p>
@@ -1425,8 +1427,8 @@ export function OrderForm({
                   aria-pressed={devCategory === ""}
                   className={`h-8 rounded-full px-3 text-[12px] font-medium cursor-pointer transition-colors duration-200 border ${
                     devCategory === ""
-                      ? "bg-[#0A2540] text-white border-[#0A2540]"
-                      : "bg-white text-[#425466] border-[#E3E8EF] hover:border-[#635BFF] hover:text-[#0A2540]"
+                      ? "bg-ink text-white border-ink"
+                      : "bg-white text-ink-soft border-line hover:border-brand hover:text-ink"
                   }`}
                 >
                   All <span className="tabular-nums opacity-70">{planDevices?.length ?? DEALER_DEVICES.length}</span>
@@ -1439,8 +1441,8 @@ export function OrderForm({
                     aria-pressed={devCategory === c}
                     className={`h-8 rounded-full px-3 text-[12px] font-medium cursor-pointer transition-colors duration-200 border ${
                       devCategory === c
-                        ? "bg-[#0A2540] text-white border-[#0A2540]"
-                        : "bg-white text-[#425466] border-[#E3E8EF] hover:border-[#635BFF] hover:text-[#0A2540]"
+                        ? "bg-ink text-white border-ink"
+                        : "bg-white text-ink-soft border-line hover:border-brand hover:text-ink"
                     }`}
                   >
                     {c} <span className="tabular-nums opacity-70">{deviceCounts[c]}</span>
@@ -1451,7 +1453,7 @@ export function OrderForm({
 
             <div className="space-y-1.5">
               <Label className={labelCls}>
-                Device{mustPickDevice && <span className="text-[#DF1B41]"> *</span>}
+                Device{mustPickDevice && <span className="text-danger"> *</span>}
               </Label>
               {/* Say which list is on screen: the catalogue is a DIFFERENT set of
                   offers from what a plan actually allows, so picking from it is a
@@ -1484,9 +1486,9 @@ export function OrderForm({
                   placeholder={devCategory ? `Search ${devCategory}…` : "Search all devices, or pick a type above"}
                 />
                 {devOpen && (
-                  <div className="absolute z-20 mt-1 w-full max-h-80 overflow-auto rounded-lg border border-[#E3E8EF] bg-white shadow-lg py-1 animate-fade-in">
+                  <div className="absolute z-20 mt-1 w-full max-h-80 overflow-auto rounded-lg border border-line bg-white shadow-lg py-1 animate-fade-in">
                     {deviceGroups.length === 0 && (
-                      <div className="px-3 py-3 text-xs text-[#697386]">
+                      <div className="px-3 py-3 text-xs text-ink-muted">
                         No device matches{devQuery && ` “${devQuery}”`}
                         {devCategory && ` in ${devCategory}`}.
                         {devCategory && " Try the All chip to search every type."}
@@ -1494,7 +1496,7 @@ export function OrderForm({
                     )}
                     {deviceGroups.map((g) => (
                       <div key={g.header}>
-                        <div className="sticky top-0 z-10 flex items-center justify-between bg-[#F6F9FC] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-[#697386] border-y border-[#E3E8EF]">
+                        <div className="sticky top-0 z-10 flex items-center justify-between bg-wash px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-ink-muted border-y border-line">
                           <span className="truncate">{g.header}</span>
                           <span className="tabular-nums shrink-0 pl-2">{g.items.length}</span>
                         </div>
@@ -1508,7 +1510,7 @@ export function OrderForm({
                               key={d.code}
                               type="button"
                               onClick={() => { setDeviceName(d.name); setDeviceCode(d.code); setDevQuery(""); setDevOpen(false); }}
-                              className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[13px] text-[#0A2540] cursor-pointer transition-colors duration-200 hover:bg-[#F6F9FC] focus:bg-[#F6F9FC] focus:outline-none"
+                              className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[13px] text-ink cursor-pointer transition-colors duration-200 hover:bg-wash focus:bg-wash focus:outline-none"
                             >
                               <span className="truncate">
                                 {label}
@@ -1516,11 +1518,11 @@ export function OrderForm({
                                     only by portal code — show it so the pick is
                                     explicit rather than a coin flip. */}
                                 {isAmbiguousDevice(d.name) && (
-                                  <span className="ml-2 text-[10px] text-[#697386] tabular-nums">#{d.code}</span>
+                                  <span className="ml-2 text-[10px] text-ink-muted tabular-nums">#{d.code}</span>
                                 )}
                               </span>
                               {d.monthly !== null && (
-                                <span className="ml-3 shrink-0 text-[11px] text-[#697386] tabular-nums">
+                                <span className="ml-3 shrink-0 text-[11px] text-ink-muted tabular-nums">
                                   RM{d.monthly}/mth
                                 </span>
                               )}
@@ -1546,26 +1548,26 @@ export function OrderForm({
                 here — shown so the agent can tell the customer what they get,
                 without being able to order one in place of the device. */}
             {showIncluded && (
-              <div className="rounded-lg border border-[#E3E8EF] bg-[#F6F9FC] px-3 py-2">
-                <p className="text-[11px] font-medium text-[#425466]">Included with this plan</p>
+              <div className="rounded-lg border border-line bg-wash px-3 py-2">
+                <p className="text-[11px] font-medium text-ink-soft">Included with this plan</p>
                 <ul className="mt-1 flex flex-col gap-1">
                   {planChannels.map((c) => (
-                    <li key={c.id} className="text-[11px] text-[#697386]">
+                    <li key={c.id} className="text-[11px] text-ink-muted">
                       <div className="flex items-center gap-2">
-                        <span className="text-[#8792A2]">•</span>
+                        <span className="text-ink-faint">•</span>
                         <span className="min-w-0 flex-1 truncate">{c.name}</span>
                         {c.monthly !== null && (
                           <span className="shrink-0 tabular-nums">RM{c.monthly}/mth</span>
                         )}
                       </div>
                       {c.options.length > 0 && (
-                        <div className="ml-4 mt-0.5 text-[10px] text-[#8792A2]">
+                        <div className="ml-4 mt-0.5 text-[10px] text-ink-faint">
                           {(() => {
                             const inc = c.options.find((o) => o.included);
                             const rest = c.options.filter((o) => !o.included);
                             return (
                               <>
-                                {inc && <span className="text-[#425466]">{inc.name} included</span>}
+                                {inc && <span className="text-ink-soft">{inc.name} included</span>}
                                 {inc && rest.length > 0 && " · "}
                                 {rest.length > 0 && (
                                   <span>
@@ -1583,8 +1585,8 @@ export function OrderForm({
                     </li>
                   ))}
                   {planDiscounts.map((d) => (
-                    <li key={d.id} className="flex items-center gap-2 text-[11px] text-[#697386]">
-                      <span className="text-[#8792A2]">•</span>
+                    <li key={d.id} className="flex items-center gap-2 text-[11px] text-ink-muted">
+                      <span className="text-ink-faint">•</span>
                       <span className="min-w-0 flex-1 truncate">{d.name}</span>
                       {d.monthly !== null && (
                         <span className="shrink-0 tabular-nums">RM{d.monthly}/mth</span>
@@ -1605,7 +1607,7 @@ export function OrderForm({
       <div id={sectionAnchor("appointment")} className={`${cardCls} overflow-hidden`}>
         <div className={headCls}>
           Appointment{" "}
-          <span className="text-[#697386] font-normal">— how soon the install may be booked</span>
+          <span className="text-ink-muted font-normal">— how soon the install may be booked</span>
         </div>
         <div className="p-6 space-y-3">
           <div className="max-w-xs space-y-1.5">
@@ -1624,10 +1626,10 @@ export function OrderForm({
               className={inputCls}
             />
           </div>
-          <p className="text-[11px] text-[#697386]">
+          <p className="text-[11px] text-ink-muted">
             {leadPreview}
           </p>
-          <p className="text-[11px] text-[#697386]">
+          <p className="text-[11px] text-ink-muted">
             The submit takes the earliest slot the portal offers at or after that point. If the
             portal has none, the order fails rather than booking something sooner.
           </p>
@@ -1638,11 +1640,11 @@ export function OrderForm({
       <div className={`${cardCls} overflow-hidden`}>
         <div className={headCls}>Additional Remarks</div>
         <div className="p-6">
-          <textarea
+          <Textarea
             value={remarks}
             onChange={(e) => setRemarks(e.target.value)}
             rows={3}
-            className="w-full rounded-lg border border-[#CBD2DC] bg-white px-3 py-2 text-sm text-[#0A2540] hover:border-[#635BFF] focus:border-[#635BFF] focus:outline-none transition-colors resize-y"
+            className="w-full rounded-lg border border-line-strong bg-white px-3 py-2 text-sm text-ink hover:border-brand focus:border-brand focus:outline-none transition-colors resize-y"
             placeholder="Any notes for this order (optional)"
           />
         </div>
@@ -1656,11 +1658,11 @@ export function OrderForm({
       <div id={sectionAnchor("documents")} className={`${cardCls} overflow-hidden`}>
         <div className={headCls}>
           {idDocLabel}
-          <span className="ml-1.5 text-[#DF1B41] font-normal">*</span>
+          <span className="ml-1.5 text-danger font-normal">*</span>
           {hasIdentityDoc && <span className="ml-2 text-[11px] font-normal text-green-700">Attached ✓</span>}
         </div>
         <div className="p-6 space-y-4">
-          <p className="text-[11px] text-[#697386]">
+          <p className="text-[11px] text-ink-muted">
             Required — the portal will not accept the customer profile without a copy of the
             customer&apos;s {idDocLabel}. Add both sides as two files if you have them — you can
             select several at once. Each file keeps its own filename.
@@ -1676,17 +1678,17 @@ export function OrderForm({
             }}
             className={`flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-4 py-6 text-center cursor-pointer transition-colors ${
               dragZone === "identity"
-                ? "border-[#635BFF] bg-[#635BFF]/5"
+                ? "border-brand bg-brand/5"
                 : hasIdentityDoc
-                  ? "border-[#CBD2DC] hover:border-[#635BFF]/60"
-                  : "border-[#DF1B41]/50 bg-[#DF1B41]/[0.03] hover:border-[#DF1B41]"
+                  ? "border-line-strong hover:border-brand/60"
+                  : "border-danger/50 bg-danger/[0.03] hover:border-danger"
             } ${uploading || docsFull ? "opacity-50 pointer-events-none" : ""}`}
           >
             <LottieSpot name="dropzone" size={52} className="-mb-1" fallback={null} />
-            <span className="text-[13px] font-medium text-[#425466]">
-              Drag &amp; drop the {idDocLabel} here, or <span className="text-[#635BFF]">browse</span>
+            <span className="text-[13px] font-medium text-ink-soft">
+              Drag &amp; drop the {idDocLabel} here, or <span className="text-brand">browse</span>
             </span>
-            <span className="text-[11px] text-[#697386]">JPG, PNG, PDF, WEBP · max 5MB each</span>
+            <span className="text-[11px] text-ink-muted">JPG, PNG, PDF, WEBP · max 5MB each</span>
             <input
               type="file"
               multiple
@@ -1700,11 +1702,11 @@ export function OrderForm({
           {identityDocs.length > 0 && (
             <div className="space-y-1.5">
               {identityDocs.map((d) => (
-                <div key={d.key} className="flex items-center justify-between rounded-lg bg-[#F6F9FC] px-3 py-2">
-                  <a href={d.url} target="_blank" rel="noreferrer" className="text-[12px] text-[#0A2540] truncate hover:text-[#635BFF]">
+                <div key={d.key} className="flex items-center justify-between rounded-lg bg-wash px-3 py-2">
+                  <a href={d.url} target="_blank" rel="noreferrer" className="text-[12px] text-ink truncate hover:text-brand">
                     {d.filename}
                   </a>
-                  <button type="button" onClick={() => setDocuments((docs) => docs.filter((x) => x.key !== d.key))} className="ml-3 shrink-0 text-[11px] text-[#DF1B41] hover:underline cursor-pointer">
+                  <button type="button" onClick={() => setDocuments((docs) => docs.filter((x) => x.key !== d.key))} className="ml-3 shrink-0 text-[11px] text-danger hover:underline cursor-pointer">
                     Remove
                   </button>
                 </div>
@@ -1713,7 +1715,7 @@ export function OrderForm({
           )}
 
           {!hasIdentityDoc && (
-            <p className="text-[11px] font-medium text-[#DF1B41]">
+            <p className="text-[11px] font-medium text-danger">
               The order cannot be saved until this is attached.
             </p>
           )}
@@ -1730,19 +1732,19 @@ export function OrderForm({
         <div className={`${headCls} flex items-center justify-between`}>
           <span>
             Supporting Documents
-            <span className="ml-1.5 text-[#DF1B41] font-normal">*</span>
+            <span className="ml-1.5 text-danger font-normal">*</span>
             {hasSupportingDoc && (
               <span className="ml-2 text-[11px] font-normal text-green-700">Attached ✓</span>
             )}
           </span>
-          <span className="text-[#697386] font-normal text-xs tabular-nums">
+          <span className="text-ink-muted font-normal text-xs tabular-nums">
             {documents.length}/{MAX_DOCS} total
           </span>
         </div>
         <div className="p-6 space-y-5">
           {/* Same intro the ID card carries, so the two required cards read the
               same way: what the rule is, before the controls that satisfy it. */}
-          <p className="text-[11px] text-[#697386]">
+          <p className="text-[11px] text-ink-muted">
             Required — attach at least one document supporting this order. Upload a file, or
             generate one from the order details.
           </p>
@@ -1752,7 +1754,7 @@ export function OrderForm({
           <div
             role="tablist"
             aria-label="How to add a supporting document"
-            className="inline-flex w-full max-w-md rounded-lg border border-[#E3E8EF] bg-[#F6F9FC] p-1"
+            className="inline-flex w-full max-w-md rounded-lg border border-line bg-wash p-1"
           >
             {DOC_SOURCES.map((s) => {
               const active = docSource === s.id;
@@ -1768,10 +1770,10 @@ export function OrderForm({
                     setDocSource(s.id);
                     if (s.id === "generate" && !umobilePick) void rollUmobile();
                   }}
-                  className={`flex-1 inline-flex items-center justify-center gap-2 min-h-10 rounded-md text-[13px] font-medium whitespace-nowrap transition-colors duration-200 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF] ${
+                  className={`flex-1 inline-flex items-center justify-center gap-2 min-h-10 rounded-md text-[13px] font-medium whitespace-nowrap transition-colors duration-200 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
                     active
-                      ? "bg-white text-[#0A2540] shadow-[0_1px_2px_rgba(10,37,64,0.10)]"
-                      : "text-[#697386] hover:text-[#0A2540]"
+                      ? "bg-white text-ink shadow-[0_1px_2px_rgba(10,37,64,0.10)]"
+                      : "text-ink-muted hover:text-ink"
                   }`}
                 >
                   {s.id === "upload" ? (
@@ -1792,9 +1794,9 @@ export function OrderForm({
               <div className="flex flex-wrap items-end gap-3">
                 <div className="space-y-1.5">
                   <Label className={labelCls} htmlFor="doc-type">Type</Label>
-                  <select id="doc-type" value={docType} onChange={(e) => setDocType(e.target.value)} className={selectCls}>
+                  <Select id="doc-type" value={docType} onChange={(e) => setDocType(e.target.value)} className={selectCls}>
                     {docTypeOptions.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
-                  </select>
+                  </Select>
                 </div>
                 {docType === "other" && (
                   <div className="space-y-1.5">
@@ -1808,9 +1810,9 @@ export function OrderForm({
                     />
                   </div>
                 )}
-                {uploading && <span className="text-[11px] text-[#697386] pb-3">Uploading…</span>}
+                {uploading && <span className="text-[11px] text-ink-muted pb-3">Uploading…</span>}
                 {!uploading && docsFull && (
-                  <span className="text-[11px] text-[#697386] pb-3">
+                  <span className="text-[11px] text-ink-muted pb-3">
                     {MAX_DOCS} files attached — remove one to add another.
                   </span>
                 )}
@@ -1826,17 +1828,17 @@ export function OrderForm({
                 }}
                 className={`flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-4 py-6 text-center cursor-pointer transition-colors duration-200 ${
                   dragZone === "supporting"
-                    ? "border-[#635BFF] bg-[#635BFF]/5"
+                    ? "border-brand bg-brand/5"
                     : hasSupportingDoc
-                      ? "border-[#CBD2DC] hover:border-[#635BFF]/60"
-                      : "border-[#DF1B41]/50 bg-[#DF1B41]/[0.03] hover:border-[#DF1B41]"
+                      ? "border-line-strong hover:border-brand/60"
+                      : "border-danger/50 bg-danger/[0.03] hover:border-danger"
                 } ${uploading || docsFull ? "opacity-50 pointer-events-none" : ""}`}
               >
                 <LottieSpot name="dropzone" size={52} className="-mb-1" fallback={null} />
-                <span className="text-[13px] font-medium text-[#425466]">
-                  Drag &amp; drop files here, or <span className="text-[#635BFF]">browse</span>
+                <span className="text-[13px] font-medium text-ink-soft">
+                  Drag &amp; drop files here, or <span className="text-brand">browse</span>
                 </span>
-                <span className="text-[11px] text-[#697386]">JPG, PNG, PDF, WEBP · max 5MB each · add 2+ files for the same type</span>
+                <span className="text-[11px] text-ink-muted">JPG, PNG, PDF, WEBP · max 5MB each · add 2+ files for the same type</span>
                 <input
                   type="file"
                   multiple
@@ -1847,7 +1849,7 @@ export function OrderForm({
                 />
               </label>
 
-              <p className="text-[11px] text-[#697386]">
+              <p className="text-[11px] text-ink-muted">
                 Saved as {idNumber || "{id}"}_
                 {docType === "utility_bill"
                   ? "utilitybill"
@@ -1874,7 +1876,7 @@ export function OrderForm({
                   test each card applies, so "all 4" says up front that an
                   attached or blocked kind will be skipped rather than failing. */}
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[11px] text-[#697386]" aria-live="polite">
+                <span className="text-[11px] text-ink-muted" aria-live="polite">
                   {genBatchRef.current.active && genDoc
                     ? `Generating ${genBatchRef.current.ok + genBatchRef.current.failed.length + 1} of ${genBatchRef.current.total}: ${docSpec(genDoc).label}…`
                     : generateAllTypes.length > 0
@@ -1885,7 +1887,7 @@ export function OrderForm({
                   type="button"
                   onClick={handleGenerateAll}
                   disabled={generateAllTypes.length === 0 || genDoc !== null}
-                  className="h-9 px-3 rounded-lg text-[12px] font-semibold bg-[#635BFF] hover:bg-[#0A2540] text-white transition-colors duration-200 disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
+                  className="h-9 px-3 rounded-lg text-[12px] font-semibold bg-brand hover:bg-ink text-white transition-colors duration-200 disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
                 >
                   {genBatchRef.current.active && genDoc
                     ? "Generating…"
@@ -1931,19 +1933,19 @@ export function OrderForm({
                             : undefined
                       }
                       aria-busy={genDoc === g.type}
-                      className={`group flex items-center gap-3 h-14 px-3 rounded-lg border text-left transition-colors duration-200 disabled:cursor-not-allowed cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF] ${
+                      className={`group flex items-center gap-3 h-14 px-3 rounded-lg border text-left transition-colors duration-200 disabled:cursor-not-allowed cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
                         already
                           // Done, not unavailable. Dimming it to 50% like the
                           // blocked cards would say the opposite of what happened.
                           ? "border-[#0E9F6E]/30 bg-[#0E9F6E]/[0.04]"
-                          : "border-[#E3E8EF] bg-white hover:border-[#635BFF] hover:bg-[#635BFF]/[0.03] disabled:opacity-50 disabled:hover:border-[#E3E8EF] disabled:hover:bg-white"
+                          : "border-line bg-white hover:border-brand hover:bg-brand/[0.03] disabled:opacity-50 disabled:hover:border-line disabled:hover:bg-white"
                       }`}
                     >
                       <span className={`shrink-0 flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-200 ${
-                        already ? "bg-[#0E9F6E]/10 text-[#0E9F6E]" : "bg-[#F6F9FC] text-[#635BFF] group-hover:bg-[#635BFF]/10 group-disabled:text-[#697386]"
+                        already ? "bg-[#0E9F6E]/10 text-[#0E9F6E]" : "bg-wash text-brand group-hover:bg-brand/10 group-disabled:text-ink-muted"
                       }`}>
                         {running ? (
-                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />
+                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-brand border-t-transparent" />
                         ) : already ? (
                           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                             <path d="M20 6 9 17l-5-5" />
@@ -1956,10 +1958,10 @@ export function OrderForm({
                         )}
                       </span>
                       <span className="min-w-0">
-                        <span className="block text-[13px] font-medium text-[#0A2540] truncate">{g.label}</span>
+                        <span className="block text-[13px] font-medium text-ink truncate">{g.label}</span>
                         {/* The blocking field is named on the face of the button,
                             not only in a tooltip a keyboard user never sees. */}
-                        <span className="block text-[11px] text-[#697386] truncate">
+                        <span className="block text-[11px] text-ink-muted truncate">
                           {running
                             ? "Generating…"
                             : already
@@ -1973,7 +1975,7 @@ export function OrderForm({
                   );
                 })}
               </div>
-              <p className="text-[11px] text-[#697386]">
+              <p className="text-[11px] text-ink-muted">
                 Built from this order&apos;s own details and attached straight away — it appears in the
                 list below, where you can open or remove it. Nothing here counts against your case limit.
               </p>
@@ -1984,23 +1986,23 @@ export function OrderForm({
               This block is outside both panels: what is attached does not depend
               on how it got there, and hiding the list behind the Upload tab
               would make a generated file look like it had not arrived. */}
-          <div className="pt-1 border-t border-[#E3E8EF]">
+          <div className="pt-1 border-t border-line">
             {supportingDocs.length === 0 ? (
-              <p className="pt-4 text-[12px] text-[#697386]">
+              <p className="pt-4 text-[12px] text-ink-muted">
                 No supporting documents yet — most orders carry the IM conversation. Attach two or
                 more and you can combine them into a single PDF.
               </p>
             ) : (
               <div className="pt-4 space-y-1.5">
                 <div className="flex flex-wrap items-center justify-between gap-2 pb-1">
-                  <span className="text-xs font-medium text-[#425466]">
-                    Attached <span className="text-[#697386] tabular-nums">({supportingDocs.length})</span>
+                  <span className="text-xs font-medium text-ink-soft">
+                    Attached <span className="text-ink-muted tabular-nums">({supportingDocs.length})</span>
                   </span>
                   <Button
                     type="button"
                     onClick={handleCombine}
                     disabled={!canCombine(supportingDocs) || combining || uploading}
-                    className="h-9 px-3 rounded-lg text-[12px] font-semibold bg-[#635BFF] hover:bg-[#0A2540] text-white transition-colors duration-200 disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
+                    className="h-9 px-3 rounded-lg text-[12px] font-semibold bg-brand hover:bg-ink text-white transition-colors duration-200 disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
                   >
                     {combining
                       ? "Combining…"
@@ -2018,8 +2020,8 @@ export function OrderForm({
                       key={d.key}
                       className={`flex items-center gap-2 rounded-lg px-3 py-2 border transition-all duration-200 ${
                         willMerge
-                          ? "bg-[#635BFF]/[0.06] border-[#635BFF]/40"
-                          : "bg-[#F6F9FC] border-transparent"
+                          ? "bg-brand/[0.06] border-brand/40"
+                          : "bg-wash border-transparent"
                       } ${leaving ? "doc-collapsing" : ""} ${d.key === arrivedKey ? "doc-arriving" : ""}`}
                     >
                       {/* Every row goes in, so the accent marks "being merged"
@@ -2028,14 +2030,14 @@ export function OrderForm({
                           be replaced. */}
                       <span
                         aria-hidden
-                        className={`w-[3px] self-stretch rounded-full bg-[#635BFF] transition-all duration-200 ${
+                        className={`w-[3px] self-stretch rounded-full bg-brand transition-all duration-200 ${
                           willMerge ? "opacity-100 scale-y-100" : "opacity-0 scale-y-0"
                         }`}
                       />
-                      <span className="shrink-0 text-[10px] tabular-nums text-[#697386] w-4 text-center" aria-hidden>
+                      <span className="shrink-0 text-[10px] tabular-nums text-ink-muted w-4 text-center" aria-hidden>
                         {i + 1}
                       </span>
-                      <a href={d.url} target="_blank" rel="noreferrer" className="flex-1 text-[12px] text-[#0A2540] truncate hover:text-[#635BFF] transition-colors duration-200">
+                      <a href={d.url} target="_blank" rel="noreferrer" className="flex-1 text-[12px] text-ink truncate hover:text-brand transition-colors duration-200">
                         {d.filename}
                       </a>
 
@@ -2047,7 +2049,7 @@ export function OrderForm({
                           onClick={() => moveSupporting(i, -1)}
                           disabled={i === 0}
                           aria-label={`Move ${d.filename} up`}
-                          className="p-1 rounded text-[#697386] hover:text-[#0A2540] hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors duration-200"
+                          className="p-1 rounded text-ink-muted hover:text-ink hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors duration-200"
                         >
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m18 15-6-6-6 6" /></svg>
                         </button>
@@ -2056,13 +2058,13 @@ export function OrderForm({
                           onClick={() => moveSupporting(i, 1)}
                           disabled={i === supportingDocs.length - 1}
                           aria-label={`Move ${d.filename} down`}
-                          className="p-1 rounded text-[#697386] hover:text-[#0A2540] hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors duration-200"
+                          className="p-1 rounded text-ink-muted hover:text-ink hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors duration-200"
                         >
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m6 9 6 6 6-6" /></svg>
                         </button>
                       </span>
 
-                      <button type="button" onClick={() => setDocuments((docs) => docs.filter((x) => x.key !== d.key))} className="ml-1 shrink-0 text-[11px] text-[#DF1B41] hover:underline cursor-pointer">
+                      <button type="button" onClick={() => setDocuments((docs) => docs.filter((x) => x.key !== d.key))} className="ml-1 shrink-0 text-[11px] text-danger hover:underline cursor-pointer">
                         Remove
                       </button>
                     </div>
@@ -2072,7 +2074,7 @@ export function OrderForm({
                 {/* The Combine button is present from the first attachment, so
                     the feature is learned on arrival rather than discovered by
                     accident at two files. It says what it is waiting for. */}
-                <p className="pt-1 text-[11px] text-[#697386]" aria-live="polite">
+                <p className="pt-1 text-[11px] text-ink-muted" aria-live="polite">
                   {canCombine(supportingDocs)
                     ? "Combining replaces all of these with a single PDF, in the order shown. Use the arrows to reorder."
                     : `Attach at least ${MIN_COMBINE} documents to combine them into one PDF.`}
@@ -2082,7 +2084,7 @@ export function OrderForm({
           </div>
 
           {!hasSupportingDoc && (
-            <p className="text-[11px] font-medium text-[#DF1B41]">
+            <p className="text-[11px] font-medium text-danger">
               The order cannot be saved until this is attached.
             </p>
           )}
@@ -2093,16 +2095,16 @@ export function OrderForm({
       {/* Sticky action bar: the primary action rides the viewport bottom, so a
           six-card form never means scrolling back down to save. The summary is
           informational — handleSubmit stays the sole validator. */}
-      <div className="sticky bottom-0 z-20 -mx-1 flex items-center gap-3 rounded-t-xl border border-b-0 border-[#E3E8EF] bg-white/95 px-4 py-3 shadow-[0_-6px_16px_rgba(10,37,64,0.06)] backdrop-blur">
-        <Button type="submit" disabled={saving} aria-busy={saving} className="h-10 px-6 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] hover-glow press-effect cursor-pointer transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed">
+      <div className="sticky bottom-0 z-20 -mx-1 flex items-center gap-3 rounded-t-xl border border-b-0 border-line bg-white/95 px-4 py-3 shadow-[0_-6px_16px_rgba(10,37,64,0.06)] backdrop-blur">
+        <Button type="submit" disabled={saving} aria-busy={saving} className="h-10 px-6 rounded-lg text-sm font-semibold bg-brand hover:bg-ink hover-glow press-effect cursor-pointer transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed">
           {saving ? "Saving…" : draftId ? "Update Draft" : "Save Order"}
         </Button>
         {missingRequired.length > 0 ? (
           // Grouped by CARD, each a link that scrolls there. "4 left" told the
           // agent how many; on a six-card form it never said where. Under `sm`
           // the names collapse to a count per card so the bar stays one line.
-          <span className="flex min-w-0 items-center gap-2 overflow-x-auto text-xs text-[#697386]" aria-live="polite">
-            <span className="shrink-0 font-medium text-[#0A2540]">
+          <span className="flex min-w-0 items-center gap-2 overflow-x-auto text-xs text-ink-muted" aria-live="polite">
+            <span className="shrink-0 font-medium text-ink">
               {missingRequired.length} left
             </span>
             {missingGroups.map((g) => (
@@ -2111,7 +2113,7 @@ export function OrderForm({
                 type="button"
                 onClick={() => goToSection(g.section)}
                 title={g.fields.join(", ")}
-                className="shrink-0 cursor-pointer rounded-md border border-[#E3E8EF] px-2 py-0.5 text-[11px] text-[#425466] transition-colors hover:border-[#635BFF] hover:text-[#635BFF] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#635BFF]"
+                className="shrink-0 cursor-pointer rounded-md border border-line px-2 py-0.5 text-[11px] text-ink-soft transition-colors hover:border-brand hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand"
               >
                 <span className="sm:hidden">{SECTION_SHORT[g.section]} {g.fields.length}</span>
                 <span className="hidden sm:inline">{g.label} {g.fields.length}</span>

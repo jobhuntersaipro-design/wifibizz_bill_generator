@@ -1,4 +1,5 @@
 "use client";
+import { Select } from "@/components/ui/select";
 
 import LottieSpot from "@/components/order-entry/LottieSpot";
 import { useEffect, useState, useCallback, useRef } from "react";
@@ -7,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { initialsFor } from "@/lib/order-types";
 import { createPortal } from "react-dom";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import {
   type CaseRow, type SortState, PAGE_SIZE, COLUMNS,
   formatDateTime, getStatusStyle,
@@ -92,26 +93,26 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
       <SheetContent
         side="right"
         showCloseButton={false}
-        className="flex w-full flex-col gap-0 border-l border-[#E3E8EF] bg-white p-0 sm:max-w-md data-[side=right]:data-ending-style:translate-x-full data-[side=right]:data-starting-style:translate-x-full data-[side=right]:duration-300"
+        className="flex w-full flex-col gap-0 border-l border-line bg-white p-0 sm:max-w-md data-[side=right]:data-ending-style:translate-x-full data-[side=right]:data-starting-style:translate-x-full data-[side=right]:duration-300"
       >
         <SheetTitle className="sr-only">Case details for {caseData.case_no}</SheetTitle>
         <SheetDescription className="sr-only">Customer, package, agent and bill details for this case.</SheetDescription>
-        <div className="flex items-start gap-3 px-6 py-4 border-b border-[#E3E8EF]">
-          <span className="panel-item-in flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#EDEBFF] text-[13px] font-semibold text-[#635BFF]" aria-hidden="true">
+        <div className="flex items-start gap-3 px-6 py-4 border-b border-line">
+          <span className="panel-item-in flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-wash text-[13px] font-semibold text-brand" aria-hidden="true">
             {initialsFor(caseData.full_name ?? "")}
           </span>
           <div className="min-w-0 flex-1">
-            <h2 className="panel-item-in truncate text-[15px] font-semibold leading-tight text-[#0A2540]" style={{ animationDelay: "40ms" }}>
+            <h2 className="panel-item-in truncate text-[15px] font-semibold leading-tight text-ink" style={{ animationDelay: "40ms" }}>
               {caseData.full_name || "Case details"}
             </h2>
             <div className="panel-item-in mt-1 flex flex-wrap items-center gap-1.5" style={{ animationDelay: "80ms" }}>
-              <span className="rounded-md bg-[#EDEBFF] px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-[#635BFF] transition-colors duration-150 hover:bg-[#DEDAFF]">{caseData.case_no}</span>
+              <span className="rounded-md bg-brand-wash px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-brand transition-colors duration-150 hover:bg-[#DEDAFF]">{caseData.case_no}</span>
               {caseData.status && (
                 <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset ${getStatusStyle(caseData.status)}`}>{caseData.status}</span>
               )}
             </div>
           </div>
-          <button onClick={requestClose} aria-label="Close case details" className="group -mr-2.5 -mt-1.5 flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-md text-[#697386] transition-colors duration-150 hover:bg-[#F6F9FC] hover:text-[#0A2540] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#635BFF]">
+          <button onClick={requestClose} aria-label="Close case details" className="group -mr-2.5 -mt-1.5 flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-md text-ink-muted transition-colors duration-150 hover:bg-wash hover:text-ink focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand">
             <CloseIcon className="w-4 h-4 transition-transform duration-200 group-hover:rotate-90" />
           </button>
         </div>
@@ -122,14 +123,14 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
             const delay = 200 + sectionIndex * 80;
             return (
               <div key={section.title}>
-                {sectionIndex > 0 && (<div className="border-t border-[#E3E8EF] my-5 panel-item-in"  style={{ animationDelay: `${delay}ms` }} />)}
+                {sectionIndex > 0 && (<div className="border-t border-line my-5 panel-item-in"  style={{ animationDelay: `${delay}ms` }} />)}
                 <div className="panel-item-in" style={{ animationDelay: `${delay}ms` }}>
-                  <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">{section.title}</h3>
+                  <h3 className="text-[11px] font-semibold text-ink-muted uppercase tracking-wider mb-3">{section.title}</h3>
                   <div className="space-y-3">
                     {visibleFields.map((field, fieldIndex) => (
                       <div key={field.label} className="panel-item-in" style={{ animationDelay: `${delay + 40 + fieldIndex * 40}ms` }}>
-                        <dt className="text-xs text-[#697386] mb-0.5">{field.label}</dt>
-                        <dd className="text-sm text-[#0A2540]">
+                        <dt className="text-xs text-ink-muted mb-0.5">{field.label}</dt>
+                        <dd className="text-sm text-ink">
                           {field.isStatus ? (<span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${getStatusStyle(field.value ?? null)}`}>{field.value}</span>) : (<span className="wrap-break-word">{field.value}</span>)}
                         </dd>
                       </div>
@@ -140,49 +141,49 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
             );
           })}
 
-          <div className="border-t border-[#E3E8EF] my-5 panel-item-in"  style={{ animationDelay: "600ms" }} />
+          <div className="border-t border-line my-5 panel-item-in"  style={{ animationDelay: "600ms" }} />
           <div className="panel-item-in" style={{ animationDelay: "650ms" }}>
-            <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">{UMOBILE_BILL_LABEL}</h3>
+            <h3 className="text-[11px] font-semibold text-ink-muted uppercase tracking-wider mb-3">{UMOBILE_BILL_LABEL}</h3>
             {caseData.internet_bill_url ? (
               <div className="space-y-3">
-                <div className="rounded-lg border border-[#E3E8EF] overflow-hidden bg-[#F6F9FC]">
+                <div className="rounded-lg border border-line overflow-hidden bg-wash">
                   <iframe src={billDownloadPath(caseData.case_no, "internet", `${revisionFromPublicUrl(caseData.internet_bill_url)}-${cacheBuster}`, { preview: true })} className="w-full h-100" title="Umobile Bill Preview" />
                 </div>
-                <a href={billDownloadPath(caseData.case_no, "internet", `${revisionFromPublicUrl(caseData.internet_bill_url)}-${cacheBuster}`)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-[#635BFF] hover:text-[#0A2540] transition-colors duration-200">
+                <a href={billDownloadPath(caseData.case_no, "internet", `${revisionFromPublicUrl(caseData.internet_bill_url)}-${cacheBuster}`)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-brand hover:text-ink transition-colors duration-200">
                   <DownloadIcon className="w-3.5 h-3.5" />Download {UMOBILE_BILL_LABEL}
                 </a>
               </div>
             ) : (
-              <p className="text-sm text-[#697386]">No bill generated yet. Click the {UMOBILE_BILL_SHORT} icon in this case&rsquo;s Bills column.</p>
+              <p className="text-sm text-ink-muted">No bill generated yet. Click the {UMOBILE_BILL_SHORT} icon in this case&rsquo;s Bills column.</p>
             )}
           </div>
 
           {/* Utility Bill Preview */}
-          <div className="border-t border-[#E3E8EF] my-5 panel-item-in"  style={{ animationDelay: "700ms" }} />
+          <div className="border-t border-line my-5 panel-item-in"  style={{ animationDelay: "700ms" }} />
           <div className="panel-item-in" style={{ animationDelay: "750ms" }}>
-            <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">Utility Bill</h3>
+            <h3 className="text-[11px] font-semibold text-ink-muted uppercase tracking-wider mb-3">Utility Bill</h3>
             {caseData.utility_bill_url ? (
               <div className="space-y-3">
-                <div className="rounded-lg border border-[#E3E8EF] overflow-hidden bg-[#F6F9FC]">
+                <div className="rounded-lg border border-line overflow-hidden bg-wash">
                   <iframe src={billDownloadPath(caseData.case_no, "utility", `${revisionFromPublicUrl(caseData.utility_bill_url)}-${cacheBuster}`, { preview: true })} className="w-full h-100" title="Utility Bill Preview" />
                 </div>
-                <a href={billDownloadPath(caseData.case_no, "utility", `${revisionFromPublicUrl(caseData.utility_bill_url)}-${cacheBuster}`)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-[#FF6B35] hover:text-[#0A2540] transition-colors duration-200">
+                <a href={billDownloadPath(caseData.case_no, "utility", `${revisionFromPublicUrl(caseData.utility_bill_url)}-${cacheBuster}`)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-[#FF6B35] hover:text-ink transition-colors duration-200">
                   <DownloadIcon className="w-3.5 h-3.5" />Download Utility Bill
                 </a>
               </div>
             ) : (
-              <p className="text-sm text-[#697386]">No bill generated yet. Click the Utility icon in this case&rsquo;s Bills column.</p>
+              <p className="text-sm text-ink-muted">No bill generated yet. Click the Utility icon in this case&rsquo;s Bills column.</p>
             )}
           </div>
 
           {/* Authorization Letter */}
-          <div className="border-t border-[#E3E8EF] my-5 panel-item-in"  style={{ animationDelay: "780ms" }} />
+          <div className="border-t border-line my-5 panel-item-in"  style={{ animationDelay: "780ms" }} />
           <div className="panel-item-in" style={{ animationDelay: "800ms" }}>
-            <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">{AUTH_LETTER_LABEL[authLetterVariant(caseData)]}</h3>
+            <h3 className="text-[11px] font-semibold text-ink-muted uppercase tracking-wider mb-3">{AUTH_LETTER_LABEL[authLetterVariant(caseData)]}</h3>
             <button
               onClick={() => onGenerateLetter(caseData)}
               disabled={letterLoading}
-              className="inline-flex items-center gap-2 text-sm font-medium text-[#0E9384] hover:text-[#0A2540] transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-70"
+              className="inline-flex items-center gap-2 text-sm font-medium text-[#0E9384] hover:text-ink transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-70"
             >
               {letterLoading ? (
                 <>
@@ -195,26 +196,26 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
                 </>
               )}
             </button>
-            <p className="mt-2 text-xs text-[#697386]">Generated fresh each time and not stored. The property owner is generated; the resident is this customer.</p>
+            <p className="mt-2 text-xs text-ink-muted">Generated fresh each time and not stored. The property owner is generated; the resident is this customer.</p>
           </div>
 
           {/* Combine documents */}
-          <div className="border-t border-[#E3E8EF] my-5 panel-item-in" style={{ animationDelay: "820ms" }} />
+          <div className="border-t border-line my-5 panel-item-in" style={{ animationDelay: "820ms" }} />
           <div className="panel-item-in" style={{ animationDelay: "840ms" }}>
-            <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">Combine Documents</h3>
+            <h3 className="text-[11px] font-semibold text-ink-muted uppercase tracking-wider mb-3">Combine Documents</h3>
             <button
               onClick={() => onCombine(caseData)}
-              className="inline-flex items-center gap-2 text-sm font-medium text-[#635BFF] hover:text-[#0A2540] transition-colors duration-200"
+              className="inline-flex items-center gap-2 text-sm font-medium text-brand hover:text-ink transition-colors duration-200"
             >
               <MergeIcon className="w-3.5 h-3.5" />Combine into one PDF
             </button>
-            <p className="mt-2 text-xs text-[#697386]">Pick which of this case&rsquo;s documents to combine, in the order you want them.</p>
+            <p className="mt-2 text-xs text-ink-muted">Pick which of this case&rsquo;s documents to combine, in the order you want them.</p>
           </div>
 
           {/* Generate Chat */}
-          <div className="border-t border-[#E3E8EF] my-5 panel-item-in"  style={{ animationDelay: "860ms" }} />
+          <div className="border-t border-line my-5 panel-item-in"  style={{ animationDelay: "860ms" }} />
           <div className="panel-item-in" style={{ animationDelay: "880ms" }}>
-            <h3 className="text-[11px] font-semibold text-[#697386] uppercase tracking-wider mb-3">Closing Script</h3>
+            <h3 className="text-[11px] font-semibold text-ink-muted uppercase tracking-wider mb-3">Closing Script</h3>
             {closingScriptVariant(caseData) === "conversation" && (
             <button
               onClick={() => onGenerateChat(caseData, "conversation")}
@@ -237,7 +238,7 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
             <button
               onClick={() => onGenerateChat(caseData, "bizz")}
               disabled={chatLoading !== null}
-              className="inline-flex items-center gap-2 text-sm font-medium text-[#0D9488] hover:text-[#0A2540] transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-70"
+              className="inline-flex items-center gap-2 text-sm font-medium text-[#0D9488] hover:text-ink transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-70"
             >
               {chatLoading === "bizz" ? (
                 <>
@@ -254,8 +255,8 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
           </div>
         </div>
         {caseData.case_url && (
-          <div className="px-6 py-4 border-t border-[#E3E8EF] panel-item-in"  style={{ animationDelay: "700ms" }}>
-            <a href={caseData.case_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-[#635BFF] hover:text-[#0A2540] transition-colors duration-200">
+          <div className="px-6 py-4 border-t border-line panel-item-in"  style={{ animationDelay: "700ms" }}>
+            <a href={caseData.case_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-brand hover:text-ink transition-colors duration-200">
               Open in WifiBizz
               <ExternalLinkIcon className="w-3.5 h-3.5" />
             </a>
@@ -637,15 +638,15 @@ export default function CaseManagementSection() {
   return (
     <>
       {/* Section divider */}
-      <div className="border-t border-[#E3E8EF] pt-6" />
+      <div className="border-t border-line pt-6" />
 
       <div className="space-y-4">
         <div className="animate-fade-in-up" style={{ animationDelay: "500ms" }}>
-          <h2 className="text-lg font-semibold text-[#0A2540]">Case List</h2>
-          <p className="text-sm text-[#697386] mt-0.5">
+          <h2 className="text-lg font-semibold text-ink">Case List</h2>
+          <p className="text-sm text-ink-muted mt-0.5">
             {count} case{count !== 1 ? "s" : ""} in total
             {lastCrawlAt && (
-              <span className="ml-3 italic text-[#697386]">
+              <span className="ml-3 italic text-ink-muted">
                 Last crawl: {new Date(lastCrawlAt).toLocaleString(undefined, { year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit" }).replace(",", "")}
               </span>
             )}
@@ -653,37 +654,37 @@ export default function CaseManagementSection() {
         </div>
 
         {/* Filters bar. Search applies on the button or Enter (form submit). */}
-        <div className="bg-white rounded-lg border border-[#E3E8EF] p-4 animate-fade-in-up" style={{ animationDelay: "550ms" }}>
+        <div className="bg-white rounded-lg border border-line p-4 animate-fade-in-up" style={{ animationDelay: "550ms" }}>
           <form className="flex flex-wrap items-center gap-3" onSubmit={(e) => { e.preventDefault(); applySearch(); }}>
             <div className="flex min-w-0 flex-1 items-center gap-2 sm:min-w-55 max-w-lg">
               <div className="relative group min-w-0 flex-1">
-                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#697386] transition-colors group-focus-within:text-[#635BFF]" />
+                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-muted transition-colors group-focus-within:text-brand" />
                 <Input
                   value={searchDraft}
                   onChange={(e) => setSearchDraft(e.target.value)}
                   placeholder="Search name, case no, order ID, mobile…"
                   title="Press Enter or click Search"
                   aria-label="Search cases. Press Enter or click Search to apply."
-                  className="pl-9 h-9 bg-[#F6F9FC] border-[#E3E8EF] rounded-lg text-sm text-[#0A2540] placeholder:text-[#697386] focus:bg-white focus:border-[#635BFF] transition-all"
+                  className="pl-9 h-9 bg-wash border-line rounded-lg text-sm text-ink placeholder:text-ink-muted focus:bg-white focus:border-brand transition-all"
                 />
               </div>
-              <Button type="submit" disabled={invalidDateRange} className="h-9 shrink-0 rounded-lg bg-[#635BFF] px-4 text-sm font-medium text-white hover:bg-[#5851DB] disabled:cursor-not-allowed disabled:opacity-50">
+              <Button type="submit" disabled={invalidDateRange} className="h-9 shrink-0 rounded-lg bg-brand px-4 text-sm font-medium text-white hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-50">
                 Search
               </Button>
             </div>
             <div className="relative">
-              <select className="h-9 rounded-lg border border-[#E3E8EF] bg-white pl-3 pr-9 text-sm text-[#425466] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20 transition-all outline-none appearance-none" value={status} onChange={(e) => { setPage(0); setStatus(e.target.value); }}>
+              <Select className="h-9 rounded-lg border border-line bg-white pl-3 pr-9 text-sm text-ink-soft focus:border-brand focus:ring-1 focus:ring-brand/20 transition-all outline-none appearance-none" value={status} onChange={(e) => { setPage(0); setStatus(e.target.value); }}>
                 <option value="">All Statuses</option>
                 {statuses.map((s) => (<option key={s} value={s}>{s}</option>))}
-              </select>
-              <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#697386]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+              </Select>
+              <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
             </div>
-            <div role="group" aria-label="Date filter field" className="inline-flex h-9 rounded-lg border border-[#E3E8EF] bg-[#F6F9FC] p-0.5">
+            <div role="group" aria-label="Date filter field" className="inline-flex h-9 rounded-lg border border-line bg-wash p-0.5">
               <button
                 type="button"
                 aria-pressed={dateField === "case_created_at"}
                 onClick={() => { setDateField("case_created_at"); setPage(0); }}
-                className={`rounded-md px-2.5 text-xs font-medium transition-colors ${dateField === "case_created_at" ? "bg-white text-[#0A2540] shadow-sm" : "text-[#697386] hover:text-[#0A2540]"}`}
+                className={`rounded-md px-2.5 text-xs font-medium transition-colors ${dateField === "case_created_at" ? "bg-white text-ink shadow-sm" : "text-ink-muted hover:text-ink"}`}
               >
                 Created At
               </button>
@@ -691,24 +692,24 @@ export default function CaseManagementSection() {
                 type="button"
                 aria-pressed={dateField === "updated_at"}
                 onClick={() => { setDateField("updated_at"); setPage(0); }}
-                className={`rounded-md px-2.5 text-xs font-medium transition-colors ${dateField === "updated_at" ? "bg-white text-[#0A2540] shadow-sm" : "text-[#697386] hover:text-[#0A2540]"}`}
+                className={`rounded-md px-2.5 text-xs font-medium transition-colors ${dateField === "updated_at" ? "bg-white text-ink shadow-sm" : "text-ink-muted hover:text-ink"}`}
               >
                 Updated At
               </button>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <label className="text-xs text-[#697386] whitespace-nowrap font-medium hidden sm:inline">From</label>
-              <input type="date" aria-label="From date" aria-invalid={invalidDateRange} max={dateTo || undefined} className={`h-9 rounded-lg border bg-white px-2 sm:px-3 text-sm text-[#425466] focus:ring-1 transition-all outline-none max-w-37.5 ${invalidDateRange ? "border-[#DF1B41] focus:border-[#DF1B41] focus:ring-[#DF1B41]/20" : "border-[#E3E8EF] focus:border-[#635BFF] focus:ring-[#635BFF]/20"}`} value={dateFrom} onChange={(e) => applyDateRange(e.target.value, dateTo)} />
-              <label className="text-xs text-[#697386] whitespace-nowrap font-medium hidden sm:inline">To</label>
-              <input type="date" aria-label="To date" aria-invalid={invalidDateRange} aria-describedby={invalidDateRange ? "case-list-date-range-error" : undefined} min={dateFrom || undefined} className={`h-9 rounded-lg border bg-white px-2 sm:px-3 text-sm text-[#425466] focus:ring-1 transition-all outline-none max-w-37.5 ${invalidDateRange ? "border-[#DF1B41] focus:border-[#DF1B41] focus:ring-[#DF1B41]/20" : "border-[#E3E8EF] focus:border-[#635BFF] focus:ring-[#635BFF]/20"}`} value={dateTo} onChange={(e) => applyDateRange(dateFrom, e.target.value)} />
+              <label className="text-xs text-ink-muted whitespace-nowrap font-medium hidden sm:inline">From</label>
+              <Input unstyled type="date" aria-label="From date" aria-invalid={invalidDateRange} max={dateTo || undefined} className={`h-9 rounded-lg border bg-white px-2 sm:px-3 text-sm text-ink-soft focus:ring-1 transition-all outline-none max-w-37.5 ${invalidDateRange ? "border-danger focus:border-danger focus:ring-danger/20" : "border-line focus:border-brand focus:ring-brand/20"}`} value={dateFrom} onChange={(e) => applyDateRange(e.target.value, dateTo)} />
+              <label className="text-xs text-ink-muted whitespace-nowrap font-medium hidden sm:inline">To</label>
+              <Input unstyled type="date" aria-label="To date" aria-invalid={invalidDateRange} aria-describedby={invalidDateRange ? "case-list-date-range-error" : undefined} min={dateFrom || undefined} className={`h-9 rounded-lg border bg-white px-2 sm:px-3 text-sm text-ink-soft focus:ring-1 transition-all outline-none max-w-37.5 ${invalidDateRange ? "border-danger focus:border-danger focus:ring-danger/20" : "border-line focus:border-brand focus:ring-brand/20"}`} value={dateTo} onChange={(e) => applyDateRange(dateFrom, e.target.value)} />
               {invalidDateRange && (
-                <p id="case-list-date-range-error" role="alert" className="w-full text-xs font-medium text-[#DF1B41]">
+                <p id="case-list-date-range-error" role="alert" className="w-full text-xs font-medium text-danger">
                   {CASE_DATE_RANGE_ERROR}
                 </p>
               )}
             </div>
             {hasFilters && (
-              <Button type="button" variant="ghost" size="sm" className="text-xs rounded-lg text-[#DF1B41] hover:bg-red-50 hover:text-[#DF1B41] transition-colors" onClick={clearFilters}>
+              <Button type="button" variant="ghost" size="sm" className="text-xs rounded-lg text-danger hover:bg-red-50 hover:text-danger transition-colors" onClick={clearFilters}>
                 Clear all
               </Button>
             )}
@@ -726,7 +727,7 @@ export default function CaseManagementSection() {
                   ? "bg-[#34A853] border-[#34A853] text-white shadow-[0_0_12px_rgba(52,168,83,0.4)]"
                   : syncResult === "error"
                   ? "bg-[#EA4335] border-[#EA4335] text-white shadow-[0_0_12px_rgba(234,67,53,0.4)]"
-                  : "bg-white border border-[#E3E8EF] text-[#425466] hover:text-[#34A853] hover:border-[#34A853] disabled:opacity-50"
+                  : "bg-white border border-line text-ink-soft hover:text-[#34A853] hover:border-[#34A853] disabled:opacity-50"
               }`}
             >
               {syncing ? (
@@ -762,60 +763,60 @@ export default function CaseManagementSection() {
         </div>
 
         {/* Table */}
-        <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden animate-fade-in-up" style={{ animationDelay: "600ms" }}>
+        <div className="bg-white rounded-lg border border-line overflow-hidden animate-fade-in-up" style={{ animationDelay: "600ms" }}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
               <thead>
-                <tr className="border-b border-[#E3E8EF]">
+                <tr className="border-b border-line">
                   {COLUMNS.map((col) => (
-                    <th key={col.key} aria-sort={sort.column === col.key ? (sort.dir === "asc" ? "ascending" : "descending") : "none"} className={`px-4 py-3 text-left text-[11px] font-semibold text-[#697386] uppercase tracking-wider whitespace-nowrap cursor-pointer select-none hover:text-[#0A2540] transition-colors ${col.hideOnMobile ? "hidden lg:table-cell" : ""}`} onClick={() => handleSort(col.key)}>
+                    <th key={col.key} aria-sort={sort.column === col.key ? (sort.dir === "asc" ? "ascending" : "descending") : "none"} className={`px-4 py-3 text-left text-[11px] font-semibold text-ink-muted uppercase tracking-wider whitespace-nowrap cursor-pointer select-none hover:text-ink transition-colors ${col.hideOnMobile ? "hidden lg:table-cell" : ""}`} onClick={() => handleSort(col.key)}>
                       <span className="inline-flex items-center gap-1">{col.label}<SortIcon column={col.key} sort={sort} /></span>
                     </th>
                   ))}
-                  <th className="px-3 py-3 text-center text-[11px] font-semibold text-[#697386] uppercase tracking-wider whitespace-nowrap border-l border-[#E3E8EF]">Bills</th>
+                  <th className="px-3 py-3 text-center text-[11px] font-semibold text-ink-muted uppercase tracking-wider whitespace-nowrap border-l border-line">Bills</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#E3E8EF]/60 row-stagger">
+              <tbody className="divide-y divide-line/60 row-stagger">
                 {casesLoading ? (
-                  <tr><td colSpan={COLUMNS.length + 1} className="px-4 py-20 text-center"><div className="flex flex-col items-center gap-3"><div className="h-5 w-5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" /><span className="text-sm text-[#697386]">Loading cases...</span></div></td></tr>
+                  <tr><td colSpan={COLUMNS.length + 1} className="px-4 py-20 text-center"><div className="flex flex-col items-center gap-3"><div className="h-5 w-5 animate-spin rounded-full border-2 border-brand border-t-transparent" /><span className="text-sm text-ink-muted">Loading cases...</span></div></td></tr>
                 ) : cases.length === 0 ? (
-                  <tr><td colSpan={COLUMNS.length + 1} className="px-4 py-20 text-center"><div className="flex flex-col items-center gap-2"><LottieSpot name="empty-orders" size={96} className="mb-1" fallback={<div className="w-10 h-10 rounded-lg bg-[#F6F9FC] flex items-center justify-center mb-2"><EmptyIcon className="w-5 h-5 text-[#697386]" /></div>} /><p className="text-sm font-medium text-[#0A2540]">No cases found</p><p className="text-xs text-[#697386]">{hasFilters ? "Try adjusting your filters" : "Run a crawl to get started"}</p></div></td></tr>
+                  <tr><td colSpan={COLUMNS.length + 1} className="px-4 py-20 text-center"><div className="flex flex-col items-center gap-2"><LottieSpot name="empty-orders" size={96} className="mb-1" fallback={<div className="w-10 h-10 rounded-lg bg-wash flex items-center justify-center mb-2"><EmptyIcon className="w-5 h-5 text-ink-muted" /></div>} /><p className="text-sm font-medium text-ink">No cases found</p><p className="text-xs text-ink-muted">{hasFilters ? "Try adjusting your filters" : "Run a crawl to get started"}</p></div></td></tr>
                 ) : (
                   cases.map((c) => (
-                    <tr key={c.case_no} className={`hover:bg-[#F6F9FC] transition-colors duration-100 cursor-pointer ${selectedCase?.case_no === c.case_no ? "bg-[#F6F9FC]" : ""}`} onClick={() => setSelectedCase(c)}>
+                    <tr key={c.case_no} className={`hover:bg-wash transition-colors duration-100 cursor-pointer ${selectedCase?.case_no === c.case_no ? "bg-wash" : ""}`} onClick={() => setSelectedCase(c)}>
                       <td className="px-4 py-3 text-[13px] tabular-nums whitespace-nowrap">
-                        {c.case_url ? (<a href={c.case_url} target="_blank" rel="noopener noreferrer" className="text-[#635BFF] font-medium hover:underline transition-colors" onClick={(e) => e.stopPropagation()}>{c.case_no}</a>) : (<span className="font-medium text-[#425466]">{c.case_no}</span>)}
+                        {c.case_url ? (<a href={c.case_url} target="_blank" rel="noopener noreferrer" className="text-brand font-medium hover:underline transition-colors" onClick={(e) => e.stopPropagation()}>{c.case_no}</a>) : (<span className="font-medium text-ink-soft">{c.case_no}</span>)}
                       </td>
-                      <td className="px-4 py-3 text-[13px] whitespace-nowrap hidden lg:table-cell"><span className="block truncate max-w-35 text-[#425466]">{c.order_no || "—"}</span></td>
+                      <td className="px-4 py-3 text-[13px] whitespace-nowrap hidden lg:table-cell"><span className="block truncate max-w-35 text-ink-soft">{c.order_no || "—"}</span></td>
                       <td className="px-4 py-3 whitespace-nowrap"><span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${getStatusStyle(c.status)}`}>{c.status ?? "Unknown"}</span></td>
-                      <td className="px-4 py-3"><span className="block truncate max-w-40 text-[13px] font-medium text-[#0A2540]">{c.full_name || "—"}</span></td>
+                      <td className="px-4 py-3"><span className="block truncate max-w-40 text-[13px] font-medium text-ink">{c.full_name || "—"}</span></td>
                       <td className="px-4 py-3 hidden lg:table-cell">
-                        <span className="block truncate max-w-45 text-[13px] text-[#0A2540]" title={c.company_name || undefined}>{c.company_name || "—"}</span>
-                        {c.company_reg && <span className="block truncate max-w-45 text-[11px] text-[#697386] tabular-nums">{c.company_reg}</span>}
+                        <span className="block truncate max-w-45 text-[13px] text-ink" title={c.company_name || undefined}>{c.company_name || "—"}</span>
+                        {c.company_reg && <span className="block truncate max-w-45 text-[11px] text-ink-muted tabular-nums">{c.company_reg}</span>}
                       </td>
                       <td className="px-4 py-3 hidden lg:table-cell">
                         {(() => {
                           const d = directorDisplay(c);
                           return (
                             <>
-                              <span className="block truncate max-w-40 text-[13px] text-[#425466]" title={d.name || undefined}>{d.name || "—"}</span>
-                              {d.id && <span className="block truncate max-w-40 text-[11px] text-[#697386] tabular-nums">{d.id}</span>}
+                              <span className="block truncate max-w-40 text-[13px] text-ink-soft" title={d.name || undefined}>{d.name || "—"}</span>
+                              {d.id && <span className="block truncate max-w-40 text-[11px] text-ink-muted tabular-nums">{d.id}</span>}
                             </>
                           );
                         })()}
                       </td>
-                      <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-45 text-[13px] text-[#697386]">{c.full_address || "—"}</span></td>
-                      <td className="px-4 py-3 text-[13px] text-[#425466] tabular-nums whitespace-nowrap">{c.mobile || "—"}</td>
-                      <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-35 text-[13px] text-[#425466]">{c.provider || "—"}</span></td>
-                      <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-40 text-[13px] text-[#425466]">{c.package || "—"}</span></td>
-                      <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-40 text-[13px] text-[#697386]">{c.agent_remark || "—"}</span></td>
-                      <td className="px-4 py-3 text-[13px] text-[#697386] tabular-nums whitespace-nowrap">{formatDateTime(c.case_created_at)}</td>
-                      <td className="px-4 py-3 text-[13px] text-[#697386] tabular-nums whitespace-nowrap hidden lg:table-cell">{formatDateTime(c.updated_at)}</td>
+                      <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-45 text-[13px] text-ink-muted">{c.full_address || "—"}</span></td>
+                      <td className="px-4 py-3 text-[13px] text-ink-soft tabular-nums whitespace-nowrap">{c.mobile || "—"}</td>
+                      <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-35 text-[13px] text-ink-soft">{c.provider || "—"}</span></td>
+                      <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-40 text-[13px] text-ink-soft">{c.package || "—"}</span></td>
+                      <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-40 text-[13px] text-ink-muted">{c.agent_remark || "—"}</span></td>
+                      <td className="px-4 py-3 text-[13px] text-ink-muted tabular-nums whitespace-nowrap">{formatDateTime(c.case_created_at)}</td>
+                      <td className="px-4 py-3 text-[13px] text-ink-muted tabular-nums whitespace-nowrap hidden lg:table-cell">{formatDateTime(c.updated_at)}</td>
                       <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
                         {/* Five w-14 buttons + 4 gaps = 296px. Wrap so TA (5th) stays
                             on the first row; a nowrap strip hid it in the last-column
                             clip when the table is scrolled to Bills. */}
-                        <div className="flex flex-wrap items-start gap-1 border-l border-[#E3E8EF] pl-2 w-[296px]">
+                        <div className="flex flex-wrap items-start gap-1 border-l border-line pl-2 w-[296px]">
                           {closingScriptVariant(c) === "conversation" && (
                           <button
                             title="Generate Chat"
@@ -827,7 +828,7 @@ export default function CaseManagementSection() {
                             {chatBusy(c.case_no, "conversation")
                               ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#25D366] border-t-transparent animate-spin" />
                               : <MessageSquareIcon className="w-4 h-4" />}
-                            <span className="text-[10px] leading-none font-medium text-[#697386]">Chat</span>
+                            <span className="text-[10px] leading-none font-medium text-ink-muted">Chat</span>
                           </button>
                           )}
                           {closingScriptVariant(c) === "bizz" && (
@@ -841,7 +842,7 @@ export default function CaseManagementSection() {
                             {chatBusy(c.case_no, "bizz")
                               ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#0D9488] border-t-transparent animate-spin" />
                               : <MessageSquareIcon className="w-4 h-4" />}
-                            <span className="text-[10px] leading-none font-medium text-[#697386] text-center">Bizz Chat</span>
+                            <span className="text-[10px] leading-none font-medium text-ink-muted text-center">Bizz Chat</span>
                           </button>
                           )}
                           <button
@@ -849,12 +850,12 @@ export default function CaseManagementSection() {
                             aria-label={c.internet_bill_url ? `Download umobile bill for ${c.case_no}` : `Generate umobile bill for ${c.case_no}`}
                             disabled={generatingCell === `${c.case_no}:internet`}
                             onClick={() => handleGenerateSingle(c.case_no, "internet")}
-                            className={`w-14 flex flex-col items-center gap-0.5 rounded-md py-1 transition-colors disabled:cursor-not-allowed ${c.internet_bill_url ? "text-[#635BFF] hover:bg-[#F0EEFF]" : "text-[#9CA3AF] hover:text-[#635BFF] hover:bg-[#F0EEFF]"}`}
+                            className={`w-14 flex flex-col items-center gap-0.5 rounded-md py-1 transition-colors disabled:cursor-not-allowed ${c.internet_bill_url ? "text-brand hover:bg-[#F0EEFF]" : "text-[#9CA3AF] hover:text-brand hover:bg-[#F0EEFF]"}`}
                           >
                             {generatingCell === `${c.case_no}:internet`
-                              ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#635BFF] border-t-transparent animate-spin" />
+                              ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-brand border-t-transparent animate-spin" />
                               : <InternetBillIcon className="w-4 h-4" />}
-                            <span className="text-[10px] leading-none font-medium text-[#697386]">{UMOBILE_BILL_SHORT}</span>
+                            <span className="text-[10px] leading-none font-medium text-ink-muted">{UMOBILE_BILL_SHORT}</span>
                           </button>
                           <button
                             title={c.utility_bill_url ? "Download Utility Bill" : "Generate Utility Bill"}
@@ -868,7 +869,7 @@ export default function CaseManagementSection() {
                             {generatingCell === `${c.case_no}:utility`
                               ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#FF6B35] border-t-transparent animate-spin" />
                               : <UtilityBillIcon className="w-4 h-4" />}
-                            <span className="text-[10px] leading-none font-medium text-[#697386]">Utility</span>
+                            <span className="text-[10px] leading-none font-medium text-ink-muted">Utility</span>
                           </button>
                           <button
                             data-action="tenancy-agreement"
@@ -881,7 +882,7 @@ export default function CaseManagementSection() {
                             {taCase === c.case_no
                               ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#7C3AED] border-t-transparent animate-spin" />
                               : <TenancyAgreementIcon className="w-4 h-4" />}
-                            <span className="text-[10px] leading-none font-medium text-[#697386]">TA</span>
+                            <span className="text-[10px] leading-none font-medium text-ink-muted">TA</span>
                           </button>
                           <button
                             title={`Generate ${AUTH_LETTER_LABEL[authLetterVariant(c)]}`}
@@ -893,7 +894,7 @@ export default function CaseManagementSection() {
                             {letterCase === c.case_no
                               ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#0E9384] border-t-transparent animate-spin" />
                               : <AuthLetterIcon className="w-4 h-4" />}
-                            <span className="text-[10px] leading-none font-medium text-[#697386]">{AUTH_LETTER_LABEL[authLetterVariant(c)]}</span>
+                            <span className="text-[10px] leading-none font-medium text-ink-muted">{AUTH_LETTER_LABEL[authLetterVariant(c)]}</span>
                           </button>
                           <button
                             title="Generate TIME Invoice"
@@ -905,16 +906,16 @@ export default function CaseManagementSection() {
                             {timeCase === c.case_no
                               ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#EC008C] border-t-transparent animate-spin" />
                               : <TimeBillIcon className="w-4 h-4" />}
-                            <span className="text-[10px] leading-none font-medium text-[#697386]">TIME</span>
+                            <span className="text-[10px] leading-none font-medium text-ink-muted">TIME</span>
                           </button>
                           <button
                             title="Combine this case's documents into one PDF"
                             aria-label={`Combine documents for ${c.case_no} into one PDF`}
                             onClick={() => setMergeCase(c)}
-                            className="w-14 flex flex-col items-center gap-0.5 rounded-md py-1 transition-colors text-[#0A2540] hover:bg-[#EEF0FF] hover:text-[#635BFF]"
+                            className="w-14 flex flex-col items-center gap-0.5 rounded-md py-1 transition-colors text-ink hover:bg-[#EEF0FF] hover:text-brand"
                           >
                             <MergeIcon className="w-4 h-4" />
-                            <span className="text-[10px] leading-none font-medium text-[#697386]">Combine</span>
+                            <span className="text-[10px] leading-none font-medium text-ink-muted">Combine</span>
                           </button>
                         </div>
                       </td>
@@ -926,10 +927,10 @@ export default function CaseManagementSection() {
           </div>
 
           {/* Pagination */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-2 px-4 py-3 border-t border-[#E3E8EF] bg-[#F6F9FC]">
-            <span className="text-xs text-[#697386]">Showing{" "}<span className="font-medium text-[#0A2540] tabular-nums">{showingFrom}–{showingTo}</span>{" "}of <span className="font-medium text-[#0A2540] tabular-nums">{count}</span> cases</span>
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-2 px-4 py-3 border-t border-line bg-wash">
+            <span className="text-xs text-ink-muted">Showing{" "}<span className="font-medium text-ink tabular-nums">{showingFrom}–{showingTo}</span>{" "}of <span className="font-medium text-ink tabular-nums">{count}</span> cases</span>
             <div className="flex items-center gap-1">
-              <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)} className="h-8 px-2 sm:px-3 text-xs rounded-md border-[#E3E8EF] text-[#425466]">Prev</Button>
+              <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)} className="h-8 px-2 sm:px-3 text-xs rounded-md border-line text-ink-soft">Prev</Button>
               <span className="hidden sm:contents">
               {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
                 let pageNum: number;
@@ -938,12 +939,12 @@ export default function CaseManagementSection() {
                 else if (page > totalPages - 4) pageNum = totalPages - 5 + i;
                 else pageNum = page - 2 + i;
                 return (
-                  <Button key={pageNum} variant={pageNum === page ? "default" : "outline"} size="sm" className={`h-8 w-8 p-0 text-xs rounded-md tabular-nums ${pageNum === page ? "bg-[#635BFF] text-white border-[#635BFF]" : "border-[#E3E8EF] text-[#425466]"}`} onClick={() => setPage(pageNum)}>{pageNum + 1}</Button>
+                  <Button key={pageNum} variant={pageNum === page ? "default" : "outline"} size="sm" className={`h-8 w-8 p-0 text-xs rounded-md tabular-nums ${pageNum === page ? "bg-brand text-white border-brand" : "border-line text-ink-soft"}`} onClick={() => setPage(pageNum)}>{pageNum + 1}</Button>
                 );
               })}
               </span>
-              <span className="sm:hidden text-xs text-[#697386] tabular-nums px-2">{page + 1}/{totalPages || 1}</span>
-              <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage((p) => p + 1)} className="h-8 px-2 sm:px-3 text-xs rounded-md border-[#E3E8EF] text-[#425466]">Next</Button>
+              <span className="sm:hidden text-xs text-ink-muted tabular-nums px-2">{page + 1}/{totalPages || 1}</span>
+              <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage((p) => p + 1)} className="h-8 px-2 sm:px-3 text-xs rounded-md border-line text-ink-soft">Next</Button>
             </div>
           </div>
         </div>

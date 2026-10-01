@@ -1,4 +1,5 @@
 "use client";
+import { Button } from "@/components/ui/button";
 
 import { AlertTriangle } from "lucide-react";
 import type { OrderListItem } from "@/lib/order-types";
@@ -39,7 +40,7 @@ export function ResubmitDialog({
         aria-describedby="resubmit-warning"
       >
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-[15px] font-semibold text-[#0A2540]">
+          <DialogTitle className="flex items-center gap-2 text-[15px] font-semibold text-ink">
             <span
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-100"
               aria-hidden="true"
@@ -52,38 +53,38 @@ export function ResubmitDialog({
 
         <DialogDescription
           id="resubmit-warning"
-          className="text-[13px] leading-relaxed text-[#425466]"
+          className="text-[13px] leading-relaxed text-ink-soft"
         >
           Order{" "}
-          <span className="font-semibold tabular-nums text-[#0A2540]">
+          <span className="font-semibold tabular-nums text-ink">
             {order.orderId}
           </span>{" "}
           already exists in the Unifi portal
           {order.attempt > 0 && ` from attempt ${order.attempt}`}. Running{" "}
           {order.fullName} again creates a{" "}
-          <span className="font-semibold text-[#0A2540]">second order</span>.
+          <span className="font-semibold text-ink">second order</span>.
           Void the existing one in the portal first.
         </DialogDescription>
 
         <DialogFooter className="gap-2 sm:justify-end">
           <DialogClose
             render={
-              <button
+              <Button unstyled variant="outline"
                 type="button"
                 onClick={onCancel}
-                className="cursor-pointer rounded-md border border-[#E3E8EF] px-3 py-2 text-[13px] font-medium text-[#425466] transition-colors duration-150 hover:border-[#635BFF] hover:text-[#635BFF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
+                className="cursor-pointer rounded-md border border-line px-3 py-2 text-[13px] font-medium text-ink-soft transition-colors duration-150 hover:border-brand hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
               />
             }
           >
             Cancel
           </DialogClose>
-          <button
+          <Button unstyled variant="default"
             type="button"
             onClick={onConfirm}
             className="cursor-pointer rounded-md bg-[#C2740B] px-3 py-2 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-[#9A5C08] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C2740B]"
           >
             I&apos;ve voided it — resubmit
-          </button>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

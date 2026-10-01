@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { adminLiveViewToken, adminStopJob } from "@/actions/admin-submit";
 import { liveRunVerdict } from "@/lib/live-run-verdict";
 import { liveViewUrl } from "@/lib/live-view-url";
 import { SUBMIT_STEPS, progressReading } from "@/lib/order-types";
+import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 
 type Conn = "connecting" | "live" | "reconnecting" | "finished" | "unreachable" | "no_live_view" | "too_many_viewers";
 interface StageRow { name: string; detail: string | null; at: string }
@@ -173,44 +175,44 @@ export function LiveRunViewer({ orderId, label, jobId, token: initialToken, expi
     <div className="space-y-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold text-[#0A2540]">{label}</h1>
-          <p className="text-xs text-[#697386]">Job <span className="font-mono">{jobId}</span></p>
+          <h1 className="text-lg font-semibold text-ink">{label}</h1>
+          <p className="text-xs text-ink-muted">Job <span className="font-mono">{jobId}</span></p>
         </div>
         <div className="flex items-center gap-2">
-          <span className={`rounded-full px-2.5 py-1 text-xs ${conn === "live" ? "bg-[#ECFDF3] text-[#027A48]" : conn === "finished" ? "bg-[#F1F3F6] text-[#425466]" : "bg-[#FFFAEB] text-[#B54708]"}`}>
+          <span className={`rounded-full px-2.5 py-1 text-xs ${conn === "live" ? "bg-[#ECFDF3] text-[#027A48]" : conn === "finished" ? "bg-[#F1F3F6] text-ink-soft" : "bg-[#FFFAEB] text-[#B54708]"}`}>
             {CONN_LABEL[conn]}
           </span>
           {/* Stop goes through Vercel, not the stream — so it stays available
               when the stream is unreachable or capped. */}
           {!outcome && (
-            <button type="button" onClick={() => setConfirmStop(true)} disabled={stopping}
+            <Button unstyled variant="destructive" type="button" onClick={() => setConfirmStop(true)} disabled={stopping}
               className="min-h-9 rounded-md border border-[#FDA29B] bg-white px-3 py-1.5 text-sm font-medium text-[#B42318] hover:bg-[#FEF3F2] disabled:opacity-50">
               Stop this run
-            </button>
+            </Button>
           )}
         </div>
       </header>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(280px,2fr)]">
-        <section className="rounded-xl border border-[#E3E8EF] bg-white p-3">
+        <section className="rounded-xl border border-line bg-white p-3">
           {frame ? (
             // eslint-disable-next-line @next/next/no-img-element -- a data URL that changes several times a second
-            <img src={frame.src} alt="The droplet's browser" className="w-full rounded-md border border-[#E3E8EF]" />
+            <img src={frame.src} alt="The droplet's browser" className="w-full rounded-md border border-line" />
           ) : (
-            <div className="flex aspect-[16/10] items-center justify-center rounded-md bg-[#F6F9FC] text-sm text-[#697386]">Waiting for the browser…</div>
+            <div className="flex aspect-[16/10] items-center justify-center rounded-md bg-wash text-sm text-ink-muted">Waiting for the browser…</div>
           )}
-          <p className={`mt-2 text-xs ${frameAge !== null && frameAge > 10 ? "text-[#B54708]" : "text-[#697386]"}`}>
+          <p className={`mt-2 text-xs ${frameAge !== null && frameAge > 10 ? "text-[#B54708]" : "text-ink-muted"}`}>
             {frameAge === null ? "No frame yet" : `Frame ${frameAge} s ago`}
           </p>
         </section>
 
         <aside className="space-y-4">
-          <section className="rounded-xl border border-[#E3E8EF] bg-white p-4">
-            <p className="text-sm font-semibold text-[#0A2540]">{reading.heading}</p>
-            <div className="mt-2 h-1.5 w-full rounded-full bg-[#F1F3F6]"><div className="h-1.5 rounded-full bg-[#635BFF]" style={{ width: `${reading.pct}%` }} /></div>
+          <section className="rounded-xl border border-line bg-white p-4">
+            <p className="text-sm font-semibold text-ink">{reading.heading}</p>
+            <div className="mt-2 h-1.5 w-full rounded-full bg-[#F1F3F6]"><div className="h-1.5 rounded-full bg-brand" style={{ width: `${reading.pct}%` }} /></div>
             <ol className="mt-3 space-y-1 text-xs">
               {SUBMIT_STEPS.map((s, i) => (
-                <li key={s.key} className={i < reading.done ? "text-[#027A48]" : i === reading.current ? "font-medium text-[#0A2540]" : "text-[#98A2B3]"}>
+                <li key={s.key} className={i < reading.done ? "text-[#027A48]" : i === reading.current ? "font-medium text-ink" : "text-[#98A2B3]"}>
                   {i < reading.done ? "✓ " : i === reading.current ? "▸ " : "· "}{s.label}
                 </li>
               ))}
@@ -228,9 +230,9 @@ export function LiveRunViewer({ orderId, label, jobId, token: initialToken, expi
             )}
           </section>
 
-          <section className="rounded-xl border border-[#E3E8EF] bg-white p-4">
-            <p className="text-sm font-semibold text-[#0A2540]">Stages</p>
-            <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto text-xs text-[#425466]">
+          <section className="rounded-xl border border-line bg-white p-4">
+            <p className="text-sm font-semibold text-ink">Stages</p>
+            <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto text-xs text-ink-soft">
               {stages.length === 0 && <li className="text-[#98A2B3]">Nothing reported yet.</li>}
               {stages.map((s, i) => (
                 <li key={`${s.at}-${i}`}><span className="font-mono text-[#98A2B3]">{formatStageTime(s.at)}</span> {s.name}{s.detail ? ` — ${s.detail}` : ""}</li>
@@ -238,10 +240,10 @@ export function LiveRunViewer({ orderId, label, jobId, token: initialToken, expi
             </ul>
           </section>
 
-          <section className="rounded-xl border border-[#E3E8EF] bg-white p-4">
-            <p className="text-sm font-semibold text-[#0A2540]">Run log</p>
+          <section className="rounded-xl border border-line bg-white p-4">
+            <p className="text-sm font-semibold text-ink">Run log</p>
             <pre ref={logBox} onMouseEnter={() => { hover.current = true; }} onMouseLeave={() => { hover.current = false; }}
-              className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-[#0A2540] p-3 font-mono text-[11px] leading-4 text-[#E3E8EF]">
+              className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-ink p-3 font-mono text-[11px] leading-4 text-line">
               {log.length === 0 ? "Waiting for the log…" : log.join("\n")}
             </pre>
           </section>
@@ -249,18 +251,16 @@ export function LiveRunViewer({ orderId, label, jobId, token: initialToken, expi
       </div>
 
       {confirmStop && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0A2540]/40 p-4" role="dialog" aria-modal="true" aria-labelledby="stop-run-title">
-          <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
-            <h3 id="stop-run-title" className="text-base font-semibold text-[#0A2540]">Stop this run?</h3>
-            <p className="mt-2 text-sm text-[#425466]">
+        <Modal label="Stop this run?" onClose={() => setConfirmStop(false)} overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="stop-run-title">
+            <h3 id="stop-run-title" className="text-base font-semibold text-ink">Stop this run?</h3>
+            <p className="mt-2 text-sm text-ink-soft">
               The browser is torn down where it stands. The portal mints the Customer Order Number early, so a run stopped mid-flight can leave a real order at Unifi — check the portal before submitting again.
             </p>
             <div className="mt-5 flex justify-end gap-2">
-              <button type="button" onClick={() => setConfirmStop(false)} className="rounded-md border border-[#E3E8EF] px-3 py-2 text-sm text-[#425466]">Keep running</button>
-              <button type="button" onClick={stop} disabled={stopping} className="rounded-md bg-[#B42318] px-3 py-2 text-sm text-white disabled:opacity-50">{stopping ? "Stopping…" : "Stop the run"}</button>
+              <Button unstyled variant="outline" type="button" onClick={() => setConfirmStop(false)} className="rounded-md border border-line px-3 py-2 text-sm text-ink-soft">Keep running</Button>
+              <Button unstyled variant="destructive" type="button" onClick={stop} disabled={stopping} className="rounded-md bg-[#B42318] px-3 py-2 text-sm text-white disabled:opacity-50">{stopping ? "Stopping…" : "Stop the run"}</Button>
             </div>
-          </div>
-        </div>
+          </Modal>
       )}
     </div>
   );

@@ -1,10 +1,11 @@
 "use client";
+import { Input } from "@/components/ui/input";
 
 import LottieSpot from "@/components/order-entry/LottieSpot";
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import {
   CRAWL_LOOKBACK_MONTHS,
   crawlDateWindow,
@@ -282,20 +283,20 @@ export default function CrawlPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="animate-fade-in-up" style={{ animationDelay: "100ms" }}>
-        <h1 className="text-2xl font-semibold text-[#0A2540]">Crawler</h1>
-        <p className="text-sm text-[#697386] mt-1">
+        <h1 className="text-2xl font-semibold text-ink">Crawler</h1>
+        <p className="text-sm text-ink-muted mt-1">
           Fetch activated cases from WifiBizz using your saved credentials
         </p>
       </div>
 
       {/* Date Filter */}
-      <div className="bg-white rounded-lg border border-[#E3E8EF] p-5 animate-fade-in-up" style={{ animationDelay: "150ms" }}>
+      <div className="bg-white rounded-lg border border-line p-5 animate-fade-in-up" style={{ animationDelay: "150ms" }}>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-[#0A2540]">Date Filter</h3>
+          <h3 className="text-sm font-semibold text-ink">Date Filter</h3>
           {(dateFrom || dateTo) && (
             <button
               onClick={resetDates}
-              className="text-xs text-[#635BFF] hover:text-[#0A2540] font-medium transition-colors press-effect"
+              className="text-xs text-brand hover:text-ink font-medium transition-colors press-effect"
             >
               Reset
             </button>
@@ -311,8 +312,8 @@ export default function CrawlPage() {
               disabled={crawling}
               className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-150 press-effect ${
                 activePreset === p.key
-                  ? "bg-[#635BFF] text-white shadow-sm shadow-[#635BFF]/20"
-                  : "bg-[#F6F9FC] text-[#425466] border border-[#E3E8EF] hover:bg-[#E3E8EF] hover:text-[#0A2540]"
+                  ? "bg-brand text-white shadow-sm shadow-brand/20"
+                  : "bg-wash text-ink-soft border border-line hover:bg-line hover:text-ink"
               }`}
             >
               {p.label}
@@ -323,34 +324,34 @@ export default function CrawlPage() {
         {/* Date inputs */}
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1">
-            <label className="block text-xs text-[#697386] mb-1">From</label>
-            <input
+            <label className="block text-xs text-ink-muted mb-1">From</label>
+            <Input unstyled
               type="date"
               value={dateFrom}
               onChange={(e) => handleDateFromChange(e.target.value)}
               min={maxPast}
               max={today}
               disabled={crawling}
-              className="w-full h-9 px-3 rounded-md border border-[#E3E8EF] text-sm text-[#0A2540] bg-white focus:outline-none focus:ring-2 focus:ring-[#635BFF]/20 focus:border-[#635BFF] disabled:opacity-50 tabular-nums"
+              className="w-full h-9 px-3 rounded-md border border-line text-sm text-ink bg-white focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand disabled:opacity-50 tabular-nums"
             />
           </div>
           <div className="flex-1">
-            <label className="block text-xs text-[#697386] mb-1">To</label>
-            <input
+            <label className="block text-xs text-ink-muted mb-1">To</label>
+            <Input unstyled
               type="date"
               value={dateTo}
               onChange={(e) => handleDateToChange(e.target.value)}
               min={maxPast}
               max={today}
               disabled={crawling}
-              className="w-full h-9 px-3 rounded-md border border-[#E3E8EF] text-sm text-[#0A2540] bg-white focus:outline-none focus:ring-2 focus:ring-[#635BFF]/20 focus:border-[#635BFF] disabled:opacity-50 tabular-nums"
+              className="w-full h-9 px-3 rounded-md border border-line text-sm text-ink bg-white focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand disabled:opacity-50 tabular-nums"
             />
           </div>
         </div>
 
         {/* Date error */}
         {(dateError || !dateValidation.valid) && (
-          <p className="text-xs text-[#DF1B41] mt-2 animate-fade-in">
+          <p className="text-xs text-danger mt-2 animate-fade-in">
             {dateError || dateValidation.error}
           </p>
         )}
@@ -365,15 +366,15 @@ export default function CrawlPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* Crawl action card */}
-        <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden hover-lift animate-fade-in-up" style={{ animationDelay: "200ms" }}>
+        <div className="bg-white rounded-lg border border-line overflow-hidden hover-lift animate-fade-in-up" style={{ animationDelay: "200ms" }}>
           <div className="p-6">
-            <div className="w-10 h-10 rounded-lg bg-[#F6F9FC] flex items-center justify-center mb-5">
-              <CrawlerIcon className="w-5 h-5 text-[#635BFF]" />
+            <div className="w-10 h-10 rounded-lg bg-wash flex items-center justify-center mb-5">
+              <CrawlerIcon className="w-5 h-5 text-brand" />
             </div>
-            <h2 className="text-base font-semibold text-[#0A2540] mb-1.5">
+            <h2 className="text-base font-semibold text-ink mb-1.5">
               Start New Crawl
             </h2>
-            <p className="text-sm text-[#697386] leading-relaxed mb-5">
+            <p className="text-sm text-ink-muted leading-relaxed mb-5">
               Connects to WifiBizz and fetches all Home Fibre and Business Fibre
               cases with all status. New cases will be added and existing
               ones updated.
@@ -382,7 +383,7 @@ export default function CrawlPage() {
             <Button
               onClick={handleCrawl}
               disabled={crawling || !dateValidation.valid}
-              className="h-10 px-5 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] hover-glow"
+              className="h-10 px-5 rounded-lg text-sm font-semibold bg-brand hover:bg-ink hover-glow"
             >
               {crawling ? (
                 <span className="flex items-center gap-2">
@@ -401,25 +402,25 @@ export default function CrawlPage() {
             {crawling && progress && (
               <div className="mt-5 animate-fade-in">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="flex items-center gap-2 text-xs text-[#697386]">
+                  <span className="flex items-center gap-2 text-xs text-ink-muted">
                     {/* Marks the WAITING state, exactly as the submit checklist
                         uses it. Reduced motion falls back to nothing extra —
                         the spinner in the button already carries the state. */}
                     <LottieSpot name="processing" size={18} fallback={null} />
                     {progress.step}
                   </span>
-                  <span className="text-xs font-semibold text-[#0A2540] tabular-nums">
+                  <span className="text-xs font-semibold text-ink tabular-nums">
                     {progress.percent}%
                   </span>
                 </div>
-                <div className="w-full h-2 bg-[#F6F9FC] rounded-full overflow-hidden border border-[#E3E8EF]">
+                <div className="w-full h-2 bg-wash rounded-full overflow-hidden border border-line">
                   <div
-                    className="h-full bg-[#635BFF] rounded-full transition-all duration-500 ease-out"
+                    className="h-full bg-brand rounded-full transition-all duration-500 ease-out"
                     style={{ width: `${progress.percent}%` }}
                   />
                 </div>
                 {progress.total > 0 && (
-                  <p className="text-[11px] text-[#697386] mt-1.5 tabular-nums">
+                  <p className="text-[11px] text-ink-muted mt-1.5 tabular-nums">
                     {progress.current} of {progress.total} cases processed
                   </p>
                 )}
@@ -431,11 +432,11 @@ export default function CrawlPage() {
         {/* Result / info card */}
         <div>
           {result ? (
-            <div className="bg-white rounded-lg border border-[#E3E8EF] p-6 animate-scale-in">
+            <div className="bg-white rounded-lg border border-line p-6 animate-scale-in">
               <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center mb-5 animate-scale-in" style={{ animationDelay: "100ms" }}>
                 <CheckIcon className="w-5 h-5 text-[#09825D]" />
               </div>
-              <h2 className="text-base font-semibold text-[#0A2540] mb-4 animate-fade-in" style={{ animationDelay: "150ms" }}>
+              <h2 className="text-base font-semibold text-ink mb-4 animate-fade-in" style={{ animationDelay: "150ms" }}>
                 Crawl Complete
               </h2>
 
@@ -446,21 +447,21 @@ export default function CrawlPage() {
 
               <Button
                 variant="outline"
-                className="mt-5 rounded-lg border-[#E3E8EF] text-[#425466] hover:text-[#0A2540] press-effect animate-fade-in-up" style={{ animationDelay: "300ms" }}
+                className="mt-5 rounded-lg border-line text-ink-soft hover:text-ink press-effect animate-fade-in-up" style={{ animationDelay: "300ms" }}
                 onClick={() => router.push("/dashboard")}
               >
                 View Cases
               </Button>
             </div>
           ) : (
-            <div className="bg-[#F6F9FC] rounded-lg border border-[#E3E8EF] border-dashed p-6 flex flex-col items-center justify-center text-center h-full min-h-70 animate-fade-in-up" style={{ animationDelay: "300ms" }}>
-              <div className="w-12 h-12 rounded-lg bg-white border border-[#E3E8EF] flex items-center justify-center mb-4 animate-scale-in">
-                <InfoIcon className="w-5 h-5 text-[#697386]" />
+            <div className="bg-wash rounded-lg border border-line border-dashed p-6 flex flex-col items-center justify-center text-center h-full min-h-70 animate-fade-in-up" style={{ animationDelay: "300ms" }}>
+              <div className="w-12 h-12 rounded-lg bg-white border border-line flex items-center justify-center mb-4 animate-scale-in">
+                <InfoIcon className="w-5 h-5 text-ink-muted" />
               </div>
-              <h3 className="text-sm font-medium text-[#425466] mb-1">
+              <h3 className="text-sm font-medium text-ink-soft mb-1">
                 Ready to crawl
               </h3>
-              <p className="text-xs text-[#697386] max-w-60 leading-relaxed">
+              <p className="text-xs text-ink-muted max-w-60 leading-relaxed">
                 Hit &quot;Start Crawl&quot; to fetch the latest cases from your
                 WifiBizz account
               </p>
@@ -484,15 +485,15 @@ function ResultRow({
   warning?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between py-2 border-b border-[#E3E8EF]/60 last:border-0 animate-slide-up">
-      <span className="text-sm text-[#697386]">{label}</span>
+    <div className="flex items-center justify-between py-2 border-b border-line/60 last:border-0 animate-slide-up">
+      <span className="text-sm text-ink-muted">{label}</span>
       <span
         className={`text-base font-semibold tabular-nums ${
           warning
             ? "text-amber-600"
             : accent
               ? "text-[#09825D]"
-              : "text-[#0A2540]"
+              : "text-ink"
         }`}
       >
         {value}

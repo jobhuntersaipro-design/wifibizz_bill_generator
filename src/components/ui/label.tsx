@@ -1,20 +1,14 @@
 "use client"
 
 import * as React from "react"
-
-import { cn } from "@/lib/utils"
+import { useIsArc } from "@/components/design/use-design"
+import { Label as ClassicLabel } from "./classic/label"
+import { cx } from "./arc/shared"
+import bridge from "./arc/bridge.module.css"
 
 function Label({ className, ...props }: React.ComponentProps<"label">) {
-  return (
-    <label
-      data-slot="label"
-      className={cn(
-        "flex items-center gap-2 text-sm leading-none font-medium select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50",
-        className
-      )}
-      {...props}
-    />
-  )
+  const arc = useIsArc()
+  return <ClassicLabel {...props} className={cx(arc && bridge.label, className)} />
 }
 
 export { Label }

@@ -37,34 +37,34 @@ function Calendar({
         months: "relative flex flex-col gap-4 sm:flex-row",
         month: "flex flex-col gap-3",
         month_caption: "flex h-8 items-center justify-center",
-        caption_label: "text-[13px] font-semibold text-[#0A2540]",
+        caption_label: "text-[13px] font-semibold text-ink",
         // One row spanning the caption; the buttons sit at its ends. Laying the
         // nav out as a box and letting the buttons be static keeps the two
         // arrows tied to the month they page, however many months are shown.
         nav: "absolute inset-x-0 top-0 flex h-8 items-center justify-between px-1",
         button_previous:
-          "inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-[#697386] transition-colors duration-150 hover:bg-[#F6F9FC] hover:text-[#0A2540] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF] disabled:pointer-events-none disabled:opacity-40",
+          "inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors duration-150 hover:bg-wash hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:pointer-events-none disabled:opacity-40",
         button_next:
-          "inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-[#697386] transition-colors duration-150 hover:bg-[#F6F9FC] hover:text-[#0A2540] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF] disabled:pointer-events-none disabled:opacity-40",
+          "inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors duration-150 hover:bg-wash hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:pointer-events-none disabled:opacity-40",
         month_grid: "w-full border-collapse",
         weekdays: "flex",
         weekday:
-          "w-9 text-[11px] font-medium text-[#8792A2] uppercase tracking-wide",
+          "w-9 text-[11px] font-medium text-ink-faint uppercase tracking-wide",
         week: "flex w-full mt-1",
         day: "relative h-9 w-9 p-0 text-center text-[13px]",
         day_button:
-          "h-9 w-9 cursor-pointer rounded-lg font-normal text-[#425466] transition-colors duration-150 hover:bg-[#F6F9FC] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#635BFF]",
+          "h-9 w-9 cursor-pointer rounded-lg font-normal text-ink-soft transition-colors duration-150 hover:bg-wash focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand",
         // The ends of a range are filled; the days between are tinted. Without
         // that difference a range reads as a blob and you cannot see which day
         // you actually picked.
-        selected: "bg-[#635BFF] text-white hover:bg-[#635BFF]",
+        selected: "bg-brand text-white hover:bg-brand",
         range_start: "rounded-l-lg",
         range_end: "rounded-r-lg",
         range_middle:
-          "bg-[#EDEBFF] text-[#0A2540] [&>button]:bg-transparent [&>button]:text-[#0A2540]",
-        today: "font-semibold text-[#635BFF]",
+          "bg-brand-wash text-ink [&>button]:bg-transparent [&>button]:text-ink",
+        today: "font-semibold text-brand",
         outside: "text-[#B4BCC8]",
-        disabled: "text-[#CBD2DC] opacity-60",
+        disabled: "text-line-strong opacity-60",
         hidden: "invisible",
         ...classNames,
       }}

@@ -55,11 +55,11 @@ export function AdminAttemptEvents({ events }: { events: StatusEventView[] }) {
             isCaptureStage(e.stage) && isScreenshotKey(e.message) ? e.message! : null;
           return (
             <li key={e.id} className="flex gap-3 text-xs">
-              <span className="w-32 shrink-0 tabular-nums text-[#697386]">
+              <span className="w-32 shrink-0 tabular-nums text-ink-muted">
                 {e.createdAt.slice(11, 19)}
               </span>
-              <span className="w-40 shrink-0 text-[#425466]">{e.stage ?? e.status}</span>
-              <span className="min-w-0 text-[#0A2540]">
+              <span className="w-40 shrink-0 text-ink-soft">{e.stage ?? e.status}</span>
+              <span className="min-w-0 text-ink">
                 {e.errorCode && (
                   <span className="mr-1 rounded bg-[#FEF3F2] px-1 py-0.5 text-[#B42318]">
                     {e.errorCode}
@@ -120,7 +120,7 @@ function Capture({
 
   if (isPdfCapture(objectKey)) {
     return (
-      <a href={href} target="_blank" rel="noreferrer" className="text-[#635BFF] underline">
+      <a href={href} target="_blank" rel="noreferrer" className="text-brand underline">
         {label} (PDF)
       </a>
     );
@@ -131,9 +131,9 @@ function Capture({
       type="button"
       onClick={onOpen}
       title={objectKey}
-      className="block cursor-pointer text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
+      className="block cursor-pointer text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
     >
-      <span className="text-[#635BFF] underline">{label}</span>
+      <span className="text-brand underline">{label}</span>
       {/* Deliberately an ordinary <img>, not next/image: these are private,
           no-store objects behind an admin cookie, and the image optimiser would
           try to fetch and cache them server-side without one. */}
@@ -142,7 +142,7 @@ function Capture({
         src={href}
         alt={label}
         loading="lazy"
-        className="mt-1 max-h-40 w-full max-w-xs rounded border border-[#E3E8EF] bg-[#F6F9FC] object-contain transition-opacity duration-150 hover:opacity-90"
+        className="mt-1 max-h-40 w-full max-w-xs rounded border border-line bg-wash object-contain transition-opacity duration-150 hover:opacity-90"
       />
     </button>
   );

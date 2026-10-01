@@ -70,7 +70,7 @@ function Marker({ state }: { state: StepState }) {
   }
   if (state === "running") {
     return (
-      <span className="step-live h-2 w-2 shrink-0 rounded-full bg-[#635BFF]" />
+      <span className="step-live h-2 w-2 shrink-0 rounded-full bg-brand" />
     );
   }
   if (state === "warning") {
@@ -136,7 +136,7 @@ export function SubmitProgress({
   );
 
   return (
-    <div className="px-4 py-3 bg-[#F6F9FC] border-t border-[#E3E8EF]">
+    <div className="px-4 py-3 bg-wash border-t border-line">
       {/* One glanceable line of progress above the detail — the timeline says
           which step, this says how far. */}
       <div className="mb-3 flex items-center gap-3">
@@ -154,17 +154,17 @@ export function SubmitProgress({
                     ? "text-amber-700"
                     : status === "submitted"
                       ? "text-[#0E9F6E]"
-                      : "text-[#0A2540]"
+                      : "text-ink"
               }`}
             >
               {heading}
             </span>
-            <span className="ml-auto text-[10px] tabular-nums text-[#8792A2]">
+            <span className="ml-auto text-[10px] tabular-nums text-ink-faint">
               {pct}%
             </span>
           </div>
           <div className="flex items-center gap-3">
-            <div className="h-1 flex-1 overflow-hidden rounded-full bg-[#E3E8EF]">
+            <div className="h-1 flex-1 overflow-hidden rounded-full bg-line">
               <div
                 className={`h-full rounded-full transition-[width] duration-700 ease-out ${
                   status === "failed"
@@ -173,12 +173,12 @@ export function SubmitProgress({
                       ? "bg-amber-500"
                       : status === "submitted"
                         ? "bg-[#0E9F6E]"
-                        : "bg-[#635BFF]"
+                        : "bg-brand"
                 }`}
                 style={{ width: `${pct}%` }}
               />
             </div>
-            <span className="text-[10px] tabular-nums text-[#8792A2]">
+            <span className="text-[10px] tabular-nums text-ink-faint">
               {done}/{SUBMIT_STEPS.length}
             </span>
           </div>
@@ -217,7 +217,7 @@ export function SubmitProgress({
                     className={`w-px flex-1 ${
                       state === "done"
                         ? "rail-draw bg-[#B9B5FF]"
-                        : "bg-[#E3E8EF]"
+                        : "bg-line"
                     }`}
                   />
                 )}
@@ -229,7 +229,7 @@ export function SubmitProgress({
                       zero-padded so 4 and 14 occupy the same space. */}
                   <span
                     className={`w-4 shrink-0 text-[10px] tabular-nums ${
-                      state === "pending" ? "text-[#C1C9D2]" : "text-[#8792A2]"
+                      state === "pending" ? "text-[#C1C9D2]" : "text-ink-faint"
                     }`}
                     aria-hidden="true"
                   >
@@ -242,10 +242,10 @@ export function SubmitProgress({
                         : state === "warning"
                           ? "text-amber-700 font-medium"
                           : state === "running"
-                            ? "text-[#0A2540] font-medium"
+                            ? "text-ink font-medium"
                             : state === "done"
-                              ? "text-[#425466]"
-                              : "text-[#8792A2]"
+                              ? "text-ink-soft"
+                              : "text-ink-faint"
                     }`}
                   >
                     {step.label}
@@ -266,13 +266,13 @@ export function SubmitProgress({
                         : detail.outcome === "skipped"
                           ? "text-amber-700"
                           : detail.outcome === "not_applicable"
-                            ? "text-[#8792A2]"
-                            : "text-[#425466]"
+                            ? "text-ink-faint"
+                            : "text-ink-soft"
                     }`}
                   >
                     {detail.value}
                     {detail.note && (
-                      <span className="text-[#8792A2]"> — {detail.note}</span>
+                      <span className="text-ink-faint"> — {detail.note}</span>
                     )}
                   </p>
                 )}
@@ -284,12 +284,12 @@ export function SubmitProgress({
                     className="mt-2 flex items-center gap-2"
                     aria-hidden="true"
                   >
-                    <span className="text-[9px] uppercase tracking-wide text-[#8792A2]">
+                    <span className="text-[9px] uppercase tracking-wide text-ink-faint">
                       Order exists in portal
                     </span>
                     <span
                       className={`h-px flex-1 ${
-                        reached ? "bg-[#B9B5FF]" : "bg-[#E3E8EF]"
+                        reached ? "bg-[#B9B5FF]" : "bg-line"
                       }`}
                     />
                   </div>
@@ -304,7 +304,7 @@ export function SubmitProgress({
             <span className="flex h-4 w-3.5 items-center justify-center">
               <Marker state="running" />
             </span>
-            <span className="text-[11px] font-medium text-[#0A2540]">
+            <span className="text-[11px] font-medium text-ink">
               Working…
             </span>
           </li>
@@ -312,7 +312,7 @@ export function SubmitProgress({
       </ol>
 
       {orderId && (
-        <p className="mt-1.5 text-[11px] text-[#425466]">
+        <p className="mt-1.5 text-[11px] text-ink-soft">
           Order No. <span className="font-medium tabular-nums">{orderId}</span>
         </p>
       )}

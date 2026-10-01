@@ -1,4 +1,5 @@
 "use client";
+import { Button } from "@/components/ui/button";
 
 export function UmobileImagePreview({
   pick,
@@ -12,7 +13,7 @@ export function UmobileImagePreview({
   if (!pick) return null;
 
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-[#E3E8EF] bg-[#F6F9FC] p-3">
+    <div className="flex items-center gap-3 rounded-lg border border-line bg-wash p-3">
       <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md bg-white">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
@@ -22,19 +23,19 @@ export function UmobileImagePreview({
         />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-[12px] font-medium text-[#0A2540]">UMobile image</p>
-        <p className="truncate text-[11px] text-[#697386]" title={pick.filename}>
+        <p className="text-[12px] font-medium text-ink">UMobile image</p>
+        <p className="truncate text-[11px] text-ink-muted" title={pick.filename}>
           {pick.filename || "Selected at random. Umobile Bill will add it as an extra page."}
         </p>
       </div>
-      <button
+      <Button unstyled variant="outline"
         type="button"
         onClick={onReroll}
         disabled={busy}
-        className="shrink-0 rounded-md border border-[#E3E8EF] bg-white px-3 py-1.5 text-[12px] font-medium text-[#425466] hover:border-[#635BFF] hover:text-[#635BFF] disabled:opacity-50"
+        className="shrink-0 rounded-md border border-line bg-white px-3 py-1.5 text-[12px] font-medium text-ink-soft hover:border-brand hover:text-brand disabled:opacity-50"
       >
         {busy ? "Picking…" : "Re-roll"}
-      </button>
+      </Button>
     </div>
   );
 }

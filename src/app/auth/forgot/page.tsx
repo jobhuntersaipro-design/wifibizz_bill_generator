@@ -28,25 +28,25 @@ export default function ForgotPage() {
     <AuthShell title="Forgot your password?" subtitle="We'll mail you a link to choose a new one.">
       {sent ? (
         <div className="space-y-4">
-          <p className="rounded-lg border border-[#E3E8EF] bg-[#F6F9FC] px-4 py-3 text-sm text-[#425466]">
+          <p className="rounded-lg border border-line bg-wash px-4 py-3 text-sm text-ink-soft">
             {sent}
           </p>
-          <Link href="/auth/signin" className="text-sm text-[#635BFF] hover:underline">
+          <Link href="/auth/signin" className="text-sm text-brand hover:underline">
             ← Back to sign in
           </Link>
         </div>
       ) : (
         <form onSubmit={submit} className="space-y-4">
           <div className="space-y-1.5">
-            <label htmlFor="email" className="text-xs font-medium text-[#425466]">Email</label>
+            <label htmlFor="email" className="text-xs font-medium text-ink-soft">Email</label>
             <Input id="email" type="email" required autoComplete="email" autoFocus
               value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
           </div>
           <Button type="submit" disabled={busy}
-            className="w-full h-10 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540]">
+            className="w-full h-10 rounded-lg text-sm font-semibold bg-brand hover:bg-ink">
             {busy ? "Sending…" : "Send reset link"}
           </Button>
-          <Link href="/auth/signin" className="block text-center text-sm text-[#635BFF] hover:underline">
+          <Link href="/auth/signin" className="block text-center text-sm text-brand hover:underline">
             Back to sign in
           </Link>
         </form>

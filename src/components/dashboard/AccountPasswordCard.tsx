@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { changePassword } from "@/actions/account";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,15 +35,15 @@ export function AccountPasswordCard() {
   }
 
   return (
-    <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden">
-      <div className="px-6 py-4 border-b border-[#E3E8EF]">
+    <div className="bg-white rounded-lg border border-line overflow-hidden">
+      <div className="px-6 py-4 border-b border-line">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-[#F6F9FC] flex items-center justify-center">
-            <LockIcon className="w-4 h-4 text-[#635BFF]" />
+          <div className="w-9 h-9 rounded-lg bg-wash flex items-center justify-center">
+            <LockIcon className="w-4 h-4 text-brand" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-[#0A2540]">Account</h2>
-            <p className="text-xs text-[#697386] mt-0.5">
+            <h2 className="text-sm font-semibold text-ink">Account</h2>
+            <p className="text-xs text-ink-muted mt-0.5">
               Change the password you sign in to BizzFlow with.
             </p>
           </div>
@@ -51,24 +51,24 @@ export function AccountPasswordCard() {
       </div>
       <form onSubmit={submit} className="p-6 space-y-4">
         <div className="space-y-1.5">
-          <Label htmlFor="pw-current" className="text-xs font-medium text-[#425466]">Current password</Label>
+          <Label htmlFor="pw-current" className="text-xs font-medium text-ink-soft">Current password</Label>
           <Input id="pw-current" type="password" autoComplete="current-password" required
             value={current} onChange={(e) => setCurrent(e.target.value)} />
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label htmlFor="pw-next" className="text-xs font-medium text-[#425466]">New password</Label>
+            <Label htmlFor="pw-next" className="text-xs font-medium text-ink-soft">New password</Label>
             <Input id="pw-next" type="password" autoComplete="new-password" required minLength={8}
               value={next} onChange={(e) => setNext(e.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="pw-confirm" className="text-xs font-medium text-[#425466]">Repeat it</Label>
+            <Label htmlFor="pw-confirm" className="text-xs font-medium text-ink-soft">Repeat it</Label>
             <Input id="pw-confirm" type="password" autoComplete="new-password" required minLength={8}
               value={confirm} onChange={(e) => setConfirm(e.target.value)} />
           </div>
         </div>
         <Button type="submit" disabled={saving}
-          className="h-10 px-5 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540]">
+          className="h-10 px-5 rounded-lg text-sm font-semibold bg-brand hover:bg-ink">
           {saving ? "Changing…" : "Change password"}
         </Button>
       </form>

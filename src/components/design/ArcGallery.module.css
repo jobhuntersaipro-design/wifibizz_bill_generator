@@ -1,0 +1,77 @@
+/* The gallery is Arc itself: every value comes from Arc's tokens, so the accent and
+   light / dark controls repaint it exactly as they would repaint the components. */
+.gallery {
+  margin: calc(var(--space-4) * -1);
+  padding: var(--space-6) var(--space-4) var(--space-16);
+  min-height: 100%;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body);
+  letter-spacing: var(--tracking-body);
+}
+@media (min-width: 768px) { .gallery { margin: calc(var(--space-8) * -1); padding: var(--space-8) var(--space-8) var(--space-20); } }
+
+.header { display: grid; gap: var(--space-4); margin-bottom: var(--space-8); }
+.heading { margin: 0; font-family: var(--font-display); font-size: var(--arc-text-3xl); letter-spacing: var(--tracking-display); line-height: var(--leading-display); }
+.lede { margin: var(--space-2) 0 0; max-width: 46rem; color: var(--text-secondary); font-size: var(--arc-text-sm); line-height: 1.55; }
+.lede a { color: var(--foreground); text-decoration: underline; text-underline-offset: 3px; }
+
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.search {
+  flex: 1 1 14rem; min-width: 0; height: var(--control-height-sm); padding: 0 var(--space-4);
+  border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface);
+  color: var(--foreground); font: inherit; font-size: var(--arc-text-sm);
+}
+.search::placeholder { color: var(--text-muted); }
+.swatches { display: flex; gap: var(--space-1); }
+.swatch {
+  width: 1.75rem; height: 1.75rem; border-radius: var(--radius-pill); border: 2px solid var(--surface);
+  box-shadow: 0 0 0 1px var(--border); cursor: pointer;
+  transition: box-shadow var(--duration-fast) var(--ease-standard);
+}
+.swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--foreground); }
+.swatch[data-swatch="neutral"] { background: oklch(33% 0 0); }
+.swatch[data-swatch="violet"] { background: #7747ff; }
+.swatch[data-swatch="blue"] { background: #0562ef; }
+.swatch[data-swatch="green"] { background: #0db879; }
+.swatch[data-swatch="amber"] { background: #f3ad20; }
+.swatch[data-swatch="orange"] { background: #f48120; }
+.swatch[data-swatch="coral"] { background: #f15f55; }
+.swatch[data-swatch="rose"] { background: #ed4e9d; }
+
+.filters { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.chip {
+  min-height: var(--control-height-sm); padding: 0 var(--space-4); border: 1px solid var(--border);
+  border-radius: var(--radius-pill); background: var(--surface); color: var(--text-secondary);
+  font: inherit; font-size: var(--arc-text-sm); cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+.chip:hover { color: var(--foreground); }
+.chip[aria-pressed="true"] { background: var(--foreground); border-color: var(--foreground); color: var(--background); }
+
+.grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr)); }
+.blocks { display: grid; gap: var(--space-4); margin-top: var(--space-12); }
+.sectionTitle { margin: 0; font-family: var(--font-display); font-size: var(--arc-text-2xl); letter-spacing: var(--tracking-display); }
+
+/* No transform on cards: Arc's overlays use position: fixed, which a transformed ancestor would capture. */
+.card {
+  display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; padding: var(--space-5);
+  border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--surface);
+  box-shadow: var(--shadow-resting); scroll-margin-top: var(--space-8);
+}
+.cardHead { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.cardTitle { margin: 0; font-family: var(--font-display); font-size: var(--arc-text-lg); letter-spacing: var(--tracking-display); }
+.tag { flex: none; color: var(--text-muted); font-size: var(--arc-text-xs); }
+.cardDescription { margin: 0; color: var(--text-secondary); font-size: var(--arc-text-sm); line-height: 1.5; }
+.stage {
+  display: flex; flex: 1; align-items: center; justify-content: center; min-height: 12rem; margin-top: var(--space-2);
+  padding: var(--space-5); border-radius: var(--radius-panel); background: var(--surface-muted);
+}
+.card[data-kind="block"] .stage { display: block; padding: 0; overflow: hidden; background: var(--background); border: 1px solid var(--border-subtle); }
+.near { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 10rem; }
+.card[data-kind="block"] .near { display: block; }
+.install {
+  overflow-x: auto; white-space: nowrap; margin-top: var(--space-2); color: var(--text-muted);
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace; font-size: var(--arc-text-xs);
+}
+.empty { margin: 0; color: var(--text-muted); font-size: var(--arc-text-sm); }

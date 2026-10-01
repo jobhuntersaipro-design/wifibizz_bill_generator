@@ -1,0 +1,22 @@
+/* Layout helpers for the gallery demos. Colours come from Arc's tokens. */
+.row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--space-3); }
+.stack { display: grid; gap: var(--space-4); width: 100%; max-width: 22rem; }
+.fill { width: 100%; }
+.target {
+  display: grid; place-items: center; width: 100%; min-height: 7rem; padding: var(--space-4);
+  border: 1px dashed var(--border-strong); border-radius: var(--radius-panel);
+  color: var(--text-secondary); font-size: var(--arc-text-sm); user-select: none;
+}
+.swipeRow { padding: var(--space-3) var(--space-4); font-size: var(--arc-text-sm); }
+.panel { padding: var(--space-4); color: var(--text-secondary); font-size: var(--arc-text-sm); }
+.slide {
+  display: grid; place-items: center; height: 9rem; border-radius: var(--radius-panel);
+  background: var(--arc-gradient-soft); color: var(--foreground); font-weight: 600;
+}
+.compare { display: grid; place-items: center; width: 100%; height: 100%; font-weight: 600; }
+.compareBefore { background: var(--surface-muted); color: var(--text-secondary); }
+.compareAfter { background: var(--arc-gradient); color: var(--arc-gradient-foreground); }
+.scrollItem { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-subtle); font-size: var(--arc-text-sm); }
+.title { font-family: var(--font-display); font-size: var(--arc-text-2xl); letter-spacing: var(--tracking-display); color: var(--foreground); }
+.block { width: 100%; }
+.resizable { width: 100%; height: 11.25rem; }

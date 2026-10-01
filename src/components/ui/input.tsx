@@ -1,20 +1,34 @@
+"use client"
+
 import * as React from "react"
-import { Input as InputPrimitive } from "@base-ui/react/input"
+import arcInput from "@/components/arc/components/input/input.module.css"
+import { useIsArc } from "@/components/design/use-design"
+import { Input as ClassicInput } from "./classic/input"
+import bridge from "./arc/bridge.module.css"
+import { cx } from "./arc/shared"
 
-import { cn } from "@/lib/utils"
+/**
+ * The same element renders in both designs and only its classes change, so
+ * flipping the design mid-form never remounts a field or loses what was typed.
+ * In Arc the field takes Arc's own Input control styling (`input.module.css`);
+ * Arc's Input component also renders a <label>, which this app already draws
+ * separately with <Label>, so the control's class is used rather than the
+ * wrapper. `unstyled` is for fields that were a plain <input> with their own classes.
+ */
+const PAD_START = /(^|\s)([a-z0-9]+:)*(pl|ps)-/
+const PAD_END = /(^|\s)([a-z0-9]+:)*(pr|pe)-/
 
-function Input({ className, type, ...props }: React.ComponentProps<"input">) {
-  return (
-    <InputPrimitive
-      type={type}
-      data-slot="input"
-      className={cn(
-        "h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-colors outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 md:text-sm dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
-        className
-      )}
-      {...props}
-    />
-  )
+/** Keeps a caller's pl-N or pr-N (room for an icon inside the field) over Arc's padding. */
+function padClasses(className: string | undefined) {
+  if (!className) return undefined
+  return cx(PAD_START.test(className) && bridge.keepPadStart, PAD_END.test(className) && bridge.keepPadEnd)
+}
+
+function Input({ className, unstyled, ...props }: React.ComponentProps<"input"> & { unstyled?: boolean }) {
+  const arc = useIsArc()
+  const classes = cx(arc && arcInput.input, arc && padClasses(className), className)
+  if (unstyled) return <input {...props} className={classes || undefined} />
+  return <ClassicInput {...props} className={classes} />
 }
 
 export { Input }

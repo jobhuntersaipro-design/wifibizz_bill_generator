@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { actionFor } from "@/lib/failure-action";
 import { UnseenOutcomes } from "@/components/order-entry/UnseenOutcomes";
 import {
@@ -38,6 +38,7 @@ import { CancelOrderDialog } from "./CancelOrderDialog";
 import { StopSubmitDialog } from "./StopSubmitDialog";
 import { DeleteOrderDialog } from "./DeleteOrderDialog";
 import { BatchSubmitDialog } from "./BatchSubmitDialog";
+import { Button } from "@/components/ui/button";
 
 /** One poll's view of an in-flight submit, as returned by the progress route. */
 interface ProgressState {
@@ -581,9 +582,9 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center gap-3 rounded-xl border border-[#E3E8EF] bg-white p-12">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />
-        <p className="text-sm text-[#697386]">Loading orders…</p>
+      <div className="flex flex-col items-center gap-3 rounded-xl border border-line bg-white p-12">
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-brand border-t-transparent" />
+        <p className="text-sm text-ink-muted">Loading orders…</p>
       </div>
     );
   }
@@ -594,28 +595,28 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
     return (
       <div className="rounded-xl border border-red-200 bg-white p-10 text-center">
         <p className="text-sm font-medium text-red-700">Couldn&apos;t load orders</p>
-        <p className="mx-auto mt-1 max-w-md text-xs leading-snug text-[#697386]">{loadError}</p>
-        <button
+        <p className="mx-auto mt-1 max-w-md text-xs leading-snug text-ink-muted">{loadError}</p>
+        <Button unstyled variant="default"
           type="button"
           onClick={() => {
             setLoading(true);
             setLoadError(null);
             reload().finally(() => setLoading(false));
           }}
-          className="mt-4 cursor-pointer rounded-lg bg-[#635BFF] px-4 py-2 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-[#0A2540]"
+          className="mt-4 cursor-pointer rounded-lg bg-brand px-4 py-2 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-ink"
         >
           Try again
-        </button>
+        </Button>
       </div>
     );
   }
 
   if (orders.length === 0) {
     return (
-      <div className="flex flex-col items-center rounded-xl border border-dashed border-[#E3E8EF] bg-white p-10 text-center">
+      <div className="flex flex-col items-center rounded-xl border border-dashed border-line bg-white p-10 text-center">
         <LottieSpot name="empty-orders" size={110} className="mb-2" fallback={null} />
-        <p className="text-sm font-medium text-[#425466]">No orders yet</p>
-        <p className="mt-1 text-xs text-[#697386]">Fill in the New Order tab to create one.</p>
+        <p className="text-sm font-medium text-ink-soft">No orders yet</p>
+        <p className="mt-1 text-xs text-ink-muted">Fill in the New Order tab to create one.</p>
       </div>
     );
   }

@@ -32,22 +32,22 @@ export function AdminLoginForm() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#F6F9FC]">
+    <div className="flex min-h-screen items-center justify-center bg-wash">
       <div className="w-full max-w-sm mx-auto p-6">
-        <div className="bg-white rounded-lg border border-[#E3E8EF] p-8 animate-scale-in">
+        <div className="bg-white rounded-lg border border-line p-8 animate-scale-in">
           <div className="mb-8 text-center">
-            <div className="w-12 h-12 rounded-lg bg-[#0A2540] flex items-center justify-center mx-auto mb-4 animate-scale-in" style={{ animationDelay: "100ms" }}>
+            <div className="w-12 h-12 rounded-lg bg-ink flex items-center justify-center mx-auto mb-4 animate-scale-in" style={{ animationDelay: "100ms" }}>
               <ShieldIcon className="w-6 h-6 text-white" />
             </div>
-            <h1 className="text-xl font-semibold text-[#0A2540] animate-fade-in-up" style={{ animationDelay: "200ms" }}>Admin Access</h1>
-            <p className="text-[#697386] mt-1 text-sm animate-fade-in-up" style={{ animationDelay: "300ms" }}>
+            <h1 className="text-xl font-semibold text-ink animate-fade-in-up" style={{ animationDelay: "200ms" }}>Admin Access</h1>
+            <p className="text-ink-muted mt-1 text-sm animate-fade-in-up" style={{ animationDelay: "300ms" }}>
               BizzFlow administration panel
             </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4 animate-fade-in-up" style={{ animationDelay: "400ms" }}>
             <div className="space-y-1.5">
-              <Label htmlFor="username" className="text-xs font-medium text-[#425466]">
+              <Label htmlFor="username" className="text-xs font-medium text-ink-soft">
                 Username
               </Label>
               <Input
@@ -57,12 +57,12 @@ export function AdminLoginForm() {
                 placeholder="Admin username"
                 required
                 autoComplete="username"
-                className="rounded-lg h-10 border-[#E3E8EF] focus:border-[#635BFF]"
+                className="rounded-lg h-10 border-line focus:border-brand"
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="password" className="text-xs font-medium text-[#425466]">
+              <Label htmlFor="password" className="text-xs font-medium text-ink-soft">
                 Password
               </Label>
               <Input
@@ -72,19 +72,19 @@ export function AdminLoginForm() {
                 placeholder="Admin password"
                 required
                 autoComplete="current-password"
-                className="rounded-lg h-10 border-[#E3E8EF] focus:border-[#635BFF]"
+                className="rounded-lg h-10 border-line focus:border-brand"
               />
             </div>
 
             {error && (
-              <div className="text-sm text-[#DF1B41] bg-red-50 border border-red-200 rounded-lg px-4 py-2.5">
+              <div className="text-sm text-danger bg-red-50 border border-red-200 rounded-lg px-4 py-2.5">
                 {error}
               </div>
             )}
 
             <Button
               type="submit"
-              className="w-full h-10 rounded-lg text-sm font-semibold bg-[#0A2540] hover:bg-[#0A2540]/90 transition-colors duration-150 hover-glow press-effect"
+              className="w-full h-10 rounded-lg text-sm font-semibold bg-ink hover:bg-ink/90 transition-colors duration-150 hover-glow press-effect"
               disabled={isLoading}
             >
               {isLoading ? (

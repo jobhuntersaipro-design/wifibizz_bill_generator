@@ -38,15 +38,15 @@ export function UnseenOutcomes({ onChanged }: { onChanged?: () => void }) {
   }
 
   return (
-    <section className="rounded-xl border border-[#E3E8EF] bg-white p-4">
+    <section className="rounded-xl border border-line bg-white p-4">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-[#0A2540]">
+        <h2 className="text-sm font-semibold text-ink">
           While you were away · {items.length}
         </h2>
         <button
           type="button"
           onClick={() => dismiss(items.map((i) => i.id))}
-          className="cursor-pointer text-xs text-[#635BFF] hover:underline"
+          className="cursor-pointer text-xs text-brand hover:underline"
         >
           Dismiss all
         </button>
@@ -55,9 +55,9 @@ export function UnseenOutcomes({ onChanged }: { onChanged?: () => void }) {
         {items.map((o) => (
           <li key={o.id} className="rounded-lg border border-[#F0F3F8] p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="min-w-0 truncate text-sm text-[#0A2540]">
+              <p className="min-w-0 truncate text-sm text-ink">
                 <span className="font-medium">{o.reference ?? o.fullName}</span>
-                {o.reference && <span className="ml-2 text-xs text-[#697386]">{o.fullName}</span>}
+                {o.reference && <span className="ml-2 text-xs text-ink-muted">{o.fullName}</span>}
               </p>
               <div className="flex shrink-0 items-center gap-2">
                 <OutcomePill status={o.status} />
@@ -65,7 +65,7 @@ export function UnseenOutcomes({ onChanged }: { onChanged?: () => void }) {
                   type="button"
                   onClick={() => dismiss([o.id])}
                   aria-label={`Dismiss ${o.reference ?? o.fullName}`}
-                  className="cursor-pointer rounded p-1 text-[#697386] hover:bg-[#F6F9FC] hover:text-[#0A2540]"
+                  className="cursor-pointer rounded p-1 text-ink-muted hover:bg-wash hover:text-ink"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-3.5 w-3.5" aria-hidden>
                     <path d="M18 6 6 18M6 6l12 12" />
@@ -75,7 +75,7 @@ export function UnseenOutcomes({ onChanged }: { onChanged?: () => void }) {
             </div>
             {o.status === "submitted" ? (
               o.orderId && (
-                <p className="mt-1 text-xs text-[#425466]">
+                <p className="mt-1 text-xs text-ink-soft">
                   Order No. <span className="font-medium tabular-nums">{o.orderId}</span>
                 </p>
               )
