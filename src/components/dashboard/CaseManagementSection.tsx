@@ -916,7 +916,7 @@ export default function CaseManagementSection() {
                           );
                         })()}
                       </td>
-                      <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-45 text-[13px] text-ink-muted">{c.full_address || "—"}</span></td>
+                      <td className="px-4 py-3 hidden lg:table-cell"><span className="block min-w-56 max-w-72 whitespace-normal leading-snug text-[13px] text-ink-muted">{c.full_address || "—"}</span></td>
                       <td className="px-4 py-3 text-[13px] text-ink-soft tabular-nums whitespace-nowrap">{c.mobile || "—"}</td>
                       <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-35 text-[13px] text-ink-soft">{c.provider || "—"}</span></td>
                       <td className="px-4 py-3 hidden lg:table-cell"><span className="block truncate max-w-40 text-[13px] text-ink-soft">{c.package || "—"}</span></td>
