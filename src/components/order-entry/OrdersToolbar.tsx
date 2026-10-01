@@ -1,4 +1,5 @@
 "use client";
+import { Select } from "@/components/ui/select";
 
 import { Search, X } from "lucide-react";
 import {
@@ -13,6 +14,7 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { DateRangeFilter } from "./DateRangeFilter";
 import { BlockedHint } from "./OrderRow";
+import { Button } from "@/components/ui/button";
 
 /**
  * Search, the filter bar, and the bulk bar that appears once rows are selected.
@@ -21,7 +23,7 @@ import { BlockedHint } from "./OrderRow";
  * the filtering and the batch runner.
  */
 
-/** One labelled `<select>`. Four of these is the filter bar. */
+/** One labelled `<Select>`. Four of these is the filter bar. */
 function FilterSelect({
   id,
   label,
@@ -43,7 +45,7 @@ function FilterSelect({
       <label htmlFor={id} className="sr-only">
         {label}
       </label>
-      <select
+      <Select
         id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -62,7 +64,7 @@ function FilterSelect({
             {o.label}
           </option>
         ))}
-      </select>
+      </Select>
     </div>
   );
 }
@@ -188,7 +190,7 @@ export function OrdersToolbar({
         />
 
         {active > 0 && (
-          <button
+          <Button unstyled variant="ghost"
             type="button"
             onClick={() =>
               onChange(EMPTY_FILTERS)
@@ -197,7 +199,7 @@ export function OrdersToolbar({
           >
             <X className="h-3.5 w-3.5" aria-hidden="true" />
             Clear {active} filter{active > 1 ? "s" : ""}
-          </button>
+          </Button>
         )}
       </div>
 
@@ -210,19 +212,19 @@ export function OrdersToolbar({
             {selectedCount} selected
           </span>
           <div className="flex items-center gap-2">
-            <button
+            <Button unstyled variant="outline"
               type="button"
               onClick={onClearSelection}
               disabled={batchRunning}
               className="cursor-pointer rounded-md border border-line bg-white px-3 py-2 text-[12px] text-ink-soft transition-colors duration-150 hover:border-brand disabled:opacity-50"
             >
               Clear
-            </button>
+            </Button>
             <BlockedHint reason={batchRunning ? null : submitBlockedReason({
               serverBusy, serverBusyAgeS, serverMaxRuntimeS,
               serverBusyIsMine, serverBusyOrderLabel, serverSlots, serverCapacity,
             })}>
-            <button
+            <Button unstyled variant="default"
               type="button"
               onClick={onSubmitSelected}
               disabled={batchRunning || serverBusy}
@@ -236,7 +238,7 @@ export function OrdersToolbar({
               ) : (
                 `Submit Selected (${selectedCount})`
               )}
-            </button>
+            </Button>
             </BlockedHint>
           </div>
         </div>

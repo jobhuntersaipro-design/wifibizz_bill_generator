@@ -1,10 +1,11 @@
 "use client";
+import { Input } from "@/components/ui/input";
 
 import LottieSpot from "@/components/order-entry/LottieSpot";
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import {
   CRAWL_LOOKBACK_MONTHS,
   crawlDateWindow,
@@ -324,7 +325,7 @@ export default function CrawlPage() {
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1">
             <label className="block text-xs text-ink-muted mb-1">From</label>
-            <input
+            <Input unstyled
               type="date"
               value={dateFrom}
               onChange={(e) => handleDateFromChange(e.target.value)}
@@ -336,7 +337,7 @@ export default function CrawlPage() {
           </div>
           <div className="flex-1">
             <label className="block text-xs text-ink-muted mb-1">To</label>
-            <input
+            <Input unstyled
               type="date"
               value={dateTo}
               onChange={(e) => handleDateToChange(e.target.value)}

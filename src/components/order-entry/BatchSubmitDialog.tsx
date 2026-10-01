@@ -1,4 +1,5 @@
 "use client";
+import { Button } from "@/components/ui/button";
 
 import { Layers } from "lucide-react";
 import {
@@ -73,7 +74,7 @@ export function BatchSubmitDialog({
         <DialogFooter className="gap-2 sm:justify-end">
           <DialogClose
             render={
-              <button
+              <Button unstyled variant="outline"
                 type="button"
                 onClick={onCancel}
                 className="cursor-pointer rounded-md border border-line px-3 py-2 text-[13px] font-medium text-ink-soft transition-colors duration-150 hover:border-brand hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
@@ -82,13 +83,13 @@ export function BatchSubmitDialog({
           >
             Cancel
           </DialogClose>
-          <button
+          <Button unstyled variant="default"
             type="button"
             onClick={onConfirm}
             className="cursor-pointer rounded-md bg-brand px-3 py-2 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
           >
             Start batch
-          </button>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

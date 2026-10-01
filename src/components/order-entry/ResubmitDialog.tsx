@@ -1,4 +1,5 @@
 "use client";
+import { Button } from "@/components/ui/button";
 
 import { AlertTriangle } from "lucide-react";
 import type { OrderListItem } from "@/lib/order-types";
@@ -68,7 +69,7 @@ export function ResubmitDialog({
         <DialogFooter className="gap-2 sm:justify-end">
           <DialogClose
             render={
-              <button
+              <Button unstyled variant="outline"
                 type="button"
                 onClick={onCancel}
                 className="cursor-pointer rounded-md border border-line px-3 py-2 text-[13px] font-medium text-ink-soft transition-colors duration-150 hover:border-brand hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
@@ -77,13 +78,13 @@ export function ResubmitDialog({
           >
             Cancel
           </DialogClose>
-          <button
+          <Button unstyled variant="default"
             type="button"
             onClick={onConfirm}
             className="cursor-pointer rounded-md bg-[#C2740B] px-3 py-2 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-[#9A5C08] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C2740B]"
           >
             I&apos;ve voided it — resubmit
-          </button>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

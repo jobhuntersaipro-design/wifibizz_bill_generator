@@ -1,7 +1,8 @@
 "use client";
+import { Button } from "@/components/ui/button";
 
 import { useRef, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import {
   adminDeleteLandlordSignature,
   adminListLandlordSignatures,
@@ -104,14 +105,14 @@ export function LandlordSignatures({
                 <p className="truncate text-[12px] text-ink-soft" title={image.filename}>
                   {image.filename}
                 </p>
-                <button
+                <Button unstyled variant="destructive"
                   type="button"
                   disabled={deletingId === image.id}
                   onClick={() => void onDelete(image.id)}
                   className="shrink-0 rounded-md px-2 py-1 text-[12px] font-medium text-danger hover:bg-red-50 disabled:opacity-60"
                 >
                   {deletingId === image.id ? "Deleting…" : "Delete"}
-                </button>
+                </Button>
               </div>
             </li>
           ))}

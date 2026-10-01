@@ -1,4 +1,5 @@
 "use client";
+import { Button } from "@/components/ui/button";
 
 import { useEffect, useRef, useState } from "react";
 
@@ -453,21 +454,21 @@ function PrimaryAction({ o, a }: { o: OrderListItem; a: RowActions }) {
   if (isRetryPending(o)) {
     return (
       <BlockedHint reason="This order is being submitted again automatically. Nothing to do.">
-        <button
+        <Button unstyled variant="default"
           type="button"
           disabled
           className="inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-lg bg-brand px-3 py-2 text-[13px] font-semibold text-white opacity-50"
         >
           <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
           Submitting…
-        </button>
+        </Button>
       </BlockedHint>
     );
   }
   if (canSubmit(o)) {
     return (
       <BlockedHint reason={blocked}>
-      <button
+      <Button unstyled variant="default"
         type="button"
         disabled={a.busy || a.batchRunning || a.serverBusy}
         onClick={a.onSubmit}
@@ -481,14 +482,14 @@ function PrimaryAction({ o, a }: { o: OrderListItem; a: RowActions }) {
         ) : (
           "Submit"
         )}
-      </button>
+      </Button>
       </BlockedHint>
     );
   }
   if (canResubmit(o)) {
     return (
       <BlockedHint reason={blocked}>
-      <button
+      <Button unstyled variant="outline"
         type="button"
         disabled={a.busy || a.batchRunning || a.serverBusy}
         onClick={a.onResubmit}
@@ -503,7 +504,7 @@ function PrimaryAction({ o, a }: { o: OrderListItem; a: RowActions }) {
         ) : (
           "Resubmit"
         )}
-      </button>
+      </Button>
       </BlockedHint>
     );
   }

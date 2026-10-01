@@ -1,8 +1,9 @@
 "use client";
+import { CheckboxInput } from "@/components/ui/checkbox-input";
 
 import { useState } from "react";
 import Link from "next/link";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { setOrderEntryAccess } from "@/actions/admin-users";
 import { OrderOversight, ConnectionBadge } from "@/components/admin/order-oversight";
 import type { ConnectionView } from "@/lib/agent-connection";
@@ -71,7 +72,7 @@ export function AgentDetail({ agent }: { agent: AgentView }) {
           <div className="flex flex-col items-end gap-2">
             <ConnectionBadge view={agent.connection} />
             <label className="flex cursor-pointer items-center gap-2 text-xs text-ink-soft">
-              <input type="checkbox" checked={enabled} disabled={saving} onChange={toggle}
+              <CheckboxInput checked={enabled} disabled={saving} onChange={toggle}
                 className="h-4 w-4 cursor-pointer accent-brand" />
               Order entry access
             </label>

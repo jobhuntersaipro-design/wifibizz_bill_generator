@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { CheckCircle2, Loader2, MessageCircle, RotateCcw, Send, UserRound, X } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { parseChatMarkdown, type Block, type Inline } from "@/lib/admin-chat/markdown";
 import { listChatHandoffs, resolveChatHandoff, type HandoffRow } from "@/actions/admin-chat";
+import { Button } from "@/components/ui/button";
 
 /**
  * The admin assistant popup — a testing feature, read-only.
@@ -430,13 +431,13 @@ function HandoffList({
               <p className="mt-1 text-ink">{h.summary}</p>
               <p className="mt-1 text-xs text-ink-muted">Why: {h.reason}</p>
             </div>
-            <button
+            <Button unstyled variant="ghost"
               type="button"
               onClick={() => onResolve(h.id)}
               className="flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-2 text-xs font-medium text-[#0A7B3E] hover:bg-wash"
             >
               <CheckCircle2 className="h-4 w-4" /> Resolve
-            </button>
+            </Button>
           </div>
         </li>
       ))}

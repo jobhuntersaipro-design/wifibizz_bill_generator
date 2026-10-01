@@ -1,4 +1,5 @@
 "use client";
+import { Button } from "@/components/ui/button";
 
 import { Trash2 } from "lucide-react";
 import type { OrderListItem } from "@/lib/order-types";
@@ -87,7 +88,7 @@ export function DeleteOrderDialog({
         <DialogFooter className="gap-2 sm:justify-end">
           <DialogClose
             render={
-              <button
+              <Button unstyled variant="outline"
                 type="button"
                 onClick={onCancel}
                 className="cursor-pointer rounded-md border border-line px-3 py-2 text-[13px] font-medium text-ink-soft transition-colors duration-150 hover:border-brand hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
@@ -96,13 +97,13 @@ export function DeleteOrderDialog({
           >
             Cancel
           </DialogClose>
-          <button
+          <Button unstyled variant="destructive"
             type="button"
             onClick={onConfirm}
             className="cursor-pointer rounded-md bg-danger px-3 py-2 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-[#B21533] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger"
           >
             {inPortal ? "Delete record" : "Delete draft"}
-          </button>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

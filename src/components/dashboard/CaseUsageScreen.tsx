@@ -429,7 +429,7 @@ function DailyCaseUsageChart({
               className="h-7 text-xs rounded-md border-line w-[140px]"
             />
             {isCustomRange && (
-              <button
+              <Button unstyled variant="outline"
                 onClick={() => {
                   onDateRangeChange("", "");
                   onDaysChange(days);
@@ -437,7 +437,7 @@ function DailyCaseUsageChart({
                 className="px-2 py-0.5 text-[11px] font-medium rounded-md bg-wash text-ink-muted hover:bg-line transition-colors"
               >
                 Reset
-              </button>
+              </Button>
             )}
           </div>
         </div>

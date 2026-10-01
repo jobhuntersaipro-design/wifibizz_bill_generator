@@ -1,4 +1,6 @@
 "use client";
+import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 
 import { useCallback, useEffect, useState, useRef } from "react";
 import {
@@ -14,6 +16,7 @@ import {
   getHeatColor, getHeatLegendColors, getStatusColor, useAnimatedCounter,
 } from "./shared";
 import { FileStackIcon, CheckCircleIcon, FileTextIcon } from "./icons";
+import { Button } from "@/components/ui/button";
 
 // ── KPI Card ──
 
@@ -405,7 +408,7 @@ export default function AnalyticsSection({ surface }: { surface: AnalyticsSurfac
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <select
+                <Select
                   className="h-7 rounded-md border border-line bg-white px-2 text-[11px] text-ink-soft focus:border-brand outline-none transition-all max-w-[160px]"
                   value={chartProvider}
                   onChange={(e) => setChartProvider(e.target.value)}
@@ -414,7 +417,7 @@ export default function AnalyticsSection({ surface }: { surface: AnalyticsSurfac
                   {(analytics?.allProviders ?? []).map((p) => (
                     <option key={p} value={p}>{truncateLabel(p, 30)}</option>
                   ))}
-                </select>
+                </Select>
                 {hasChartFilters && (
                   <button className="text-[11px] text-danger hover:underline" onClick={() => setChartProvider("")}>Clear</button>
                 )}
@@ -540,37 +543,37 @@ export default function AnalyticsSection({ surface }: { surface: AnalyticsSurfac
             {/* Map filters row */}
             <div className="flex flex-wrap items-center gap-2 mt-3">
               <div className="relative">
-                <select className="h-7 rounded-md border border-line bg-white pl-2 pr-7 text-[11px] text-ink-soft focus:border-brand outline-none transition-all appearance-none" value={mapStatus} onChange={(e) => setMapStatus(e.target.value)}>
+                <Select className="h-7 rounded-md border border-line bg-white pl-2 pr-7 text-[11px] text-ink-soft focus:border-brand outline-none transition-all appearance-none" value={mapStatus} onChange={(e) => setMapStatus(e.target.value)}>
                   <option value="">All Statuses</option>
                   {(analytics?.allStatuses ?? []).map((s) => (<option key={s} value={s}>{s}</option>))}
-                </select>
+                </Select>
                 <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
               </div>
               <div className="relative max-w-40">
-                <select className="h-7 w-full rounded-md border border-line bg-white pl-2 pr-7 text-[11px] text-ink-soft focus:border-brand outline-none transition-all appearance-none" value={mapProvider} onChange={(e) => setMapProvider(e.target.value)}>
+                <Select className="h-7 w-full rounded-md border border-line bg-white pl-2 pr-7 text-[11px] text-ink-soft focus:border-brand outline-none transition-all appearance-none" value={mapProvider} onChange={(e) => setMapProvider(e.target.value)}>
                   <option value="">All Providers</option>
                   {(analytics?.allProviders ?? []).map((p) => (<option key={p} value={p}>{truncateLabel(p, 28)}</option>))}
-                </select>
+                </Select>
                 <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
               </div>
               <div className="relative max-w-50">
-                <select className="h-7 w-full rounded-md border border-line bg-white pl-2 pr-7 text-[11px] text-ink-soft focus:border-brand outline-none transition-all appearance-none" value={mapPackage} onChange={(e) => setMapPackage(e.target.value)}>
+                <Select className="h-7 w-full rounded-md border border-line bg-white pl-2 pr-7 text-[11px] text-ink-soft focus:border-brand outline-none transition-all appearance-none" value={mapPackage} onChange={(e) => setMapPackage(e.target.value)}>
                   <option value="">All Packages</option>
                   {(analytics?.allPackages ?? []).map((p) => (<option key={p} value={p}>{truncateLabel(p, 35)}</option>))}
-                </select>
+                </Select>
                 <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
               </div>
               <div className="h-5 w-px bg-line" />
-              <select className="h-7 rounded-md border border-line bg-white px-2 text-[11px] text-ink-soft focus:border-brand outline-none transition-all" value={mapDateRange} onChange={(e) => handleMapDatePreset(e.target.value)}>
+              <Select className="h-7 rounded-md border border-line bg-white px-2 text-[11px] text-ink-soft focus:border-brand outline-none transition-all" value={mapDateRange} onChange={(e) => handleMapDatePreset(e.target.value)}>
                 {DATE_RANGE_PRESETS.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}
-              </select>
+              </Select>
               <div className="flex items-center gap-1.5">
-                <input type="date" className="h-7 rounded-md border border-line bg-white px-1.5 sm:px-2 text-[11px] text-ink-soft focus:border-brand outline-none transition-all max-w-[130px]" value={mapDateFrom} onChange={(e) => handleMapDateFrom(e.target.value)} placeholder="From" />
+                <Input unstyled type="date" className="h-7 rounded-md border border-line bg-white px-1.5 sm:px-2 text-[11px] text-ink-soft focus:border-brand outline-none transition-all max-w-[130px]" value={mapDateFrom} onChange={(e) => handleMapDateFrom(e.target.value)} placeholder="From" />
                 <span className="text-[10px] text-ink-muted">to</span>
-                <input type="date" className="h-7 rounded-md border border-line bg-white px-1.5 sm:px-2 text-[11px] text-ink-soft focus:border-brand outline-none transition-all max-w-[130px]" value={mapDateTo} onChange={(e) => handleMapDateTo(e.target.value)} />
+                <Input unstyled type="date" className="h-7 rounded-md border border-line bg-white px-1.5 sm:px-2 text-[11px] text-ink-soft focus:border-brand outline-none transition-all max-w-[130px]" value={mapDateTo} onChange={(e) => handleMapDateTo(e.target.value)} />
               </div>
               {mapHasFilters && (
-                <button className="h-7 px-2.5 rounded-md text-[11px] font-medium text-ink-muted bg-wash border border-line hover:bg-[#EDF0F4] hover:text-ink-soft transition-all" onClick={clearMapFilters}>Reset</button>
+                <Button unstyled variant="outline" className="h-7 px-2.5 rounded-md text-[11px] font-medium text-ink-muted bg-wash border border-line hover:bg-[#EDF0F4] hover:text-ink-soft transition-all" onClick={clearMapFilters}>Reset</Button>
               )}
             </div>
           </div>

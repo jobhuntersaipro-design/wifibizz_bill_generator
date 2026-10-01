@@ -17,3 +17,8 @@ export function useDesign(): { design: Design; accent: ArcAccent } {
   const accent = useSyncExternalStore(subscribeDesign, readAccent, () => DEFAULT_ACCENT);
   return { design, accent };
 }
+
+/** True while the app renders the Arc design. Every switching primitive in src/components/ui reads this. */
+export function useIsArc(): boolean {
+  return useSyncExternalStore(subscribeDesign, readDesign, () => DEFAULT_DESIGN) === "arc";
+}

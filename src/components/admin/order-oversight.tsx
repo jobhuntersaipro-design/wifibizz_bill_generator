@@ -1,11 +1,13 @@
 "use client";
+import { Select as FieldSelect } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import {
   adminListOrders, adminOrderStats, adminRestoreOrder, adminPurgeOrder,
   adminLiveJobs, adminReleaseJob, adminBulkPurgePreview, adminBulkPurge,
@@ -20,6 +22,8 @@ import { PAGE_SIZES, DEFAULT_PAGE_SIZE, clampPage, pageSlice, pageCount, pageRan
 import { useAnimatedCounter } from "@/components/dashboard/shared";
 import { useFlashOnChange } from "@/lib/use-flash";
 import type { ConnectionView } from "@/lib/agent-connection";
+import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 
 const DAY = 86400_000;
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
@@ -215,7 +219,7 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
           {/* Agent is chosen once, above, and applies to the charts AND this
               table: two selects for one concept is how a page starts lying
               about which agent you are looking at. */}
-          <input
+          <Input unstyled
             type="search"
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
@@ -239,12 +243,12 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
             options={[...statusOptions.map((s) => ({ value: s, label: s })), { value: "deleted", label: "deleted" }]} />
           <label className="flex items-center gap-1 text-xs text-ink-muted">
             Created
-            <input type="date" value={createdFrom} max={createdTo || undefined}
+            <Input unstyled type="date" value={createdFrom} max={createdTo || undefined}
               onChange={(e) => { setCreatedFrom(e.target.value); setPage(1); }}
               aria-label="Created from"
               className="rounded-md border border-line px-2 py-1 text-xs text-ink-soft" />
             –
-            <input type="date" value={createdTo} min={createdFrom || undefined}
+            <Input unstyled type="date" value={createdTo} min={createdFrom || undefined}
               onChange={(e) => { setCreatedTo(e.target.value); setPage(1); }}
               aria-label="Created to"
               className="rounded-md border border-line px-2 py-1 text-xs text-ink-soft" />
@@ -256,14 +260,14 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
               Clear dates
             </button>
           )}
-          <button type="button" onClick={exportCsv} disabled={filtered.length === 0}
+          <Button unstyled variant="outline" type="button" onClick={exportCsv} disabled={filtered.length === 0}
             className="rounded-md border border-line px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-brand disabled:opacity-40">
             Export CSV · {filtered.length}
-          </button>
-          <button type="button" onClick={() => setBulkOpen(true)}
+          </Button>
+          <Button unstyled variant="destructive" type="button" onClick={() => setBulkOpen(true)}
             className="ml-auto rounded-md border border-[#FCA5A5] px-2.5 py-1.5 text-xs text-[#B42318] transition-colors hover:bg-[#FEF2F2]">
             Purge old deleted…
-          </button>
+          </Button>
         </div>
         <OrderTable rows={paged} onRestore={restore} onPurge={setPurgeTarget} />
         <PageFooter
@@ -363,10 +367,10 @@ function LivePanel({ agentId }: { agentId?: string }) {
                     {j.stuck && <span className="ml-2 font-semibold text-[#B42318]">Stuck</span>}
                   </p>
                 </div>
-                <button type="button" onClick={() => setReleasing(j)}
+                <Button unstyled variant="outline" type="button" onClick={() => setReleasing(j)}
                   className="shrink-0 rounded-md border border-line px-3 py-1.5 text-xs text-ink-soft transition-colors hover:border-brand">
                   Release
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
@@ -393,8 +397,7 @@ function ReleaseDialog({ job, onClose, onDone }: {
     else { toast.error(res.error ?? "Could not release the job."); onDone(); }
   }
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
-      <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
+    <Modal label="Release this submit slot?" onClose={onClose} overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
         <h3 className="text-base font-semibold text-ink">Release this submit slot?</h3>
         <p className="mt-2 text-sm text-ink-soft">
           <strong>{job.orderLabel ?? "An unknown order"}</strong>
@@ -411,15 +414,14 @@ function ReleaseDialog({ job, onClose, onDone }: {
           submitting it again.
         </p>
         <div className="mt-5 flex justify-end gap-2">
-          <button type="button" onClick={onClose}
-            className="rounded-md border border-line px-3 py-2 text-sm text-ink-soft">Cancel</button>
-          <button type="button" onClick={go} disabled={busy}
+          <Button unstyled variant="outline" type="button" onClick={onClose}
+            className="rounded-md border border-line px-3 py-2 text-sm text-ink-soft">Cancel</Button>
+          <Button unstyled variant="default" type="button" onClick={go} disabled={busy}
             className="rounded-md bg-brand px-3 py-2 text-sm text-white disabled:opacity-50">
             {busy ? "Releasing…" : "Release slot"}
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+      </Modal>
   );
 }
 
@@ -446,20 +448,20 @@ function RangeBar({ from, to, onFrom, onTo, loading }: {
     <div className="flex flex-wrap items-end gap-3 rounded-xl border border-line bg-white p-4">
       <label className="text-xs text-ink-muted">
         From
-        <input type="date" value={from} max={to} onChange={(e) => onFrom(e.target.value)}
+        <Input unstyled type="date" value={from} max={to} onChange={(e) => onFrom(e.target.value)}
           className="mt-1 block rounded-md border border-line px-2 py-1.5 text-sm text-ink" />
       </label>
       <label className="text-xs text-ink-muted">
         To
-        <input type="date" value={to} min={from} onChange={(e) => onTo(e.target.value)}
+        <Input unstyled type="date" value={to} min={from} onChange={(e) => onTo(e.target.value)}
           className="mt-1 block rounded-md border border-line px-2 py-1.5 text-sm text-ink" />
       </label>
       {[7, 30, 90].map((d) => (
-        <button key={d} type="button"
+        <Button unstyled variant="outline" key={d} type="button"
           onClick={() => { onFrom(isoDay(new Date(Date.now() - (d - 1) * DAY))); onTo(isoDay(new Date())); }}
           className="rounded-md border border-line px-3 py-1.5 text-xs text-ink-soft transition-colors hover:border-brand">
           {d}d
-        </button>
+        </Button>
       ))}
       {loading && (
         <span className="flex items-center gap-1.5 text-xs text-ink-muted">
@@ -666,14 +668,14 @@ function OrderTable({ rows, onRestore, onPurge }: {
               <td className="py-2.5">
                 {o.deletedAt ? (
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => onRestore(o)}
+                    <Button unstyled variant="outline" type="button" onClick={() => onRestore(o)}
                       className="rounded-md border border-line px-2 py-1 text-xs text-ink-soft hover:border-brand">
                       Restore
-                    </button>
-                    <button type="button" onClick={() => onPurge(o)}
+                    </Button>
+                    <Button unstyled variant="destructive" type="button" onClick={() => onPurge(o)}
                       className="rounded-md border border-[#FCA5A5] px-2 py-1 text-xs text-[#B42318] hover:bg-[#FEF2F2]">
                       Purge
-                    </button>
+                    </Button>
                   </div>
                 ) : (
                   <span className="text-xs text-[#B4BCCA]">—</span>
@@ -727,11 +729,11 @@ function Select({ value, onChange, label, options }: {
   options: { value: string; label: string }[];
 }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)}
+    <FieldSelect value={value} onChange={(e) => onChange(e.target.value)}
       className="rounded-md border border-line px-2 py-1.5 text-xs text-ink-soft">
       <option value="">{label}</option>
       {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-    </select>
+    </FieldSelect>
   );
 }
 
@@ -753,24 +755,24 @@ function PageFooter({ page, total, perPage, onPage, onPerPage }: {
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#F0F3F8] pt-3">
       <span className="text-xs tabular-nums text-ink-muted">{pageRangeLabel(page, total, perPage)}</span>
-      <select
+      <FieldSelect
         value={String(perPage)}
         onChange={(e) => onPerPage(Number(e.target.value))}
         aria-label="Rows per page"
         className="rounded-md border border-line px-2 py-1.5 text-xs text-ink-soft"
       >
         {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}/page</option>)}
-      </select>
+      </FieldSelect>
       <div className="ml-auto flex items-center gap-1">
-        <button type="button" onClick={() => onPage(page - 1)} disabled={page <= 1}
+        <Button unstyled variant="outline" type="button" onClick={() => onPage(page - 1)} disabled={page <= 1}
           className="rounded-md border border-line px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-brand disabled:opacity-40">
           ‹ Prev
-        </button>
+        </Button>
         <span className="px-2 text-xs tabular-nums text-ink-muted">Page {page} of {pages}</span>
-        <button type="button" onClick={() => onPage(page + 1)} disabled={page >= pages}
+        <Button unstyled variant="outline" type="button" onClick={() => onPage(page + 1)} disabled={page >= pages}
           className="rounded-md border border-line px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-brand disabled:opacity-40">
           Next ›
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -789,8 +791,7 @@ function Empty({ children }: { children: React.ReactNode }) {
 function BulkPurgeDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const [days, setDays] = useState<30 | 90 | 180>(90);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
-      <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
+    <Modal label="Purge old deleted orders?" onClose={onClose} overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
         <h3 className="text-base font-semibold text-ink">Purge old deleted orders?</h3>
         <div className="mt-3 flex gap-2">
           {([30, 90, 180] as const).map((d) => (
@@ -806,8 +807,7 @@ function BulkPurgeDialog({ onClose, onDone }: { onClose: () => void; onDone: () 
             and what keeps setState out of the effect (lint:
             react-hooks/set-state-in-effect). */}
         <BulkPurgeBody key={days} days={days} onClose={onClose} onDone={onDone} />
-      </div>
-    </div>
+      </Modal>
   );
 }
 
@@ -851,18 +851,18 @@ function BulkPurgeBody({ days, onClose, onDone }: {
             </p>
             <label className="mt-3 block text-xs text-ink-muted">
               Type <strong className="text-ink">{preview.length}</strong> to confirm
-              <input value={typed} onChange={(e) => setTyped(e.target.value)} inputMode="numeric"
+              <Input unstyled value={typed} onChange={(e) => setTyped(e.target.value)} inputMode="numeric"
                 className="mt-1 w-full rounded-md border border-line px-3 py-2 text-sm text-ink" />
             </label>
           </>
         )}
         <div className="mt-5 flex justify-end gap-2">
-          <button type="button" onClick={onClose}
-            className="rounded-md border border-line px-3 py-2 text-sm text-ink-soft">Cancel</button>
-          <button type="button" onClick={confirm} disabled={busy || !preview || preview.length === 0}
+          <Button unstyled variant="outline" type="button" onClick={onClose}
+            className="rounded-md border border-line px-3 py-2 text-sm text-ink-soft">Cancel</Button>
+          <Button unstyled variant="destructive" type="button" onClick={confirm} disabled={busy || !preview || preview.length === 0}
             className="rounded-md bg-[#B42318] px-3 py-2 text-sm text-white disabled:opacity-50">
             {busy ? "Purging…" : "Purge permanently"}
-          </button>
+          </Button>
         </div>
     </>
   );
@@ -884,8 +884,7 @@ function PurgeDialog({ order, onClose, onDone }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
-      <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
+    <Modal label="Purge this order permanently?" onClose={onClose} overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
         <h3 className="text-base font-semibold text-ink">Purge this order permanently?</h3>
         <p className="mt-2 text-sm text-ink-soft">
           This destroys the order <strong>and its entire submit history</strong>. It cannot be undone,
@@ -899,20 +898,19 @@ function PurgeDialog({ order, onClose, onDone }: {
         )}
         <label className="mt-4 block text-xs text-ink-muted">
           Type <strong className="text-ink">{phrase}</strong> to confirm
-          <input value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus
+          <Input unstyled value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus
             className="mt-1 w-full rounded-md border border-line px-3 py-2 text-sm text-ink" />
         </label>
         <div className="mt-5 flex justify-end gap-2">
-          <button type="button" onClick={onClose}
+          <Button unstyled variant="outline" type="button" onClick={onClose}
             className="rounded-md border border-line px-3 py-2 text-sm text-ink-soft">
             Cancel
-          </button>
-          <button type="button" onClick={confirm} disabled={busy}
+          </Button>
+          <Button unstyled variant="destructive" type="button" onClick={confirm} disabled={busy}
             className="rounded-md bg-[#B42318] px-3 py-2 text-sm text-white disabled:opacity-50">
             {busy ? "Purging…" : "Purge permanently"}
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+      </Modal>
   );
 }

@@ -1,4 +1,6 @@
 "use client";
+import { Textarea } from "@/components/ui/textarea";
+import { Select } from "@/components/ui/select";
 
 import { groupMissing, isFormSection, sectionAnchor, sectionOf, SECTION_SHORT, type FormSection, type MissingField } from "@/lib/order-sections";
 import { ordersForIc } from "@/actions/order";
@@ -6,7 +8,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import LottieSpot from "./LottieSpot";
 import {
   saveOrder,
@@ -1036,9 +1038,9 @@ export function OrderForm({
         <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1.5">
             <Label className={labelCls}>ID Type</Label>
-            <select value={idType} onChange={(e) => handleIdTypeChange(e.target.value as IdType)} className={selectCls}>
+            <Select value={idType} onChange={(e) => handleIdTypeChange(e.target.value as IdType)} className={selectCls}>
               {ID_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
+            </Select>
           </div>
           <div className="space-y-1.5">
             <Label className={labelCls}>
@@ -1072,11 +1074,11 @@ export function OrderForm({
           </div>
           <div className="space-y-1.5">
             <Label className={labelCls}>Gender {isMykadLike && <span className="text-ink-muted">(auto)</span>}</Label>
-            <select value={gender} onChange={(e) => setGender(e.target.value)} className={selectCls}>
+            <Select value={gender} onChange={(e) => setGender(e.target.value)} className={selectCls}>
               <option value="">---</option>
               <option value="Male">Male</option>
               <option value="Female">Female</option>
-            </select>
+            </Select>
           </div>
           <div className="space-y-1.5">
             <Label className={labelCls}>Birthday {isMykadLike && <span className="text-ink-muted">(auto)</span>}</Label>
@@ -1084,13 +1086,13 @@ export function OrderForm({
           </div>
           <div className="space-y-1.5">
             <Label className={labelCls}>Race</Label>
-            <select value={race} onChange={(e) => setRace(e.target.value)} className={selectCls}>
+            <Select value={race} onChange={(e) => setRace(e.target.value)} className={selectCls}>
               <option value="">---</option>
               <option value="Malay">Malay</option>
               <option value="Chinese">Chinese</option>
               <option value="Indian">Indian</option>
               <option value="Others">Others</option>
-            </select>
+            </Select>
           </div>
           {!isMykadLike && (
             <div className="space-y-1.5">
@@ -1247,14 +1249,14 @@ export function OrderForm({
                 <Label className={labelCls}>
                   State <span className="text-danger">*</span>
                 </Label>
-                <select
+                <Select
                   value={stateVal}
                   onChange={(e) => setStateVal(e.target.value)}
                   className={selectCls}
                 >
                   <option value="">---</option>
                   {MALAYSIA_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
+                </Select>
               </div>
               <div className="space-y-1.5 sm:col-span-2">
                 <Label className={labelCls}>
@@ -1638,7 +1640,7 @@ export function OrderForm({
       <div className={`${cardCls} overflow-hidden`}>
         <div className={headCls}>Additional Remarks</div>
         <div className="p-6">
-          <textarea
+          <Textarea
             value={remarks}
             onChange={(e) => setRemarks(e.target.value)}
             rows={3}
@@ -1792,9 +1794,9 @@ export function OrderForm({
               <div className="flex flex-wrap items-end gap-3">
                 <div className="space-y-1.5">
                   <Label className={labelCls} htmlFor="doc-type">Type</Label>
-                  <select id="doc-type" value={docType} onChange={(e) => setDocType(e.target.value)} className={selectCls}>
+                  <Select id="doc-type" value={docType} onChange={(e) => setDocType(e.target.value)} className={selectCls}>
                     {docTypeOptions.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
-                  </select>
+                  </Select>
                 </div>
                 {docType === "other" && (
                   <div className="space-y-1.5">

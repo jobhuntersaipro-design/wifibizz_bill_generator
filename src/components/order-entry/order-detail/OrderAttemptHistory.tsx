@@ -28,6 +28,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { CaptureCarousel, captureSrc } from "../CaptureCarousel";
 import { SubmitErrorBlock } from "../SubmitErrorBlock";
 import { OUTCOME_LABEL, TONE, dayLabel, gap, time } from "./shared";
+import { Button } from "@/components/ui/button";
 
 /**
  * The strip of thumbnails at the top of an expanded attempt.
@@ -148,13 +149,13 @@ function ShotRow({
             </span>
           )}
           {!expired && (
-            <button
+            <Button unstyled variant="ghost"
               type="button"
               onClick={onOpen}
               className="ml-auto inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-brand transition-colors duration-150 hover:bg-brand-wash focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
             >
               Full size <Maximize2 className="h-3 w-3" aria-hidden="true" />
-            </button>
+            </Button>
           )}
         </div>
         {expired ? (

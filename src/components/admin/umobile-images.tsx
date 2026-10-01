@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { ChevronLeft, ChevronRight, ImagePlus, Trash2, X } from "lucide-react";
 import {
   adminDeleteUmobileImage,
@@ -20,6 +20,7 @@ import {
 import { clampPage, pageCount, pageNumbers, pageSlice } from "@/lib/paginate";
 import { createdParts } from "@/lib/order-types";
 import { UMOBILE_GALLERY_PAGE_SIZE, umobileImageFileError } from "@/lib/umobile-image-rules";
+import { Button } from "@/components/ui/button";
 
 type UploadStatus = "queued" | "uploading" | "done" | "error";
 
@@ -332,14 +333,14 @@ export function UmobileImages({ initialImages }: { initialImages: UmobileImageVi
               >
                 Cancel
               </DialogClose>
-              <button
+              <Button unstyled variant="destructive"
                 type="button"
                 disabled={deleting}
                 onClick={() => void confirmDelete()}
                 className="rounded-lg bg-danger px-3 py-2 text-[13px] font-medium text-white hover:bg-[#c8163a] disabled:opacity-60"
               >
                 {deleting ? "Deleting…" : "Delete image"}
-              </button>
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

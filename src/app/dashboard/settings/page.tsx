@@ -16,7 +16,8 @@ import {
   saveNotificationEmail,
   sendTestNotification,
 } from "@/actions/settings";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
+import { Modal } from "@/components/ui/modal";
 
 export default function SettingsPage() {
   const [email, setEmail] = useState("");
@@ -607,8 +608,7 @@ export default function SettingsPage() {
 
       {/* Confirmation modal */}
       {showConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 animate-fade-in" style={{ animationDuration: "200ms" }}>
-          <div className="bg-white rounded-lg border border-line shadow-xl w-full max-w-sm mx-4 animate-scale-in">
+        <Modal label="Update password" onClose={() => setShowConfirm(false)} overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/20 animate-fade-in" className="bg-white rounded-lg border border-line shadow-xl w-full max-w-sm mx-4 animate-scale-in" style={{ animationDuration: "200ms" }}>
             <div className="p-6">
               <div className="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center mb-4">
                 <AlertIcon className="w-5 h-5 text-amber-600" />
@@ -635,8 +635,7 @@ export default function SettingsPage() {
                 Yes, update
               </Button>
             </div>
-          </div>
-        </div>
+          </Modal>
       )}
     </div>
   );

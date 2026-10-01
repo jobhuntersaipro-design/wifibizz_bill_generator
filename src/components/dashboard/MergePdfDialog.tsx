@@ -1,8 +1,9 @@
 "use client";
+import { CheckboxInput } from "@/components/ui/checkbox-input";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toPng } from "html-to-image";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import {
   Dialog,
   DialogContent,
@@ -28,6 +29,7 @@ import {
 import { MergeIcon, GripIcon, CloseIcon } from "./icons";
 import { WhatsAppChat, makeRandomization } from "./ChatImageGenerator";
 import type { CaseRow } from "./shared";
+import { Button } from "@/components/ui/button";
 
 /** How many documents to fetch at once. The letter and the TIME invoice are
  *  generated per request, so this is deliberately gentle on the server. */
@@ -339,8 +341,8 @@ export default function MergePdfDialog({
                   key={type}
                   className="flex cursor-pointer items-center gap-2 text-[13px] text-ink-soft"
                 >
-                  <input
-                    type="checkbox"
+                  <CheckboxInput
+                    
                     className="cursor-pointer rounded border-line text-brand focus:ring-brand/20"
                     checked={types.includes(type)}
                     disabled={merging}
@@ -473,22 +475,22 @@ export default function MergePdfDialog({
         )}
 
         <DialogFooter className="gap-2 sm:justify-end">
-          <button
+          <Button unstyled variant="outline"
             type="button"
             onClick={onClose}
             disabled={merging}
             className="cursor-pointer rounded-md border border-line px-3 py-2 text-[13px] font-medium text-ink-soft transition-colors duration-150 hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-50"
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button unstyled variant="default"
             type="button"
             onClick={handleMerge}
             disabled={merging || addressLoading || included.length === 0}
             className="cursor-pointer rounded-md bg-brand px-3 py-2 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-ink disabled:cursor-not-allowed disabled:opacity-50"
           >
             {merging ? "Merging…" : `Merge ${included.length} document${included.length === 1 ? "" : "s"}`}
-          </button>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

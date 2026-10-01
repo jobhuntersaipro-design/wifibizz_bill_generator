@@ -1,7 +1,11 @@
 "use client";
+import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { CheckboxInput } from "@/components/ui/checkbox-input";
+import { Button } from "@/components/ui/button";
 
 import { useEffect, useId, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import {
   adminListPlans,
   adminCreatePlan,
@@ -24,6 +28,7 @@ import {
   type OfferGroupView,
   type OfferItemView,
 } from "@/lib/plan-offer";
+import { Modal } from "@/components/ui/modal";
 
 /**
  * How an admin finds the offer-group names. Written out rather than illustrated
@@ -266,20 +271,20 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
               Adding an option under <strong className="text-ink">{optionOf.name}</strong>
             </span>
           )}
-          <input
+          <Input unstyled
             value={name}
             onChange={(e) => setName(e.target.value)}
             autoFocus
             placeholder={optionOf ? "Netflix Standard" : placeholder}
             className="h-8 min-w-64 flex-1 rounded border border-line bg-white px-2 text-[12px] text-ink focus:border-brand focus:outline-none"
           />
-          <input
+          <Input unstyled
             value={monthly}
             onChange={(e) => setMonthly(e.target.value)}
             placeholder="RM/mth"
             className="h-8 w-20 rounded border border-line bg-white px-2 text-[12px] tabular-nums text-ink focus:border-brand focus:outline-none"
           />
-          <input
+          <Input unstyled
             value={code}
             onChange={(e) => setCode(e.target.value)}
             placeholder="code (optional)"
@@ -287,8 +292,8 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
           />
           {optionOf && (
             <label className="flex items-center gap-1.5 text-[11px] text-ink-soft cursor-pointer">
-              <input
-                type="checkbox"
+              <CheckboxInput
+                
                 checked={optionIncluded}
                 onChange={(e) => setOptionIncluded(e.target.checked)}
                 className="h-3.5 w-3.5 rounded border-line-strong accent-brand cursor-pointer"
@@ -296,21 +301,21 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
               Included by default
             </label>
           )}
-          <button
+          <Button unstyled variant="default"
             type="button"
             disabled={busy || !name.trim()}
             onClick={addItem}
             className="rounded bg-brand px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-ink disabled:opacity-50 transition-colors cursor-pointer"
           >
             Add
-          </button>
-          <button
+          </Button>
+          <Button unstyled variant="outline"
             type="button"
             onClick={resetForm}
             className="rounded border border-line bg-white px-2.5 py-1.5 text-[11px] font-medium text-ink-soft hover:border-brand transition-colors cursor-pointer"
           >
             Cancel
-          </button>
+          </Button>
         </div>
       ) : (
         <button
@@ -343,7 +348,7 @@ function KindPicker({
   label: string;
 }) {
   return (
-    <select
+    <Select
       value={kind}
       onChange={(e) => onChange(e.target.value as OfferGroupKind)}
       aria-label={`What ${label} holds`}
@@ -361,7 +366,7 @@ function KindPicker({
           {OFFER_GROUP_KIND_LABEL[k]}
         </option>
       ))}
-    </select>
+    </Select>
   );
 }
 
@@ -394,13 +399,7 @@ function RemovePlanModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm px-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Remove plan"
-    >
-      <div className="w-full max-w-md bg-white rounded-lg border border-line shadow-xl overflow-hidden">
+    <Modal label="Remove plan" onClose={onClose} overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm px-4" className="w-full max-w-md bg-white rounded-lg border border-line shadow-xl overflow-hidden" role="dialog" aria-modal="true" aria-label="Remove plan">
         <div className="px-6 py-4 border-b border-line">
           <h2 className="text-sm font-semibold text-ink">Remove plan</h2>
         </div>
@@ -418,25 +417,24 @@ function RemovePlanModal({
             Orders already placed on this plan are not affected.
           </p>
           <div className="flex justify-end gap-2 pt-1">
-            <button
+            <Button unstyled variant="outline"
               type="button"
               onClick={onClose}
               className="rounded-lg border border-line px-3 py-2 text-[12px] font-medium text-ink-soft hover:border-brand transition-colors cursor-pointer"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button unstyled variant="destructive"
               type="button"
               onClick={remove}
               disabled={busy}
               className="rounded-lg bg-danger px-3 py-2 text-[12px] font-semibold text-white hover:bg-danger/90 disabled:opacity-50 transition-colors cursor-pointer"
             >
               {busy ? "Removing…" : "Remove plan"}
-            </button>
+            </Button>
           </div>
         </div>
-      </div>
-    </div>
+      </Modal>
   );
 }
 
@@ -550,14 +548,14 @@ function PlanRow({
         >
           {plan.published ? "Published" : mandatoryCount > 0 ? "Unpublished" : "Needs groups"}
         </span>
-        <button
+        <Button unstyled variant="outline"
           type="button"
           disabled={busy}
           onClick={togglePublish}
           className="shrink-0 rounded-md border border-line px-3 py-1.5 text-[12px] font-medium text-ink-soft hover:border-brand hover:text-brand disabled:opacity-50 transition-colors cursor-pointer"
         >
           {plan.published ? "Unpublish" : "Publish"}
-        </button>
+        </Button>
         <button
           type="button"
           onClick={() => setConfirmRemove(true)}
@@ -605,7 +603,7 @@ function PlanRow({
 
       {adding ? (
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <input
+          <Input unstyled
             value={name}
             onChange={(e) => setName(e.target.value)}
             autoFocus
@@ -613,8 +611,8 @@ function PlanRow({
             className="h-9 min-w-72 flex-1 rounded-lg border border-line px-3 text-[12px] text-ink hover:border-brand/60 focus:border-brand focus:outline-none transition-colors"
           />
           <label className="flex items-center gap-1.5 text-[11px] text-ink-soft cursor-pointer">
-            <input
-              type="checkbox"
+            <CheckboxInput
+              
               checked={mandatory}
               onChange={(e) => setMandatory(e.target.checked)}
               className="h-3.5 w-3.5 rounded border-line-strong accent-brand cursor-pointer"
@@ -622,21 +620,21 @@ function PlanRow({
             Mandatory (red *)
           </label>
           <KindPicker kind={kind} onChange={setKind} label="this new group" />
-          <button
+          <Button unstyled variant="default"
             type="button"
             disabled={busy || !name.trim()}
             onClick={addGroup}
             className="rounded-md bg-brand px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-ink disabled:opacity-50 transition-colors cursor-pointer"
           >
             Add
-          </button>
-          <button
+          </Button>
+          <Button unstyled variant="outline"
             type="button"
             onClick={() => { setAdding(false); setName(""); }}
             className="rounded-md border border-line px-3 py-1.5 text-[12px] font-medium text-ink-soft hover:border-brand transition-colors cursor-pointer"
           >
             Cancel
-          </button>
+          </Button>
         </div>
         ) : (
           <button
@@ -839,13 +837,7 @@ function NewPlanModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Add a plan"
-    >
-      <div className="w-full max-w-md bg-white rounded-lg border border-line shadow-xl overflow-hidden">
+    <Modal label="Add a plan" onClose={onClose} overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" className="w-full max-w-md bg-white rounded-lg border border-line shadow-xl overflow-hidden" role="dialog" aria-modal="true" aria-label="Add a plan">
         <div className="px-6 py-4 border-b border-line">
           <h2 className="text-sm font-semibold text-ink">Add a plan</h2>
         </div>
@@ -857,7 +849,7 @@ function NewPlanModal({
           </p>
           <label className="block">
             <span className="block text-[11px] font-medium text-ink-soft mb-1">Plan name</span>
-            <input
+            <Input unstyled
               value={name}
               onChange={(e) => setName(e.target.value)}
               autoFocus
@@ -870,7 +862,7 @@ function NewPlanModal({
               <span className="block text-[11px] font-medium text-ink-soft mb-1">
                 Portal offer category
               </span>
-              <input
+              <Input unstyled
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
                 list={categoryListId}
@@ -885,7 +877,7 @@ function NewPlanModal({
             </label>
             <label className="block w-32">
               <span className="block text-[11px] font-medium text-ink-soft mb-1">Speed</span>
-              <input
+              <Input unstyled
                 value={bandwidth}
                 onChange={(e) => setBandwidth(e.target.value)}
                 list={bandwidthListId}
@@ -905,25 +897,24 @@ function NewPlanModal({
             none — it files under &ldquo;Other speeds&rdquo;.
           </p>
           <div className="flex justify-end gap-2 pt-1">
-            <button
+            <Button unstyled variant="outline"
               type="button"
               onClick={onClose}
               className="rounded-lg border border-line px-3 py-2 text-[12px] font-medium text-ink-soft hover:border-brand transition-colors cursor-pointer"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button unstyled variant="default"
               type="button"
               onClick={create}
               disabled={busy || !name.trim() || !category.trim()}
               className="rounded-lg bg-brand px-3 py-2 text-[12px] font-semibold text-white hover:bg-brand/90 disabled:opacity-50 transition-colors cursor-pointer"
             >
               {busy ? "Adding…" : "Add plan"}
-            </button>
+            </Button>
           </div>
         </div>
-      </div>
-    </div>
+      </Modal>
   );
 }
 
@@ -989,15 +980,15 @@ export function PlanDetails() {
       <Guide />
 
       <div className="flex flex-wrap items-center gap-3">
-        <input
+        <Input unstyled
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search plans…"
           className="h-10 flex-1 min-w-60 rounded-lg border border-line bg-white px-3 text-sm text-ink hover:border-brand/60 focus:border-brand focus:outline-none transition-colors"
         />
         <label className="flex items-center gap-2 text-[12px] text-ink-soft cursor-pointer">
-          <input
-            type="checkbox"
+          <CheckboxInput
+            
             checked={onlyUnpublished}
             onChange={(e) => setOnlyUnpublished(e.target.checked)}
             className="h-4 w-4 rounded border-line-strong accent-brand cursor-pointer"
@@ -1007,13 +998,13 @@ export function PlanDetails() {
         <span className="text-[12px] font-medium text-ink tabular-nums">
           {publishedCount} of {plans.length} published
         </span>
-        <button
+        <Button unstyled variant="default"
           type="button"
           onClick={() => setAddingPlan(true)}
           className="h-10 shrink-0 rounded-lg bg-brand px-3 text-[12px] font-semibold text-white hover:bg-brand/90 transition-colors cursor-pointer"
         >
           + New plan
-        </button>
+        </Button>
       </div>
 
       {addingPlan && (

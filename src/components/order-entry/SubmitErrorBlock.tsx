@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { portalCodeFrom, portalOrderUrl, submitErrorCopy } from "@/lib/order-types";
 import { ACTION_LABEL, actionFor, contactAdminNote } from "@/lib/failure-action";
+import { Button } from "@/components/ui/button";
 
 interface Props {
   errorMessage: string | null;
@@ -140,9 +141,9 @@ function ActionRow({ resolved, order, orderId, errorCode, onResubmit }: {
       );
     case "resubmit":
       return onResubmit ? (
-        <button type="button" onClick={onResubmit} className={`${btn} bg-brand hover:bg-ink`}>
+        <Button unstyled variant="default" type="button" onClick={onResubmit} className={`${btn} bg-brand hover:bg-ink`}>
           {ACTION_LABEL.resubmit}
-        </button>
+        </Button>
       ) : null;
     case "check_portal":
       return (

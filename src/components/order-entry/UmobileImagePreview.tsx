@@ -1,4 +1,5 @@
 "use client";
+import { Button } from "@/components/ui/button";
 
 export function UmobileImagePreview({
   pick,
@@ -27,14 +28,14 @@ export function UmobileImagePreview({
           {pick.filename || "Selected at random. Umobile Bill will add it as an extra page."}
         </p>
       </div>
-      <button
+      <Button unstyled variant="outline"
         type="button"
         onClick={onReroll}
         disabled={busy}
         className="shrink-0 rounded-md border border-line bg-white px-3 py-1.5 text-[12px] font-medium text-ink-soft hover:border-brand hover:text-brand disabled:opacity-50"
       >
         {busy ? "Picking…" : "Re-roll"}
-      </button>
+      </Button>
     </div>
   );
 }

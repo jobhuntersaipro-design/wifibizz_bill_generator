@@ -913,6 +913,11 @@
   box-shadow: var(--shadow-floating);
   border-radius: var(--radius-panel);
 }
+/* Arc sizes a select's list to its trigger. The app's filter selects are compact, so the list
+   may grow to its longest option instead of wrapping it ("All / Statuses"). */
+:is(:root[data-design="arc"], [data-design="arc"]) [role="listbox"][data-state] {
+  width: max-content;
+}
 :is(:root[data-design="arc"], [data-design="arc"]) :focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;

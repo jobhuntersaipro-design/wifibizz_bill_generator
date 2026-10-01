@@ -1,7 +1,9 @@
 "use client";
+import { Textarea } from "@/components/ui/textarea";
+import { Select } from "@/components/ui/select";
 
 import { useMemo, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { saveChatSettings } from "@/actions/admin-chat-settings";
 import {
   DEFAULT_INSTRUCTIONS,
@@ -18,6 +20,7 @@ import {
   type ChatSettings,
 } from "@/lib/admin-chat/settings-rules";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 export interface ToolInfo {
   name: string;
@@ -168,22 +171,22 @@ export function AssistantSettings({
         <p className="mr-auto text-[13px] text-ink-muted" aria-live="polite">
           {dirty ? "Unsaved changes" : "All changes saved"}
         </p>
-        <button
+        <Button unstyled variant="outline"
           type="button"
           onClick={() => setDraft(saved)}
           disabled={!dirty || saving}
           className="h-10 rounded-lg border border-line px-4 text-[13px] font-medium text-ink-soft transition-colors hover:bg-wash disabled:opacity-40"
         >
           Discard
-        </button>
-        <button
+        </Button>
+        <Button unstyled variant="default"
           type="button"
           onClick={save}
           disabled={!dirty || saving}
           className="h-10 rounded-lg bg-brand px-5 text-[13px] font-semibold text-white transition-colors hover:bg-[#5249E0] disabled:opacity-40"
         >
           {saving ? "Saving…" : "Save"}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -247,28 +250,28 @@ function ModelCard({
           <label htmlFor="assistant-model" className="mb-1.5 block text-[12.5px] font-medium text-ink-soft">
             Model
           </label>
-          <select id="assistant-model" value={model} onChange={(e) => onModel(e.target.value)} className={SELECT_CLASS}>
+          <Select id="assistant-model" value={model} onChange={(e) => onModel(e.target.value)} className={SELECT_CLASS}>
             <option value="">Deployment default ({runtime.model})</option>
             {CHAT_MODELS.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.label} ({m.id})
               </option>
             ))}
-          </select>
+          </Select>
           {modelNote && <p className="mt-1.5 text-[12px] text-ink-faint">{modelNote}</p>}
         </div>
         <div>
           <label htmlFor="assistant-effort" className="mb-1.5 block text-[12.5px] font-medium text-ink-soft">
             Effort
           </label>
-          <select id="assistant-effort" value={effort} onChange={(e) => onEffort(e.target.value)} className={SELECT_CLASS}>
+          <Select id="assistant-effort" value={effort} onChange={(e) => onEffort(e.target.value)} className={SELECT_CLASS}>
             <option value="">Deployment default ({runtime.effort})</option>
             {CHAT_EFFORTS.map((e) => (
               <option key={e.id} value={e.id}>
                 {e.label}
               </option>
             ))}
-          </select>
+          </Select>
           {effortNote && <p className="mt-1.5 text-[12px] text-ink-faint">{effortNote}</p>}
         </div>
       </div>
@@ -302,20 +305,20 @@ function InstructionsCard({
             <code className="font-mono text-[12px]">{HANDOFF_PLACEHOLDER}</code> is replaced with {handoffName}.
           </p>
         </div>
-        <button
+        <Button unstyled variant="outline"
           type="button"
           onClick={() => onChange(DEFAULT_INSTRUCTIONS)}
           disabled={isDefault}
           className="h-9 rounded-lg border border-line px-3 text-[13px] font-medium text-ink-soft transition-colors hover:bg-wash disabled:opacity-40"
         >
           Reset to default
-        </button>
+        </Button>
       </div>
       <div className="space-y-3 px-5 py-4">
         <label htmlFor="assistant-instructions" className="sr-only">
           Instructions
         </label>
-        <textarea
+        <Textarea
           id="assistant-instructions"
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -415,7 +418,7 @@ function ToolRow({
             </button>
           )}
         </div>
-        <textarea
+        <Textarea
           id={id}
           value={description}
           onChange={(e) => onDescription(e.target.value)}

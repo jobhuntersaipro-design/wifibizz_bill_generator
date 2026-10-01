@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { actionFor } from "@/lib/failure-action";
 import { UnseenOutcomes } from "@/components/order-entry/UnseenOutcomes";
 import {
@@ -38,6 +38,7 @@ import { CancelOrderDialog } from "./CancelOrderDialog";
 import { StopSubmitDialog } from "./StopSubmitDialog";
 import { DeleteOrderDialog } from "./DeleteOrderDialog";
 import { BatchSubmitDialog } from "./BatchSubmitDialog";
+import { Button } from "@/components/ui/button";
 
 /** One poll's view of an in-flight submit, as returned by the progress route. */
 interface ProgressState {
@@ -595,7 +596,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
       <div className="rounded-xl border border-red-200 bg-white p-10 text-center">
         <p className="text-sm font-medium text-red-700">Couldn&apos;t load orders</p>
         <p className="mx-auto mt-1 max-w-md text-xs leading-snug text-ink-muted">{loadError}</p>
-        <button
+        <Button unstyled variant="default"
           type="button"
           onClick={() => {
             setLoading(true);
@@ -605,7 +606,7 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
           className="mt-4 cursor-pointer rounded-lg bg-brand px-4 py-2 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-ink"
         >
           Try again
-        </button>
+        </Button>
       </div>
     );
   }

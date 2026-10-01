@@ -1,4 +1,6 @@
 "use client";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 import { useState } from "react";
 import { CalendarDays, X } from "lucide-react";
@@ -11,6 +13,8 @@ import {
   toDateInput,
 } from "@/lib/order-types";
 import { Calendar } from "@/components/ui/calendar";
+import { DateRangePicker } from "@/components/arc/components/date-range-picker/date-range-picker";
+import { useIsArc } from "@/components/design/use-design";
 import {
   Popover,
   PopoverContent,
@@ -36,9 +40,31 @@ export function DateRangeFilter({
   onChange: (from: string | null, to: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const arc = useIsArc();
   const from = fromDateInput(dateFrom);
   const to = fromDateInput(dateTo);
   const active = !!(dateFrom || dateTo);
+
+  // Arc: Arc's DateRangePicker (two-month panel, preset rail, range morph). It
+  // speaks closed ranges only, so an open-ended span reads "Any time" there and
+  // the clear button beside it is what shows a filter is still on.
+  if (arc) {
+    return (
+      <div className="flex items-center gap-1">
+        <DateRangePicker
+          label="Created date"
+          placeholder="Any time"
+          value={from && to ? { start: from, end: to } : null}
+          onChange={(range) => onChange(toDateInput(range.start), toDateInput(range.end))}
+        />
+        {active && (
+          <Button unstyled variant="ghost" size="icon-sm" type="button" aria-label="Clear dates" onClick={() => onChange(null, null)}>
+            <X className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        )}
+      </div>
+    );
+  }
 
   const range: DateRange | undefined = from ? { from, to: to ?? undefined } : undefined;
 
@@ -76,7 +102,7 @@ export function DateRangeFilter({
               >
                 From
               </label>
-              <input
+              <Input unstyled
                 id="drafts-date-from"
                 type="date"
                 value={dateFrom ?? ""}
@@ -92,7 +118,7 @@ export function DateRangeFilter({
               >
                 To
               </label>
-              <input
+              <Input unstyled
                 id="drafts-date-to"
                 type="date"
                 value={dateTo ?? ""}
@@ -153,7 +179,7 @@ export function DateRangeFilter({
           </div>
 
           <div className="flex items-center justify-between border-t border-line pt-2">
-            <button
+            <Button unstyled variant="ghost"
               type="button"
               onClick={() => onChange(null, null)}
               disabled={!active}
@@ -161,14 +187,14 @@ export function DateRangeFilter({
             >
               <X className="h-3.5 w-3.5" aria-hidden="true" />
               Clear dates
-            </button>
-            <button
+            </Button>
+            <Button unstyled variant="default"
               type="button"
               onClick={() => setOpen(false)}
               className="min-h-9 cursor-pointer rounded-lg bg-brand px-3 text-[12px] font-semibold text-white transition-colors duration-150 hover:bg-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
             >
               Done
-            </button>
+            </Button>
           </div>
         </div>
       </PopoverContent>

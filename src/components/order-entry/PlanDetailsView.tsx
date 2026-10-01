@@ -1,4 +1,5 @@
 "use client";
+import { Input } from "@/components/ui/input";
 
 import { useEffect, useState } from "react";
 import { getPublishedPlans, type PlanView } from "@/actions/plans";
@@ -64,7 +65,7 @@ export function PlanDetailsView() {
         </p>
       </div>
 
-      <input
+      <Input unstyled
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Search plans…"

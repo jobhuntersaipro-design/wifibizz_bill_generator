@@ -1,4 +1,5 @@
 "use client";
+import { Button } from "@/components/ui/button";
 
 import { Ban } from "lucide-react";
 import type { OrderListItem } from "@/lib/order-types";
@@ -92,14 +93,14 @@ export function CancelOrderDialog({
           <DialogClose className="inline-flex h-9 cursor-pointer items-center justify-center rounded-lg border border-line px-4 text-[13px] font-medium text-ink-soft transition-colors duration-150 hover:bg-wash">
             Keep order
           </DialogClose>
-          <button
+          <Button unstyled variant="destructive"
             type="button"
             onClick={onConfirm}
             className="inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-[#C2740B] px-4 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-[#9A5C08] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C2740B]"
           >
             <Ban className="h-3.5 w-3.5" aria-hidden="true" />
             Cancel order
-          </button>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

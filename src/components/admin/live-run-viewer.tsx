@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { adminLiveViewToken, adminStopJob } from "@/actions/admin-submit";
 import { liveRunVerdict } from "@/lib/live-run-verdict";
 import { liveViewUrl } from "@/lib/live-view-url";
 import { SUBMIT_STEPS, progressReading } from "@/lib/order-types";
+import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 
 type Conn = "connecting" | "live" | "reconnecting" | "finished" | "unreachable" | "no_live_view" | "too_many_viewers";
 interface StageRow { name: string; detail: string | null; at: string }
@@ -183,10 +185,10 @@ export function LiveRunViewer({ orderId, label, jobId, token: initialToken, expi
           {/* Stop goes through Vercel, not the stream — so it stays available
               when the stream is unreachable or capped. */}
           {!outcome && (
-            <button type="button" onClick={() => setConfirmStop(true)} disabled={stopping}
+            <Button unstyled variant="destructive" type="button" onClick={() => setConfirmStop(true)} disabled={stopping}
               className="min-h-9 rounded-md border border-[#FDA29B] bg-white px-3 py-1.5 text-sm font-medium text-[#B42318] hover:bg-[#FEF3F2] disabled:opacity-50">
               Stop this run
-            </button>
+            </Button>
           )}
         </div>
       </header>
@@ -249,18 +251,16 @@ export function LiveRunViewer({ orderId, label, jobId, token: initialToken, expi
       </div>
 
       {confirmStop && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" role="dialog" aria-modal="true" aria-labelledby="stop-run-title">
-          <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
+        <Modal label="Stop this run?" onClose={() => setConfirmStop(false)} overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="stop-run-title">
             <h3 id="stop-run-title" className="text-base font-semibold text-ink">Stop this run?</h3>
             <p className="mt-2 text-sm text-ink-soft">
               The browser is torn down where it stands. The portal mints the Customer Order Number early, so a run stopped mid-flight can leave a real order at Unifi — check the portal before submitting again.
             </p>
             <div className="mt-5 flex justify-end gap-2">
-              <button type="button" onClick={() => setConfirmStop(false)} className="rounded-md border border-line px-3 py-2 text-sm text-ink-soft">Keep running</button>
-              <button type="button" onClick={stop} disabled={stopping} className="rounded-md bg-[#B42318] px-3 py-2 text-sm text-white disabled:opacity-50">{stopping ? "Stopping…" : "Stop the run"}</button>
+              <Button unstyled variant="outline" type="button" onClick={() => setConfirmStop(false)} className="rounded-md border border-line px-3 py-2 text-sm text-ink-soft">Keep running</Button>
+              <Button unstyled variant="destructive" type="button" onClick={stop} disabled={stopping} className="rounded-md bg-[#B42318] px-3 py-2 text-sm text-white disabled:opacity-50">{stopping ? "Stopping…" : "Stop the run"}</Button>
             </div>
-          </div>
-        </div>
+          </Modal>
       )}
     </div>
   );

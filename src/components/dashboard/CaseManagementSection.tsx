@@ -1,4 +1,5 @@
 "use client";
+import { Select } from "@/components/ui/select";
 
 import LottieSpot from "@/components/order-entry/LottieSpot";
 import { useEffect, useState, useCallback, useRef } from "react";
@@ -7,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { initialsFor } from "@/lib/order-types";
 import { createPortal } from "react-dom";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import {
   type CaseRow, type SortState, PAGE_SIZE, COLUMNS,
   formatDateTime, getStatusStyle,
@@ -672,10 +673,10 @@ export default function CaseManagementSection() {
               </Button>
             </div>
             <div className="relative">
-              <select className="h-9 rounded-lg border border-line bg-white pl-3 pr-9 text-sm text-ink-soft focus:border-brand focus:ring-1 focus:ring-brand/20 transition-all outline-none appearance-none" value={status} onChange={(e) => { setPage(0); setStatus(e.target.value); }}>
+              <Select className="h-9 rounded-lg border border-line bg-white pl-3 pr-9 text-sm text-ink-soft focus:border-brand focus:ring-1 focus:ring-brand/20 transition-all outline-none appearance-none" value={status} onChange={(e) => { setPage(0); setStatus(e.target.value); }}>
                 <option value="">All Statuses</option>
                 {statuses.map((s) => (<option key={s} value={s}>{s}</option>))}
-              </select>
+              </Select>
               <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
             </div>
             <div role="group" aria-label="Date filter field" className="inline-flex h-9 rounded-lg border border-line bg-wash p-0.5">
@@ -698,9 +699,9 @@ export default function CaseManagementSection() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <label className="text-xs text-ink-muted whitespace-nowrap font-medium hidden sm:inline">From</label>
-              <input type="date" aria-label="From date" aria-invalid={invalidDateRange} max={dateTo || undefined} className={`h-9 rounded-lg border bg-white px-2 sm:px-3 text-sm text-ink-soft focus:ring-1 transition-all outline-none max-w-37.5 ${invalidDateRange ? "border-danger focus:border-danger focus:ring-danger/20" : "border-line focus:border-brand focus:ring-brand/20"}`} value={dateFrom} onChange={(e) => applyDateRange(e.target.value, dateTo)} />
+              <Input unstyled type="date" aria-label="From date" aria-invalid={invalidDateRange} max={dateTo || undefined} className={`h-9 rounded-lg border bg-white px-2 sm:px-3 text-sm text-ink-soft focus:ring-1 transition-all outline-none max-w-37.5 ${invalidDateRange ? "border-danger focus:border-danger focus:ring-danger/20" : "border-line focus:border-brand focus:ring-brand/20"}`} value={dateFrom} onChange={(e) => applyDateRange(e.target.value, dateTo)} />
               <label className="text-xs text-ink-muted whitespace-nowrap font-medium hidden sm:inline">To</label>
-              <input type="date" aria-label="To date" aria-invalid={invalidDateRange} aria-describedby={invalidDateRange ? "case-list-date-range-error" : undefined} min={dateFrom || undefined} className={`h-9 rounded-lg border bg-white px-2 sm:px-3 text-sm text-ink-soft focus:ring-1 transition-all outline-none max-w-37.5 ${invalidDateRange ? "border-danger focus:border-danger focus:ring-danger/20" : "border-line focus:border-brand focus:ring-brand/20"}`} value={dateTo} onChange={(e) => applyDateRange(dateFrom, e.target.value)} />
+              <Input unstyled type="date" aria-label="To date" aria-invalid={invalidDateRange} aria-describedby={invalidDateRange ? "case-list-date-range-error" : undefined} min={dateFrom || undefined} className={`h-9 rounded-lg border bg-white px-2 sm:px-3 text-sm text-ink-soft focus:ring-1 transition-all outline-none max-w-37.5 ${invalidDateRange ? "border-danger focus:border-danger focus:ring-danger/20" : "border-line focus:border-brand focus:ring-brand/20"}`} value={dateTo} onChange={(e) => applyDateRange(dateFrom, e.target.value)} />
               {invalidDateRange && (
                 <p id="case-list-date-range-error" role="alert" className="w-full text-xs font-medium text-danger">
                   {CASE_DATE_RANGE_ERROR}

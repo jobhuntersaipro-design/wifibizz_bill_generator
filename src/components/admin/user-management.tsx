@@ -9,7 +9,8 @@ import { getUsers, createUser, createInviteLink, updateUser, deleteUser, topupUs
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
+import { Modal } from "@/components/ui/modal";
 
 interface UserRow {
   id: string;
@@ -244,37 +245,37 @@ export function UserManagement() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-1">
-                      <button
+                      <Button unstyled variant="ghost"
                         onClick={() => setViewTarget(user)}
                         className="inline-flex items-center px-2.5 py-1 text-xs font-medium text-ink-soft hover:bg-wash rounded-md transition-colors"
                       >
                         View
-                      </button>
-                      <button
+                      </Button>
+                      <Button unstyled variant="ghost"
                         onClick={() => setTopupTarget(user)}
                         className="inline-flex items-center px-2.5 py-1 text-xs font-medium text-[#09825D] hover:bg-green-50 rounded-md transition-colors"
                       >
                         Topup
-                      </button>
-                      <button
+                      </Button>
+                      <Button unstyled variant="ghost"
                         onClick={() => void inviteUser(user)}
                         className="inline-flex items-center px-2.5 py-1 text-xs font-medium text-ink-soft hover:bg-wash rounded-md transition-colors"
                         title="Copy a 7-day set-password link. Clicking again mints a fresh one."
                       >
                         Invite
-                      </button>
-                      <button
+                      </Button>
+                      <Button unstyled variant="ghost"
                         onClick={() => openEdit(user)}
                         className="inline-flex items-center px-2.5 py-1 text-xs font-medium text-brand hover:bg-wash rounded-md transition-colors"
                       >
                         Edit
-                      </button>
-                      <button
+                      </Button>
+                      <Button unstyled variant="destructive"
                         onClick={() => setDeleteTarget(user)}
                         className="inline-flex items-center px-2.5 py-1 text-xs font-medium text-white bg-danger hover:bg-danger/90 rounded-md transition-colors"
                       >
                         Delete
-                      </button>
+                      </Button>
                     </div>
                   </td>
                 </tr>
@@ -411,8 +412,7 @@ function UserFormModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-      <div className="w-full max-w-md mx-4 bg-white rounded-lg border border-line shadow-xl overflow-hidden">
+    <Modal label="Create or edit user" onClose={onClose} overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" className="w-full max-w-md mx-4 bg-white rounded-lg border border-line shadow-xl overflow-hidden">
         <div className="px-6 py-4 border-b border-line">
           <h2 className="text-sm font-semibold text-ink">
             {mode === "create" ? "Create User" : "Edit User"}
@@ -511,8 +511,7 @@ function UserFormModal({
             </div>
           </form>
         </div>
-      </div>
-    </div>
+      </Modal>
   );
 }
 
@@ -543,8 +542,7 @@ function DeleteConfirmModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-      <div className="w-full max-w-sm mx-4 bg-white rounded-lg border border-line shadow-xl overflow-hidden">
+    <Modal label="Delete user" onClose={onClose} overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" className="w-full max-w-sm mx-4 bg-white rounded-lg border border-line shadow-xl overflow-hidden">
         <div className="px-6 py-4 border-b border-line">
           <h2 className="text-sm font-semibold text-ink">Delete User</h2>
         </div>
@@ -580,8 +578,7 @@ function DeleteConfirmModal({
             </Button>
           </div>
         </div>
-      </div>
-    </div>
+      </Modal>
   );
 }
 
@@ -699,8 +696,7 @@ function TopupModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-      <div className="w-full max-w-sm mx-4 bg-white rounded-lg border border-line shadow-xl overflow-hidden">
+    <Modal label="Top up cases" onClose={onClose} overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" className="w-full max-w-sm mx-4 bg-white rounded-lg border border-line shadow-xl overflow-hidden">
         <div className="px-6 py-4 border-b border-line">
           <h2 className="text-sm font-semibold text-ink">Topup Cases</h2>
           <p className="text-xs text-ink-muted mt-0.5">
@@ -782,8 +778,7 @@ function TopupModal({
             </Button>
           </div>
         </form>
-      </div>
-    </div>
+      </Modal>
   );
 }
 
@@ -824,8 +819,7 @@ function UserHistoryPanel({ user, onClose }: { user: UserRow; onClose: () => voi
   }, [user.id]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-      <div className="w-full max-w-2xl mx-4 bg-white rounded-lg border border-line shadow-xl overflow-hidden max-h-[80vh] flex flex-col">
+    <Modal label="User history" onClose={onClose} overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" className="w-full max-w-2xl mx-4 bg-white rounded-lg border border-line shadow-xl overflow-hidden max-h-[80vh] flex flex-col">
         {/* Header */}
         <div className="px-6 py-4 border-b border-line flex items-center justify-between shrink-0">
           <div>
@@ -947,7 +941,6 @@ function UserHistoryPanel({ user, onClose }: { user: UserRow; onClose: () => voi
         ) : (
           <div className="text-center py-8 text-sm text-danger">Failed to load history</div>
         )}
-      </div>
-    </div>
+      </Modal>
   );
 }

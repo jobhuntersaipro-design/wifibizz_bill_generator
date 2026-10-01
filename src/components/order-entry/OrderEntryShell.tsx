@@ -1,4 +1,5 @@
 "use client";
+import { Select } from "@/components/ui/select";
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
@@ -18,7 +19,7 @@ import {
   disconnectDealerAccount,
   type DealerConnection,
 } from "@/actions/dealer";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import LottieSpot from "./LottieSpot";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import {
@@ -655,7 +656,7 @@ export default function OrderEntryShell({
                   <Label htmlFor="otp-channel" className="text-xs font-medium text-ink-soft">
                     Send OTP via
                   </Label>
-                  <select
+                  <Select
                     id="otp-channel"
                     value={channel}
                     onChange={(e) => setChannel(e.target.value as "Email" | "SMS")}
@@ -663,7 +664,7 @@ export default function OrderEntryShell({
                   >
                     <option value="Email">Email</option>
                     <option value="SMS">SMS</option>
-                  </select>
+                  </Select>
                 </div>
 
                 {channel === "Email" && (
