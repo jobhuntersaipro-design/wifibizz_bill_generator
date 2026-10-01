@@ -285,6 +285,10 @@ export default function CaseManagementSection() {
   const [sort, setSort] = useState<SortState>({ column: "case_created_at", dir: "desc" });
   const [selectedCase, setSelectedCase] = useState<CaseRow | null>(null);
   const [billCacheBuster, setBillCacheBuster] = useState(0);
+  // Ticked rows. Tagged with the filters they were picked under, so changing a
+  // filter drops the selection instead of acting on rows no longer listed.
+  const [selection, setSelection] = useState<{ key: string; caseNos: Set<string>; all: boolean }>({ key: "", caseNos: new Set(), all: false });
+  const [bulkBusy, setBulkBusy] = useState<"csv" | "internet" | "utility" | null>(null);
   // The case whose documents are being combined into one PDF.
   const [mergeCase, setMergeCase] = useState<CaseRow | null>(null);
   // Per-row single-bill generation in flight, keyed `${caseNo}:${type}`.
@@ -355,6 +359,77 @@ export default function CaseManagementSection() {
     setDateTo("");
     setDateField("case_created_at");
     setPage(0);
+  }
+
+  const filterKey = [search, status, dateFrom, dateTo, dateField].join("|");
+  const selected = selection.key === filterKey ? selection.caseNos : new Set<string>();
+  const allSelected = selection.key === filterKey && selection.all;
+  const pageAllTicked = cases.length > 0 && cases.every((c) => selected.has(c.case_no));
+
+  function setSelected(caseNos: Set<string>, all = false) {
+    setSelection({ key: filterKey, caseNos, all });
+  }
+
+  function toggleCase(caseNo: string) {
+    const next = new Set(selected);
+    if (!next.delete(caseNo)) next.add(caseNo);
+    setSelected(next);
+  }
+
+  function togglePage() {
+    const next = new Set(selected);
+    for (const c of cases) {
+      if (pageAllTicked) next.delete(c.case_no);
+      else next.add(c.case_no);
+    }
+    setSelected(next);
+  }
+
+  async function selectAllMatching() {
+    const params = new URLSearchParams();
+    setCaseListQueryParams(params, { search, status, dateFrom, dateTo, dateField });
+    const res = await fetch(`/api/cases/ids?${params}`);
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast.error(json.error ?? "Could not select all cases.");
+      return;
+    }
+    setSelected(new Set(json.case_nos as string[]), true);
+  }
+
+  // CSV or a ZIP of the ticked cases' stored bills (cases with none are skipped).
+  async function downloadSelected(kind: "csv" | "internet" | "utility") {
+    if (selected.size === 0 || bulkBusy) return;
+    setBulkBusy(kind);
+    const label = kind === "csv" ? "CSV" : kind === "internet" ? `${UMOBILE_BILL_LABEL}s` : "Utility Bills";
+    const toastId = toast.loading(`Preparing ${label}…`);
+    try {
+      const res = await fetch(kind === "csv" ? "/api/cases/export" : "/api/bills/bulk-download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ caseNos: [...selected], type: kind }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error ?? `${label} download failed.`, { id: toastId });
+        return;
+      }
+      const blob = await res.blob();
+      const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ?? `cases.${kind === "csv" ? "csv" : "zip"}`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`${label} downloaded.`, { id: toastId });
+    } catch {
+      toast.error(`${label} download failed.`, { id: toastId });
+    } finally {
+      setBulkBusy(null);
+    }
   }
 
   function handleSort(column: string) {
@@ -610,7 +685,7 @@ export default function CaseManagementSection() {
     setSyncing(true);
     setSyncResult(null);
     setSyncCount(0);
-    const result = await syncCasesToSheet();
+    const result = await syncCasesToSheet(selected.size > 0 ? [...selected] : undefined);
     setSyncing(false);
     if (result.success) {
       setSyncResult("success");
@@ -764,11 +839,32 @@ export default function CaseManagementSection() {
               ) : (
                 <span className="flex items-center">
                   <SyncSheetIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0 transition-transform duration-300 group-hover:rotate-12" />
-                  <span className="truncate">Sync to Sheet</span>
+                  <span className="truncate">{selected.size > 0 ? `Sync ${selected.size} to Sheet` : "Sync to Sheet"}</span>
                 </span>
               )}
             </Button>
+            {selected.size > 0 && ([
+              ["csv", "Download CSV"],
+              ["internet", `Download ${UMOBILE_BILL_LABEL}s`],
+              ["utility", "Download Utility Bills"],
+            ] as const).map(([kind, text]) => (
+              <Button key={kind} onClick={() => downloadSelected(kind)} disabled={bulkBusy !== null} className="bg-white border border-line text-ink-soft hover:text-ink hover:border-brand rounded-lg h-9 px-3 sm:px-4 text-xs sm:text-sm font-medium transition-all press-effect disabled:opacity-50 disabled:cursor-not-allowed">
+                {bulkBusy === kind
+                  ? <span className="w-4 h-4 mr-1 sm:mr-2 shrink-0 rounded-full border-2 border-brand border-t-transparent animate-spin" />
+                  : <DownloadIcon className="w-4 h-4 mr-1 sm:mr-2 shrink-0" />}
+                <span className="truncate">{text} ({selected.size})</span>
+              </Button>
+            ))}
           </div>
+          {selected.size > 0 && (
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+              <span className="text-ink-muted tabular-nums">{allSelected ? `All ${selected.size} cases selected` : `${selected.size} selected`}</span>
+              {!allSelected && selected.size < count && (
+                <button type="button" onClick={selectAllMatching} className="font-medium text-brand hover:underline">Select all {count} cases</button>
+              )}
+              <button type="button" onClick={() => setSelected(new Set())} className="font-medium text-danger hover:underline">Clear selection</button>
+            </div>
+          )}
         </div>
 
         {/* Table */}
@@ -777,6 +873,9 @@ export default function CaseManagementSection() {
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="border-b border-line">
+                  <th className="pl-4 pr-1 py-3 w-8">
+                    <input type="checkbox" aria-label="Select all cases on this page" className="cursor-pointer accent-brand" checked={pageAllTicked} onChange={togglePage} />
+                  </th>
                   {COLUMNS.map((col) => (
                     <th key={col.key} aria-sort={sort.column === col.key ? (sort.dir === "asc" ? "ascending" : "descending") : "none"} className={`px-4 py-3 text-left text-[11px] font-semibold text-ink-muted uppercase tracking-wider whitespace-nowrap cursor-pointer select-none hover:text-ink transition-colors ${col.hideOnMobile ? "hidden lg:table-cell" : ""}`} onClick={() => handleSort(col.key)}>
                       <span className="inline-flex items-center gap-1">{col.label}<SortIcon column={col.key} sort={sort} /></span>
@@ -787,12 +886,15 @@ export default function CaseManagementSection() {
               </thead>
               <tbody className="divide-y divide-line/60 row-stagger">
                 {casesLoading ? (
-                  <tr><td colSpan={COLUMNS.length + 1} className="px-4 py-20 text-center"><div className="flex flex-col items-center gap-3"><div className="h-5 w-5 animate-spin rounded-full border-2 border-brand border-t-transparent" /><span className="text-sm text-ink-muted">Loading cases...</span></div></td></tr>
+                  <tr><td colSpan={COLUMNS.length + 2} className="px-4 py-20 text-center"><div className="flex flex-col items-center gap-3"><div className="h-5 w-5 animate-spin rounded-full border-2 border-brand border-t-transparent" /><span className="text-sm text-ink-muted">Loading cases...</span></div></td></tr>
                 ) : cases.length === 0 ? (
-                  <tr><td colSpan={COLUMNS.length + 1} className="px-4 py-20 text-center"><div className="flex flex-col items-center gap-2"><LottieSpot name="empty-orders" size={96} className="mb-1" fallback={<div className="w-10 h-10 rounded-lg bg-wash flex items-center justify-center mb-2"><EmptyIcon className="w-5 h-5 text-ink-muted" /></div>} /><p className="text-sm font-medium text-ink">No cases found</p><p className="text-xs text-ink-muted">{hasFilters ? "Try adjusting your filters" : "Run a crawl to get started"}</p></div></td></tr>
+                  <tr><td colSpan={COLUMNS.length + 2} className="px-4 py-20 text-center"><div className="flex flex-col items-center gap-2"><LottieSpot name="empty-orders" size={96} className="mb-1" fallback={<div className="w-10 h-10 rounded-lg bg-wash flex items-center justify-center mb-2"><EmptyIcon className="w-5 h-5 text-ink-muted" /></div>} /><p className="text-sm font-medium text-ink">No cases found</p><p className="text-xs text-ink-muted">{hasFilters ? "Try adjusting your filters" : "Run a crawl to get started"}</p></div></td></tr>
                 ) : (
                   cases.map((c) => (
-                    <tr key={c.case_no} className={`hover:bg-wash transition-colors duration-100 cursor-pointer ${selectedCase?.case_no === c.case_no ? "bg-wash" : ""}`} onClick={() => setSelectedCase(c)}>
+                    <tr key={c.case_no} className={`hover:bg-wash transition-colors duration-100 cursor-pointer ${selected.has(c.case_no) ? "bg-brand-wash" : selectedCase?.case_no === c.case_no ? "bg-wash" : ""}`} onClick={() => setSelectedCase(c)}>
+                      <td className="pl-4 pr-1 py-3 w-8" onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" aria-label={`Select case ${c.case_no}`} className="cursor-pointer accent-brand" checked={selected.has(c.case_no)} onChange={() => toggleCase(c.case_no)} />
+                      </td>
                       <td className="px-4 py-3 text-[13px] tabular-nums whitespace-nowrap">
                         {c.case_url ? (<a href={c.case_url} target="_blank" rel="noopener noreferrer" className="text-brand font-medium hover:underline transition-colors" onClick={(e) => e.stopPropagation()}>{c.case_no}</a>) : (<span className="font-medium text-ink-soft">{c.case_no}</span>)}
                       </td>
