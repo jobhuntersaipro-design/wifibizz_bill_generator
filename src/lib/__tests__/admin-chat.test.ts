@@ -14,6 +14,10 @@ const convUpdate = vi.fn();
 const escCreate = vi.fn();
 const escUpdate = vi.fn();
 const sendEmail = vi.fn();
+const umobileCount = vi.fn();
+const umobileFind = vi.fn();
+const landlordCount = vi.fn();
+const landlordFind = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -29,6 +33,11 @@ vi.mock("@/lib/prisma", () => ({
     },
     user: { findFirst: vi.fn() },
     plan: { findMany: vi.fn() },
+    umobileModemImage: { count: (...a: unknown[]) => umobileCount(...a), findMany: (...a: unknown[]) => umobileFind(...a) },
+    landlordSignatureImage: {
+      count: (...a: unknown[]) => landlordCount(...a),
+      findMany: (...a: unknown[]) => landlordFind(...a),
+    },
   },
 }));
 vi.mock("@/actions/admin-orders", () => ({ adminLiveJobs: vi.fn(), adminOrderStats: vi.fn() }));
@@ -41,7 +50,10 @@ const { parseChatMarkdown, parseInline, isSafeAdminHref } = await import("@/lib/
 const { classifyOrderLookup, maskPhone, orderSummary, orderDetail, toolResult, MAX_TOOL_RESULT_CHARS, explainError } =
   await import("@/lib/admin-chat/format");
 const { CHAT_TOOLS, toolDefinitions, runTool } = await import("@/lib/admin-chat/tools");
-const { systemPrompt, dateBlock } = await import("@/lib/admin-chat/prompt");
+const { systemPrompt, dateBlock, DEFAULT_INSTRUCTIONS, SAFETY_BLOCK } = await import("@/lib/admin-chat/prompt");
+const { normalizeChatSettings, disabledToolsNamedIn, chatSettingsFromRow, effectiveModel, CHAT_MODELS } = await import(
+  "@/lib/admin-chat/settings-rules"
+);
 const { CHAT_LIMITS } = await import("@/lib/admin-chat/config");
 
 beforeEach(() => vi.clearAllMocks());
@@ -196,7 +208,7 @@ describe("the tool surface is read-only", () => {
   it("exposes exactly these tools", () => {
     expect(CHAT_TOOLS.map((t) => t.name)).toEqual([
       "search_orders", "get_order", "explain_error_code", "list_plans",
-      "order_stats", "live_jobs", "escalate_to_human", "flag_off_topic",
+      "order_stats", "live_jobs", "list_image_pools", "escalate_to_human", "flag_off_topic",
     ]);
   });
   it("the tools module writes only the chatbot's own tables", () => {
@@ -410,5 +422,135 @@ describe("the visible trace", async () => {
     expect(describeToolResult("get_order", JSON.stringify({ error: "No order matches \"x\"." }), true)).toBe("No order matches \"x\".");
     expect(describeToolResult("live_jobs", "not json", false)).toBe("done");
     expect(HIDDEN_TOOLS.has("flag_off_topic")).toBe(true);
+    expect(describeToolInput("list_image_pools", { pool: "umobile" })).toBe("Umobile Image");
+    expect(describeToolResult("list_image_pools", JSON.stringify({
+      pools: [{ pool: "Umobile Image", total: 52 }, { pool: "Landlord Signature", total: 1 }],
+    }), false)).toBe("Umobile Image: 52 images · Landlord Signature: 1 image");
+  });
+});
+
+describe("the image pools tool", () => {
+  it("reports both pools with their counts, pages and uses", async () => {
+    umobileCount.mockResolvedValue(52);
+    umobileFind.mockResolvedValue([{ filename: "modem.jpg", createdAt: new Date("2026-09-30T01:00:00Z") }]);
+    landlordCount.mockResolvedValue(0);
+    landlordFind.mockResolvedValue([]);
+    const r = await runTool("list_image_pools", {}, ctx());
+    expect(r.isError).toBe(false);
+    const out = JSON.parse(r.content);
+    expect(out.pools.map((p: { pool: string; total: number; page: string }) => [p.pool, p.total, p.page])).toEqual([
+      ["Umobile Image", 52, "/admin/umobile-image"],
+      ["Landlord Signature", 0, "/admin/landlord-signature"],
+    ]);
+    expect(out.pools[0].newest[0].filename).toBe("modem.jpg");
+  });
+  it("reads only the pool asked for", async () => {
+    umobileCount.mockResolvedValue(1);
+    umobileFind.mockResolvedValue([]);
+    await runTool("list_image_pools", { pool: "umobile" }, ctx());
+    expect(landlordCount).not.toHaveBeenCalled();
+  });
+});
+
+describe("admin-edited settings", () => {
+  const known = CHAT_TOOLS.map((t) => ({ name: t.name, description: t.description }));
+  const base = { instructions: null, disabledTools: [] as string[], toolDescriptions: {}, model: null, effort: null };
+
+  it("nothing saved gives exactly the built-in prompt", () => {
+    expect(systemPrompt("Sofie", null)).toBe(systemPrompt("Sofie"));
+    expect(systemPrompt("Sofie", "   ")).toBe(systemPrompt("Sofie"));
+  });
+  it("custom instructions replace the default, fill the handoff name, and keep the fixed parts", () => {
+    const p = systemPrompt("Sofie", "You answer about orders only. Hand off to {{handoff_name}} when stuck, please.");
+    expect(p).toContain("Hand off to Sofie when stuck");
+    expect(p).not.toContain("{{handoff_name}}");
+    expect(p).not.toContain(DEFAULT_INSTRUCTIONS.slice(0, 60));
+    expect(p).toContain(SAFETY_BLOCK);
+    expect(p).toContain("Order statuses (stored value → label)");
+  });
+  it("the default instructions cover the image pools", () => {
+    expect(systemPrompt("Sofie")).toContain("/admin/umobile-image");
+  });
+  it("a disabled tool is not offered and cannot run", async () => {
+    const defs = toolDefinitions({ disabledTools: ["get_order"], toolDescriptions: {} });
+    expect(defs.map((d) => d.name)).not.toContain("get_order");
+    expect(defs).toHaveLength(CHAT_TOOLS.length - 1);
+    const r = await runTool("get_order", { order: "ORD-0001" }, ctx(), ["get_order"]);
+    expect(r.isError).toBe(true);
+    expect(orderFindFirst).not.toHaveBeenCalled();
+  });
+  it("a saved description replaces the built-in one; the schema is untouched", () => {
+    const before = toolDefinitions().find((d) => d.name === "list_plans")!;
+    const after = toolDefinitions({ disabledTools: [], toolDescriptions: { list_plans: "Plans and their offers, custom." } })
+      .find((d) => d.name === "list_plans")!;
+    expect(after.description).toBe("Plans and their offers, custom.");
+    expect(after.input_schema).toEqual(before.input_schema);
+  });
+  it("saving the defaults stores nothing, so it is the same as never saving", () => {
+    const res = normalizeChatSettings(
+      {
+        ...base,
+        instructions: DEFAULT_INSTRUCTIONS + "\n",
+        disabledTools: [],
+        toolDescriptions: Object.fromEntries(known.map((t) => [t.name, t.description])),
+      },
+      known,
+      DEFAULT_INSTRUCTIONS,
+    );
+    expect(res).toEqual({ ok: true, settings: base });
+  });
+  it("refuses unknown tools, a gutted prompt and a too-short description", () => {
+    expect(normalizeChatSettings({ ...base, instructions: null, disabledTools: ["adminPurge"], toolDescriptions: {} }, known, DEFAULT_INSTRUCTIONS).ok).toBe(false);
+    expect(normalizeChatSettings({ ...base, instructions: "be nice", disabledTools: [], toolDescriptions: {} }, known, DEFAULT_INSTRUCTIONS).ok).toBe(false);
+    expect(normalizeChatSettings({ ...base, instructions: null, disabledTools: [], toolDescriptions: { get_order: "short" } }, known, DEFAULT_INSTRUCTIONS).ok).toBe(false);
+    expect(normalizeChatSettings({ ...base, instructions: null, disabledTools: [], toolDescriptions: { nope: "a long enough description here" } }, known, DEFAULT_INSTRUCTIONS).ok).toBe(false);
+  });
+  it("warns when the instructions name a switched-off tool, by whole word", () => {
+    expect(disabledToolsNamedIn(DEFAULT_INSTRUCTIONS, ["flag_off_topic", "live_jobs"])).toEqual(["flag_off_topic"]);
+  });
+  it("a malformed row reads as defaults rather than throwing", () => {
+    expect(chatSettingsFromRow({ instructions: "", disabledTools: ["live_jobs"], toolDescriptions: [1, 2] })).toEqual({
+      instructions: null,
+      disabledTools: ["live_jobs"],
+      toolDescriptions: {},
+      model: null,
+      effort: null,
+    });
+  });
+  it("a model or effort picked on the page wins over the deployment's", () => {
+    const deployment = { model: "claude-opus-5-5", effort: "medium" as const };
+    expect(effectiveModel({ model: null, effort: null }, deployment)).toEqual(deployment);
+    expect(effectiveModel({ model: "claude-sonnet-5-5", effort: "low" }, deployment)).toEqual({
+      model: "claude-sonnet-5-5",
+      effort: "low",
+    });
+  });
+  it("only offered models and efforts can be saved", () => {
+    expect(normalizeChatSettings({ ...base, model: "claude-sonnet-5-5", effort: "high" }, known, DEFAULT_INSTRUCTIONS)).toEqual({
+      ok: true,
+      settings: { ...base, model: "claude-sonnet-5-5", effort: "high" },
+    });
+    expect(normalizeChatSettings({ ...base, model: "claude-haiku-4-5" }, known, DEFAULT_INSTRUCTIONS).ok).toBe(false);
+    expect(normalizeChatSettings({ ...base, effort: "max" as never }, known, DEFAULT_INSTRUCTIONS).ok).toBe(false);
+  });
+  it("a stored model no longer offered falls back to the deployment's", () => {
+    const row = { instructions: null, disabledTools: [], toolDescriptions: {} };
+    expect(chatSettingsFromRow({ ...row, model: "claude-old-1", effort: "extreme" })).toMatchObject({ model: null, effort: null });
+    expect(chatSettingsFromRow({ ...row, model: CHAT_MODELS[1].id, effort: "low" })).toMatchObject({
+      model: CHAT_MODELS[1].id,
+      effort: "low",
+    });
+  });
+});
+
+describe("every tool has trace wording", async () => {
+  const { CHAT_TOOLS } = await import("@/lib/admin-chat/tools");
+  const { TOOL_LABEL, TOOL_ACTIVE_LABEL, HIDDEN_TOOLS } = await import("@/lib/admin-chat/trace");
+  it("a tool added later cannot show up as its raw name", () => {
+    for (const t of CHAT_TOOLS) {
+      if (HIDDEN_TOOLS.has(t.name)) continue;
+      expect(TOOL_LABEL[t.name], t.name).toBeTruthy();
+      expect(TOOL_ACTIVE_LABEL[t.name], t.name).toBeTruthy();
+    }
   });
 });

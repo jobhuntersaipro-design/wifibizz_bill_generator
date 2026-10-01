@@ -11,6 +11,7 @@ import {
   ChevronDown,
   CircleAlert,
   FileText,
+  Images,
   Layers,
   Loader2,
   MessageCircle,
@@ -334,6 +335,7 @@ const TOOL_ICON: Record<string, LucideIcon> = {
   list_plans: Layers,
   order_stats: ChartColumn,
   live_jobs: Activity,
+  list_image_pools: Images,
   escalate_to_human: UserRound,
 };
 

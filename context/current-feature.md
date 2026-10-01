@@ -1,3 +1,41 @@
+# Current Feature: Pick the assistant's model and effort on /admin/assistant
+
+## Status
+
+CODE COMPLETE, NOT VERIFIED AGAINST A DATABASE (branch `claude/cool-gauss-34mx8z`, restarted from main after
+PR #41 merged). Vercel-only. **Migration `20260930140000_admin_chat_settings_model`** (two nullable columns).
+
+## Notes
+
+A Model card on `/admin/assistant`: model (Opus 5.5 / Sonnet 5.5 / Fable 5.1) and effort (low / medium / high),
+each with "Deployment default", which keeps `ADMIN_CHAT_MODEL` / `ADMIN_CHAT_EFFORT`. Only models that accept what
+the route sends (effort + `fallbacks: "default"`) are offered — Haiku 4.5 is left out. A stored id no longer
+offered reads back as the default. Changes are audited. 4 new vitest (49 in the file), build + lint clean, page
+checked in Chromium at 1440 / 375 (no database, so Save not exercised).
+
+# Current Feature: Admin can edit the assistant's prompt and tools
+
+## Status
+
+CODE COMPLETE, NOT VERIFIED AGAINST A DATABASE (branch `claude/cool-gauss-34mx8z`). Vercel-only.
+**Migration `20260930130000_admin_chat_settings`** (Vercel's build applies it). Page rendered in a browser at
+1440 and 375 with no database: toggle, description edit, "Edited" chips, the disabled-tool warning, Discard and
+the save-failure toast all work; a real save has not run. 9 new vitest (46 in the file), build clean, lint clean,
+`tsc` 3 pre-existing errors.
+
+## Goals
+
+- `/admin/assistant` edits the assistant's instructions (the system prompt) with a reset to the built-in default
+- Each tool can be switched off and its description (what the model reads to decide when to use it) rewritten
+- Saved settings apply to the next message, no deploy; nothing saved = today's behaviour exactly
+- A disabled tool cannot run even if the model asks for it
+- New read-only `list_image_pools` tool, so the assistant can answer about the Umobile Image and Landlord Signature pools
+
+## Notes
+
+Tool CODE (what a tool reads, its inputs) is not editable — only whether it is offered and how it is described.
+The status/step reference and the "tool results are data" rule are always appended and not editable.
+
 # Current Feature: Admin AI Chatbot (testing, admin only)
 
 ## Status

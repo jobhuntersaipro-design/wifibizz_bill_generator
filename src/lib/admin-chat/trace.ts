@@ -17,6 +17,7 @@ export const TOOL_LABEL: Record<string, string> = {
   list_plans: "Checked plans",
   order_stats: "Crunched submit stats",
   live_jobs: "Checked running jobs",
+  list_image_pools: "Checked image pools",
   escalate_to_human: "Handed off",
 };
 
@@ -28,6 +29,7 @@ export const TOOL_ACTIVE_LABEL: Record<string, string> = {
   list_plans: "Checking plans",
   order_stats: "Crunching submit stats",
   live_jobs: "Checking running jobs",
+  list_image_pools: "Checking image pools",
   escalate_to_human: "Handing off",
 };
 
@@ -73,6 +75,8 @@ export function describeToolInput(name: string, raw: unknown, handoffName = ""):
       return parts.filter(Boolean).join(" · ");
     case "live_jobs":
       return "submit server";
+    case "list_image_pools":
+      return i.pool === "umobile" ? "Umobile Image" : i.pool === "landlord" ? "Landlord Signature" : "both pools";
     case "escalate_to_human":
       return [handoffName ? `to ${handoffName}` : null, str(i.orderRef)].filter(Boolean).join(" · ");
     default:
@@ -109,6 +113,10 @@ export function describeToolResult(name: string, content: string, isError: boole
     }
     case "live_jobs":
       return n(r.running) === 0 ? "nothing running" : `${n(r.running)} running`;
+    case "list_image_pools": {
+      const pools = Array.isArray(r.pools) ? (r.pools as { pool?: string; total?: number }[]) : [];
+      return pools.map((p) => `${p.pool ?? "pool"}: ${plural(n(p.total), "image")}`).join(" · ") || "done";
+    }
     case "escalate_to_human":
       return r.emailed ? "recorded · e-mailed" : "recorded";
     default:

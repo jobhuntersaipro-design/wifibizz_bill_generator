@@ -21,6 +21,8 @@ import {
   TOOL_ACTIVE_LABEL,
   TOOL_LABEL,
 } from "@/lib/admin-chat/trace";
+import { loadChatSettings } from "@/lib/admin-chat/settings";
+import { effectiveModel } from "@/lib/admin-chat/settings-rules";
 
 /**
  * POST /api/admin/chat — one turn of the admin assistant.
@@ -126,6 +128,11 @@ export async function POST(req: Request) {
     { role: "user", content: check.text },
   ];
 
+  // Read on every turn, so a save on /admin/assistant applies to the next
+  // message without a deploy.
+  const settings = await loadChatSettings();
+  const { model, effort } = effectiveModel(settings, cfg);
+
   const conversationId = conversation.id;
   const ctx: ToolContext = {
     conversationId,
@@ -160,10 +167,14 @@ export async function POST(req: Request) {
         // Explicit key, and no auth token: left to itself the SDK also reads
         // ANTHROPIC_AUTH_TOKEN and sends it beside the key.
         const client = new Anthropic({ apiKey: cfg.apiKey, authToken: null });
-        const tools = toolDefinitions();
+        const tools = toolDefinitions(settings);
         const system: Anthropic.Beta.BetaTextBlockParam[] = [
           // Tools render before system, so this one breakpoint caches both.
-          { type: "text", text: systemPrompt(cfg.handoffName), cache_control: { type: "ephemeral" } },
+          {
+            type: "text",
+            text: systemPrompt(cfg.handoffName, settings.instructions),
+            cache_control: { type: "ephemeral" },
+          },
           { type: "text", text: dateBlock(now) },
         ];
 
@@ -171,15 +182,17 @@ export async function POST(req: Request) {
         for (let call = 0; call < CHAT_LIMITS.maxModelCalls && !finished; call++) {
           const turn = client.beta.messages.stream(
             {
-              model: cfg.model,
+              model,
               max_tokens: 16000,
               system,
-              tools,
+              // Every tool switched off: send none rather than an empty list.
+              ...(tools.length ? { tools } : {}),
               messages,
-              output_config: { effort: cfg.effort },
+              output_config: { effort },
               // Readable summaries of the reasoning, shown in the panel's trace.
-              // Thinking is always on for this model; this only sets what is
-              // returned. Blocks go back unchanged in the tool loop below.
+              // Every model an admin can pick (CHAT_MODELS) accepts adaptive
+              // thinking; this only sets what is returned. Blocks go back
+              // unchanged in the tool loop below.
               thinking: { type: "adaptive", display: "summarized" },
               // Server-side refusal fallback: a safety-classifier decline is
               // retried on the model the API picks for that category.
@@ -235,7 +248,7 @@ export async function POST(req: Request) {
           // All results go back in ONE user message, as parallel calls require.
           const results = await Promise.all(
             uses.map(async (u) => {
-              const r = await runTool(u.name, u.input, ctx);
+              const r = await runTool(u.name, u.input, ctx, settings.disabledTools);
               toolLog.push({ name: u.name, input: u.input, isError: r.isError });
               if (!HIDDEN_TOOLS.has(u.name)) {
                 send({

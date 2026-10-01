@@ -27,7 +27,8 @@ export type AuditAction =
   | "job_released"
   | "invite_created"
   | "password_changed"
-  | "password_reset";
+  | "password_reset"
+  | "assistant_settings_updated";
 
 /**
  * Record one event. NEVER throws.
