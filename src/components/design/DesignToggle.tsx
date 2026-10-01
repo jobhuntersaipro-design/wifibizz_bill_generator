@@ -29,7 +29,7 @@ export function DesignToggle({ className }: { className?: string }) {
             onClick={() => applyDesign(option.value)}
             className={cn(
               "min-h-8 rounded-md px-2.5 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand",
-              active ? "bg-white text-ink shadow-sm" : "text-ink-muted hover:text-ink",
+              active ? "bg-card text-ink shadow-sm" : "text-ink-muted hover:text-ink",
             )}
           >
             {option.label}

@@ -883,6 +883,12 @@
   letter-spacing: var(--tracking-body);
 }
 
+/* Text on a brand fill uses the accent's own foreground: white on dark accents, dark on
+   light ones (amber, green, and every accent in dark mode). Classic keeps its text-white. */
+:is(:root[data-design="arc"], [data-design="arc"]) .bg-brand {
+  color: var(--arc-accent-foreground);
+}
+
 /* Headings take Arc's display face and tracking. */
 :is(:root[data-design="arc"], [data-design="arc"]) :is(h1, h2, h3) {
   font-family: var(--font-display);

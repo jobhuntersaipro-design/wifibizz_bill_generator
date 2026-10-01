@@ -30,7 +30,7 @@ export function AdminTopbar({
   const { title, back } = adminNavContext(pathnameProp ?? livePath ?? "/admin");
 
   return (
-    <header className="flex items-center justify-between h-14 px-2 md:px-8 border-b border-line bg-white">
+    <header className="flex items-center justify-between h-14 px-2 md:px-8 border-b border-line bg-card">
       <div className="flex min-w-0 items-center gap-1">
         {back ? (
           <Link

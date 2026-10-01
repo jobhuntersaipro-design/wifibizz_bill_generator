@@ -3,7 +3,7 @@
 ## Status
 
 CODE COMPLETE, VERIFIED IN BROWSER WITHOUT A DATABASE (branch `claude/blissful-maxwell-iphluh`). Vercel-only, no
-migration, no new dependency.
+migration. Adds `motion` + Radix primitives for Arc.
 
 ## Notes
 
@@ -23,12 +23,27 @@ ambers) stay hardcoded. Emails and PDFs live in `src/lib` and were never touched
 `[data-design="arc"]`, and the names that collide with shadcn/Tailwind (`--accent*`, `--text-<size>`,
 `--ease-in-out`) carry an `arc-` prefix. Arc's global "no focus rings" rule was dropped; Arc mode has a visible ring.
 
-**Arc's components are NOT in the repo.** The plan included vendoring all 100 components + 22 blocks and a
-`/dashboard/design` gallery; the session's safety classifier refused integrating that unreviewed third-party source,
-so it was removed again. Needs the user's explicit go-ahead (and a review of the pinned upstream commit) to resume.
-uiarc.dev itself is blocked by the container's egress policy; the source came from GitHub.
+**All of Arc is in the repo** (user accepted the source, 2026-10-01): 100 components + 22 blocks under
+`src/components/arc/{components,blocks,lib}`, pinned to upstream `b454cf80`, imports rewritten to
+`@/components/arc/…`, same token renames as the foundation. Skimmed before adding: no network calls, no eval;
+`innerHTML` only inside the rich-text editor, which sanitizes its input. Vendored code is excluded from ESLint
+(upstream doesn't satisfy this repo's React-compiler rules) and `arc-env.d.ts` adds `FocusOptions.focusVisible`
+for TS 5.9. New deps: `motion` and nine `@radix-ui/react-*` primitives.
 
-Verified: classic vs Arc at 1440 and 390 on `next start` — tokens resolve, Geist on headings, toggle switches live,
+**`/dashboard/design` (sidebar: Design)** shows every item live, 122 cards, with search, category chips, all eight
+Arc accents and a light/dark preview; the four theme-switch demos drive that preview. Demos use BizzFlow-flavoured
+sample data (`src/components/design/demos/*`), mount when scrolled near, and each sits in its own error boundary.
+Arc's dialogs/sheets/menus portal into `<body>`, so the gallery previews Arc on `<html>` while open (nothing saved)
+and `restoreStoredDesign()` puts the viewer's choice back on leave. Arc's demo photos/logos are not in its
+open-source repo: `scripts/generate-arc-media.mjs` writes neutral placeholders to `public/arc-media/` (initials,
+gradients, plain geometric marks — no imitation of real brand logos). In Arc mode, text on `bg-brand` now uses the
+accent's own foreground (dark on light accents and in dark mode). Topbars use `bg-card` (identical in classic).
+
+Not done (not asked): swapping this app's own buttons/inputs/dialogs for Arc's components.
+
+Gallery verified on `next start` at 1440 and 390: all 122 demos mount, 0 failed, 0 console errors, 0 broken
+images, no page overflow; dialog opens styled over the page; dark + violet preview; leaving restores classic.
+Toggle verified: classic vs Arc at 1440 and 390 on `next start` — tokens resolve, Geist on headings, toggle switches live,
 persists across reload and switches back, no horizontal overflow, no hydration error. 6 new vitest (pre-paint
 script incl. blocked storage). Build clean, lint and the 10 failing tests identical to baseline. NOT verified: any
 signed-in screen with data (no database here), the admin topbar on screen, Arc mode on dialogs/popovers.

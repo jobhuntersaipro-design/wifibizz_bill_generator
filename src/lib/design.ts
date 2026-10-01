@@ -62,19 +62,47 @@ function store(key: string, value: string) {
   }
 }
 
-export function applyDesign(design: Design, accent: ArcAccent = readAccent()) {
+/** Sets the attributes on <html> without saving anything. `accent` may be any Arc accent (the gallery previews all eight). */
+function setAttributes(design: Design, accent: string, theme: "light" | "dark" = "light") {
   const el = root();
   if (!el) return;
   if (design === "arc") {
     el.setAttribute("data-design", "arc");
     el.setAttribute("data-accent", accent);
+    if (theme === "dark") el.setAttribute("data-theme", "dark");
+    else el.removeAttribute("data-theme");
   } else {
     el.removeAttribute("data-design");
     el.removeAttribute("data-accent");
+    el.removeAttribute("data-theme");
   }
+  window.dispatchEvent(new Event(CHANGE_EVENT));
+}
+
+export function applyDesign(design: Design, accent: ArcAccent = readAccent()) {
+  setAttributes(design, accent);
   store(DESIGN_STORAGE_KEY, design);
   store(ACCENT_STORAGE_KEY, accent);
-  window.dispatchEvent(new Event(CHANGE_EVENT));
+}
+
+/**
+ * The Arc gallery previews Arc on the whole document while it is open, because Arc's
+ * dialogs, sheets and menus portal into <body>, outside any wrapper. Nothing is saved;
+ * restoreStoredDesign() puts the viewer's own choice back.
+ */
+export function previewArc(accent: string, theme: "light" | "dark") {
+  setAttributes("arc", accent, theme);
+}
+
+export function restoreStoredDesign() {
+  let design: string | null = null, accent: string | null = null;
+  try {
+    design = localStorage.getItem(DESIGN_STORAGE_KEY);
+    accent = localStorage.getItem(ACCENT_STORAGE_KEY);
+  } catch {
+    // Storage blocked: fall back to the defaults.
+  }
+  setAttributes(isDesign(design) ? design : DEFAULT_DESIGN, isArcAccent(accent) ? accent : DEFAULT_ACCENT);
 }
 
 /** For useSyncExternalStore: fires on our own changes and on another tab's. */

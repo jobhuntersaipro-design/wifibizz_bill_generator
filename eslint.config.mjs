@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored Arc (github.com/kuratlielia/arc-library) — upstream source, kept byte-close so it can be re-synced.
+    "src/components/arc/**",
   ]),
 ]);
 

@@ -4,7 +4,7 @@ import { DesignToggle } from "@/components/design/DesignToggle";
 
 export function Topbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
   return (
-    <header className="flex items-center justify-between h-14 px-4 md:px-8 border-b border-line bg-white animate-fade-in-down" style={{ animationDuration: "350ms" }}>
+    <header className="flex items-center justify-between h-14 px-4 md:px-8 border-b border-line bg-card animate-fade-in-down" style={{ animationDuration: "350ms" }}>
       {/* Left side — hamburger on mobile */}
       <button
         onClick={onMenuToggle}
