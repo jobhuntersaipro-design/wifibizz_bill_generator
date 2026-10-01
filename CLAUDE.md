@@ -15,6 +15,12 @@ Read the following to get the full context of the project:
 
 
 
+## Production verification
+- After every merge that deploys, open the change on bizzflow.top and show proof (a screenshot of the
+  changed screen, plus the deployment id serving it). "Build passed" is not proof it works on production.
+- If signing in to production is not possible from the session, say so and ask the user for a way in;
+  never report a change as live on production without having looked at it there.
+
 ## Reply shape
 - First sentence = result.
 - No restating the task. No “I’ll now…”. No closing recap.
