@@ -226,7 +226,8 @@ export async function saveGoogleSheetId(sheetId: string) {
   }
 }
 
-export async function syncCasesToSheet() {
+/** `caseNos` limits the append to those cases; omitted = every unsynced case. */
+export async function syncCasesToSheet(caseNos?: string[]) {
   const session = await auth();
   if (!session?.user?.id) {
     return { success: false, error: "Unauthorized" };
@@ -275,13 +276,16 @@ export async function syncCasesToSheet() {
     }
 
     // Get unsynced cases (including freshly reset ones)
-    const unsyncedCases = await prisma.wifibizzCase.findMany({
+    // Filtered in memory, not with `in`: a "select all" can be ~100k case
+    // numbers, past Postgres's bind-parameter limit.
+    const only = caseNos ? new Set(caseNos) : null;
+    const unsyncedCases = (await prisma.wifibizzCase.findMany({
       where: {
         userId: wifibizzUser.id,
         syncedToSheetAt: null,
       },
       orderBy: { caseCreatedAt: "asc" },
-    });
+    })).filter((c) => !only || only.has(c.caseNo));
 
     // Append any unsynced cases (new since last sync).
     let appendedRows = 0;

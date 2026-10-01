@@ -78,7 +78,8 @@ export async function POST(request: Request) {
       },
     });
 
-    const filename = `internetBills_${new Date().toISOString().split("T")[0]}.zip`;
+    const prefix = type === "internet" ? "umobileBill" : "utilityBill";
+    const filename = `${prefix}s_${new Date().toISOString().split("T")[0]}.zip`;
 
     // Populate the archive asynchronously — the response streams as data arrives
     (async () => {
@@ -105,7 +106,7 @@ export async function POST(request: Request) {
           const caseNo = (row as Record<string, unknown>).case_no as string;
           const orderNo = (row as Record<string, unknown>).order_no as string | null;
           const orderSuffix = orderNo ? `_${orderNo}` : "";
-          archive.append(buffer, { name: `internetBill_${caseNo}${orderSuffix}.pdf` });
+          archive.append(buffer, { name: `${prefix}_${caseNo}${orderSuffix}.pdf` });
         }
         await archive.finalize();
       } catch (err) {
