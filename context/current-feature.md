@@ -2,8 +2,9 @@
 
 ## Status
 
-CODE COMPLETE, NOT VERIFIED AGAINST A DATABASE (branch `claude/cool-gauss-34mx8z`, restarted from main after
-PR #41 merged). Vercel-only. **Migration `20260930140000_admin_chat_settings_model`** (two nullable columns).
+MERGED TO MAIN AND DEPLOYED (PR #42, `80cb3f6`). Vercel-only; Vercel's build applied
+**migration `20260930140000_admin_chat_settings_model`** (two nullable columns). A real Save on production has not
+been checked.
 
 ## Notes
 
@@ -17,8 +18,8 @@ checked in Chromium at 1440 / 375 (no database, so Save not exercised).
 
 ## Status
 
-CODE COMPLETE, NOT VERIFIED AGAINST A DATABASE (branch `claude/cool-gauss-34mx8z`). Vercel-only.
-**Migration `20260930130000_admin_chat_settings`** (Vercel's build applies it). Page rendered in a browser at
+MERGED TO MAIN AND DEPLOYED (PR #41, `362bdf2`). Vercel-only; Vercel's build applied
+**migration `20260930130000_admin_chat_settings`**. A real save on production has not been checked. Page rendered in a browser at
 1440 and 375 with no database: toggle, description edit, "Edited" chips, the disabled-tool warning, Discard and
 the save-failure toast all work; a real save has not run. 9 new vitest (46 in the file), build clean, lint clean,
 `tsc` 3 pre-existing errors.
@@ -40,10 +41,22 @@ The status/step reference and the "tool results are data" rule are always append
 
 ## Status
 
-CODE COMPLETE, NOT VERIFIED LIVE (branch `claude/gifted-dijkstra-9hfxee`). Vercel-only. **Migration**
-`20260930120000_admin_chat`. Needs `ADMIN_CHAT_ENABLED=1` + `ANTHROPIC_API_KEY` on Vercel. Popup verified in a
-browser against a mocked stream; no real model call has run (no key or database in the build container).
-Spec: [context/features/admin-ai-chatbot.md](features/admin-ai-chatbot.md).
+MERGED TO MAIN AND LIVE ON PRODUCTION. Vercel-only; Vercel's build applied **migration**
+`20260930120000_admin_chat`. Spec: [context/features/admin-ai-chatbot.md](features/admin-ai-chatbot.md).
+
+| PR | Commit | What |
+|---|---|---|
+| #37 | `c8ac554` | The popup: read-only tools, guard/strikes/rate limit/daily cap, handoff to Sofie |
+| #38 | `10b900b` | A refused request shows the API's own reason, not a bare status |
+| #39 | `c1be40d` | The key is trimmed and checked; a 401 names why it was rejected |
+| #40 | `7010831` | Animated "thinking" + per-lookup trace, folded into "Worked for Ns · N lookups" (merged 2026-10-01 after resolving conflicts with #41 / #42) |
+
+**Working on production** (user, 2026-09-30) once `ANTHROPIC_API_KEY` on Vercel was replaced — the earlier key
+gave `401 invalid x-api-key`. The 400 seen before that was never diagnosed.
+
+NOT verified: the thinking/lookup trace against the live model (checked only against a mocked stream at 390px),
+and a handoff e-mail actually sent. The remote branch `claude/gifted-dijkstra-9hfxee` still exists — the session's
+git proxy refuses branch deletes, so delete it from GitHub.
 
 ## Goals
 
