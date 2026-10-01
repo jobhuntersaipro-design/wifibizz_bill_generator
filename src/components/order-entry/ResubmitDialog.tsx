@@ -39,7 +39,7 @@ export function ResubmitDialog({
         aria-describedby="resubmit-warning"
       >
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-[15px] font-semibold text-[#0A2540]">
+          <DialogTitle className="flex items-center gap-2 text-[15px] font-semibold text-ink">
             <span
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-100"
               aria-hidden="true"
@@ -52,16 +52,16 @@ export function ResubmitDialog({
 
         <DialogDescription
           id="resubmit-warning"
-          className="text-[13px] leading-relaxed text-[#425466]"
+          className="text-[13px] leading-relaxed text-ink-soft"
         >
           Order{" "}
-          <span className="font-semibold tabular-nums text-[#0A2540]">
+          <span className="font-semibold tabular-nums text-ink">
             {order.orderId}
           </span>{" "}
           already exists in the Unifi portal
           {order.attempt > 0 && ` from attempt ${order.attempt}`}. Running{" "}
           {order.fullName} again creates a{" "}
-          <span className="font-semibold text-[#0A2540]">second order</span>.
+          <span className="font-semibold text-ink">second order</span>.
           Void the existing one in the portal first.
         </DialogDescription>
 
@@ -71,7 +71,7 @@ export function ResubmitDialog({
               <button
                 type="button"
                 onClick={onCancel}
-                className="cursor-pointer rounded-md border border-[#E3E8EF] px-3 py-2 text-[13px] font-medium text-[#425466] transition-colors duration-150 hover:border-[#635BFF] hover:text-[#635BFF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
+                className="cursor-pointer rounded-md border border-line px-3 py-2 text-[13px] font-medium text-ink-soft transition-colors duration-150 hover:border-brand hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
               />
             }
           >

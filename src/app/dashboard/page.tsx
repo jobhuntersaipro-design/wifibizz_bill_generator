@@ -10,8 +10,8 @@ export default function DashboardPage() {
       <GettingStarted />
       {/* Page header */}
       <div className="animate-fade-in-up" style={{ animationDelay: "100ms" }}>
-        <h1 className="text-2xl font-semibold text-[#0A2540]">Dashboard</h1>
-        <p className="text-sm text-[#697386] mt-1">Case workbench</p>
+        <h1 className="text-2xl font-semibold text-ink">Dashboard</h1>
+        <p className="text-sm text-ink-muted mt-1">Case workbench</p>
       </div>
 
       <AnalyticsSection surface="workbench" />

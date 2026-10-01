@@ -38,7 +38,7 @@ function TooltipContent({
             // Wraps rather than runs off: the whole reason this exists is to
             // show a value too long for its cell, so a single-line popup that
             // clips again would solve nothing.
-            "z-50 max-w-[min(28rem,calc(100vw-2rem))] origin-(--transform-origin) rounded-lg bg-[#0A2540] px-2.5 py-1.5 text-[12px] leading-snug text-white shadow-md duration-100 outline-none",
+            "z-50 max-w-[min(28rem,calc(100vw-2rem))] origin-(--transform-origin) rounded-lg bg-ink px-2.5 py-1.5 text-[12px] leading-snug text-white shadow-md duration-100 outline-none",
             "break-words whitespace-pre-wrap",
             "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
             className,

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { adminNavContext } from "@/lib/admin-nav";
+import { DesignToggle } from "@/components/design/DesignToggle";
 
 /**
  * The admin topbar.
@@ -29,7 +30,7 @@ export function AdminTopbar({
   const { title, back } = adminNavContext(pathnameProp ?? livePath ?? "/admin");
 
   return (
-    <header className="flex items-center justify-between h-14 px-2 md:px-8 border-b border-[#E3E8EF] bg-white">
+    <header className="flex items-center justify-between h-14 px-2 md:px-8 border-b border-line bg-white">
       <div className="flex min-w-0 items-center gap-1">
         {back ? (
           <Link
@@ -37,27 +38,28 @@ export function AdminTopbar({
             aria-label="Back"
             // 44px, like every other touch target in this app. The old 36px
             // hamburger was under it.
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[#F6F9FC] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF] md:hidden"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-wash focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:hidden"
           >
-            <ChevronLeftIcon className="h-5 w-5 text-[#697386]" />
+            <ChevronLeftIcon className="h-5 w-5 text-ink-muted" />
           </Link>
         ) : (
           <button
             type="button"
             onClick={onMenuToggle}
             aria-label="Open menu"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[#F6F9FC] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF] md:hidden"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-wash focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:hidden"
           >
-            <MenuIcon className="h-5 w-5 text-[#697386]" />
+            <MenuIcon className="h-5 w-5 text-ink-muted" />
           </button>
         )}
         {/* Truncates rather than pushing the ADMIN pill off the right edge. */}
-        <h2 className="truncate text-sm font-medium text-[#0A2540] md:text-[#697386]">
+        <h2 className="truncate text-sm font-medium text-ink md:text-ink-muted">
           {title}
         </h2>
       </div>
       <div className="flex shrink-0 items-center gap-3 pr-2 md:pr-0">
-        <span className="inline-flex items-center gap-1.5 rounded-md border border-[#E3E8EF] bg-[#F6F9FC] px-2.5 py-1 text-[11px] font-medium text-[#0A2540]">
+        <DesignToggle className="hidden sm:inline-flex" />
+        <span className="inline-flex items-center gap-1.5 rounded-md border border-line bg-wash px-2.5 py-1 text-[11px] font-medium text-ink">
           <span className="h-1.5 w-1.5 rounded-full bg-[#09825D]" />
           ADMIN
         </span>

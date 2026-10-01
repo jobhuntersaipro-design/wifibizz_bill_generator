@@ -66,18 +66,18 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
       )} style={{ animationDuration: "400ms" }}>
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-5 py-5 animate-fade-in" style={{ animationDelay: "150ms" }}>
-        <div className="w-8 h-8 rounded-lg bg-[#635BFF] flex items-center justify-center">
+        <div className="w-8 h-8 rounded-lg bg-brand flex items-center justify-center">
           <WifiIcon className="w-4 h-4 text-white" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="font-semibold text-sm text-[#0A2540] leading-none tracking-tight">
+          <p className="font-semibold text-sm text-ink leading-none tracking-tight">
             BizzFlow
           </p>
-          <p className="text-[11px] text-[#697386] mt-0.5 truncate" title={sidebarInfo.email ?? undefined}>
+          <p className="text-[11px] text-ink-muted mt-0.5 truncate" title={sidebarInfo.email ?? undefined}>
             {sidebarReady ? (sidebarInfo.email ?? "Not configured") : "\u00a0"}
           </p>
           {sidebarInfo.agent && (
-            <p className="text-[10px] text-[#697386] truncate" title={sidebarInfo.agent}>
+            <p className="text-[10px] text-ink-muted truncate" title={sidebarInfo.agent}>
               {sidebarInfo.agent}
             </p>
           )}
@@ -98,8 +98,8 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
               className={cn(
                 "group flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-150 animate-fade-in-left press-effect",
                 isActive
-                  ? "bg-[#635BFF] text-white shadow-sm shadow-[#635BFF]/20"
-                  : "text-[#425466] hover:bg-[#E3E8EF] hover:text-[#0A2540]"
+                  ? "bg-brand text-white shadow-sm shadow-brand/20"
+                  : "text-ink-soft hover:bg-line hover:text-ink"
               )}
             >
               <item.icon
@@ -110,7 +110,7 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
               />
               {item.label}
               {item.href === "/dashboard/order-entry" && unseenCount > 0 && (
-                <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#635BFF] px-1 text-[10px] font-semibold text-white">
+                <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-brand px-1 text-[10px] font-semibold text-white">
                   {unseenCount > 9 ? "9+" : unseenCount}
                 </span>
               )}
@@ -121,10 +121,10 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
 
       {/* Bottom section */}
       <div className="px-3 pb-4 space-y-1 animate-fade-in" style={{ animationDelay: "400ms" }}>
-        <div className="border-t border-[#E3E8EF] my-3" />
+        <div className="border-t border-line my-3" />
         <button
           onClick={() => signOut({ callbackUrl: "/auth/signin" })}
-          className="group flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] text-[#425466] hover:bg-red-50 hover:text-[#DF1B41] transition-all duration-150 w-full press-effect"
+          className="group flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] text-ink-soft hover:bg-red-50 hover:text-danger transition-all duration-150 w-full press-effect"
         >
           <LogOutIcon className="w-4.5 h-4.5 transition-transform duration-200 group-hover:scale-110" />
           Logout

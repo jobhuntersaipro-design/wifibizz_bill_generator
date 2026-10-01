@@ -53,13 +53,13 @@ export function AgentDetail({ agent }: { agent: AgentView }) {
 
   return (
     <div className="space-y-5">
-      <header className="rounded-xl border border-[#E3E8EF] bg-white p-5">
+      <header className="rounded-xl border border-line bg-white p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <h1 className="text-xl font-semibold text-[#0A2540]">
+            <h1 className="text-xl font-semibold text-ink">
               {agent.email ?? agent.name ?? agent.id}
             </h1>
-            <p className="mt-0.5 text-sm text-[#697386]">
+            <p className="mt-0.5 text-sm text-ink-muted">
               {agent.name ?? "No name"}
               {agent.isSuperAdmin && (
                 <span className="ml-2 rounded-full bg-[#EFF4FF] px-2 py-0.5 text-xs text-[#3538CD]">
@@ -70,9 +70,9 @@ export function AgentDetail({ agent }: { agent: AgentView }) {
           </div>
           <div className="flex flex-col items-end gap-2">
             <ConnectionBadge view={agent.connection} />
-            <label className="flex cursor-pointer items-center gap-2 text-xs text-[#425466]">
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-ink-soft">
               <input type="checkbox" checked={enabled} disabled={saving} onChange={toggle}
-                className="h-4 w-4 cursor-pointer accent-[#635BFF]" />
+                className="h-4 w-4 cursor-pointer accent-brand" />
               Order entry access
             </label>
           </div>
@@ -90,9 +90,9 @@ export function AgentDetail({ agent }: { agent: AgentView }) {
           <Field label="Notes" value={agent.notes} />
         </dl>
 
-        <p className="mt-4 text-xs text-[#697386]">
+        <p className="mt-4 text-xs text-ink-muted">
           Editing name, password, notes or case limit lives on{" "}
-          <Link href="/admin" className="text-[#635BFF] hover:underline">Users</Link>.
+          <Link href="/admin" className="text-brand hover:underline">Users</Link>.
         </p>
       </header>
 
@@ -104,8 +104,8 @@ export function AgentDetail({ agent }: { agent: AgentView }) {
 function Field({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
-      <dt className="text-xs text-[#697386]">{label}</dt>
-      <dd className="mt-0.5 break-words text-sm text-[#0A2540]">{value || "—"}</dd>
+      <dt className="text-xs text-ink-muted">{label}</dt>
+      <dd className="mt-0.5 break-words text-sm text-ink">{value || "—"}</dd>
     </div>
   );
 }

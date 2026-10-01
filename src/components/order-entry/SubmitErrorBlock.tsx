@@ -125,7 +125,7 @@ function ActionRow({ resolved, order, orderId, errorCode, onResubmit }: {
   errorCode?: string | null;
   onResubmit?: () => void;
 }) {
-  const btn = "mt-2 inline-flex h-8 cursor-pointer items-center rounded-md px-3 text-[12px] font-semibold text-white transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]";
+  const btn = "mt-2 inline-flex h-8 cursor-pointer items-center rounded-md px-3 text-[12px] font-semibold text-white transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand";
   switch (resolved.action) {
     case "wait":
       return null;
@@ -133,14 +133,14 @@ function ActionRow({ resolved, order, orderId, errorCode, onResubmit }: {
       return (
         <Link
           href={`/dashboard/order-entry/new-order?draft=${order.id}&focus=${resolved.section ?? "customer"}`}
-          className={`${btn} bg-[#635BFF] hover:bg-[#0A2540]`}
+          className={`${btn} bg-brand hover:bg-ink`}
         >
           {ACTION_LABEL.fix_field}
         </Link>
       );
     case "resubmit":
       return onResubmit ? (
-        <button type="button" onClick={onResubmit} className={`${btn} bg-[#635BFF] hover:bg-[#0A2540]`}>
+        <button type="button" onClick={onResubmit} className={`${btn} bg-brand hover:bg-ink`}>
           {ACTION_LABEL.resubmit}
         </button>
       ) : null;
@@ -150,20 +150,20 @@ function ActionRow({ resolved, order, orderId, errorCode, onResubmit }: {
           href={portalOrderUrl(orderId ?? "")}
           target="_blank"
           rel="noopener noreferrer"
-          className={`${btn} bg-[#B54708] hover:bg-[#0A2540]`}
+          className={`${btn} bg-[#B54708] hover:bg-ink`}
         >
           {ACTION_LABEL.check_portal} ↗
         </a>
       );
     case "reconnect":
       return (
-        <Link href="/dashboard/order-entry" className={`${btn} bg-[#635BFF] hover:bg-[#0A2540]`}>
+        <Link href="/dashboard/order-entry" className={`${btn} bg-brand hover:bg-ink`}>
           {ACTION_LABEL.reconnect}
         </Link>
       );
     case "contact_admin":
       return (
-        <p className="mt-2 text-[11px] font-medium text-[#425466]">
+        <p className="mt-2 text-[11px] font-medium text-ink-soft">
           {contactAdminNote({ errorCode, reference: order.reference })}
         </p>
       );

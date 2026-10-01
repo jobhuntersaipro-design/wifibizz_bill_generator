@@ -29,7 +29,7 @@ export function AdminSidebar({ open, onClose }: { open?: boolean; onClose?: () =
         <div className="fixed inset-0 z-40 bg-black/30 md:hidden" onClick={onClose} />
       )}
       <aside className={cn(
-        "flex flex-col w-[240px] border-r border-[#E3E8EF] bg-[#F6F9FC] min-h-screen",
+        "flex flex-col w-[240px] border-r border-line bg-wash min-h-screen",
         "fixed inset-y-0 left-0 z-50 transition-transform duration-300 md:relative md:translate-x-0",
         open ? "translate-x-0" : "-translate-x-full"
       )}>
@@ -39,7 +39,7 @@ export function AdminSidebar({ open, onClose }: { open?: boolean; onClose?: () =
         type="button"
         onClick={onClose}
         aria-label="Close menu"
-        className="absolute right-2 top-2 flex h-11 w-11 items-center justify-center rounded-lg text-[#697386] transition-colors hover:bg-[#E3E8EF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF] md:hidden"
+        className="absolute right-2 top-2 flex h-11 w-11 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-line focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:hidden"
       >
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
           <path d="M18 6 6 18M6 6l12 12" />
@@ -48,14 +48,14 @@ export function AdminSidebar({ open, onClose }: { open?: boolean; onClose?: () =
 
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-5 py-5">
-        <div className="w-8 h-8 rounded-lg bg-[#0A2540] flex items-center justify-center">
+        <div className="w-8 h-8 rounded-lg bg-ink flex items-center justify-center">
           <ShieldIcon className="w-4 h-4 text-white" />
         </div>
         <div>
-          <p className="font-semibold text-sm text-[#0A2540] leading-none tracking-tight">
+          <p className="font-semibold text-sm text-ink leading-none tracking-tight">
             BizzFlow
           </p>
-          <p className="text-[11px] text-[#697386] mt-0.5 font-medium">
+          <p className="text-[11px] text-ink-muted mt-0.5 font-medium">
             Admin Panel
           </p>
         </div>
@@ -75,8 +75,8 @@ export function AdminSidebar({ open, onClose }: { open?: boolean; onClose?: () =
               className={cn(
                 "group flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-150",
                 isActive
-                  ? "bg-[#635BFF] text-white shadow-sm shadow-[#635BFF]/20"
-                  : "text-[#425466] hover:bg-[#E3E8EF] hover:text-[#0A2540]"
+                  ? "bg-brand text-white shadow-sm shadow-brand/20"
+                  : "text-ink-soft hover:bg-line hover:text-ink"
               )}
             >
               <item.icon
@@ -93,11 +93,11 @@ export function AdminSidebar({ open, onClose }: { open?: boolean; onClose?: () =
 
       {/* Bottom section */}
       <div className="px-3 pb-4 space-y-1">
-        <div className="border-t border-[#E3E8EF] my-3" />
+        <div className="border-t border-line my-3" />
         <form action={adminLogout}>
           <button
             type="submit"
-            className="group flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] text-[#425466] hover:bg-red-50 hover:text-[#DF1B41] transition-all duration-150 w-full"
+            className="group flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] text-ink-soft hover:bg-red-50 hover:text-danger transition-all duration-150 w-full"
           >
             <LogOutIcon className="w-[18px] h-[18px]" />
             Logout

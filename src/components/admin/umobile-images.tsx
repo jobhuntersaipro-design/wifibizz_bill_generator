@@ -137,22 +137,22 @@ export function UmobileImages({ initialImages }: { initialImages: UmobileImageVi
           void uploadFiles(event.dataTransfer.files);
         }}
         className={`rounded-lg border-2 border-dashed bg-white p-6 text-center transition-colors ${
-          dragOver ? "border-[#635BFF] bg-[#F5F4FF]" : "border-[#E3E8EF]"
+          dragOver ? "border-brand bg-[#F5F4FF]" : "border-line"
         }`}
       >
-        <ImagePlus className="mx-auto h-7 w-7 text-[#635BFF]" aria-hidden="true" />
-        <p className="mt-2 text-[13px] font-medium text-[#0A2540]">
+        <ImagePlus className="mx-auto h-7 w-7 text-brand" aria-hidden="true" />
+        <p className="mt-2 text-[13px] font-medium text-ink">
           Drop modem photos here, or{" "}
           <button
             type="button"
             disabled={busy}
             onClick={() => inputRef.current?.click()}
-            className="font-semibold text-[#635BFF] underline-offset-2 hover:underline disabled:opacity-60"
+            className="font-semibold text-brand underline-offset-2 hover:underline disabled:opacity-60"
           >
             choose files
           </button>
         </p>
-        <p className="mt-1 text-[12px] text-[#697386]">
+        <p className="mt-1 text-[12px] text-ink-muted">
           PNG or JPEG, max 5MB each. Select as many as you like. Umobile bills pick one at
           random from this pool.
         </p>
@@ -170,26 +170,26 @@ export function UmobileImages({ initialImages }: { initialImages: UmobileImageVi
       </div>
 
       {uploads.length > 0 && (
-        <div className="rounded-lg border border-[#E3E8EF] bg-white">
-          <div className="flex items-center justify-between border-b border-[#E3E8EF] px-4 py-2.5">
-            <p className="text-[12px] font-medium text-[#425466]">
+        <div className="rounded-lg border border-line bg-white">
+          <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
+            <p className="text-[12px] font-medium text-ink-soft">
               {busy ? "Uploading…" : "Upload finished"} · {doneCount} of {uploads.length} added
             </p>
             {!busy && (
               <button
                 type="button"
                 onClick={() => setUploads([])}
-                className="rounded-md p-1 text-[#697386] hover:bg-[#F6F9FC]"
+                className="rounded-md p-1 text-ink-muted hover:bg-wash"
                 aria-label="Dismiss upload results"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
             )}
           </div>
-          <ul className="max-h-56 divide-y divide-[#E3E8EF] overflow-y-auto">
+          <ul className="max-h-56 divide-y divide-line overflow-y-auto">
             {uploads.map((u) => (
               <li key={u.key} className="flex items-center justify-between gap-3 px-4 py-2 text-[12px]">
-                <span className="min-w-0 truncate text-[#0A2540]" title={u.name}>
+                <span className="min-w-0 truncate text-ink" title={u.name}>
                   {u.name}
                 </span>
                 <UploadBadge item={u} />
@@ -200,20 +200,20 @@ export function UmobileImages({ initialImages }: { initialImages: UmobileImageVi
       )}
 
       <div className="flex items-baseline justify-between">
-        <p className="text-[13px] font-medium text-[#0A2540] tabular-nums">
+        <p className="text-[13px] font-medium text-ink tabular-nums">
           {images.length} image{images.length === 1 ? "" : "s"}
         </p>
         {pages > 1 && (
-          <p className="text-[12px] text-[#697386] tabular-nums">
+          <p className="text-[12px] text-ink-muted tabular-nums">
             Page {current} of {pages}
           </p>
         )}
       </div>
 
       {images.length === 0 ? (
-        <div className="rounded-lg border border-[#E3E8EF] bg-white px-6 py-12 text-center">
-          <p className="text-[13px] font-medium text-[#0A2540]">No images in the pool</p>
-          <p className="mt-1 text-[12px] text-[#697386]">
+        <div className="rounded-lg border border-line bg-white px-6 py-12 text-center">
+          <p className="text-[13px] font-medium text-ink">No images in the pool</p>
+          <p className="mt-1 text-[12px] text-ink-muted">
             Bills still generate without a modem photo until one is added.
           </p>
         </div>
@@ -222,12 +222,12 @@ export function UmobileImages({ initialImages }: { initialImages: UmobileImageVi
           {visible.map((image) => (
             <li
               key={image.id}
-              className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-[#E3E8EF] bg-white"
+              className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-line bg-white"
             >
               <button
                 type="button"
                 onClick={() => setPreview(image)}
-                className="relative block aspect-square w-full bg-[#F6F9FC] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#635BFF]"
+                className="relative block aspect-square w-full bg-wash focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand"
                 aria-label={`Preview ${image.filename}`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -238,19 +238,19 @@ export function UmobileImages({ initialImages }: { initialImages: UmobileImageVi
                   className="absolute inset-0 h-full w-full object-contain p-2"
                 />
               </button>
-              <div className="flex items-center justify-between gap-2 border-t border-[#E3E8EF] px-3 py-2">
+              <div className="flex items-center justify-between gap-2 border-t border-line px-3 py-2">
                 <div className="min-w-0">
-                  <p className="truncate text-[12px] font-medium text-[#0A2540]" title={image.filename}>
+                  <p className="truncate text-[12px] font-medium text-ink" title={image.filename}>
                     {image.filename}
                   </p>
-                  <p className="text-[11px] text-[#697386] tabular-nums">
+                  <p className="text-[11px] text-ink-muted tabular-nums">
                     {createdParts(image.createdAt)?.date ?? "—"}
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setDeleteTarget(image)}
-                  className="shrink-0 rounded-md p-1.5 text-[#DF1B41] hover:bg-red-50"
+                  className="shrink-0 rounded-md p-1.5 text-danger hover:bg-red-50"
                   aria-label={`Delete ${image.filename}`}
                   title="Delete"
                 >
@@ -269,7 +269,7 @@ export function UmobileImages({ initialImages }: { initialImages: UmobileImageVi
           </PageButton>
           {pageNumbers(current, pages).map((p, i) =>
             p === "gap" ? (
-              <span key={`gap-${i}`} className="px-1 text-[12px] text-[#697386]">
+              <span key={`gap-${i}`} className="px-1 text-[12px] text-ink-muted">
                 …
               </span>
             ) : (
@@ -293,14 +293,14 @@ export function UmobileImages({ initialImages }: { initialImages: UmobileImageVi
         <Dialog open onOpenChange={(open) => !open && setPreview(null)}>
           <DialogContent className="sm:max-w-3xl">
             <DialogHeader>
-              <DialogTitle className="truncate pr-8 text-[14px] font-semibold text-[#0A2540]">
+              <DialogTitle className="truncate pr-8 text-[14px] font-semibold text-ink">
                 {preview.filename}
               </DialogTitle>
-              <DialogDescription className="text-[12px] text-[#697386]">
+              <DialogDescription className="text-[12px] text-ink-muted">
                 Uploaded {createdParts(preview.createdAt)?.date ?? "—"}
               </DialogDescription>
             </DialogHeader>
-            <div className="flex max-h-[70vh] items-center justify-center rounded-lg bg-[#F6F9FC] p-2">
+            <div className="flex max-h-[70vh] items-center justify-center rounded-lg bg-wash p-2">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={preview.previewUrl}
@@ -316,19 +316,19 @@ export function UmobileImages({ initialImages }: { initialImages: UmobileImageVi
         <Dialog open onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)}>
           <DialogContent showCloseButton={false} className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle className="text-[15px] font-semibold text-[#0A2540]">
+              <DialogTitle className="text-[15px] font-semibold text-ink">
                 Delete this image?
               </DialogTitle>
             </DialogHeader>
-            <DialogDescription className="text-[13px] leading-relaxed text-[#425466]">
-              <span className="font-semibold text-[#0A2540]">{deleteTarget.filename}</span> will
+            <DialogDescription className="text-[13px] leading-relaxed text-ink-soft">
+              <span className="font-semibold text-ink">{deleteTarget.filename}</span> will
               be removed from the pool. Bills already generated keep their copy; new bills can no
               longer pick it.
             </DialogDescription>
             <DialogFooter>
               <DialogClose
                 disabled={deleting}
-                className="rounded-lg border border-[#E3E8EF] px-3 py-2 text-[13px] font-medium text-[#425466] hover:bg-[#F6F9FC]"
+                className="rounded-lg border border-line px-3 py-2 text-[13px] font-medium text-ink-soft hover:bg-wash"
               >
                 Cancel
               </DialogClose>
@@ -336,7 +336,7 @@ export function UmobileImages({ initialImages }: { initialImages: UmobileImageVi
                 type="button"
                 disabled={deleting}
                 onClick={() => void confirmDelete()}
-                className="rounded-lg bg-[#DF1B41] px-3 py-2 text-[13px] font-medium text-white hover:bg-[#c8163a] disabled:opacity-60"
+                className="rounded-lg bg-danger px-3 py-2 text-[13px] font-medium text-white hover:bg-[#c8163a] disabled:opacity-60"
               >
                 {deleting ? "Deleting…" : "Delete image"}
               </button>
@@ -350,10 +350,10 @@ export function UmobileImages({ initialImages }: { initialImages: UmobileImageVi
 
 function UploadBadge({ item }: { item: UploadItem }) {
   if (item.status === "error") {
-    return <span className="shrink-0 text-right text-[#DF1B41]">{item.error}</span>;
+    return <span className="shrink-0 text-right text-danger">{item.error}</span>;
   }
   const label = { queued: "Waiting", uploading: "Uploading…", done: "Added" }[item.status];
-  const color = item.status === "done" ? "text-[#0E8A5F]" : "text-[#697386]";
+  const color = item.status === "done" ? "text-[#0E8A5F]" : "text-ink-muted";
   return <span className={`shrink-0 ${color}`}>{label}</span>;
 }
 
@@ -378,7 +378,7 @@ function PageButton({
       disabled={disabled}
       onClick={onClick}
       className={`flex h-9 min-w-9 items-center justify-center rounded-md px-2 text-[13px] tabular-nums transition-colors disabled:opacity-40 ${
-        current ? "bg-[#635BFF] font-semibold text-white" : "text-[#425466] hover:bg-[#F6F9FC]"
+        current ? "bg-brand font-semibold text-white" : "text-ink-soft hover:bg-wash"
       }`}
     >
       {children}

@@ -174,7 +174,7 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
         type="button"
         onClick={openPanel}
         aria-label="Open admin assistant"
-        className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-[#635BFF] text-white shadow-lg transition-transform hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
+        className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-brand text-white shadow-lg transition-transform hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
       >
         <MessageCircle className="h-6 w-6" />
       </button>
@@ -188,19 +188,19 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
       onKeyDown={(e) => {
         if (e.key === "Escape") setOpen(false);
       }}
-      className="fixed inset-0 z-50 flex flex-col bg-white md:inset-auto md:bottom-5 md:right-5 md:h-[600px] md:max-h-[calc(100vh-2.5rem)] md:w-[400px] md:rounded-xl md:border md:border-[#E3E8EF] md:shadow-2xl"
+      className="fixed inset-0 z-50 flex flex-col bg-white md:inset-auto md:bottom-5 md:right-5 md:h-[600px] md:max-h-[calc(100vh-2.5rem)] md:w-[400px] md:rounded-xl md:border md:border-line md:shadow-2xl"
     >
-      <header className="flex items-center gap-2 border-b border-[#E3E8EF] px-3 py-2">
+      <header className="flex items-center gap-2 border-b border-line px-3 py-2">
         <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-semibold text-[#0A2540]">Admin assistant</h2>
-          <p className="text-[11px] text-[#697386]">Testing · read-only · answers from BizzFlow data</p>
+          <h2 className="text-sm font-semibold text-ink">Admin assistant</h2>
+          <p className="text-[11px] text-ink-muted">Testing · read-only · answers from BizzFlow data</p>
         </div>
         <button
           type="button"
           onClick={newChat}
           aria-label="New chat"
           title="New chat"
-          className="flex h-11 w-11 items-center justify-center rounded-lg text-[#697386] hover:bg-[#F6F9FC] focus-visible:outline-2 focus-visible:outline-[#635BFF]"
+          className="flex h-11 w-11 items-center justify-center rounded-lg text-ink-muted hover:bg-wash focus-visible:outline-2 focus-visible:outline-brand"
         >
           <RotateCcw className="h-4 w-4" />
         </button>
@@ -208,13 +208,13 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
           type="button"
           onClick={() => setOpen(false)}
           aria-label="Close admin assistant"
-          className="flex h-11 w-11 items-center justify-center rounded-lg text-[#697386] hover:bg-[#F6F9FC] focus-visible:outline-2 focus-visible:outline-[#635BFF]"
+          className="flex h-11 w-11 items-center justify-center rounded-lg text-ink-muted hover:bg-wash focus-visible:outline-2 focus-visible:outline-brand"
         >
           <X className="h-5 w-5" />
         </button>
       </header>
 
-      <div role="tablist" className="flex border-b border-[#E3E8EF] px-3 text-sm">
+      <div role="tablist" className="flex border-b border-line px-3 text-sm">
         {(["chat", "handoffs"] as const).map((t) => (
           <button
             key={t}
@@ -226,7 +226,7 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
               if (t === "handoffs") void loadHandoffs();
             }}
             className={`-mb-px min-h-11 border-b-2 px-3 font-medium ${
-              tab === t ? "border-[#635BFF] text-[#0A2540]" : "border-transparent text-[#697386] hover:text-[#0A2540]"
+              tab === t ? "border-brand text-ink" : "border-transparent text-ink-muted hover:text-ink"
             }`}
           >
             {t === "chat" ? "Chat" : `Handoffs${openCount ? ` (${openCount})` : ""}`}
@@ -239,7 +239,7 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
           <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-3 py-3" aria-live="polite">
             {messages.length === 0 && (
               <div className="space-y-2">
-                <p className="text-sm text-[#697386]">
+                <p className="text-sm text-ink-muted">
                   Ask about orders, failures, plans or agents. I can&apos;t change anything — for that, I hand off to{" "}
                   {handoffName}.
                 </p>
@@ -248,7 +248,7 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
                     key={s}
                     type="button"
                     onClick={() => void ask(s)}
-                    className="block w-full rounded-lg border border-[#E3E8EF] px-3 py-2 text-left text-sm text-[#0A2540] hover:border-[#635BFF] hover:bg-[#F6F9FC]"
+                    className="block w-full rounded-lg border border-line px-3 py-2 text-left text-sm text-ink hover:border-brand hover:bg-wash"
                   >
                     {s}
                   </button>
@@ -261,7 +261,7 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
           </div>
 
           <form
-            className="border-t border-[#E3E8EF] p-2"
+            className="border-t border-line p-2"
             onSubmit={(e) => {
               e.preventDefault();
               void ask(input);
@@ -284,13 +284,13 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
                 disabled={!!locked}
                 placeholder={locked ? "Locked" : "Ask about an order, plan or agent…"}
                 aria-label="Your question"
-                className="max-h-32 min-h-11 flex-1 resize-none rounded-lg border border-[#E3E8EF] px-3 py-2.5 text-sm text-[#0A2540] placeholder:text-[#A3ACB9] focus:border-[#635BFF] focus:outline-none disabled:bg-[#F6F9FC]"
+                className="max-h-32 min-h-11 flex-1 resize-none rounded-lg border border-line px-3 py-2.5 text-sm text-ink placeholder:text-[#A3ACB9] focus:border-brand focus:outline-none disabled:bg-wash"
               />
               <button
                 type="submit"
                 disabled={busy || !input.trim() || !!locked}
                 aria-label="Send"
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#635BFF] text-white disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-brand text-white disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
               >
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </button>
@@ -307,7 +307,7 @@ export function AdminChat({ handoffName }: { handoffName: string }) {
 function MessageBubble({ message: m }: { message: ChatMessage }) {
   if (m.role === "user") {
     return (
-      <div className="ml-10 rounded-lg bg-[#635BFF] px-3 py-2 text-sm whitespace-pre-wrap text-white">{m.text}</div>
+      <div className="ml-10 rounded-lg bg-brand px-3 py-2 text-sm whitespace-pre-wrap text-white">{m.text}</div>
     );
   }
   return (
@@ -315,14 +315,14 @@ function MessageBubble({ message: m }: { message: ChatMessage }) {
       {m.text ? (
         <div
           className={`rounded-lg px-3 py-2 text-sm ${
-            m.error ? "bg-[#FDECEC] text-[#9B1C1C]" : "bg-[#F6F9FC] text-[#0A2540]"
+            m.error ? "bg-[#FDECEC] text-[#9B1C1C]" : "bg-wash text-ink"
           }`}
         >
           <ChatText blocks={parseChatMarkdown(m.text)} />
         </div>
       ) : null}
       {(m.status || !m.text) && !m.error && (
-        <p className="flex items-center gap-2 text-xs text-[#697386]">
+        <p className="flex items-center gap-2 text-xs text-ink-muted">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           {m.status ?? "Thinking…"}
         </p>
@@ -382,7 +382,7 @@ function InlineParts({ parts }: { parts: Inline[] }) {
             );
           case "link":
             return (
-              <Link key={i} href={p.href} className="font-medium text-[#635BFF] underline-offset-2 hover:underline">
+              <Link key={i} href={p.href} className="font-medium text-brand underline-offset-2 hover:underline">
                 {p.text}
               </Link>
             );
@@ -408,32 +408,32 @@ function HandoffList({
   }
   if (rows === null) {
     return (
-      <div className="flex flex-1 items-center justify-center text-sm text-[#697386]">
+      <div className="flex flex-1 items-center justify-center text-sm text-ink-muted">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…
       </div>
     );
   }
   if (rows.length === 0) {
-    return <p className="flex-1 px-3 py-6 text-center text-sm text-[#697386]">No open handoffs.</p>;
+    return <p className="flex-1 px-3 py-6 text-center text-sm text-ink-muted">No open handoffs.</p>;
   }
   return (
     <ul className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
       {rows.map((h) => (
-        <li key={h.id} className="rounded-lg border border-[#E3E8EF] p-3 text-sm">
+        <li key={h.id} className="rounded-lg border border-line p-3 text-sm">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-xs text-[#697386]">
+              <p className="text-xs text-ink-muted">
                 To {h.assignee}
                 {h.orderRef ? ` · ${h.orderRef}` : ""} · {new Date(h.createdAt).toLocaleString("en-GB", { timeZone: "Asia/Kuala_Lumpur", dateStyle: "short", timeStyle: "short" })}
                 {h.emailed ? " · e-mailed" : " · not e-mailed"}
               </p>
-              <p className="mt-1 text-[#0A2540]">{h.summary}</p>
-              <p className="mt-1 text-xs text-[#697386]">Why: {h.reason}</p>
+              <p className="mt-1 text-ink">{h.summary}</p>
+              <p className="mt-1 text-xs text-ink-muted">Why: {h.reason}</p>
             </div>
             <button
               type="button"
               onClick={() => onResolve(h.id)}
-              className="flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-2 text-xs font-medium text-[#0A7B3E] hover:bg-[#F6F9FC]"
+              className="flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-2 text-xs font-medium text-[#0A7B3E] hover:bg-wash"
             >
               <CheckCircle2 className="h-4 w-4" /> Resolve
             </button>

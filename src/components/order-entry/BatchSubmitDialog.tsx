@@ -36,33 +36,33 @@ export function BatchSubmitDialog({
     <Dialog open onOpenChange={(next) => !next && onCancel()}>
       <DialogContent showCloseButton={false} className="sm:max-w-md" aria-describedby="batch-note">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-[15px] font-semibold text-[#0A2540]">
+          <DialogTitle className="flex items-center gap-2 text-[15px] font-semibold text-ink">
             <span
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#EEF0FF]"
               aria-hidden="true"
             >
-              <Layers className="h-3.5 w-3.5 text-[#635BFF]" />
+              <Layers className="h-3.5 w-3.5 text-brand" />
             </span>
             Submit {count} order{count === 1 ? "" : "s"}?
           </DialogTitle>
         </DialogHeader>
 
-        <DialogDescription id="batch-note" className="space-y-2 text-[13px] leading-relaxed text-[#425466]">
+        <DialogDescription id="batch-note" className="space-y-2 text-[13px] leading-relaxed text-ink-soft">
           <span className="block">
-            They run <span className="font-semibold text-[#0A2540]">one by one, oldest first</span>.
+            They run <span className="font-semibold text-ink">one by one, oldest first</span>.
             An order that fails doesn&apos;t stop the rest.
           </span>
           <span className="block">
             {recipient ? (
               <>
                 You&apos;ll get one summary email at{" "}
-                <span className="font-semibold text-[#0A2540]">{recipient}</span> when the batch
-                finishes — <span className="font-semibold text-[#0A2540]">you can close this tab</span>,
+                <span className="font-semibold text-ink">{recipient}</span> when the batch
+                finishes — <span className="font-semibold text-ink">you can close this tab</span>,
                 the batch keeps running.
               </>
             ) : (
               <>
-                <span className="font-semibold text-[#0A2540]">You can close this tab</span> — the
+                <span className="font-semibold text-ink">You can close this tab</span> — the
                 batch keeps running. No summary email will be sent: no notification address is set
                 (add one in Settings).
               </>
@@ -76,7 +76,7 @@ export function BatchSubmitDialog({
               <button
                 type="button"
                 onClick={onCancel}
-                className="cursor-pointer rounded-md border border-[#E3E8EF] px-3 py-2 text-[13px] font-medium text-[#425466] transition-colors duration-150 hover:border-[#635BFF] hover:text-[#635BFF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
+                className="cursor-pointer rounded-md border border-line px-3 py-2 text-[13px] font-medium text-ink-soft transition-colors duration-150 hover:border-brand hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
               />
             }
           >
@@ -85,7 +85,7 @@ export function BatchSubmitDialog({
           <button
             type="button"
             onClick={onConfirm}
-            className="cursor-pointer rounded-md bg-[#635BFF] px-3 py-2 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-[#0A2540] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
+            className="cursor-pointer rounded-md bg-brand px-3 py-2 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
           >
             Start batch
           </button>

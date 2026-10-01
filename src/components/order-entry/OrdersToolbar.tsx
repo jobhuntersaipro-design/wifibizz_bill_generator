@@ -50,10 +50,10 @@ function FilterSelect({
         /* An engaged filter is outlined in brand colour. Without it a narrowed
            table and an empty one look identical, and the usual explanation for
            "my draft disappeared" is a filter nobody remembers setting. */
-        className={`select-chevron h-10 w-full max-w-[220px] cursor-pointer truncate rounded-lg border bg-white pl-3 pr-9 text-[13px] transition-colors duration-150 focus:border-[#635BFF] focus:outline-none ${
+        className={`select-chevron h-10 w-full max-w-[220px] cursor-pointer truncate rounded-lg border bg-white pl-3 pr-9 text-[13px] transition-colors duration-150 focus:border-brand focus:outline-none ${
           active
-            ? "border-[#635BFF] text-[#0A2540]"
-            : "border-[#E3E8EF] text-[#425466] hover:border-[#CBD2DC]"
+            ? "border-brand text-ink"
+            : "border-line text-ink-soft hover:border-line-strong"
         }`}
       >
         <option value="all">{allLabel ?? `All ${label.toLowerCase()}`}</option>
@@ -129,10 +129,10 @@ export function OrdersToolbar({
             value={filters.query}
             onChange={(e) => set("query", e.target.value)}
             placeholder="Search by name, ID, phone or ORD-…"
-            className="h-11 w-full rounded-lg border border-[#E3E8EF] bg-white pl-9 pr-3 text-[14px] text-[#0A2540] transition-colors duration-150 placeholder:text-[#8792A2] hover:border-[#CBD2DC] focus:border-[#635BFF] focus:outline-none"
+            className="h-11 w-full rounded-lg border border-line bg-white pl-9 pr-3 text-[14px] text-ink transition-colors duration-150 placeholder:text-ink-faint hover:border-line-strong focus:border-brand focus:outline-none"
           />
           <Search
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8792A2]"
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint"
             aria-hidden="true"
           />
         </div>
@@ -193,7 +193,7 @@ export function OrdersToolbar({
             onClick={() =>
               onChange(EMPTY_FILTERS)
             }
-            className="inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium text-[#635BFF] transition-colors duration-150 hover:bg-[#EDEBFF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
+            className="inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium text-brand transition-colors duration-150 hover:bg-brand-wash focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
           >
             <X className="h-3.5 w-3.5" aria-hidden="true" />
             Clear {active} filter{active > 1 ? "s" : ""}
@@ -205,8 +205,8 @@ export function OrdersToolbar({
           never offers to batch something that needs a per-order confirmation. */}
       {selectedCount > 0 && (
         <TooltipProvider delay={150} closeDelay={0}>
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-[#635BFF]/30 bg-[#635BFF]/5 px-4 py-2.5">
-          <span className="text-[13px] font-medium text-[#0A2540]">
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-brand/30 bg-brand/5 px-4 py-2.5">
+          <span className="text-[13px] font-medium text-ink">
             {selectedCount} selected
           </span>
           <div className="flex items-center gap-2">
@@ -214,7 +214,7 @@ export function OrdersToolbar({
               type="button"
               onClick={onClearSelection}
               disabled={batchRunning}
-              className="cursor-pointer rounded-md border border-[#E3E8EF] bg-white px-3 py-2 text-[12px] text-[#425466] transition-colors duration-150 hover:border-[#635BFF] disabled:opacity-50"
+              className="cursor-pointer rounded-md border border-line bg-white px-3 py-2 text-[12px] text-ink-soft transition-colors duration-150 hover:border-brand disabled:opacity-50"
             >
               Clear
             </button>
@@ -226,7 +226,7 @@ export function OrdersToolbar({
               type="button"
               onClick={onSubmitSelected}
               disabled={batchRunning || serverBusy}
-              className="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-[#635BFF] px-3 py-2 text-[12px] font-semibold text-white transition-colors duration-150 hover:bg-[#0A2540] disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-brand px-3 py-2 text-[12px] font-semibold text-white transition-colors duration-150 hover:bg-ink disabled:cursor-not-allowed disabled:opacity-50"
             >
               {batchRunning ? (
                 <>

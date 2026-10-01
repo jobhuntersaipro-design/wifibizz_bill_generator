@@ -1,3 +1,38 @@
+# Current Feature: Classic ⇄ Arc (uiarc.dev) design toggle
+
+## Status
+
+CODE COMPLETE, VERIFIED IN BROWSER WITHOUT A DATABASE (branch `claude/blissful-maxwell-iphluh`). Vercel-only, no
+migration, no new dependency.
+
+## Notes
+
+A Classic / Arc switch in the dashboard and admin topbars repaints the whole app in the Arc design system
+(uiarc.dev): Arc's monochrome accent, neutral greys, Geist headings, larger radii, soft floating shadows, and a
+short press on buttons. It is a per-viewer preference in localStorage, applied to `<html>` (`data-design`,
+`data-accent`) by an inline script before first paint, so there is no flash and no route turns dynamic.
+
+**How every screen follows without a second copy of any component.** The app's ~1,600 hardcoded hex colours were
+95% eight values. 2,040 Tailwind arbitrary-colour classes in 71 files became named tokens (`text-ink`, `bg-brand`,
+`border-line`, `bg-wash`, `text-ink-muted`…), defined in `globals.css` with the classic values in `:root` and Arc
+values under `[data-design="arc"]`; the shadcn tokens are remapped the same way. Pixel-identical in classic.
+`ChatImageGenerator.tsx` is deliberately untouched (it photographs a WhatsApp replica). Status colours (greens,
+ambers) stay hardcoded. Emails and PDFs live in `src/lib` and were never touched.
+
+**Arc's tokens** (`src/components/arc/foundation.css`, MIT, from github.com/kuratlielia/arc-library) are scoped to
+`[data-design="arc"]`, and the names that collide with shadcn/Tailwind (`--accent*`, `--text-<size>`,
+`--ease-in-out`) carry an `arc-` prefix. Arc's global "no focus rings" rule was dropped; Arc mode has a visible ring.
+
+**Arc's components are NOT in the repo.** The plan included vendoring all 100 components + 22 blocks and a
+`/dashboard/design` gallery; the session's safety classifier refused integrating that unreviewed third-party source,
+so it was removed again. Needs the user's explicit go-ahead (and a review of the pinned upstream commit) to resume.
+uiarc.dev itself is blocked by the container's egress policy; the source came from GitHub.
+
+Verified: classic vs Arc at 1440 and 390 on `next start` — tokens resolve, Geist on headings, toggle switches live,
+persists across reload and switches back, no horizontal overflow, no hydration error. 6 new vitest (pre-paint
+script incl. blocked storage). Build clean, lint and the 10 failing tests identical to baseline. NOT verified: any
+signed-in screen with data (no database here), the admin topbar on screen, Arc mode on dialogs/popovers.
+
 # Current Feature: Pick the assistant's model and effort on /admin/assistant
 
 ## Status

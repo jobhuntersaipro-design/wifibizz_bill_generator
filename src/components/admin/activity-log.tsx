@@ -62,17 +62,17 @@ export function ActivityLog() {
   const shown = expanded ? rows : rows.slice(0, 5);
 
   return (
-    <section className="mt-6 rounded-xl border border-[#E3E8EF] bg-white">
-      <div className="flex items-center justify-between border-b border-[#E3E8EF] px-6 py-4">
+    <section className="mt-6 rounded-xl border border-line bg-white">
+      <div className="flex items-center justify-between border-b border-line px-6 py-4">
         <div>
-          <h2 className="text-sm font-semibold text-[#0A2540]">Activity</h2>
-          <p className="mt-0.5 text-xs text-[#697386]">
+          <h2 className="text-sm font-semibold text-ink">Activity</h2>
+          <p className="mt-0.5 text-xs text-ink-muted">
             Who did what — account changes, access flips, restores, purges, releases.
           </p>
         </div>
         {rows.length > 5 && (
           <button type="button" onClick={() => setExpanded((v) => !v)}
-            className="cursor-pointer text-xs text-[#635BFF] hover:underline">
+            className="cursor-pointer text-xs text-brand hover:underline">
             {expanded ? "Show less" : `Show all ${rows.length}${more ? "+" : ""}`}
           </button>
         )}
@@ -80,25 +80,25 @@ export function ActivityLog() {
       <ul className="divide-y divide-[#F0F3F8] px-6 py-2">
         {shown.map((r) => (
           <li key={r.id} className="flex flex-wrap items-baseline gap-x-2 py-2 text-[13px]">
-            <span className="tabular-nums text-xs text-[#697386]">
+            <span className="tabular-nums text-xs text-ink-muted">
               {r.createdAt.slice(0, 16).replace("T", " ")}
             </span>
-            <span className="font-medium text-[#0A2540]">
+            <span className="font-medium text-ink">
               {r.actor === "admin" ? "Admin" : r.targetUser ?? r.actor}
             </span>
-            <span className="text-[#425466]">{PHRASE[r.action] ?? r.action}</span>
+            <span className="text-ink-soft">{PHRASE[r.action] ?? r.action}</span>
             {r.action.startsWith("password") ? null : r.targetUser && (
-              <span className="font-medium text-[#0A2540]">{r.targetUser}</span>
+              <span className="font-medium text-ink">{r.targetUser}</span>
             )}
-            {r.targetOrder && <span className="font-mono text-xs text-[#697386]">{r.targetOrder.slice(0, 12)}…</span>}
-            {r.detail && <span className="text-xs text-[#697386]">— {r.detail}</span>}
+            {r.targetOrder && <span className="font-mono text-xs text-ink-muted">{r.targetOrder.slice(0, 12)}…</span>}
+            {r.detail && <span className="text-xs text-ink-muted">— {r.detail}</span>}
           </li>
         ))}
       </ul>
       {expanded && more && (
-        <div className="border-t border-[#E3E8EF] px-6 py-3">
+        <div className="border-t border-line px-6 py-3">
           <button type="button" onClick={loadMore}
-            className="cursor-pointer text-xs text-[#635BFF] hover:underline">
+            className="cursor-pointer text-xs text-brand hover:underline">
             Load older
           </button>
         </div>

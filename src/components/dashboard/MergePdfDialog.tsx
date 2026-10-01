@@ -314,18 +314,18 @@ export default function MergePdfDialog({
     <Dialog open onOpenChange={(next) => !next && !merging && onClose()}>
       <DialogContent showCloseButton={false} className="sm:max-w-lg" aria-describedby="merge-note">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-[15px] font-semibold text-[#0A2540]">
+          <DialogTitle className="flex items-center gap-2 text-[15px] font-semibold text-ink">
             <span
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#EEF0FF]"
               aria-hidden="true"
             >
-              <MergeIcon className="h-3.5 w-3.5 text-[#635BFF]" />
+              <MergeIcon className="h-3.5 w-3.5 text-brand" />
             </span>
             Merge documents into one PDF
           </DialogTitle>
         </DialogHeader>
 
-        <DialogDescription id="merge-note" className="text-[13px] leading-relaxed text-[#425466]">
+        <DialogDescription id="merge-note" className="text-[13px] leading-relaxed text-ink-soft">
           Case {caseData.case_no}{caseData.full_name ? ` · ${caseData.full_name}` : ""}. The
           documents you tick are combined in the order below and downloaded as one PDF. A bill that
           has not been generated yet is generated first.
@@ -333,15 +333,15 @@ export default function MergePdfDialog({
 
         <>
             <fieldset className="flex flex-wrap gap-x-4 gap-y-2">
-              <legend className="mb-2 text-xs font-medium text-[#697386]">Include</legend>
+              <legend className="mb-2 text-xs font-medium text-ink-muted">Include</legend>
               {MERGE_DOC_TYPES.map((type) => (
                 <label
                   key={type}
-                  className="flex cursor-pointer items-center gap-2 text-[13px] text-[#425466]"
+                  className="flex cursor-pointer items-center gap-2 text-[13px] text-ink-soft"
                 >
                   <input
                     type="checkbox"
-                    className="cursor-pointer rounded border-[#E3E8EF] text-[#635BFF] focus:ring-[#635BFF]/20"
+                    className="cursor-pointer rounded border-line text-brand focus:ring-brand/20"
                     checked={types.includes(type)}
                     disabled={merging}
                     onChange={() => toggleType(type)}
@@ -351,9 +351,9 @@ export default function MergePdfDialog({
               ))}
             </fieldset>
 
-            <ul className="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-[#E3E8EF] p-1">
+            <ul className="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-line p-1">
               {items.length === 0 && (
-                <li className="px-2 py-6 text-center text-xs text-[#697386]">
+                <li className="px-2 py-6 text-center text-xs text-ink-muted">
                   Tick a document type to build the list.
                 </li>
               )}
@@ -371,8 +371,8 @@ export default function MergePdfDialog({
                   }}
                   className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${
                     item.unavailable
-                      ? "text-[#8792A2] opacity-70"
-                      : "cursor-grab text-[#0A2540] hover:bg-[#F6F9FC]"
+                      ? "text-ink-faint opacity-70"
+                      : "cursor-grab text-ink hover:bg-wash"
                   } ${dragIndex === index ? "bg-[#EEF0FF]" : ""}`}
                 >
                   <GripIcon
@@ -384,7 +384,7 @@ export default function MergePdfDialog({
                   ) : (
                     <span className="flex shrink-0 items-center gap-0.5">
                       {item.needsGeneration && (
-                        <span className="mr-1 rounded-full bg-[#EEF0FF] px-2 py-0.5 text-[11px] font-medium text-[#635BFF]">
+                        <span className="mr-1 rounded-full bg-[#EEF0FF] px-2 py-0.5 text-[11px] font-medium text-brand">
                           Will be generated
                         </span>
                       )}
@@ -394,7 +394,7 @@ export default function MergePdfDialog({
                         aria-label={`Move ${item.label} up`}
                         disabled={merging || index === 0}
                         onClick={() => move(index, index - 1)}
-                        className="cursor-pointer rounded px-1 text-[#697386] hover:text-[#635BFF] disabled:cursor-not-allowed disabled:opacity-30"
+                        className="cursor-pointer rounded px-1 text-ink-muted hover:text-brand disabled:cursor-not-allowed disabled:opacity-30"
                       >
                         ↑
                       </button>
@@ -403,7 +403,7 @@ export default function MergePdfDialog({
                         aria-label={`Move ${item.label} down`}
                         disabled={merging || index === items.length - 1}
                         onClick={() => move(index, index + 1)}
-                        className="cursor-pointer rounded px-1 text-[#697386] hover:text-[#635BFF] disabled:cursor-not-allowed disabled:opacity-30"
+                        className="cursor-pointer rounded px-1 text-ink-muted hover:text-brand disabled:cursor-not-allowed disabled:opacity-30"
                       >
                         ↓
                       </button>
@@ -412,7 +412,7 @@ export default function MergePdfDialog({
                         aria-label={`Remove ${item.label}`}
                         disabled={merging}
                         onClick={() => removeItem(item.id)}
-                        className="cursor-pointer rounded p-1 text-[#697386] hover:text-[#DF1B41] disabled:cursor-not-allowed disabled:opacity-30"
+                        className="cursor-pointer rounded p-1 text-ink-muted hover:text-danger disabled:cursor-not-allowed disabled:opacity-30"
                       >
                         <CloseIcon className="h-3 w-3" />
                       </button>
@@ -424,13 +424,13 @@ export default function MergePdfDialog({
 
             {merging && (
               <div className="space-y-1" aria-live="polite">
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#E3E8EF]">
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-line">
                   <div
-                    className="h-full rounded-full bg-[#635BFF] transition-all duration-200"
+                    className="h-full rounded-full bg-brand transition-all duration-200"
                     style={{ width: `${Math.round((done / Math.max(included.length, 1)) * 100)}%` }}
                   />
                 </div>
-                <p className="text-xs text-[#697386]">
+                <p className="text-xs text-ink-muted">
                   {generatingLabel
                     ? `Generating the ${generatingLabel}…`
                     : `Fetching ${done} of ${included.length} documents…`}
@@ -438,7 +438,7 @@ export default function MergePdfDialog({
               </div>
             )}
           {addressLoading && (
-            <p className="text-xs text-[#697386]" aria-live="polite">
+            <p className="text-xs text-ink-muted" aria-live="polite">
               Fetching the installation address for the closing script…
             </p>
           )}
@@ -477,7 +477,7 @@ export default function MergePdfDialog({
             type="button"
             onClick={onClose}
             disabled={merging}
-            className="cursor-pointer rounded-md border border-[#E3E8EF] px-3 py-2 text-[13px] font-medium text-[#425466] transition-colors duration-150 hover:border-[#635BFF] hover:text-[#635BFF] disabled:cursor-not-allowed disabled:opacity-50"
+            className="cursor-pointer rounded-md border border-line px-3 py-2 text-[13px] font-medium text-ink-soft transition-colors duration-150 hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-50"
           >
             Cancel
           </button>
@@ -485,7 +485,7 @@ export default function MergePdfDialog({
             type="button"
             onClick={handleMerge}
             disabled={merging || addressLoading || included.length === 0}
-            className="cursor-pointer rounded-md bg-[#635BFF] px-3 py-2 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-[#0A2540] disabled:cursor-not-allowed disabled:opacity-50"
+            className="cursor-pointer rounded-md bg-brand px-3 py-2 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-ink disabled:cursor-not-allowed disabled:opacity-50"
           >
             {merging ? "Merging…" : `Merge ${included.length} document${included.length === 1 ? "" : "s"}`}
           </button>

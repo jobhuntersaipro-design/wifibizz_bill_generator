@@ -58,23 +58,23 @@ export function AdminOrderDetail({
 
   return (
     <div className="space-y-5">
-      <header className="rounded-xl border border-[#E3E8EF] bg-white p-5">
+      <header className="rounded-xl border border-line bg-white p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold text-[#0A2540]">
+            <h1 className="text-xl font-semibold text-ink">
               {order.reference ?? order.fullName}
             </h1>
-            <p className="mt-0.5 text-sm text-[#697386]">
+            <p className="mt-0.5 text-sm text-ink-muted">
               {order.fullName} · {order.agentEmail ?? "unknown agent"}
             </p>
           </div>
           <div className="flex flex-col items-end gap-1">
-            <span className="rounded-full bg-[#F1F3F6] px-2.5 py-1 text-xs text-[#425466]">
+            <span className="rounded-full bg-[#F1F3F6] px-2.5 py-1 text-xs text-ink-soft">
               {order.status}
             </span>
             {order.status === "submitting" && order.jobId && (
               <a href={`/admin/orders/${order.id}/live`} target="_blank" rel="noreferrer"
-                className="text-xs font-medium text-[#635BFF] hover:underline">Watch live ↗</a>
+                className="text-xs font-medium text-brand hover:underline">Watch live ↗</a>
             )}
             {!order.deletedAt && (
               <SubmitAsAdminButton orderId={order.id} label={order.reference ?? order.fullName}
@@ -89,7 +89,7 @@ export function AdminOrderDetail({
           </div>
         </div>
         {order.orderId && (
-          <p className="mt-3 text-sm text-[#0A2540]">
+          <p className="mt-3 text-sm text-ink">
             Portal order <span className="font-mono tabular-nums">{order.orderId}</span>
           </p>
         )}
@@ -103,7 +103,7 @@ export function AdminOrderDetail({
               {order.errorMessage}
             </p>
           ) : (
-            <p className="mt-3 rounded-md bg-[#F6F9FC] px-3 py-2 text-sm text-[#425466]">
+            <p className="mt-3 rounded-md bg-wash px-3 py-2 text-sm text-ink-soft">
               {order.errorMessage}
             </p>
           )
@@ -142,18 +142,18 @@ export function AdminOrderDetail({
 
       <Section title={`History · ${attempts.length} attempt${attempts.length === 1 ? "" : "s"}`}>
         {attempts.length === 0 ? (
-          <p className="col-span-2 text-sm text-[#697386]">
+          <p className="col-span-2 text-sm text-ink-muted">
             This order has never been submitted.
           </p>
         ) : (
           <ol className="col-span-2 space-y-4">
             {attempts.map((a) => (
-              <li key={a.attempt} className="rounded-lg border border-[#E3E8EF] p-4">
+              <li key={a.attempt} className="rounded-lg border border-line p-4">
                 <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-sm font-semibold text-[#0A2540]">
+                  <span className="text-sm font-semibold text-ink">
                     Attempt {a.attempt}
                   </span>
-                  <span className="text-xs text-[#697386]">
+                  <span className="text-xs text-ink-muted">
                     {a.outcome} · {a.startedAt.slice(0, 16).replace("T", " ")}
                   </span>
                 </div>
@@ -169,8 +169,8 @@ export function AdminOrderDetail({
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-xl border border-[#E3E8EF] bg-white p-5">
-      <h2 className="mb-4 text-sm font-semibold text-[#0A2540]">{title}</h2>
+    <section className="rounded-xl border border-line bg-white p-5">
+      <h2 className="mb-4 text-sm font-semibold text-ink">{title}</h2>
       <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">{children}</dl>
     </section>
   );
@@ -179,8 +179,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Field({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
-      <dt className="text-xs text-[#697386]">{label}</dt>
-      <dd className="mt-0.5 break-words text-sm text-[#0A2540]">{value || "—"}</dd>
+      <dt className="text-xs text-ink-muted">{label}</dt>
+      <dd className="mt-0.5 break-words text-sm text-ink">{value || "—"}</dd>
     </div>
   );
 }

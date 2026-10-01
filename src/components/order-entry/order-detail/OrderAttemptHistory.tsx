@@ -45,10 +45,10 @@ function CapturesStrip({
   onOpen: (index: number) => void;
 }) {
   return (
-    <div className="border-t border-[#E3E8EF] bg-white px-4 py-2.5">
+    <div className="border-t border-line bg-white px-4 py-2.5">
       <div className="flex items-center gap-1.5">
-        <Camera className="h-3 w-3 shrink-0 text-[#8792A2]" aria-hidden="true" />
-        <h4 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8792A2]">
+        <Camera className="h-3 w-3 shrink-0 text-ink-faint" aria-hidden="true" />
+        <h4 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
           Captures · {captures.length}
         </h4>
       </div>
@@ -60,14 +60,14 @@ function CapturesStrip({
               onClick={() => onOpen(n)}
               aria-label={`Open ${captureLabel(c.slot)} in the capture viewer`}
               title={captureLabel(c.slot)}
-              className="group block w-20 cursor-pointer rounded-md text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
+              className="group block w-20 cursor-pointer rounded-md text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
             >
-              <span className="block overflow-hidden rounded-md border border-[#E3E8EF] bg-[#F6F9FC]">
+              <span className="block overflow-hidden rounded-md border border-line bg-wash">
                 {isPdfCapture(c.key) ? (
                   /* A PDF has no thumbnail to show — a file tile says what it is
                      rather than leaving a blank slot in the rail. */
-                  <span className="flex h-12 w-full items-center justify-center bg-[#EDEBFF] transition-transform duration-200 ease-out group-hover:scale-[1.04]">
-                    <FileText className="h-4 w-4 text-[#635BFF]" aria-hidden="true" />
+                  <span className="flex h-12 w-full items-center justify-center bg-brand-wash transition-transform duration-200 ease-out group-hover:scale-[1.04]">
+                    <FileText className="h-4 w-4 text-brand" aria-hidden="true" />
                   </span>
                 ) : (
                   <>
@@ -82,7 +82,7 @@ function CapturesStrip({
                   </>
                 )}
               </span>
-              <span className="mt-1 block truncate text-[9px] leading-tight text-[#697386]">
+              <span className="mt-1 block truncate text-[9px] leading-tight text-ink-muted">
                 {captureLabel(c.slot)}
               </span>
             </button>
@@ -125,23 +125,23 @@ function ShotRow({
       <div className="flex w-3.5 shrink-0 flex-col items-center self-stretch">
         <span className="flex h-4 w-3.5 items-center justify-center">
           {isPdf ? (
-            <FileText className="h-3 w-3 shrink-0 text-[#635BFF]" aria-hidden="true" />
+            <FileText className="h-3 w-3 shrink-0 text-brand" aria-hidden="true" />
           ) : (
-            <Camera className="h-3 w-3 shrink-0 text-[#635BFF]" aria-hidden="true" />
+            <Camera className="h-3 w-3 shrink-0 text-brand" aria-hidden="true" />
           )}
         </span>
         {!last && <span className="w-px flex-1 bg-[#B9B5FF]" />}
       </div>
       <div className="min-w-0 flex-1 pb-3">
         <div className="flex flex-wrap items-baseline gap-2">
-          <span className="text-[12px] font-medium text-[#0A2540]">
+          <span className="text-[12px] font-medium text-ink">
             {captureLabel(capture.slot)}
           </span>
-          <span className="text-[10px] tabular-nums text-[#8792A2]">{time(capture.at)}</span>
+          <span className="text-[10px] tabular-nums text-ink-faint">{time(capture.at)}</span>
           {expiry && (
             <span
               className={`text-[10px] tabular-nums ${
-                expired ? "text-[#8792A2]" : soon ? "text-amber-700" : "text-[#8792A2]"
+                expired ? "text-ink-faint" : soon ? "text-amber-700" : "text-ink-faint"
               }`}
             >
               {expiry.label}
@@ -151,14 +151,14 @@ function ShotRow({
             <button
               type="button"
               onClick={onOpen}
-              className="ml-auto inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-[#635BFF] transition-colors duration-150 hover:bg-[#EDEBFF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
+              className="ml-auto inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-brand transition-colors duration-150 hover:bg-brand-wash focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
             >
               Full size <Maximize2 className="h-3 w-3" aria-hidden="true" />
             </button>
           )}
         </div>
         {expired ? (
-          <p className="mt-1.5 rounded-lg border border-dashed border-[#E3E8EF] px-3 py-4 text-center text-[10px] leading-snug text-[#8792A2]">
+          <p className="mt-1.5 rounded-lg border border-dashed border-line px-3 py-4 text-center text-[10px] leading-snug text-ink-faint">
             {isPdf ? "This document" : "This frame"} passed its {CAPTURE_RETENTION_DAYS}-day
             retention and has been deleted.
           </p>
@@ -167,19 +167,19 @@ function ShotRow({
             type="button"
             onClick={onOpen}
             aria-label={`Open ${captureLabel(capture.slot)} in the capture viewer`}
-            className="group mt-1.5 block w-full cursor-pointer rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
+            className="group mt-1.5 block w-full cursor-pointer rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
           >
-            <div className="relative overflow-hidden rounded-lg border border-[#E3E8EF] bg-white">
+            <div className="relative overflow-hidden rounded-lg border border-line bg-white">
               {isPdf && (
-                <span className="flex items-center gap-2.5 px-3 py-4 transition-colors duration-150 group-hover:bg-[#F6F9FC]">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#EDEBFF]">
-                    <FileText className="h-4 w-4 text-[#635BFF]" aria-hidden="true" />
+                <span className="flex items-center gap-2.5 px-3 py-4 transition-colors duration-150 group-hover:bg-wash">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-wash">
+                    <FileText className="h-4 w-4 text-brand" aria-hidden="true" />
                   </span>
                   <span className="min-w-0 text-left">
-                    <span className="block truncate text-[11px] font-medium text-[#0A2540]">
+                    <span className="block truncate text-[11px] font-medium text-ink">
                       {capture.key.split("/").pop()}
                     </span>
-                    <span className="block text-[10px] text-[#8792A2]">
+                    <span className="block text-[10px] text-ink-faint">
                       PDF · click to preview
                     </span>
                   </span>
@@ -203,7 +203,7 @@ function ShotRow({
             </div>
           </button>
         )}
-        <p className="mt-1 text-[10px] leading-snug text-[#8792A2]">
+        <p className="mt-1 text-[10px] leading-snug text-ink-faint">
           {captureCaption(capture.slot)}
         </p>
       </div>
@@ -265,23 +265,23 @@ function Attempt({ a, defaultOpen, delay }: { a: AttemptView; defaultOpen: boole
     <Collapsible
       open={open}
       onOpenChange={setOpen}
-      className="panel-card-in overflow-hidden rounded-xl border border-[#E3E8EF] bg-white"
+      className="panel-card-in overflow-hidden rounded-xl border border-line bg-white"
       style={{ animationDelay: `${delay}ms` }}
     >
-      <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-2.5 px-4 py-3 text-left transition-colors duration-150 hover:bg-[#F6F9FC] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#635BFF]">
-        <span className="text-[12px] font-semibold text-[#0A2540]">Attempt {a.attempt}</span>
+      <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-2.5 px-4 py-3 text-left transition-colors duration-150 hover:bg-wash focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand">
+        <span className="text-[12px] font-semibold text-ink">Attempt {a.attempt}</span>
         <Badge
           className={`rounded-full border-0 px-2 py-0.5 text-[10px] font-medium ${
             TONE[a.outcome === "submitting" ? "running" : a.outcome === "order_entered" ? "submitted" : (a.outcome as RunTone)]?.chip ??
-            "bg-[#E3E8EF] text-[#425466]"
+            "bg-line text-ink-soft"
           }`}
         >
           {OUTCOME_LABEL[a.outcome] ?? a.outcome}
         </Badge>
-        <span className="ml-auto flex items-center gap-2 text-[10px] tabular-nums text-[#697386]">
+        <span className="ml-auto flex items-center gap-2 text-[10px] tabular-nums text-ink-muted">
           {captures.length > 0 && (
             <span
-              className="inline-flex items-center gap-1 rounded-md bg-[#EDEBFF] px-1.5 py-0.5 font-medium text-[#635BFF]"
+              className="inline-flex items-center gap-1 rounded-md bg-brand-wash px-1.5 py-0.5 font-medium text-brand"
               title={`This attempt captured ${captures.length} portal screen${captures.length === 1 ? "" : "s"}`}
             >
               <Camera className="h-3 w-3" aria-hidden="true" />
@@ -290,13 +290,13 @@ function Attempt({ a, defaultOpen, delay }: { a: AttemptView; defaultOpen: boole
           )}
           {took && <span>{took}</span>}
           <ChevronDown
-            className={`h-3.5 w-3.5 text-[#8792A2] transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+            className={`h-3.5 w-3.5 text-ink-faint transition-transform duration-200 ${open ? "rotate-180" : ""}`}
             aria-hidden="true"
           />
         </span>
       </CollapsibleTrigger>
 
-      <p className="px-4 pb-2 text-[10px] tabular-nums text-[#8792A2]">
+      <p className="px-4 pb-2 text-[10px] tabular-nums text-ink-faint">
         {dayLabel(a.startedAt)} · {time(a.startedAt)}
         {a.endedAt && ` → ${time(a.endedAt)}`}
       </p>
@@ -317,7 +317,7 @@ function Attempt({ a, defaultOpen, delay }: { a: AttemptView; defaultOpen: boole
         {captures.length > 1 && (
           <CapturesStrip captures={captures} onOpen={setViewing} />
         )}
-        <ol className="flex flex-col border-t border-[#E3E8EF] bg-[#F6F9FC] px-4 py-3">
+        <ol className="flex flex-col border-t border-line bg-wash px-4 py-3">
           {rows.map((row, i) => {
             const last = i === rows.length - 1;
             if (row.kind === "shot") {
@@ -341,12 +341,12 @@ function Attempt({ a, defaultOpen, delay }: { a: AttemptView; defaultOpen: boole
             if (isPageBreakStage(e.stage)) {
               return (
                 <li key={e.id} className="step-row-in flex items-center gap-2 py-1.5">
-                  <span className="h-px flex-1 bg-[#CBD2DC]" aria-hidden="true" />
-                  <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-[#697386] ring-1 ring-[#E3E8EF]">
+                  <span className="h-px flex-1 bg-line-strong" aria-hidden="true" />
+                  <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-ink-muted ring-1 ring-line">
                     <CornerDownRight className="h-3 w-3 shrink-0" aria-hidden="true" />
                     {e.message || "Next page"}
                   </span>
-                  <span className="h-px flex-1 bg-[#CBD2DC]" aria-hidden="true" />
+                  <span className="h-px flex-1 bg-line-strong" aria-hidden="true" />
                 </li>
               );
             }
@@ -375,18 +375,18 @@ function Attempt({ a, defaultOpen, delay }: { a: AttemptView; defaultOpen: boole
                   <div className="flex flex-wrap items-baseline gap-2">
                     <span
                       className={`text-[12px] font-medium ${
-                        bad ? "text-red-700" : warn ? "text-amber-700" : "text-[#0A2540]"
+                        bad ? "text-red-700" : warn ? "text-amber-700" : "text-ink"
                       }`}
                     >
                       {e.stage ? labelForStage(e.stage) : OUTCOME_LABEL[e.status] ?? e.status}
                     </span>
-                    <span className="text-[10px] tabular-nums text-[#8792A2]">{time(e.createdAt)}</span>
-                    {took && <span className="text-[10px] tabular-nums text-[#8792A2]">+{took}</span>}
+                    <span className="text-[10px] tabular-nums text-ink-faint">{time(e.createdAt)}</span>
+                    {took && <span className="text-[10px] tabular-nums text-ink-faint">+{took}</span>}
                   </div>
                   {e.message && (
                     <p
                       className={`mt-0.5 break-words text-[11px] leading-snug ${
-                        bad ? "text-red-600" : warn ? "text-amber-700" : "text-[#425466]"
+                        bad ? "text-red-600" : warn ? "text-amber-700" : "text-ink-soft"
                       }`}
                     >
                       {e.message}
@@ -437,7 +437,7 @@ export function AttemptList({
         </>
       )}
       {!error && attempts?.length === 0 && (
-        <p className="rounded-xl border border-dashed border-[#E3E8EF] px-4 py-6 text-center text-[11px] text-[#697386]">
+        <p className="rounded-xl border border-dashed border-line px-4 py-6 text-center text-[11px] text-ink-muted">
           {hasAttempted
             ? "No step history was recorded — this order was submitted before status tracking existed."
             : "This draft hasn't been submitted yet."}

@@ -58,19 +58,19 @@ function DocumentPreviewDialog({ doc, onClose }: { doc: OrderDocument; onClose: 
           {docTypeLabel(doc.type)} document attached to this order.
         </DialogDescription>
 
-        <header className="flex shrink-0 items-center gap-3 border-b border-[#E3E8EF] px-4 py-3">
+        <header className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-3">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[13px] font-semibold leading-tight text-[#0A2540]">
+            <p className="truncate text-[13px] font-semibold leading-tight text-ink">
               {doc.filename}
             </p>
-            <p className="mt-0.5 text-[11px] text-[#8792A2]">
+            <p className="mt-0.5 text-[11px] text-ink-faint">
               {docTypeLabel(doc.type)} · {docExt(doc).toUpperCase()}
             </p>
           </div>
           <a
             href={doc.url}
             download
-            className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-medium text-[#635BFF] transition-colors duration-150 hover:bg-[#EDEBFF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
+            className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-medium text-brand transition-colors duration-150 hover:bg-brand-wash focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
           >
             Download <Download className="h-3 w-3" aria-hidden="true" />
           </a>
@@ -78,13 +78,13 @@ function DocumentPreviewDialog({ doc, onClose }: { doc: OrderDocument; onClose: 
             type="button"
             onClick={onClose}
             aria-label="Close document preview"
-            className="group -mr-1 flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-md text-[#697386] transition-colors duration-150 hover:bg-[#F6F9FC] hover:text-[#0A2540] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#635BFF]"
+            className="group -mr-1 flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-md text-ink-muted transition-colors duration-150 hover:bg-wash hover:text-ink focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
           >
             <X className="h-4 w-4 transition-transform duration-200 group-hover:rotate-90" aria-hidden="true" />
           </button>
         </header>
 
-        <div className="flex min-h-0 flex-1 items-stretch justify-center overflow-auto bg-[#F6F9FC] p-3">
+        <div className="flex min-h-0 flex-1 items-stretch justify-center overflow-auto bg-wash p-3">
           {isImage ? (
             /* eslint-disable-next-line @next/next/no-img-element -- an
                auth-gated private stream, not an optimisable static asset */
@@ -99,7 +99,7 @@ function DocumentPreviewDialog({ doc, onClose }: { doc: OrderDocument; onClose: 
             <iframe
               src={viewUrl(doc)}
               title={`Preview of ${doc.filename}`}
-              className="h-[70dvh] w-full rounded-lg border border-[#E3E8EF] bg-white"
+              className="h-[70dvh] w-full rounded-lg border border-line bg-white"
             />
           )}
         </div>
@@ -122,9 +122,9 @@ function DocumentRow({ doc, onPreview }: { doc: OrderDocument; onPreview: () => 
       <button
         type="button"
         onClick={onPreview}
-        className="group flex min-h-11 min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors duration-150 hover:bg-[#F6F9FC] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#635BFF]"
+        className="group flex min-h-11 min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors duration-150 hover:bg-wash focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
       >
-        <span className="block h-12 w-16 shrink-0 overflow-hidden rounded-md border border-[#E3E8EF] bg-[#F6F9FC]">
+        <span className="block h-12 w-16 shrink-0 overflow-hidden rounded-md border border-line bg-wash">
           {isImage ? (
             /* eslint-disable-next-line @next/next/no-img-element -- an
                auth-gated private stream, not an optimisable static asset */
@@ -135,16 +135,16 @@ function DocumentRow({ doc, onPreview }: { doc: OrderDocument; onPreview: () => 
               className="h-full w-full object-cover object-top transition-transform duration-200 ease-out group-hover:scale-[1.04]"
             />
           ) : (
-            <span className="flex h-full w-full items-center justify-center bg-[#EDEBFF]">
-              <FileText className="h-4 w-4 text-[#635BFF]" aria-hidden="true" />
+            <span className="flex h-full w-full items-center justify-center bg-brand-wash">
+              <FileText className="h-4 w-4 text-brand" aria-hidden="true" />
             </span>
           )}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[12px] font-medium text-[#0A2540]">
+          <span className="block truncate text-[12px] font-medium text-ink">
             {doc.filename}
           </span>
-          <span className="block text-[10px] text-[#8792A2]">
+          <span className="block text-[10px] text-ink-faint">
             {docTypeLabel(doc.type)} · {ext.toUpperCase()} · click to preview
           </span>
         </span>
@@ -154,7 +154,7 @@ function DocumentRow({ doc, onPreview }: { doc: OrderDocument; onPreview: () => 
         download
         aria-label={`Download ${doc.filename}`}
         title="Download"
-        className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg text-[#697386] transition-colors duration-150 hover:bg-[#EDEBFF] hover:text-[#635BFF] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#635BFF]"
+        className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors duration-150 hover:bg-brand-wash hover:text-brand focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
       >
         <Download className="h-4 w-4" aria-hidden="true" />
       </a>
@@ -171,10 +171,10 @@ function DetailRow({ label, value }: { label: string; value?: string | null }) {
   const has = !!value?.trim();
   return (
     <div className="flex items-start justify-between gap-4 py-1.5">
-      <dt className="w-24 shrink-0 text-[11px] leading-5 text-[#697386]">{label}</dt>
+      <dt className="w-24 shrink-0 text-[11px] leading-5 text-ink-muted">{label}</dt>
       <dd
         className={`min-w-0 flex-1 break-words text-right text-[12px] leading-5 ${
-          has ? "text-[#0A2540]" : "text-[#C1C9D2]"
+          has ? "text-ink" : "text-[#C1C9D2]"
         }`}
       >
         {has ? value : "—"}
@@ -240,7 +240,7 @@ export function OrderDetails({ order }: { order: OrderListItem }) {
           an order with no documents is a different, visible fact. */}
       <SectionCard icon={Paperclip} label={`Documents · ${order.documents.length}`} delay={240}>
         {order.documents.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-[#E3E8EF] px-3 py-4 text-center text-[11px] text-[#8792A2]">
+          <p className="rounded-lg border border-dashed border-line px-3 py-4 text-center text-[11px] text-ink-faint">
             No documents attached to this order.
           </p>
         ) : (

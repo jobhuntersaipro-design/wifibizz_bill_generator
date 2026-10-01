@@ -42,7 +42,7 @@ export function CancelOrderDialog({
         aria-describedby="cancel-warning"
       >
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-[15px] font-semibold text-[#0A2540]">
+          <DialogTitle className="flex items-center gap-2 text-[15px] font-semibold text-ink">
             <span
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-100"
               aria-hidden="true"
@@ -55,9 +55,9 @@ export function CancelOrderDialog({
 
         <DialogDescription
           id="cancel-warning"
-          className="text-[13px] leading-relaxed text-[#425466]"
+          className="text-[13px] leading-relaxed text-ink-soft"
         >
-          <span className="font-medium text-[#0A2540]">{order.fullName}</span>
+          <span className="font-medium text-ink">{order.fullName}</span>
           {order.orderId && (
             <>
               {" — order "}
@@ -65,7 +65,7 @@ export function CancelOrderDialog({
             </>
           )}
           {" will be marked "}
-          <span className="font-medium text-[#0A2540]">Cancelled</span>
+          <span className="font-medium text-ink">Cancelled</span>
           {". This cannot be undone: the row keeps its Details (history and captures) and can be deleted, but nothing else — no edit, no resubmit."}
         </DialogDescription>
 
@@ -89,7 +89,7 @@ export function CancelOrderDialog({
         </p>
 
         <DialogFooter className="gap-2 sm:gap-2">
-          <DialogClose className="inline-flex h-9 cursor-pointer items-center justify-center rounded-lg border border-[#E3E8EF] px-4 text-[13px] font-medium text-[#425466] transition-colors duration-150 hover:bg-[#F6F9FC]">
+          <DialogClose className="inline-flex h-9 cursor-pointer items-center justify-center rounded-lg border border-line px-4 text-[13px] font-medium text-ink-soft transition-colors duration-150 hover:bg-wash">
             Keep order
           </DialogClose>
           <button

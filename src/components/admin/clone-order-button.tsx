@@ -47,22 +47,22 @@ export function CloneOrderButton({ orderId, label }: { orderId: string; label: s
   return (
     <>
       <button type="button" onClick={openDialog}
-        className="min-h-9 rounded-md border border-[#E3E8EF] bg-white px-3 py-1.5 text-sm font-medium text-[#635BFF] hover:bg-[#F6F9FC] focus-visible:outline-2 focus-visible:outline-[#635BFF]">
+        className="min-h-9 rounded-md border border-line bg-white px-3 py-1.5 text-sm font-medium text-brand hover:bg-wash focus-visible:outline-2 focus-visible:outline-brand">
         Clone &amp; retry
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0A2540]/40 p-4"
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4"
           role="dialog" aria-modal="true" aria-labelledby="clone-order-title"
           onKeyDown={(e) => { if (e.key === "Escape") setOpen(false); }}>
           <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
-            <h3 id="clone-order-title" className="text-base font-semibold text-[#0A2540]">
+            <h3 id="clone-order-title" className="text-base font-semibold text-ink">
               {done ? "Clone created" : `Clone ${label} to retry it`}
             </h3>
 
             {done ? (
               <>
-                <p className="mt-2 text-sm text-[#425466]">
+                <p className="mt-2 text-sm text-ink-soft">
                   <strong>{done.reference}</strong> is a draft in <strong>{done.targetEmail}</strong> with{" "}
                   {done.copied} document{done.copied === 1 ? "" : "s"} copied. Sign in as that account and
                   submit it from Order Entry.
@@ -76,18 +76,18 @@ export function CloneOrderButton({ orderId, label }: { orderId: string; label: s
                 )}
                 <div className="mt-5 flex flex-wrap justify-end gap-2">
                   <button type="button" onClick={() => setOpen(false)}
-                    className="rounded-md border border-[#E3E8EF] px-3 py-2 text-sm text-[#425466]">
+                    className="rounded-md border border-line px-3 py-2 text-sm text-ink-soft">
                     Close
                   </button>
                   <a href={`/dashboard/order-entry/new-order?draft=${done.id}`} target="_blank" rel="noreferrer"
-                    className="rounded-md bg-[#635BFF] px-3 py-2 text-sm text-white">
+                    className="rounded-md bg-brand px-3 py-2 text-sm text-white">
                     Open the draft
                   </a>
                 </div>
               </>
             ) : (
               <>
-                <p className="mt-2 text-sm text-[#425466]">
+                <p className="mt-2 text-sm text-ink-soft">
                   Creates a new <strong>draft</strong> with this order&apos;s customer, package and documents.
                   Nothing is submitted — you press Submit yourself, and that run is never retried automatically.
                 </p>
@@ -95,10 +95,10 @@ export function CloneOrderButton({ orderId, label }: { orderId: string; label: s
                   Most failures happen after the portal mints a Customer Order Number, so submitting the clone
                   will usually create a <strong>real Unifi order</strong> that needs voiding.
                 </p>
-                <label className="mt-4 block text-xs text-[#697386]">
+                <label className="mt-4 block text-xs text-ink-muted">
                   Place the draft in
                   <select value={targetId} onChange={(e) => setTargetId(e.target.value)} disabled={!targets}
-                    className="mt-1 w-full rounded-md border border-[#E3E8EF] bg-white px-3 py-2 text-sm text-[#0A2540]">
+                    className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-ink">
                     {!targets && <option>Loading accounts…</option>}
                     {targets?.length === 0 && <option value="">No Order Entry accounts</option>}
                     {targets?.map((t) => (
@@ -110,11 +110,11 @@ export function CloneOrderButton({ orderId, label }: { orderId: string; label: s
                 </label>
                 <div className="mt-5 flex justify-end gap-2">
                   <button type="button" onClick={() => setOpen(false)}
-                    className="rounded-md border border-[#E3E8EF] px-3 py-2 text-sm text-[#425466]">
+                    className="rounded-md border border-line px-3 py-2 text-sm text-ink-soft">
                     Cancel
                   </button>
                   <button type="button" onClick={confirm} disabled={busy || !targetId}
-                    className="rounded-md bg-[#635BFF] px-3 py-2 text-sm text-white disabled:opacity-50">
+                    className="rounded-md bg-brand px-3 py-2 text-sm text-white disabled:opacity-50">
                     {busy ? "Cloning…" : "Create draft"}
                   </button>
                 </div>

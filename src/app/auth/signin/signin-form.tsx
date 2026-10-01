@@ -46,11 +46,11 @@ export function SignInForm() {
   return (
     <div className="flex min-h-screen">
       {/* Left panel — branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-[#0A2540] relative overflow-hidden">
+      <div className="hidden lg:flex lg:w-1/2 bg-ink relative overflow-hidden">
         <div className="absolute inset-0">
-          <div className="absolute top-20 left-10 w-72 h-72 bg-[#635BFF]/15 rounded-full blur-3xl animate-float" />
-          <div className="absolute bottom-20 right-10 w-96 h-96 bg-[#635BFF]/10 rounded-full blur-3xl animate-float" style={{ animationDelay: "1.5s", animationDuration: "4s" }} />
-          <div className="absolute top-1/2 left-1/3 w-48 h-48 bg-[#635BFF]/8 rounded-full blur-3xl animate-float" style={{ animationDelay: "0.8s", animationDuration: "5s" }} />
+          <div className="absolute top-20 left-10 w-72 h-72 bg-brand/15 rounded-full blur-3xl animate-float" />
+          <div className="absolute bottom-20 right-10 w-96 h-96 bg-brand/10 rounded-full blur-3xl animate-float" style={{ animationDelay: "1.5s", animationDuration: "4s" }} />
+          <div className="absolute top-1/2 left-1/3 w-48 h-48 bg-brand/8 rounded-full blur-3xl animate-float" style={{ animationDelay: "0.8s", animationDuration: "5s" }} />
           <div className="absolute -bottom-16 -right-12 text-white/10 zen-breathe">
             <ZenLogoMark size={340} stone="rgba(139, 133, 255, 0.35)" />
           </div>
@@ -79,22 +79,22 @@ export function SignInForm() {
         <div className="w-full max-w-sm">
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-2.5 mb-10 animate-fade-in">
-            <div className="text-[#0A2540]">
+            <div className="text-ink">
               <ZenLogoMark size={36} />
             </div>
-            <span className="text-lg font-semibold tracking-tight text-[#0A2540]">BizzFlow</span>
+            <span className="text-lg font-semibold tracking-tight text-ink">BizzFlow</span>
           </div>
 
           <div className="mb-8 animate-fade-in-up" style={{ animationDelay: "300ms" }}>
-            <h2 className="text-2xl font-semibold text-[#0A2540]">Welcome back</h2>
-            <p className="text-[#697386] mt-1.5 text-sm">
+            <h2 className="text-2xl font-semibold text-ink">Welcome back</h2>
+            <p className="text-ink-muted mt-1.5 text-sm">
               Sign in to your account to continue
             </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4 animate-fade-in-up" style={{ animationDelay: "450ms" }}>
             <div className="space-y-1.5">
-              <Label htmlFor="email" className="text-xs font-medium text-[#425466]">
+              <Label htmlFor="email" className="text-xs font-medium text-ink-soft">
                 Email Address
               </Label>
               <Input
@@ -104,12 +104,12 @@ export function SignInForm() {
                 placeholder="you@example.com"
                 required
                 autoComplete="email"
-                className="rounded-lg h-10 border-[#E3E8EF] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20"
+                className="rounded-lg h-10 border-line focus:border-brand focus:ring-1 focus:ring-brand/20"
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="password" className="text-xs font-medium text-[#425466]">
+              <Label htmlFor="password" className="text-xs font-medium text-ink-soft">
                 Password
               </Label>
               <div className="relative">
@@ -120,12 +120,12 @@ export function SignInForm() {
                   placeholder="Enter your password"
                   required
                   autoComplete="current-password"
-                  className="rounded-lg h-10 pr-10 border-[#E3E8EF] focus:border-[#635BFF] focus:ring-1 focus:ring-[#635BFF]/20"
+                  className="rounded-lg h-10 pr-10 border-line focus:border-brand focus:ring-1 focus:ring-brand/20"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#697386] hover:text-[#0A2540] transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-muted hover:text-ink transition-colors"
                   aria-label={showPassword ? "Hide password" : "Show password"}
                 >
                   {showPassword ? (
@@ -141,7 +141,7 @@ export function SignInForm() {
                 </button>
               </div>
               {error && (
-                <div className="text-sm text-[#DF1B41] bg-red-50 border border-red-200 rounded-lg px-4 py-2.5">
+                <div className="text-sm text-danger bg-red-50 border border-red-200 rounded-lg px-4 py-2.5">
                   {error}
                 </div>
               )}
@@ -149,7 +149,7 @@ export function SignInForm() {
 
             <Button
               type="submit"
-              className="w-full h-10 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] hover-glow"
+              className="w-full h-10 rounded-lg text-sm font-semibold bg-brand hover:bg-ink hover-glow"
               disabled={isLoading}
             >
               {isLoading ? (
@@ -164,17 +164,17 @@ export function SignInForm() {
 
             <Link
               href="/auth/forgot"
-              className="block text-center text-sm text-[#635BFF] hover:underline"
+              className="block text-center text-sm text-brand hover:underline"
             >
               Forgot your password?
             </Link>
           </form>
 
-          <p className="mt-6 text-center text-xs text-[#697386] animate-fade-in" style={{ animationDelay: "700ms" }}>
+          <p className="mt-6 text-center text-xs text-ink-muted animate-fade-in" style={{ animationDelay: "700ms" }}>
             Have trouble signing in?{" "}
             <a
               href="mailto:jobhunters.ai.pro@gmail.com"
-              className="font-medium text-[#635BFF] hover:text-[#0A2540] transition-colors"
+              className="font-medium text-brand hover:text-ink transition-colors"
             >
               Contact Us
             </a>

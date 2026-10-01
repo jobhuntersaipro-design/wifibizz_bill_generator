@@ -29,9 +29,9 @@ export default async function AdminLiveRunPage({
 
   return (
     <div className="space-y-4">
-      <Link href={`/admin/orders/${id}`} className="text-sm text-[#635BFF] hover:underline">← Back to the order</Link>
+      <Link href={`/admin/orders/${id}`} className="text-sm text-brand hover:underline">← Back to the order</Link>
       {!jobId || !minted?.success ? (
-        <p className="rounded-xl border border-[#E3E8EF] bg-white p-5 text-sm text-[#425466]">
+        <p className="rounded-xl border border-line bg-white p-5 text-sm text-ink-soft">
           {order.status === "submitting" ? "This order's run has no job id yet — reload in a moment." : "This order has no run in flight."}
         </p>
       ) : (

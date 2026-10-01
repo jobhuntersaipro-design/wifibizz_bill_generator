@@ -44,12 +44,12 @@ export function DeleteOrderDialog({
         aria-describedby="delete-warning"
       >
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-[15px] font-semibold text-[#0A2540]">
+          <DialogTitle className="flex items-center gap-2 text-[15px] font-semibold text-ink">
             <span
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-100"
               aria-hidden="true"
             >
-              <Trash2 className="h-3.5 w-3.5 text-[#DF1B41]" />
+              <Trash2 className="h-3.5 w-3.5 text-danger" />
             </span>
             {inPortal ? "Delete this order record?" : "Delete this draft?"}
           </DialogTitle>
@@ -57,14 +57,14 @@ export function DeleteOrderDialog({
 
         <DialogDescription
           id="delete-warning"
-          className="text-[13px] leading-relaxed text-[#425466]"
+          className="text-[13px] leading-relaxed text-ink-soft"
         >
-          <span className="font-semibold text-[#0A2540]">{order.fullName}</span>
+          <span className="font-semibold text-ink">{order.fullName}</span>
           {order.reference ? ` (${order.reference})` : ""}
           {inPortal ? (
             <>
               {" "}was placed in the Unifi portal as order{" "}
-              <span className="font-semibold tabular-nums text-[#0A2540]">
+              <span className="font-semibold tabular-nums text-ink">
                 {order.orderId}
               </span>
               . Deleting removes it from your list only — the portal order stays
@@ -90,7 +90,7 @@ export function DeleteOrderDialog({
               <button
                 type="button"
                 onClick={onCancel}
-                className="cursor-pointer rounded-md border border-[#E3E8EF] px-3 py-2 text-[13px] font-medium text-[#425466] transition-colors duration-150 hover:border-[#635BFF] hover:text-[#635BFF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#635BFF]"
+                className="cursor-pointer rounded-md border border-line px-3 py-2 text-[13px] font-medium text-ink-soft transition-colors duration-150 hover:border-brand hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
               />
             }
           >
@@ -99,7 +99,7 @@ export function DeleteOrderDialog({
           <button
             type="button"
             onClick={onConfirm}
-            className="cursor-pointer rounded-md bg-[#DF1B41] px-3 py-2 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-[#B21533] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#DF1B41]"
+            className="cursor-pointer rounded-md bg-danger px-3 py-2 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-[#B21533] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger"
           >
             {inPortal ? "Delete record" : "Delete draft"}
           </button>

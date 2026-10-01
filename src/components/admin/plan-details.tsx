@@ -32,14 +32,14 @@ import {
  */
 function Guide() {
   return (
-    <details className="rounded-lg border border-[#E3E8EF] bg-[#F6F9FC] px-4 py-3">
-      <summary className="cursor-pointer text-[13px] font-semibold text-[#0A2540]">
+    <details className="rounded-lg border border-line bg-wash px-4 py-3">
+      <summary className="cursor-pointer text-[13px] font-semibold text-ink">
         Where do these offer group names come from?
       </summary>
-      <div className="mt-3 space-y-3 text-[12px] leading-relaxed text-[#425466]">
+      <div className="mt-3 space-y-3 text-[12px] leading-relaxed text-ink-soft">
         <p>
           Each plan&apos;s devices live in the Unifi portal&apos;s <strong>Offer</strong> dialog,
-          and only the groups marked with a red <span className="font-semibold text-[#DF1B41]">*</span>{" "}
+          and only the groups marked with a red <span className="font-semibold text-danger">*</span>{" "}
           are the ones that plan requires. That dialog exists only on an order&apos;s own
           detail page, so it has to be read by hand once per plan.
         </p>
@@ -54,23 +54,23 @@ function Guide() {
             .
           </li>
           <li>
-            Copy <strong>only the rows with a red <span className="text-[#DF1B41]">*</span></strong>,
+            Copy <strong>only the rows with a red <span className="text-danger">*</span></strong>,
             exactly as written — including the <code className="rounded bg-white px-1 py-0.5 text-[11px]">[Pick 0-1]</code> part.
           </li>
         </ol>
-        <div className="rounded-md border border-[#E3E8EF] bg-white p-3 font-mono text-[11px] leading-relaxed">
-          <div className="text-[#8792A2]">Unifi Home 500Mbps Mesh WIFI [Pick 0-2]</div>
-          <div className="text-[#8792A2]">Unifi Home 500Mbps VAS [Pick 0-N]</div>
-          <div className="text-[#8792A2]">Unifi Home Broadband Smart Device (Set H) [Pick 0-1]</div>
-          <div className="text-[#0A2540]">
+        <div className="rounded-md border border-line bg-white p-3 font-mono text-[11px] leading-relaxed">
+          <div className="text-ink-faint">Unifi Home 500Mbps Mesh WIFI [Pick 0-2]</div>
+          <div className="text-ink-faint">Unifi Home 500Mbps VAS [Pick 0-N]</div>
+          <div className="text-ink-faint">Unifi Home Broadband Smart Device (Set H) [Pick 0-1]</div>
+          <div className="text-ink">
             Unifi Home 500Mbps Premium Value With Device Discount[Pick 0-1]{" "}
-            <span className="font-bold text-[#DF1B41]">*</span>{" "}
-            <span className="text-[#635BFF]">← copy this</span>
+            <span className="font-bold text-danger">*</span>{" "}
+            <span className="text-brand">← copy this</span>
           </div>
-          <div className="text-[#0A2540]">
+          <div className="text-ink">
             Unifi Home 500Mbps Premium Value With Device[Pick 0-1]{" "}
-            <span className="font-bold text-[#DF1B41]">*</span>{" "}
-            <span className="text-[#635BFF]">← and this</span>
+            <span className="font-bold text-danger">*</span>{" "}
+            <span className="text-brand">← and this</span>
           </div>
         </div>
         <p>
@@ -81,7 +81,7 @@ function Guide() {
           group is applied automatically. Only Device rows ever reach the agent&apos;s picker.
         </p>
         <p>
-          Drop the <span className="font-semibold text-[#DF1B41]">*</span> when pasting — tick
+          Drop the <span className="font-semibold text-danger">*</span> when pasting — tick
           &ldquo;Mandatory&rdquo; instead. A plan can only be published once it has at least one
           mandatory group.
         </p>
@@ -161,22 +161,22 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
       : "Premium Value Samsung TV 55inch 1 (RM20)";
 
   return (
-    <li className="rounded-md border border-[#E3E8EF] bg-[#F6F9FC] px-2.5 py-2">
+    <li className="rounded-md border border-line bg-wash px-2.5 py-2">
       <div className="flex flex-wrap items-center gap-2 text-[12px]">
         <span
           className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-            group.mandatory ? "bg-[#DF1B41]/10 text-[#DF1B41]" : "bg-[#E3E8EF] text-[#697386]"
+            group.mandatory ? "bg-danger/10 text-danger" : "bg-line text-ink-muted"
           }`}
           title={group.mandatory ? "Marked with a red * in the portal" : "Optional group"}
         >
           {group.mandatory ? "★ required" : "optional"}
         </span>
-        <code className="min-w-0 flex-1 truncate text-[#425466]" title={group.name}>
+        <code className="min-w-0 flex-1 truncate text-ink-soft" title={group.name}>
           {group.name}
         </code>
         <KindPicker kind={group.kind} onChange={setKind} label={group.name} />
       </div>
-      <p className="mt-1 pl-1 text-[10px] text-[#8792A2]">
+      <p className="mt-1 pl-1 text-[10px] text-ink-faint">
         {isDiscount
           ? "Applied automatically during the order — the agent never picks it."
           : isChannel
@@ -189,15 +189,15 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
           {group.items.map((it) => (
             <li key={it.id}>
               <div className="flex items-center gap-2 text-[12px]">
-                <span className="text-[#8792A2]">└</span>
-                <span className="min-w-0 flex-1 truncate text-[#0A2540]" title={it.name}>
+                <span className="text-ink-faint">└</span>
+                <span className="min-w-0 flex-1 truncate text-ink" title={it.name}>
                   {it.name}
                   {it.code && (
-                    <span className="ml-1.5 text-[10px] text-[#8792A2] tabular-nums">#{it.code}</span>
+                    <span className="ml-1.5 text-[10px] text-ink-faint tabular-nums">#{it.code}</span>
                   )}
                 </span>
                 {it.monthly !== null && (
-                  <span className="shrink-0 text-[11px] tabular-nums text-[#697386]">
+                  <span className="shrink-0 text-[11px] tabular-nums text-ink-muted">
                     RM{it.monthly}/mth
                   </span>
                 )}
@@ -205,7 +205,7 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
                   type="button"
                   onClick={() => removeItem(it.id)}
                   aria-label={`Remove ${it.name}`}
-                  className="shrink-0 rounded p-1 text-[#697386] hover:bg-white hover:text-[#DF1B41] transition-colors cursor-pointer"
+                  className="shrink-0 rounded p-1 text-ink-muted hover:bg-white hover:text-danger transition-colors cursor-pointer"
                 >
                   <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden="true">
                     <path d="M18 6 6 18M6 6l12 12" />
@@ -218,8 +218,8 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
                 <ul className="mt-0.5 flex flex-col gap-0.5 pl-6">
                   {it.options.map((o) => (
                     <li key={o.id} className="flex items-center gap-2 text-[11px]">
-                      <span className="text-[#CBD2DC]">└</span>
-                      <span className="min-w-0 flex-1 truncate text-[#425466]" title={o.name}>
+                      <span className="text-line-strong">└</span>
+                      <span className="min-w-0 flex-1 truncate text-ink-soft" title={o.name}>
                         {o.name}
                       </span>
                       {o.included && (
@@ -227,14 +227,14 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
                           included
                         </span>
                       )}
-                      <span className="shrink-0 text-[10px] tabular-nums text-[#8792A2]">
+                      <span className="shrink-0 text-[10px] tabular-nums text-ink-faint">
                         {o.monthly ? `RM${o.monthly}/mth` : "RM0"}
                       </span>
                       <button
                         type="button"
                         onClick={() => removeItem(o.id)}
                         aria-label={`Remove ${o.name}`}
-                        className="shrink-0 rounded p-1 text-[#697386] hover:bg-white hover:text-[#DF1B41] transition-colors cursor-pointer"
+                        className="shrink-0 rounded p-1 text-ink-muted hover:bg-white hover:text-danger transition-colors cursor-pointer"
                       >
                         <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden="true">
                           <path d="M18 6 6 18M6 6l12 12" />
@@ -249,7 +249,7 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
                 <button
                   type="button"
                   onClick={() => { setOptionOf(it); setAdding(true); }}
-                  className="ml-6 mt-0.5 text-[11px] font-medium text-[#635BFF] hover:underline cursor-pointer"
+                  className="ml-6 mt-0.5 text-[11px] font-medium text-brand hover:underline cursor-pointer"
                 >
                   + Add option
                 </button>
@@ -262,8 +262,8 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
       {adding ? (
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-4">
           {optionOf && (
-            <span className="basis-full text-[11px] text-[#697386]">
-              Adding an option under <strong className="text-[#0A2540]">{optionOf.name}</strong>
+            <span className="basis-full text-[11px] text-ink-muted">
+              Adding an option under <strong className="text-ink">{optionOf.name}</strong>
             </span>
           )}
           <input
@@ -271,27 +271,27 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
             onChange={(e) => setName(e.target.value)}
             autoFocus
             placeholder={optionOf ? "Netflix Standard" : placeholder}
-            className="h-8 min-w-64 flex-1 rounded border border-[#E3E8EF] bg-white px-2 text-[12px] text-[#0A2540] focus:border-[#635BFF] focus:outline-none"
+            className="h-8 min-w-64 flex-1 rounded border border-line bg-white px-2 text-[12px] text-ink focus:border-brand focus:outline-none"
           />
           <input
             value={monthly}
             onChange={(e) => setMonthly(e.target.value)}
             placeholder="RM/mth"
-            className="h-8 w-20 rounded border border-[#E3E8EF] bg-white px-2 text-[12px] tabular-nums text-[#0A2540] focus:border-[#635BFF] focus:outline-none"
+            className="h-8 w-20 rounded border border-line bg-white px-2 text-[12px] tabular-nums text-ink focus:border-brand focus:outline-none"
           />
           <input
             value={code}
             onChange={(e) => setCode(e.target.value)}
             placeholder="code (optional)"
-            className="h-8 w-28 rounded border border-[#E3E8EF] bg-white px-2 text-[12px] tabular-nums text-[#0A2540] focus:border-[#635BFF] focus:outline-none"
+            className="h-8 w-28 rounded border border-line bg-white px-2 text-[12px] tabular-nums text-ink focus:border-brand focus:outline-none"
           />
           {optionOf && (
-            <label className="flex items-center gap-1.5 text-[11px] text-[#425466] cursor-pointer">
+            <label className="flex items-center gap-1.5 text-[11px] text-ink-soft cursor-pointer">
               <input
                 type="checkbox"
                 checked={optionIncluded}
                 onChange={(e) => setOptionIncluded(e.target.checked)}
-                className="h-3.5 w-3.5 rounded border-[#CBD2DC] accent-[#635BFF] cursor-pointer"
+                className="h-3.5 w-3.5 rounded border-line-strong accent-brand cursor-pointer"
               />
               Included by default
             </label>
@@ -300,14 +300,14 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
             type="button"
             disabled={busy || !name.trim()}
             onClick={addItem}
-            className="rounded bg-[#635BFF] px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-[#0A2540] disabled:opacity-50 transition-colors cursor-pointer"
+            className="rounded bg-brand px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-ink disabled:opacity-50 transition-colors cursor-pointer"
           >
             Add
           </button>
           <button
             type="button"
             onClick={resetForm}
-            className="rounded border border-[#E3E8EF] bg-white px-2.5 py-1.5 text-[11px] font-medium text-[#425466] hover:border-[#635BFF] transition-colors cursor-pointer"
+            className="rounded border border-line bg-white px-2.5 py-1.5 text-[11px] font-medium text-ink-soft hover:border-brand transition-colors cursor-pointer"
           >
             Cancel
           </button>
@@ -316,7 +316,7 @@ function GroupBlock({ group, onChanged }: { group: OfferGroupView; onChanged: ()
         <button
           type="button"
           onClick={() => { setOptionOf(null); setAdding(true); }}
-          className="mt-1.5 ml-4 text-[11px] font-medium text-[#635BFF] hover:underline cursor-pointer"
+          className="mt-1.5 ml-4 text-[11px] font-medium text-brand hover:underline cursor-pointer"
         >
           + Add {rowLabel}
         </button>
@@ -348,12 +348,12 @@ function KindPicker({
       onChange={(e) => onChange(e.target.value as OfferGroupKind)}
       aria-label={`What ${label} holds`}
       title="What this group holds"
-      className={`h-7 shrink-0 rounded border px-1.5 text-[11px] font-medium cursor-pointer focus:border-[#635BFF] focus:outline-none ${
+      className={`h-7 shrink-0 rounded border px-1.5 text-[11px] font-medium cursor-pointer focus:border-brand focus:outline-none ${
         kind === "discount"
-          ? "border-[#635BFF]/30 bg-[#635BFF]/10 text-[#635BFF]"
+          ? "border-brand/30 bg-brand/10 text-brand"
           : kind === "channel"
             ? "border-green-200 bg-green-50 text-green-700"
-            : "border-[#E3E8EF] bg-white text-[#425466]"
+            : "border-line bg-white text-ink-soft"
       }`}
     >
       {OFFER_GROUP_KINDS.map((k) => (
@@ -400,15 +400,15 @@ function RemovePlanModal({
       aria-modal="true"
       aria-label="Remove plan"
     >
-      <div className="w-full max-w-md bg-white rounded-lg border border-[#E3E8EF] shadow-xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-[#E3E8EF]">
-          <h2 className="text-sm font-semibold text-[#0A2540]">Remove plan</h2>
+      <div className="w-full max-w-md bg-white rounded-lg border border-line shadow-xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-line">
+          <h2 className="text-sm font-semibold text-ink">Remove plan</h2>
         </div>
         <div className="p-6 space-y-4">
-          <p className="text-sm text-[#697386] leading-relaxed">
-            Remove <strong className="text-[#0A2540]">{plan.name}</strong> from this page?
+          <p className="text-sm text-ink-muted leading-relaxed">
+            Remove <strong className="text-ink">{plan.name}</strong> from this page?
           </p>
-          <p className="text-[12px] text-[#697386] leading-relaxed">
+          <p className="text-[12px] text-ink-muted leading-relaxed">
             {plan.published
               ? "It is published, so agents will no longer be able to select it."
               : "It is not published, so no agent can select it today."}{" "}
@@ -421,7 +421,7 @@ function RemovePlanModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg border border-[#E3E8EF] px-3 py-2 text-[12px] font-medium text-[#425466] hover:border-[#635BFF] transition-colors cursor-pointer"
+              className="rounded-lg border border-line px-3 py-2 text-[12px] font-medium text-ink-soft hover:border-brand transition-colors cursor-pointer"
             >
               Cancel
             </button>
@@ -429,7 +429,7 @@ function RemovePlanModal({
               type="button"
               onClick={remove}
               disabled={busy}
-              className="rounded-lg bg-[#DF1B41] px-3 py-2 text-[12px] font-semibold text-white hover:bg-[#DF1B41]/90 disabled:opacity-50 transition-colors cursor-pointer"
+              className="rounded-lg bg-danger px-3 py-2 text-[12px] font-semibold text-white hover:bg-danger/90 disabled:opacity-50 transition-colors cursor-pointer"
             >
               {busy ? "Removing…" : "Remove plan"}
             </button>
@@ -511,26 +511,26 @@ function PlanRow({
   }
 
   return (
-    <div className="border-b border-[#E3E8EF] last:border-0 px-4 py-3">
+    <div className="border-b border-line last:border-0 px-4 py-3">
       <div className="flex flex-wrap items-start gap-3">
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
           aria-controls={panelId}
-          className="group flex min-h-11 min-w-0 grow basis-full items-start gap-2 rounded-md py-1 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#635BFF] cursor-pointer sm:basis-0"
+          className="group flex min-h-11 min-w-0 grow basis-full items-start gap-2 rounded-md py-1 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-brand cursor-pointer sm:basis-0"
         >
           <svg
-            className={`mt-0.5 h-4 w-4 shrink-0 text-[#8792A2] transition-transform duration-200 group-hover:text-[#635BFF] ${open ? "rotate-90" : ""}`}
+            className={`mt-0.5 h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200 group-hover:text-brand ${open ? "rotate-90" : ""}`}
             viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
           >
             <path d="m9 6 6 6-6 6" />
           </svg>
           <span className="min-w-0 flex-1">
-            <span className="block text-[13px] leading-snug text-[#0A2540] group-hover:text-[#635BFF] transition-colors">
+            <span className="block text-[13px] leading-snug text-ink group-hover:text-brand transition-colors">
               {plan.name}
             </span>
-            <span className="mt-0.5 block text-[11px] text-[#697386]">
+            <span className="mt-0.5 block text-[11px] text-ink-muted">
               {plan.bandwidth ?? "—"}
               {plan.offerGroups.length === 0
                 ? " · no offer groups yet"
@@ -544,7 +544,7 @@ function PlanRow({
             plan.published
               ? "bg-green-100 text-green-700"
               : mandatoryCount > 0
-                ? "bg-[#E3E8EF] text-[#425466]"
+                ? "bg-line text-ink-soft"
                 : "bg-amber-100 text-amber-800"
           }`}
         >
@@ -554,7 +554,7 @@ function PlanRow({
           type="button"
           disabled={busy}
           onClick={togglePublish}
-          className="shrink-0 rounded-md border border-[#E3E8EF] px-3 py-1.5 text-[12px] font-medium text-[#425466] hover:border-[#635BFF] hover:text-[#635BFF] disabled:opacity-50 transition-colors cursor-pointer"
+          className="shrink-0 rounded-md border border-line px-3 py-1.5 text-[12px] font-medium text-ink-soft hover:border-brand hover:text-brand disabled:opacity-50 transition-colors cursor-pointer"
         >
           {plan.published ? "Unpublish" : "Publish"}
         </button>
@@ -563,7 +563,7 @@ function PlanRow({
           onClick={() => setConfirmRemove(true)}
           aria-label={`Remove plan ${plan.name}`}
           title="Remove this plan"
-          className="shrink-0 rounded-md border border-[#E3E8EF] p-1.5 text-[#697386] hover:border-[#DF1B41] hover:text-[#DF1B41] transition-colors cursor-pointer"
+          className="shrink-0 rounded-md border border-line p-1.5 text-ink-muted hover:border-danger hover:text-danger transition-colors cursor-pointer"
         >
           <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6" />
@@ -592,7 +592,7 @@ function PlanRow({
                 onClick={() => removeGroup(g.id)}
                 aria-label={`Remove group ${g.name}`}
                 title="Remove this group and its items"
-                className="mt-2 shrink-0 rounded p-1 text-[#697386] hover:bg-[#F6F9FC] hover:text-[#DF1B41] transition-colors cursor-pointer"
+                className="mt-2 shrink-0 rounded p-1 text-ink-muted hover:bg-wash hover:text-danger transition-colors cursor-pointer"
               >
                 <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
                   <path d="M18 6 6 18M6 6l12 12" />
@@ -610,14 +610,14 @@ function PlanRow({
             onChange={(e) => setName(e.target.value)}
             autoFocus
             placeholder="Unifi Home 500Mbps Premium Value With Device[Pick 0-1]"
-            className="h-9 min-w-72 flex-1 rounded-lg border border-[#E3E8EF] px-3 text-[12px] text-[#0A2540] hover:border-[#635BFF]/60 focus:border-[#635BFF] focus:outline-none transition-colors"
+            className="h-9 min-w-72 flex-1 rounded-lg border border-line px-3 text-[12px] text-ink hover:border-brand/60 focus:border-brand focus:outline-none transition-colors"
           />
-          <label className="flex items-center gap-1.5 text-[11px] text-[#425466] cursor-pointer">
+          <label className="flex items-center gap-1.5 text-[11px] text-ink-soft cursor-pointer">
             <input
               type="checkbox"
               checked={mandatory}
               onChange={(e) => setMandatory(e.target.checked)}
-              className="h-3.5 w-3.5 rounded border-[#CBD2DC] accent-[#635BFF] cursor-pointer"
+              className="h-3.5 w-3.5 rounded border-line-strong accent-brand cursor-pointer"
             />
             Mandatory (red *)
           </label>
@@ -626,14 +626,14 @@ function PlanRow({
             type="button"
             disabled={busy || !name.trim()}
             onClick={addGroup}
-            className="rounded-md bg-[#635BFF] px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-[#0A2540] disabled:opacity-50 transition-colors cursor-pointer"
+            className="rounded-md bg-brand px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-ink disabled:opacity-50 transition-colors cursor-pointer"
           >
             Add
           </button>
           <button
             type="button"
             onClick={() => { setAdding(false); setName(""); }}
-            className="rounded-md border border-[#E3E8EF] px-3 py-1.5 text-[12px] font-medium text-[#425466] hover:border-[#635BFF] transition-colors cursor-pointer"
+            className="rounded-md border border-line px-3 py-1.5 text-[12px] font-medium text-ink-soft hover:border-brand transition-colors cursor-pointer"
           >
             Cancel
           </button>
@@ -642,7 +642,7 @@ function PlanRow({
           <button
             type="button"
             onClick={() => setAdding(true)}
-            className="mt-2 text-[11px] font-medium text-[#635BFF] hover:underline cursor-pointer"
+            className="mt-2 text-[11px] font-medium text-brand hover:underline cursor-pointer"
           >
             + Add offer group
           </button>
@@ -678,18 +678,18 @@ function SpeedSection({
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-controls={panelId}
-        className="group flex min-h-11 w-full items-center gap-2 border-b border-[#E3E8EF] bg-[#FBFCFE] px-4 py-2 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#635BFF] cursor-pointer"
+        className="group flex min-h-11 w-full items-center gap-2 border-b border-line bg-[#FBFCFE] px-4 py-2 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand cursor-pointer"
       >
         <svg
-          className={`h-3.5 w-3.5 shrink-0 text-[#8792A2] transition-transform duration-200 group-hover:text-[#635BFF] ${open ? "rotate-90" : ""}`}
+          className={`h-3.5 w-3.5 shrink-0 text-ink-faint transition-transform duration-200 group-hover:text-brand ${open ? "rotate-90" : ""}`}
           viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
         >
           <path d="m9 6 6 6-6 6" />
         </svg>
-        <span className="text-[12px] font-semibold text-[#425466] group-hover:text-[#635BFF] transition-colors">
+        <span className="text-[12px] font-semibold text-ink-soft group-hover:text-brand transition-colors">
           {group.label}
         </span>
-        <span className="rounded-full bg-[#E3E8EF] px-2 py-0.5 text-[11px] font-medium tabular-nums text-[#425466]">
+        <span className="rounded-full bg-line px-2 py-0.5 text-[11px] font-medium tabular-nums text-ink-soft">
           {group.plans.length}
         </span>
       </button>
@@ -745,34 +745,34 @@ function StateSection({
   }
 
   return (
-    <section className="rounded-lg border border-[#E3E8EF] bg-white overflow-hidden">
+    <section className="rounded-lg border border-line bg-white overflow-hidden">
       <header
         className={`flex flex-wrap items-baseline gap-x-2.5 gap-y-1 border-b px-4 py-3 ${
           tone === "published"
             ? "border-green-200 bg-green-50"
-            : "border-[#E3E8EF] bg-[#F6F9FC]"
+            : "border-line bg-wash"
         }`}
       >
         <h2
           className={`text-[13px] font-semibold ${
-            tone === "published" ? "text-green-800" : "text-[#0A2540]"
+            tone === "published" ? "text-green-800" : "text-ink"
           }`}
         >
           {title}
         </h2>
         <span
           className={`rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums ${
-            tone === "published" ? "bg-green-100 text-green-700" : "bg-[#E3E8EF] text-[#425466]"
+            tone === "published" ? "bg-green-100 text-green-700" : "bg-line text-ink-soft"
           }`}
         >
           {plans.length}
         </span>
-        <span className="text-[11px] text-[#697386]">{subtitle}</span>
+        <span className="text-[11px] text-ink-muted">{subtitle}</span>
       </header>
 
       {[...byCategory.entries()].map(([category, list]) => (
         <div key={category}>
-          <h3 className="border-b border-[#E3E8EF] bg-white px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-[#8792A2]">
+          <h3 className="border-b border-line bg-white px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
             {category}
             <span className="ml-2 tabular-nums text-[#B4BCC8]">{list.length}</span>
           </h3>
@@ -840,34 +840,34 @@ function NewPlanModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#0A2540]/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4"
       role="dialog"
       aria-modal="true"
       aria-label="Add a plan"
     >
-      <div className="w-full max-w-md bg-white rounded-lg border border-[#E3E8EF] shadow-xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-[#E3E8EF]">
-          <h2 className="text-sm font-semibold text-[#0A2540]">Add a plan</h2>
+      <div className="w-full max-w-md bg-white rounded-lg border border-line shadow-xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-line">
+          <h2 className="text-sm font-semibold text-ink">Add a plan</h2>
         </div>
         <div className="p-6 space-y-4">
-          <p className="text-[12px] leading-relaxed text-[#697386]">
+          <p className="text-[12px] leading-relaxed text-ink-muted">
             For a package the portal offers but this page does not list yet. Copy the name{" "}
-            <strong className="text-[#0A2540]">exactly</strong> as the portal&apos;s Subscription
+            <strong className="text-ink">exactly</strong> as the portal&apos;s Subscription
             Plan List writes it — the submit matches on it verbatim.
           </p>
           <label className="block">
-            <span className="block text-[11px] font-medium text-[#425466] mb-1">Plan name</span>
+            <span className="block text-[11px] font-medium text-ink-soft mb-1">Plan name</span>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
               autoFocus
               placeholder="Unifi Home 500Mbps Premium Value (36M)"
-              className="h-9 w-full rounded-lg border border-[#E3E8EF] px-3 text-[12px] text-[#0A2540] hover:border-[#635BFF]/60 focus:border-[#635BFF] focus:outline-none transition-colors"
+              className="h-9 w-full rounded-lg border border-line px-3 text-[12px] text-ink hover:border-brand/60 focus:border-brand focus:outline-none transition-colors"
             />
           </label>
           <div className="flex flex-wrap gap-3">
             <label className="block min-w-48 flex-1">
-              <span className="block text-[11px] font-medium text-[#425466] mb-1">
+              <span className="block text-[11px] font-medium text-ink-soft mb-1">
                 Portal offer category
               </span>
               <input
@@ -875,7 +875,7 @@ function NewPlanModal({
                 onChange={(e) => setCategory(e.target.value)}
                 list={categoryListId}
                 placeholder="unifi Home Bundle Sale Catg"
-                className="h-9 w-full rounded-lg border border-[#E3E8EF] px-3 text-[12px] text-[#0A2540] hover:border-[#635BFF]/60 focus:border-[#635BFF] focus:outline-none transition-colors"
+                className="h-9 w-full rounded-lg border border-line px-3 text-[12px] text-ink hover:border-brand/60 focus:border-brand focus:outline-none transition-colors"
               />
               <datalist id={categoryListId}>
                 {categories.map((c) => (
@@ -884,13 +884,13 @@ function NewPlanModal({
               </datalist>
             </label>
             <label className="block w-32">
-              <span className="block text-[11px] font-medium text-[#425466] mb-1">Speed</span>
+              <span className="block text-[11px] font-medium text-ink-soft mb-1">Speed</span>
               <input
                 value={bandwidth}
                 onChange={(e) => setBandwidth(e.target.value)}
                 list={bandwidthListId}
                 placeholder="500M"
-                className="h-9 w-full rounded-lg border border-[#E3E8EF] px-3 text-[12px] text-[#0A2540] hover:border-[#635BFF]/60 focus:border-[#635BFF] focus:outline-none transition-colors"
+                className="h-9 w-full rounded-lg border border-line px-3 text-[12px] text-ink hover:border-brand/60 focus:border-brand focus:outline-none transition-colors"
               />
               <datalist id={bandwidthListId}>
                 {bandwidths.map((b) => (
@@ -899,8 +899,8 @@ function NewPlanModal({
               </datalist>
             </label>
           </div>
-          <p className="text-[11px] leading-relaxed text-[#697386]">
-            It is added <strong className="text-[#0A2540]">unpublished</strong>: record its
+          <p className="text-[11px] leading-relaxed text-ink-muted">
+            It is added <strong className="text-ink">unpublished</strong>: record its
             mandatory offer groups first, then publish it. Leave the speed blank if the package has
             none — it files under &ldquo;Other speeds&rdquo;.
           </p>
@@ -908,7 +908,7 @@ function NewPlanModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg border border-[#E3E8EF] px-3 py-2 text-[12px] font-medium text-[#425466] hover:border-[#635BFF] transition-colors cursor-pointer"
+              className="rounded-lg border border-line px-3 py-2 text-[12px] font-medium text-ink-soft hover:border-brand transition-colors cursor-pointer"
             >
               Cancel
             </button>
@@ -916,7 +916,7 @@ function NewPlanModal({
               type="button"
               onClick={create}
               disabled={busy || !name.trim() || !category.trim()}
-              className="rounded-lg bg-[#635BFF] px-3 py-2 text-[12px] font-semibold text-white hover:bg-[#635BFF]/90 disabled:opacity-50 transition-colors cursor-pointer"
+              className="rounded-lg bg-brand px-3 py-2 text-[12px] font-semibold text-white hover:bg-brand/90 disabled:opacity-50 transition-colors cursor-pointer"
             >
               {busy ? "Adding…" : "Add plan"}
             </button>
@@ -963,9 +963,9 @@ export function PlanDetails() {
   }
   if (!plans) {
     return (
-      <div className="rounded-lg border border-[#E3E8EF] bg-white p-12 flex flex-col items-center gap-3">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />
-        <p className="text-sm text-[#697386]">Loading plans…</p>
+      <div className="rounded-lg border border-line bg-white p-12 flex flex-col items-center gap-3">
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-brand border-t-transparent" />
+        <p className="text-sm text-ink-muted">Loading plans…</p>
       </div>
     );
   }
@@ -993,24 +993,24 @@ export function PlanDetails() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search plans…"
-          className="h-10 flex-1 min-w-60 rounded-lg border border-[#E3E8EF] bg-white px-3 text-sm text-[#0A2540] hover:border-[#635BFF]/60 focus:border-[#635BFF] focus:outline-none transition-colors"
+          className="h-10 flex-1 min-w-60 rounded-lg border border-line bg-white px-3 text-sm text-ink hover:border-brand/60 focus:border-brand focus:outline-none transition-colors"
         />
-        <label className="flex items-center gap-2 text-[12px] text-[#425466] cursor-pointer">
+        <label className="flex items-center gap-2 text-[12px] text-ink-soft cursor-pointer">
           <input
             type="checkbox"
             checked={onlyUnpublished}
             onChange={(e) => setOnlyUnpublished(e.target.checked)}
-            className="h-4 w-4 rounded border-[#CBD2DC] accent-[#635BFF] cursor-pointer"
+            className="h-4 w-4 rounded border-line-strong accent-brand cursor-pointer"
           />
           Unpublished only
         </label>
-        <span className="text-[12px] font-medium text-[#0A2540] tabular-nums">
+        <span className="text-[12px] font-medium text-ink tabular-nums">
           {publishedCount} of {plans.length} published
         </span>
         <button
           type="button"
           onClick={() => setAddingPlan(true)}
-          className="h-10 shrink-0 rounded-lg bg-[#635BFF] px-3 text-[12px] font-semibold text-white hover:bg-[#635BFF]/90 transition-colors cursor-pointer"
+          className="h-10 shrink-0 rounded-lg bg-brand px-3 text-[12px] font-semibold text-white hover:bg-brand/90 transition-colors cursor-pointer"
         >
           + New plan
         </button>
@@ -1045,8 +1045,8 @@ export function PlanDetails() {
       />
 
       {visible.length === 0 && (
-        <div className="rounded-lg border border-dashed border-[#E3E8EF] bg-white p-10 text-center">
-          <p className="text-sm text-[#697386]">No plans match.</p>
+        <div className="rounded-lg border border-dashed border-line bg-white p-10 text-center">
+          <p className="text-sm text-ink-muted">No plans match.</p>
         </div>
       )}
     </div>

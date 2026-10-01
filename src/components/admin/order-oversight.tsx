@@ -169,21 +169,21 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
 
       <Totals stats={stats} />
 
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#E3E8EF] bg-white p-3">
-        <span className="text-xs text-[#697386]">Charts:</span>
-        <div className="flex overflow-hidden rounded-md border border-[#E3E8EF]">
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-white p-3">
+        <span className="text-xs text-ink-muted">Charts:</span>
+        <div className="flex overflow-hidden rounded-md border border-line">
           {(["day", "week", "month"] as Granularity[]).map((g) => (
             <button key={g} type="button" onClick={() => setGranularity(g)}
               className={`px-3 py-1.5 text-xs capitalize transition-colors ${
                 (granularity ?? stats?.granularity) === g
-                  ? "bg-[#635BFF] text-white" : "text-[#425466] hover:bg-[#F6F9FC]"}`}>
+                  ? "bg-brand text-white" : "text-ink-soft hover:bg-wash"}`}>
               {g}
             </button>
           ))}
         </div>
         {granularity && (
           <button type="button" onClick={() => setGranularity(null)}
-            className="text-xs text-[#635BFF] hover:underline">Auto</button>
+            className="text-xs text-brand hover:underline">Auto</button>
         )}
       </div>
 
@@ -220,7 +220,7 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             placeholder="Search name, IC, ORD-…, portal no."
-            className="w-56 rounded-md border border-[#E3E8EF] px-2 py-1.5 text-xs text-[#425466] placeholder:text-[#B4BCCA]"
+            className="w-56 rounded-md border border-line px-2 py-1.5 text-xs text-ink-soft placeholder:text-[#B4BCCA]"
           />
           {/* ONE agent select for the whole page — it narrows this table AND
               the charts above, so the tiles, the trend and the rows can never
@@ -237,27 +237,27 @@ export function OrderOversight({ agentId: pinnedAgent }: { agentId?: string } = 
             ]} />
           <Select value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} label="All statuses"
             options={[...statusOptions.map((s) => ({ value: s, label: s })), { value: "deleted", label: "deleted" }]} />
-          <label className="flex items-center gap-1 text-xs text-[#697386]">
+          <label className="flex items-center gap-1 text-xs text-ink-muted">
             Created
             <input type="date" value={createdFrom} max={createdTo || undefined}
               onChange={(e) => { setCreatedFrom(e.target.value); setPage(1); }}
               aria-label="Created from"
-              className="rounded-md border border-[#E3E8EF] px-2 py-1 text-xs text-[#425466]" />
+              className="rounded-md border border-line px-2 py-1 text-xs text-ink-soft" />
             –
             <input type="date" value={createdTo} min={createdFrom || undefined}
               onChange={(e) => { setCreatedTo(e.target.value); setPage(1); }}
               aria-label="Created to"
-              className="rounded-md border border-[#E3E8EF] px-2 py-1 text-xs text-[#425466]" />
+              className="rounded-md border border-line px-2 py-1 text-xs text-ink-soft" />
           </label>
           {(createdFrom || createdTo) && (
             <button type="button"
               onClick={() => { setCreatedFrom(""); setCreatedTo(""); setPage(1); }}
-              className="text-xs text-[#635BFF] hover:underline">
+              className="text-xs text-brand hover:underline">
               Clear dates
             </button>
           )}
           <button type="button" onClick={exportCsv} disabled={filtered.length === 0}
-            className="rounded-md border border-[#E3E8EF] px-2.5 py-1.5 text-xs text-[#425466] transition-colors hover:border-[#635BFF] disabled:opacity-40">
+            className="rounded-md border border-line px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-brand disabled:opacity-40">
             Export CSV · {filtered.length}
           </button>
           <button type="button" onClick={() => setBulkOpen(true)}
@@ -352,19 +352,19 @@ function LivePanel({ agentId }: { agentId?: string }) {
             {jobs.map((j) => (
               <li key={j.jobId}
                 className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 ${
-                  j.stuck ? "border-[#FCA5A5] bg-[#FEF2F2]" : "border-[#E3E8EF]"}`}>
+                  j.stuck ? "border-[#FCA5A5] bg-[#FEF2F2]" : "border-line"}`}>
                 <div className="min-w-0">
-                  <p className="truncate text-sm text-[#0A2540]">
+                  <p className="truncate text-sm text-ink">
                     {j.orderLabel ?? <span className="italic text-[#B54708]">unknown order</span>}
-                    <span className="ml-2 text-xs text-[#697386]">{j.agentEmail ?? "unknown agent"}</span>
+                    <span className="ml-2 text-xs text-ink-muted">{j.agentEmail ?? "unknown agent"}</span>
                   </p>
-                  <p className="mt-0.5 text-xs text-[#697386]">
+                  <p className="mt-0.5 text-xs text-ink-muted">
                     {j.stage ?? j.status} · running {formatDuration(j.ageS * 1000)}
                     {j.stuck && <span className="ml-2 font-semibold text-[#B42318]">Stuck</span>}
                   </p>
                 </div>
                 <button type="button" onClick={() => setReleasing(j)}
-                  className="shrink-0 rounded-md border border-[#E3E8EF] px-3 py-1.5 text-xs text-[#425466] transition-colors hover:border-[#635BFF]">
+                  className="shrink-0 rounded-md border border-line px-3 py-1.5 text-xs text-ink-soft transition-colors hover:border-brand">
                   Release
                 </button>
               </li>
@@ -393,10 +393,10 @@ function ReleaseDialog({ job, onClose, onDone }: {
     else { toast.error(res.error ?? "Could not release the job."); onDone(); }
   }
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0A2540]/40 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
       <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
-        <h3 className="text-base font-semibold text-[#0A2540]">Release this submit slot?</h3>
-        <p className="mt-2 text-sm text-[#425466]">
+        <h3 className="text-base font-semibold text-ink">Release this submit slot?</h3>
+        <p className="mt-2 text-sm text-ink-soft">
           <strong>{job.orderLabel ?? "An unknown order"}</strong>
           {job.agentEmail ? <> for <strong>{job.agentEmail}</strong></> : null}, running{" "}
           {formatDuration(job.ageS * 1000)}.
@@ -412,9 +412,9 @@ function ReleaseDialog({ job, onClose, onDone }: {
         </p>
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" onClick={onClose}
-            className="rounded-md border border-[#E3E8EF] px-3 py-2 text-sm text-[#425466]">Cancel</button>
+            className="rounded-md border border-line px-3 py-2 text-sm text-ink-soft">Cancel</button>
           <button type="button" onClick={go} disabled={busy}
-            className="rounded-md bg-[#635BFF] px-3 py-2 text-sm text-white disabled:opacity-50">
+            className="rounded-md bg-brand px-3 py-2 text-sm text-white disabled:opacity-50">
             {busy ? "Releasing…" : "Release slot"}
           </button>
         </div>
@@ -429,9 +429,9 @@ function Card({ title, subtitle, children }: {
   title: string; subtitle?: string; children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-[#E3E8EF] bg-white p-5">
-      <h2 className="text-sm font-semibold text-[#0A2540]">{title}</h2>
-      {subtitle && <p className="mt-0.5 text-xs text-[#697386]">{subtitle}</p>}
+    <section className="rounded-xl border border-line bg-white p-5">
+      <h2 className="text-sm font-semibold text-ink">{title}</h2>
+      {subtitle && <p className="mt-0.5 text-xs text-ink-muted">{subtitle}</p>}
       <div className="mt-4">{children}</div>
     </section>
   );
@@ -443,27 +443,27 @@ function RangeBar({ from, to, onFrom, onTo, loading }: {
   // `max`/`min` keep the range valid at the input rather than letting the server
   // silently clamp it — a range that quietly changes is worse than one refused.
   return (
-    <div className="flex flex-wrap items-end gap-3 rounded-xl border border-[#E3E8EF] bg-white p-4">
-      <label className="text-xs text-[#697386]">
+    <div className="flex flex-wrap items-end gap-3 rounded-xl border border-line bg-white p-4">
+      <label className="text-xs text-ink-muted">
         From
         <input type="date" value={from} max={to} onChange={(e) => onFrom(e.target.value)}
-          className="mt-1 block rounded-md border border-[#E3E8EF] px-2 py-1.5 text-sm text-[#0A2540]" />
+          className="mt-1 block rounded-md border border-line px-2 py-1.5 text-sm text-ink" />
       </label>
-      <label className="text-xs text-[#697386]">
+      <label className="text-xs text-ink-muted">
         To
         <input type="date" value={to} min={from} onChange={(e) => onTo(e.target.value)}
-          className="mt-1 block rounded-md border border-[#E3E8EF] px-2 py-1.5 text-sm text-[#0A2540]" />
+          className="mt-1 block rounded-md border border-line px-2 py-1.5 text-sm text-ink" />
       </label>
       {[7, 30, 90].map((d) => (
         <button key={d} type="button"
           onClick={() => { onFrom(isoDay(new Date(Date.now() - (d - 1) * DAY))); onTo(isoDay(new Date())); }}
-          className="rounded-md border border-[#E3E8EF] px-3 py-1.5 text-xs text-[#425466] transition-colors hover:border-[#635BFF]">
+          className="rounded-md border border-line px-3 py-1.5 text-xs text-ink-soft transition-colors hover:border-brand">
           {d}d
         </button>
       ))}
       {loading && (
-        <span className="flex items-center gap-1.5 text-xs text-[#697386]">
-          <span aria-hidden className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent" />
+        <span className="flex items-center gap-1.5 text-xs text-ink-muted">
+          <span aria-hidden className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-brand border-t-transparent" />
           Loading…
         </span>
       )}
@@ -498,9 +498,9 @@ function Tile({ label, value }: { label: string; value: number }) {
   // number nobody trusts. tabular-nums (below) keeps the width from jittering.
   const shown = useAnimatedCounter(value, 500);
   return (
-    <div className="rounded-xl border border-[#E3E8EF] bg-white p-4">
-      <p className="text-xs text-[#697386]">{label}</p>
-      <p className="mt-1 text-2xl font-semibold tabular-nums text-[#0A2540]">{shown}</p>
+    <div className="rounded-xl border border-line bg-white p-4">
+      <p className="text-xs text-ink-muted">{label}</p>
+      <p className="mt-1 text-2xl font-semibold tabular-nums text-ink">{shown}</p>
     </div>
   );
 }
@@ -535,7 +535,7 @@ function Errors({ errors }: { errors: { code: string; count: number }[] }) {
             move past, not an activity to watch. Reduced motion keeps the text
             alone, which said everything already. */}
         <LottieSpot name="success" size={44} loop={false} fallback={null} />
-        <p className="text-sm text-[#697386]">No failed attempts in this range.</p>
+        <p className="text-sm text-ink-muted">No failed attempts in this range.</p>
       </div>
     );
   }
@@ -545,11 +545,11 @@ function Errors({ errors }: { errors: { code: string; count: number }[] }) {
       {errors.slice(0, 8).map((e) => (
         <li key={e.code}>
           <div className="flex items-baseline justify-between gap-2">
-            <span className="truncate text-xs text-[#0A2540]" title={e.code}>{prettyCode(e.code)}</span>
-            <span className="tabular-nums text-xs font-semibold text-[#0A2540]">{e.count}</span>
+            <span className="truncate text-xs text-ink" title={e.code}>{prettyCode(e.code)}</span>
+            <span className="tabular-nums text-xs font-semibold text-ink">{e.count}</span>
           </div>
-          <div className="mt-1 h-1.5 rounded-full bg-[#F6F9FC]">
-            <div className="h-1.5 rounded-full bg-[#635BFF]" style={{ width: `${(e.count / max) * 100}%` }} />
+          <div className="mt-1 h-1.5 rounded-full bg-wash">
+            <div className="h-1.5 rounded-full bg-brand" style={{ width: `${(e.count / max) * 100}%` }} />
           </div>
         </li>
       ))}
@@ -563,7 +563,7 @@ function AgentTable({ agents }: { agents: AdminStats["agents"] }) {
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-[#E3E8EF] text-left text-xs text-[#697386]">
+          <tr className="border-b border-line text-left text-xs text-ink-muted">
             <th className="pb-2 pr-3 font-medium">Agent</th>
             <th className="pb-2 pr-3 text-right font-medium">Submitted</th>
             <th className="pb-2 pr-3 text-right font-medium">Failed attempts</th>
@@ -576,16 +576,16 @@ function AgentTable({ agents }: { agents: AdminStats["agents"] }) {
           {agents.map((a) => (
             <tr key={a.userId} className="border-b border-[#F0F3F8] last:border-0">
               <td className="py-2.5 pr-3">
-                <Link href={`/admin/agents/${a.userId}`} className="text-[#635BFF] hover:underline">
+                <Link href={`/admin/agents/${a.userId}`} className="text-brand hover:underline">
                   {a.email}
                 </Link>
               </td>
-              <td className="py-2.5 pr-3 text-right tabular-nums text-[#0A2540]">{a.submitted}</td>
-              <td className="py-2.5 pr-3 text-right tabular-nums text-[#0A2540]">{a.failedAttempts}</td>
-              <td className="py-2.5 pr-3 text-right tabular-nums text-[#0A2540]">
+              <td className="py-2.5 pr-3 text-right tabular-nums text-ink">{a.submitted}</td>
+              <td className="py-2.5 pr-3 text-right tabular-nums text-ink">{a.failedAttempts}</td>
+              <td className="py-2.5 pr-3 text-right tabular-nums text-ink">
                 {a.successRate === null ? "—" : `${Math.round(a.successRate * 100)}%`}
               </td>
-              <td className="py-2.5 pr-3 text-[#425466]">
+              <td className="py-2.5 pr-3 text-ink-soft">
                 {a.topError ? `${prettyCode(a.topError.code)} · ${a.topError.count}` : "—"}
               </td>
               <td className="py-2.5"><ConnectionBadge view={a.connection} /></td>
@@ -607,7 +607,7 @@ function OrderTable({ rows, onRestore, onPurge }: {
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-[#E3E8EF] text-left text-xs text-[#697386]">
+          <tr className="border-b border-line text-left text-xs text-ink-muted">
             <th className="pb-2 pr-3 font-medium">Order</th>
             <th className="pb-2 pr-3 font-medium">Agent</th>
             <th className="pb-2 pr-3 font-medium">Status</th>
@@ -628,13 +628,13 @@ function OrderTable({ rows, onRestore, onPurge }: {
               style={{ animationDelay: `${Math.min(i, 15) * 20}ms` }}
             >
               <td className="py-2.5 pr-3">
-                <Link href={`/admin/orders/${o.id}`} className="text-[#635BFF] hover:underline">
+                <Link href={`/admin/orders/${o.id}`} className="text-brand hover:underline">
                   {o.reference ?? o.fullName}
                 </Link>
-                {o.reference && <div className="text-xs text-[#697386]">{o.fullName}</div>}
+                {o.reference && <div className="text-xs text-ink-muted">{o.fullName}</div>}
               </td>
               <td className="py-2.5 pr-3">
-                <Link href={`/admin/agents/${o.agentId}`} className="text-[#425466] hover:text-[#635BFF] hover:underline">
+                <Link href={`/admin/agents/${o.agentId}`} className="text-ink-soft hover:text-brand hover:underline">
                   {o.agentEmail ?? "—"}
                 </Link>
                 {/* The staff code rides under the e-mail rather than taking its
@@ -642,7 +642,7 @@ function OrderTable({ rows, onRestore, onPurge }: {
                     submit recorded it; muted when it is only the owner's current
                     code on a never-submitted row. */}
                 {o.agentStaffCodeRecorded ? (
-                  <div className="text-xs font-medium tabular-nums text-[#0A2540]">{o.agentStaffCode}</div>
+                  <div className="text-xs font-medium tabular-nums text-ink">{o.agentStaffCode}</div>
                 ) : (
                   <div className="text-xs tabular-nums text-[#B4BCCA]"
                     title={o.agentStaffCode ? "Not submitted yet — this is the owner's current staff code" : undefined}>
@@ -653,21 +653,21 @@ function OrderTable({ rows, onRestore, onPurge }: {
               <td className="py-2.5 pr-3">
                 <StatusPill status={o.status} deleted={!!o.deletedAt} />
               </td>
-              <td className="max-w-[240px] py-2.5 pr-3 text-xs text-[#425466]">
+              <td className="max-w-[240px] py-2.5 pr-3 text-xs text-ink-soft">
                 {/* Only a FAILED run has an error. A submitted order's
                     errorMessage is the advance-payment note applyResult writes
                     on success, and calling that "Unclassified" reported a
                     payment receipt as a fault. */}
                 {(() => { const e = orderErrorLabel(o); return e ? prettyCode(e) : "—"; })()}
               </td>
-              <td className="py-2.5 pr-3 text-xs tabular-nums text-[#697386]">
+              <td className="py-2.5 pr-3 text-xs tabular-nums text-ink-muted">
                 {new Date(o.createdAt).toISOString().slice(0, 10)}
               </td>
               <td className="py-2.5">
                 {o.deletedAt ? (
                   <div className="flex gap-2">
                     <button type="button" onClick={() => onRestore(o)}
-                      className="rounded-md border border-[#E3E8EF] px-2 py-1 text-xs text-[#425466] hover:border-[#635BFF]">
+                      className="rounded-md border border-line px-2 py-1 text-xs text-ink-soft hover:border-brand">
                       Restore
                     </button>
                     <button type="button" onClick={() => onPurge(o)}
@@ -694,14 +694,14 @@ function StatusPill({ status, deleted }: { status: string; deleted: boolean }) {
   // Deleted wins over the status: an admin scanning this column needs to know
   // the row is gone from the agent's world before anything else about it.
   if (deleted) {
-    return <span className="rounded-full bg-[#F1F3F6] px-2 py-0.5 text-xs text-[#697386]">Deleted</span>;
+    return <span className="rounded-full bg-[#F1F3F6] px-2 py-0.5 text-xs text-ink-muted">Deleted</span>;
   }
   const tone =
     status === "submitted" ? "bg-[#ECFDF3] text-[#027A48]"
     : status === "failed" ? "bg-[#FEF3F2] text-[#B42318]"
     : status === "warning" ? "bg-[#FFFAEB] text-[#B54708]"
     : status === "submitting" ? "bg-[#EFF4FF] text-[#3538CD]"
-    : "bg-[#F1F3F6] text-[#697386]";
+    : "bg-[#F1F3F6] text-ink-muted";
   return <span className={`rounded-full px-2 py-0.5 text-xs ${tone} ${flash}`}>{status}</span>;
 }
 
@@ -718,7 +718,7 @@ export function ConnectionBadge({ view }: { view: ConnectionView }) {
   const tone =
     view.tone === "good" ? "bg-[#ECFDF3] text-[#027A48]"
     : view.tone === "warn" ? "bg-[#FFFAEB] text-[#B54708]"
-    : "bg-[#F1F3F6] text-[#697386]";
+    : "bg-[#F1F3F6] text-ink-muted";
   return <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs ${tone} ${flash}`}>{view.label}</span>;
 }
 
@@ -728,7 +728,7 @@ function Select({ value, onChange, label, options }: {
 }) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)}
-      className="rounded-md border border-[#E3E8EF] px-2 py-1.5 text-xs text-[#425466]">
+      className="rounded-md border border-line px-2 py-1.5 text-xs text-ink-soft">
       <option value="">{label}</option>
       {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
@@ -737,9 +737,9 @@ function Select({ value, onChange, label, options }: {
 
 function LoadingState() {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-[#E3E8EF] bg-white py-16">
+    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-line bg-white py-16">
       <LottieSpot name="processing" size={44} fallback={null} />
-      <p className="text-sm text-[#697386]">Loading orders…</p>
+      <p className="text-sm text-ink-muted">Loading orders…</p>
     </div>
   );
 }
@@ -752,23 +752,23 @@ function PageFooter({ page, total, perPage, onPage, onPerPage }: {
   if (total === 0) return null;
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#F0F3F8] pt-3">
-      <span className="text-xs tabular-nums text-[#697386]">{pageRangeLabel(page, total, perPage)}</span>
+      <span className="text-xs tabular-nums text-ink-muted">{pageRangeLabel(page, total, perPage)}</span>
       <select
         value={String(perPage)}
         onChange={(e) => onPerPage(Number(e.target.value))}
         aria-label="Rows per page"
-        className="rounded-md border border-[#E3E8EF] px-2 py-1.5 text-xs text-[#425466]"
+        className="rounded-md border border-line px-2 py-1.5 text-xs text-ink-soft"
       >
         {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}/page</option>)}
       </select>
       <div className="ml-auto flex items-center gap-1">
         <button type="button" onClick={() => onPage(page - 1)} disabled={page <= 1}
-          className="rounded-md border border-[#E3E8EF] px-2.5 py-1.5 text-xs text-[#425466] transition-colors hover:border-[#635BFF] disabled:opacity-40">
+          className="rounded-md border border-line px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-brand disabled:opacity-40">
           ‹ Prev
         </button>
-        <span className="px-2 text-xs tabular-nums text-[#697386]">Page {page} of {pages}</span>
+        <span className="px-2 text-xs tabular-nums text-ink-muted">Page {page} of {pages}</span>
         <button type="button" onClick={() => onPage(page + 1)} disabled={page >= pages}
-          className="rounded-md border border-[#E3E8EF] px-2.5 py-1.5 text-xs text-[#425466] transition-colors hover:border-[#635BFF] disabled:opacity-40">
+          className="rounded-md border border-line px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-brand disabled:opacity-40">
           Next ›
         </button>
       </div>
@@ -777,7 +777,7 @@ function PageFooter({ page, total, perPage, onPage, onPerPage }: {
 }
 
 function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="py-8 text-center text-sm text-[#697386]">{children}</p>;
+  return <p className="py-8 text-center text-sm text-ink-muted">{children}</p>;
 }
 
 /**
@@ -789,14 +789,14 @@ function Empty({ children }: { children: React.ReactNode }) {
 function BulkPurgeDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const [days, setDays] = useState<30 | 90 | 180>(90);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0A2540]/40 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
       <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
-        <h3 className="text-base font-semibold text-[#0A2540]">Purge old deleted orders?</h3>
+        <h3 className="text-base font-semibold text-ink">Purge old deleted orders?</h3>
         <div className="mt-3 flex gap-2">
           {([30, 90, 180] as const).map((d) => (
             <button key={d} type="button" onClick={() => setDays(d)}
               className={`rounded-md border px-3 py-1.5 text-xs ${days === d
-                ? "border-[#635BFF] bg-[#EFF4FF] text-[#3538CD]" : "border-[#E3E8EF] text-[#425466]"}`}>
+                ? "border-brand bg-[#EFF4FF] text-[#3538CD]" : "border-line text-ink-soft"}`}>
               Older than {d} days
             </button>
           ))}
@@ -835,30 +835,30 @@ function BulkPurgeBody({ days, onClose, onDone }: {
   return (
     <>
         {preview === null ? (
-          <p className="mt-4 text-sm text-[#697386]">Counting…</p>
+          <p className="mt-4 text-sm text-ink-muted">Counting…</p>
         ) : preview.length === 0 ? (
-          <p className="mt-4 rounded-md bg-[#F6F9FC] px-3 py-2 text-sm text-[#425466]">
+          <p className="mt-4 rounded-md bg-wash px-3 py-2 text-sm text-ink-soft">
             Nothing has been deleted for longer than {days} days.
           </p>
         ) : (
           <>
-            <p className="mt-4 text-sm text-[#425466]">
+            <p className="mt-4 text-sm text-ink-soft">
               This destroys <strong>{preview.length}</strong> order{preview.length === 1 ? "" : "s"} and
               their entire histories. It cannot be undone.
             </p>
-            <p className="mt-2 max-h-24 overflow-y-auto rounded-md bg-[#F6F9FC] px-3 py-2 text-xs text-[#697386]">
+            <p className="mt-2 max-h-24 overflow-y-auto rounded-md bg-wash px-3 py-2 text-xs text-ink-muted">
               {preview.map((p) => p.label).join(" · ")}
             </p>
-            <label className="mt-3 block text-xs text-[#697386]">
-              Type <strong className="text-[#0A2540]">{preview.length}</strong> to confirm
+            <label className="mt-3 block text-xs text-ink-muted">
+              Type <strong className="text-ink">{preview.length}</strong> to confirm
               <input value={typed} onChange={(e) => setTyped(e.target.value)} inputMode="numeric"
-                className="mt-1 w-full rounded-md border border-[#E3E8EF] px-3 py-2 text-sm text-[#0A2540]" />
+                className="mt-1 w-full rounded-md border border-line px-3 py-2 text-sm text-ink" />
             </label>
           </>
         )}
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" onClick={onClose}
-            className="rounded-md border border-[#E3E8EF] px-3 py-2 text-sm text-[#425466]">Cancel</button>
+            className="rounded-md border border-line px-3 py-2 text-sm text-ink-soft">Cancel</button>
           <button type="button" onClick={confirm} disabled={busy || !preview || preview.length === 0}
             className="rounded-md bg-[#B42318] px-3 py-2 text-sm text-white disabled:opacity-50">
             {busy ? "Purging…" : "Purge permanently"}
@@ -884,10 +884,10 @@ function PurgeDialog({ order, onClose, onDone }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0A2540]/40 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
       <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
-        <h3 className="text-base font-semibold text-[#0A2540]">Purge this order permanently?</h3>
-        <p className="mt-2 text-sm text-[#425466]">
+        <h3 className="text-base font-semibold text-ink">Purge this order permanently?</h3>
+        <p className="mt-2 text-sm text-ink-soft">
           This destroys the order <strong>and its entire submit history</strong>. It cannot be undone,
           and nothing else in the app keeps a copy.
         </p>
@@ -897,14 +897,14 @@ function PurgeDialog({ order, onClose, onDone }: {
             record of it — the order still exists at Unifi.
           </p>
         )}
-        <label className="mt-4 block text-xs text-[#697386]">
-          Type <strong className="text-[#0A2540]">{phrase}</strong> to confirm
+        <label className="mt-4 block text-xs text-ink-muted">
+          Type <strong className="text-ink">{phrase}</strong> to confirm
           <input value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus
-            className="mt-1 w-full rounded-md border border-[#E3E8EF] px-3 py-2 text-sm text-[#0A2540]" />
+            className="mt-1 w-full rounded-md border border-line px-3 py-2 text-sm text-ink" />
         </label>
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" onClick={onClose}
-            className="rounded-md border border-[#E3E8EF] px-3 py-2 text-sm text-[#425466]">
+            className="rounded-md border border-line px-3 py-2 text-sm text-ink-soft">
             Cancel
           </button>
           <button type="button" onClick={confirm} disabled={busy}

@@ -133,7 +133,7 @@ export function OrdersTable({
 
   if (orders.length === 0) {
     return (
-      <div className="rounded-xl border border-[#E3E8EF] bg-white px-4 py-10 text-center text-[13px] text-[#697386]">
+      <div className="rounded-xl border border-line bg-white px-4 py-10 text-center text-[13px] text-ink-muted">
         No orders match your search.
       </div>
     );
@@ -145,7 +145,7 @@ export function OrdersTable({
        immediately instead of re-waiting. Reading across a row is the actual
        task, and a per-tooltip delay makes that feel broken. */
     <TooltipProvider delay={150} closeDelay={0}>
-    <div className="overflow-hidden rounded-xl border border-[#E3E8EF] bg-white">
+    <div className="overflow-hidden rounded-xl border border-line bg-white">
       {/* ── Cards (<768px) ─────────────────────────────────────────────────── */}
       {/* Keyed on the result set: a filter change remounts the list and replays
           the one-shot entrance for the NEW rows; a poll updating the same rows
@@ -155,7 +155,7 @@ export function OrdersTable({
           <Fragment key={o.id}>
             <OrderCard o={o} a={actionsFor(o)} isSuperAdmin={isSuperAdmin} entranceDelayMs={Math.min(i, 15) * 20} />
             {expanded.has(o.id) && o.status === "submitting" && (
-              <li className="border-b border-[#E3E8EF] last:border-0">
+              <li className="border-b border-line last:border-0">
                 <SubmitProgress
                   stage={o.stage}
                   status={o.status}
@@ -178,7 +178,7 @@ export function OrdersTable({
           <TableHeader>
             {/* No fill, no uppercase tracking: the header labels the columns,
                 it doesn't need to compete with the data underneath. */}
-            <TableRow className="border-b border-[#E3E8EF] bg-white hover:bg-white">
+            <TableRow className="border-b border-line bg-white hover:bg-white">
               {columns.map((c) =>
                 c.key === "select" ? (
                   <TableHead key={c.key} className={`w-10 px-4 py-3 ${PIN_SELECT}`}>
@@ -190,13 +190,13 @@ export function OrdersTable({
                       onCheckedChange={(checked) =>
                         onToggleAll(selectableIds, checked === true)
                       }
-                      className="cursor-pointer border-[#CBD2DC] data-checked:border-[#635BFF] data-checked:bg-[#635BFF] data-indeterminate:border-[#635BFF] data-indeterminate:bg-[#635BFF]"
+                      className="cursor-pointer border-line-strong data-checked:border-brand data-checked:bg-brand data-indeterminate:border-brand data-indeterminate:bg-brand"
                     />
                   </TableHead>
                 ) : (
                   <TableHead
                     key={c.key}
-                    className={`bg-white px-4 py-3 text-[11px] font-medium text-[#8792A2] ${
+                    className={`bg-white px-4 py-3 text-[11px] font-medium text-ink-faint ${
                       c.at ? HIDE[c.at] : ""
                     } ${c.key === "name" ? PIN_NAME : ""} ${
                       c.key === "actions" ? PIN_ACTIONS : ""
@@ -218,7 +218,7 @@ export function OrdersTable({
               <Fragment key={o.id}>
                 <OrderRow o={o} a={actionsFor(o)} isSuperAdmin={isSuperAdmin} entranceDelayMs={Math.min(i, 15) * 20} />
                 {expanded.has(o.id) && o.status === "submitting" && (
-                  <TableRow className="border-b border-[#E3E8EF] hover:bg-transparent">
+                  <TableRow className="border-b border-line hover:bg-transparent">
                     <TableCell colSpan={colSpan} className="p-0">
                       <SubmitProgress
                         stage={o.stage}

@@ -468,10 +468,10 @@ export default function OrderEntryShell({
     <div className={showReconnectIA ? "space-y-4" : "space-y-6"}>
       {/* Header */}
       <div className="animate-fade-in-up" style={{ animationDelay: "100ms" }}>
-        <h1 className="text-2xl font-semibold text-[#0A2540]">
+        <h1 className="text-2xl font-semibold text-ink">
           {showReconnectIA ? RECONNECT_DEALER_ACCOUNT_TITLE : "Order Entry"}
         </h1>
-        <p className="text-sm text-[#697386] mt-1">
+        <p className="text-sm text-ink-muted mt-1">
           {showReconnectIA
             ? "Log in with your own staff code, password, and OTP."
             : "Connect your Unifi dealer account to key in broadband orders."}
@@ -483,10 +483,10 @@ export default function OrderEntryShell({
           /* ---------- Connected: a slim status strip instead of the card.
              Session plumbing matters when it is broken; once connected the
              agent's work is below, so ~300px of card collapses to one line. */
-          <div className="flex items-center gap-3 rounded-lg border border-[#E3E8EF] bg-white px-4 py-2.5">
+          <div className="flex items-center gap-3 rounded-lg border border-line bg-white px-4 py-2.5">
             {checking ? (
               <span
-                className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent"
+                className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-brand border-t-transparent"
                 aria-hidden="true"
               />
             ) : (
@@ -503,7 +503,7 @@ export default function OrderEntryShell({
                 />
               </span>
             )}
-            <span className="truncate text-sm text-[#0A2540]">
+            <span className="truncate text-sm text-ink">
               {checking ? (
                 "Verifying connection…"
               ) : (
@@ -516,16 +516,16 @@ export default function OrderEntryShell({
               )}
             </span>
             <span
-              className="hidden h-4 w-px shrink-0 bg-[#E3E8EF] sm:inline-block"
+              className="hidden h-4 w-px shrink-0 bg-line sm:inline-block"
               aria-hidden="true"
             />
             <span
               className={`hidden items-center gap-1.5 text-xs tabular-nums sm:inline-flex ${
                 sessionSecondsLeft <= 60
-                  ? "font-semibold text-[#DF1B41]"
+                  ? "font-semibold text-danger"
                   : sessionSecondsLeft <= 300
                     ? "font-semibold text-amber-600"
-                    : "text-[#697386]"
+                    : "text-ink-muted"
               }`}
               title="Session expires in"
             >
@@ -536,26 +536,26 @@ export default function OrderEntryShell({
               type="button"
               disabled={disconnecting}
               onClick={handleDisconnect}
-              className="ml-auto shrink-0 cursor-pointer text-xs font-medium text-[#697386] transition-colors duration-150 hover:text-[#DF1B41] disabled:opacity-50"
+              className="ml-auto shrink-0 cursor-pointer text-xs font-medium text-ink-muted transition-colors duration-150 hover:text-danger disabled:opacity-50"
             >
               {disconnecting ? "Disconnecting…" : "Disconnect"}
             </button>
           </div>
         ) : (
-        <div className="bg-white rounded-lg border border-[#E3E8EF] overflow-hidden">
+        <div className="bg-white rounded-lg border border-line overflow-hidden">
           {!loading && (
-          <div className={`px-6 border-b border-[#E3E8EF] ${showReconnectIA ? "py-3" : "py-4"}`}>
+          <div className={`px-6 border-b border-line ${showReconnectIA ? "py-3" : "py-4"}`}>
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-[#F6F9FC] flex items-center justify-center">
-                <PortalIcon className="w-4 h-4 text-[#635BFF]" />
+              <div className="w-9 h-9 rounded-lg bg-wash flex items-center justify-center">
+                <PortalIcon className="w-4 h-4 text-brand" />
               </div>
               <div>
-                <h2 className="text-sm font-semibold text-[#0A2540]">
+                <h2 className="text-sm font-semibold text-ink">
                   {showReconnectIA
                     ? "Staff credentials"
                     : "Connect Unifi Dealer Account"}
                 </h2>
-                <p className="text-xs text-[#697386] mt-0.5">
+                <p className="text-xs text-ink-muted mt-0.5">
                   {showReconnectIA
                     ? "Send an OTP to reconnect this dealer account."
                     : "Log in with your own staff code, password, and OTP."}
@@ -570,17 +570,17 @@ export default function OrderEntryShell({
               /* ---------- Initial load ---------- */
               <div className="flex flex-col items-center gap-3 py-10">
                 <div
-                  className="h-8 w-8 animate-spin rounded-full border-2 border-[#635BFF] border-t-transparent"
+                  className="h-8 w-8 animate-spin rounded-full border-2 border-brand border-t-transparent"
                   aria-hidden="true"
                 />
-                <p className="text-sm text-[#697386]" role="status">
+                <p className="text-sm text-ink-muted" role="status">
                   Loading…
                 </p>
               </div>
             ) : loadError ? (
               /* ---------- Initial load failed ---------- */
               <div className="space-y-4">
-                <div className="text-sm bg-red-50 text-[#DF1B41] rounded-lg px-4 py-3">
+                <div className="text-sm bg-red-50 text-danger rounded-lg px-4 py-3">
                   {loadError}
                 </div>
                 <Button
@@ -609,7 +609,7 @@ export default function OrderEntryShell({
                   </div>
                 )}
                 <div className="space-y-1.5">
-                  <Label htmlFor="staff-code" className="text-xs font-medium text-[#425466]">
+                  <Label htmlFor="staff-code" className="text-xs font-medium text-ink-soft">
                     Staff Code
                   </Label>
                   <Input
@@ -619,12 +619,12 @@ export default function OrderEntryShell({
                     value={staffCode}
                     onChange={(e) => setStaffCode(e.target.value)}
                     required
-                    className="rounded-lg h-10 border-[#E3E8EF] focus:border-[#635BFF]"
+                    className="rounded-lg h-10 border-line focus:border-brand"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="dealer-password" className="text-xs font-medium text-[#425466]">
+                  <Label htmlFor="dealer-password" className="text-xs font-medium text-ink-soft">
                     Password
                   </Label>
                   <div className="relative">
@@ -635,31 +635,31 @@ export default function OrderEntryShell({
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
-                      className="rounded-lg h-10 pr-10 border-[#E3E8EF] focus:border-[#635BFF]"
+                      className="rounded-lg h-10 pr-10 border-line focus:border-brand"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#697386] hover:text-[#0A2540] transition-colors"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-muted hover:text-ink transition-colors"
                       aria-label={showPassword ? "Hide password" : "Show password"}
                     >
                       {showPassword ? <EyeOffIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
                     </button>
                   </div>
-                  <p className="text-[11px] text-[#697386]">
+                  <p className="text-[11px] text-ink-muted">
                     Your password is used once to log in and is never stored.
                   </p>
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="otp-channel" className="text-xs font-medium text-[#425466]">
+                  <Label htmlFor="otp-channel" className="text-xs font-medium text-ink-soft">
                     Send OTP via
                   </Label>
                   <select
                     id="otp-channel"
                     value={channel}
                     onChange={(e) => setChannel(e.target.value as "Email" | "SMS")}
-                    className="w-full rounded-lg h-10 px-3 border border-[#E3E8EF] bg-white text-sm text-[#0A2540] focus:border-[#635BFF] focus:outline-none"
+                    className="w-full rounded-lg h-10 px-3 border border-line bg-white text-sm text-ink focus:border-brand focus:outline-none"
                   >
                     <option value="Email">Email</option>
                     <option value="SMS">SMS</option>
@@ -668,7 +668,7 @@ export default function OrderEntryShell({
 
                 {channel === "Email" && (
                   <div className="space-y-1.5">
-                    <Label htmlFor="registered-email" className="text-xs font-medium text-[#425466]">
+                    <Label htmlFor="registered-email" className="text-xs font-medium text-ink-soft">
                       Registered Email
                     </Label>
                     <Input
@@ -679,7 +679,7 @@ export default function OrderEntryShell({
                       onChange={(e) => setRegisteredEmail(e.target.value)}
                       required
                       aria-describedby="registered-email-hint"
-                      className="rounded-lg h-10 border-[#E3E8EF] focus:border-[#635BFF]"
+                      className="rounded-lg h-10 border-line focus:border-brand"
                     />
                   </div>
                 )}
@@ -688,7 +688,7 @@ export default function OrderEntryShell({
                   <Button
                     type="submit"
                     disabled={sending}
-                    className="h-10 px-5 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] hover-glow"
+                    className="h-10 px-5 rounded-lg text-sm font-semibold bg-brand hover:bg-ink hover-glow"
                   >
                     {sending ? (
                       <>
@@ -702,12 +702,12 @@ export default function OrderEntryShell({
                 </div>
 
                 {channel === "Email" && (
-                  <p id="registered-email-hint" className="text-[11px] text-[#697386]">
+                  <p id="registered-email-hint" className="text-[11px] text-ink-muted">
                     Needed so BizzFlow can read the OTP.{" "}
                     <button
                       type="button"
                       onClick={() => setShowForwardHelp(true)}
-                      className="text-[#635BFF] font-medium hover:underline"
+                      className="text-brand font-medium hover:underline"
                     >
                       How to set this up
                     </button>
@@ -717,17 +717,17 @@ export default function OrderEntryShell({
               <Sheet open={showForwardHelp} onOpenChange={setShowForwardHelp}>
                 <SheetContent
                   side="right"
-                  className="flex w-full flex-col gap-0 border-l border-[#E3E8EF] bg-white p-0 sm:max-w-md"
+                  className="flex w-full flex-col gap-0 border-l border-line bg-white p-0 sm:max-w-md"
                 >
-                  <div className="border-b border-[#E3E8EF] px-6 py-4">
-                    <SheetTitle className="text-sm font-semibold text-[#0A2540]">
+                  <div className="border-b border-line px-6 py-4">
+                    <SheetTitle className="text-sm font-semibold text-ink">
                       How to set this up
                     </SheetTitle>
-                    <SheetDescription className="mt-1 text-xs text-[#697386]">
+                    <SheetDescription className="mt-1 text-xs text-ink-muted">
                       Forward Unifi OTP mail so BizzFlow can read the code for you.
                     </SheetDescription>
                   </div>
-                  <div className="space-y-3 px-6 py-4 text-[13px] leading-relaxed text-[#425466]">
+                  <div className="space-y-3 px-6 py-4 text-[13px] leading-relaxed text-ink-soft">
                     <p>
                       Enter the email address registered on this dealer account
                       so BizzFlow can read the OTP automatically instead of you
@@ -751,7 +751,7 @@ export default function OrderEntryShell({
                       this address arrive automatically and BizzFlow reads them for
                       you.
                     </p>
-                    <p className="text-[#697386]">
+                    <p className="text-ink-muted">
                       Without forwarding set up, auto-read simply won&apos;t find
                       anything and you&apos;ll fall back to entering the code
                       manually — nothing breaks either way.
@@ -763,13 +763,13 @@ export default function OrderEntryShell({
             ) : step === "auto" ? (
               /* ---------- Step 2 (auto): reading OTP from Gmail ---------- */
               <div className="space-y-4">
-                <div className="flex items-center gap-2.5 text-xs bg-[#EBE9FE] text-[#5851DB] rounded-lg px-4 py-2.5">
+                <div className="flex items-center gap-2.5 text-xs bg-[#EBE9FE] text-brand-strong rounded-lg px-4 py-2.5">
                   <LottieSpot
                     name="otp-reading"
                     size={30}
                     className="-my-1"
                     fallback={
-                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#5851DB] border-t-transparent inline-block shrink-0" />
+                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-strong border-t-transparent inline-block shrink-0" />
                     }
                   />
                   <span>
@@ -787,12 +787,12 @@ export default function OrderEntryShell({
                     Switching is purely client-side — the background read keeps
                     running and whichever finds the code first wins (the
                     in_progress flag on the pending record stops them racing). */}
-                <div className="flex items-center gap-2 text-xs bg-[#F6F9FC] text-[#425466] rounded-lg px-4 py-2.5">
+                <div className="flex items-center gap-2 text-xs bg-wash text-ink-soft rounded-lg px-4 py-2.5">
                   <span>Already have the code?</span>
                   <button
                     type="button"
                     onClick={() => setStep("otp")}
-                    className="text-[#635BFF] font-medium hover:underline"
+                    className="text-brand font-medium hover:underline"
                   >
                     Enter it myself
                   </button>
@@ -801,7 +801,7 @@ export default function OrderEntryShell({
             ) : (
               /* ---------- Step 2 (manual): OTP ---------- */
               <form onSubmit={handleVerify} className="space-y-4">
-                <div className="flex items-center gap-2 text-xs bg-[#EBE9FE] text-[#5851DB] rounded-lg px-4 py-2.5">
+                <div className="flex items-center gap-2 text-xs bg-[#EBE9FE] text-brand-strong rounded-lg px-4 py-2.5">
                   <ClockIcon className="w-3.5 h-3.5 shrink-0" />
                   <span>
                     {/* Don't claim the code was sent when we have just
@@ -825,13 +825,13 @@ export default function OrderEntryShell({
                 )}
 
                 {channel === "Email" && (
-                  <div className="flex items-center gap-2 text-xs bg-[#F6F9FC] text-[#425466] rounded-lg px-4 py-2.5">
+                  <div className="flex items-center gap-2 text-xs bg-wash text-ink-soft rounded-lg px-4 py-2.5">
                     <span>Already see the code in your inbox?</span>
                     <button
                       type="button"
                       disabled={checkingNow}
                       onClick={handleCheckNow}
-                      className="text-[#635BFF] font-medium hover:underline disabled:opacity-50"
+                      className="text-brand font-medium hover:underline disabled:opacity-50"
                     >
                       {checkingNow ? "Checking…" : "Check email now"}
                     </button>
@@ -839,7 +839,7 @@ export default function OrderEntryShell({
                 )}
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="otp" className="text-xs font-medium text-[#425466]">
+                  <Label htmlFor="otp" className="text-xs font-medium text-ink-soft">
                     Enter OTP
                   </Label>
                   <Input
@@ -852,7 +852,7 @@ export default function OrderEntryShell({
                     onChange={(e) => setOtp(e.target.value)}
                     required
                     autoFocus
-                    className="rounded-lg h-10 border-[#E3E8EF] focus:border-[#635BFF] tracking-[0.3em] font-mono"
+                    className="rounded-lg h-10 border-line focus:border-brand tracking-[0.3em] font-mono"
                   />
                 </div>
 
@@ -860,7 +860,7 @@ export default function OrderEntryShell({
                   <Button
                     type="submit"
                     disabled={verifying}
-                    className="h-10 px-5 rounded-lg text-sm font-semibold bg-[#635BFF] hover:bg-[#0A2540] hover-glow"
+                    className="h-10 px-5 rounded-lg text-sm font-semibold bg-brand hover:bg-ink hover-glow"
                   >
                     {verifying ? (
                       <>
@@ -875,7 +875,7 @@ export default function OrderEntryShell({
                     type="button"
                     variant="outline"
                     onClick={handleCancel}
-                    className="h-10 px-5 rounded-lg text-sm font-medium border-[#E3E8EF] text-[#425466] press-effect"
+                    className="h-10 px-5 rounded-lg text-sm font-medium border-line text-ink-soft press-effect"
                   >
                     Cancel
                   </Button>
@@ -896,15 +896,15 @@ export default function OrderEntryShell({
         style={{ animationDelay: "300ms" }}
       >
         {viewOnly && (
-          <div className="flex items-start gap-2 text-xs bg-[#F6F9FC] text-[#425466] rounded-lg px-4 py-2.5 mb-4 border border-[#E3E8EF]">
-            <ClockIcon className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[#635BFF]" />
+          <div className="flex items-start gap-2 text-xs bg-wash text-ink-soft rounded-lg px-4 py-2.5 mb-4 border border-line">
+            <ClockIcon className="w-3.5 h-3.5 mt-0.5 shrink-0 text-brand" />
             <span>
               Superadmin view — browsing all drafts without a portal session.
               Connect a dealer account above to submit orders.
             </span>
           </div>
         )}
-        <div className="flex gap-1 border-b border-[#E3E8EF] mb-5">
+        <div className="flex gap-1 border-b border-line mb-5">
           {TABS.map((tab) => {
             const active = pathname?.startsWith(tab.href);
             return (
@@ -913,14 +913,14 @@ export default function OrderEntryShell({
                 href={tab.href}
                 className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
                   active
-                    ? "border-[#635BFF] text-[#635BFF]"
-                    : "border-transparent text-[#697386] hover:text-[#0A2540]"
+                    ? "border-brand text-brand"
+                    : "border-transparent text-ink-muted hover:text-ink"
                 }`}
               >
                 {tab.label}
                 {tab.label === "Orders" && unseenCount > 0 && (
                   <span
-                    className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#635BFF] px-1 text-[10px] font-semibold text-white"
+                    className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-brand px-1 text-[10px] font-semibold text-white"
                     aria-label={`${unseenCount} unseen outcome${unseenCount === 1 ? "" : "s"}`}
                   >
                     {unseenCount > 9 ? "9+" : unseenCount}

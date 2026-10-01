@@ -39,7 +39,7 @@ export default async function AdminOrderDetailPage({
 
   return (
     <div className="space-y-5">
-      <Link href="/admin/orders" className="text-sm text-[#635BFF] hover:underline">
+      <Link href="/admin/orders" className="text-sm text-brand hover:underline">
         ← All orders
       </Link>
       <AdminOrderDetail

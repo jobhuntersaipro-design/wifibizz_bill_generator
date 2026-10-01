@@ -27,8 +27,8 @@ export default async function AdminAssistantPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold text-[#0A2540]">Assistant</h1>
-        <p className="text-sm text-[#697386] mt-1">
+        <h1 className="text-2xl font-semibold text-ink">Assistant</h1>
+        <p className="text-sm text-ink-muted mt-1">
           What the admin assistant is told, and which lookups it may use. Changes apply to the next message.
         </p>
       </div>

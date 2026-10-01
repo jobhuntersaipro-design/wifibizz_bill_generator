@@ -8,12 +8,12 @@ import { formatDuration, type RunTone } from "@/lib/order-types";
  * emits classes it can see in the source, so `bg-${x}` would ship as no style.
  */
 export const TONE: Record<RunTone, { hero: string; dot: string; chip: string; label: string }> = {
-  running: { hero: "bg-[#635BFF]", dot: "bg-[#635BFF]", chip: "bg-[#EDEBFF] text-[#635BFF]", label: "Running" },
+  running: { hero: "bg-brand", dot: "bg-brand", chip: "bg-brand-wash text-brand", label: "Running" },
   submitted: { hero: "bg-[#0E9F6E]", dot: "bg-[#0E9F6E]", chip: "bg-green-100 text-green-700", label: "Submitted" },
   warning: { hero: "bg-[#C2740B]", dot: "bg-amber-500", chip: "bg-amber-100 text-amber-800", label: "Needs checking" },
   failed: { hero: "bg-[#D6304A]", dot: "bg-red-500", chip: "bg-red-100 text-red-700", label: "Failed" },
-  draft: { hero: "bg-[#425466]", dot: "bg-[#8792A2]", chip: "bg-[#E3E8EF] text-[#425466]", label: "Draft" },
-  cancelled: { hero: "bg-[#697386]", dot: "bg-[#8792A2]", chip: "bg-[#E3E8EF] text-[#697386]", label: "Cancelled" },
+  draft: { hero: "bg-ink-soft", dot: "bg-ink-faint", chip: "bg-line text-ink-soft", label: "Draft" },
+  cancelled: { hero: "bg-ink-muted", dot: "bg-ink-faint", chip: "bg-line text-ink-muted", label: "Cancelled" },
 };
 
 export const OUTCOME_LABEL: Record<string, string> = {
@@ -61,12 +61,12 @@ export function SectionCard({
 }) {
   return (
     <section
-      className="panel-card-in rounded-xl border border-[#E3E8EF] bg-white"
+      className="panel-card-in rounded-xl border border-line bg-white"
       style={{ animationDelay: `${delay}ms` }}
     >
       <div className="flex items-center gap-1.5 px-4 pt-3">
-        <Icon className="h-3 w-3 shrink-0 text-[#8792A2]" aria-hidden="true" />
-        <h3 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8792A2]">
+        <Icon className="h-3 w-3 shrink-0 text-ink-faint" aria-hidden="true" />
+        <h3 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
           {label}
         </h3>
         {action && <div className="ml-auto">{action}</div>}
@@ -94,26 +94,26 @@ export function StatCard({
 }) {
   return (
     <div
-      className="panel-card-in rounded-xl border border-[#E3E8EF] bg-white px-3 py-2.5"
+      className="panel-card-in rounded-xl border border-line bg-white px-3 py-2.5"
       style={{ animationDelay: `${delay}ms` }}
     >
       <div className="flex items-center gap-1">
-        <Icon className="h-3 w-3 shrink-0 text-[#8792A2]" aria-hidden="true" />
-        <span className="truncate text-[9px] font-semibold uppercase tracking-tight text-[#8792A2] sm:tracking-[0.08em]">
+        <Icon className="h-3 w-3 shrink-0 text-ink-faint" aria-hidden="true" />
+        <span className="truncate text-[9px] font-semibold uppercase tracking-tight text-ink-faint sm:tracking-[0.08em]">
           {label}
         </span>
       </div>
-      <p className="mt-1 text-[17px] font-semibold leading-none tabular-nums text-[#0A2540]">
+      <p className="mt-1 text-[17px] font-semibold leading-none tabular-nums text-ink">
         {value}
       </p>
       {typeof bar === "number" && (
         <Progress value={bar} className="mt-2 w-full">
-          <ProgressTrack className="h-1 bg-[#E3E8EF]">
-            <ProgressIndicator className="bg-[#635BFF] transition-[width] duration-700 ease-out" />
+          <ProgressTrack className="h-1 bg-line">
+            <ProgressIndicator className="bg-brand transition-[width] duration-700 ease-out" />
           </ProgressTrack>
         </Progress>
       )}
-      {sub && <p className="mt-1 truncate text-[10px] text-[#8792A2]">{sub}</p>}
+      {sub && <p className="mt-1 truncate text-[10px] text-ink-faint">{sub}</p>}
     </div>
   );
 }

@@ -197,23 +197,23 @@ export default function PullToRefresh({ children }: { children: React.ReactNode 
             opacity: Math.min(1, pull / (THRESHOLD * 0.6)),
           }}
         >
-          <div className="flex items-center gap-2 rounded-full bg-white px-3 py-2 shadow-[0_2px_8px_rgba(10,37,64,0.12)] ring-1 ring-[#E3E8EF]">
+          <div className="flex items-center gap-2 rounded-full bg-white px-3 py-2 shadow-[0_2px_8px_rgba(10,37,64,0.12)] ring-1 ring-line">
             {refreshing ? (
               <LottieSpot
                 name="processing"
                 size={20}
                 fallback={
-                  <RefreshCw className="h-4 w-4 text-[#635BFF]" aria-hidden="true" />
+                  <RefreshCw className="h-4 w-4 text-brand" aria-hidden="true" />
                 }
               />
             ) : (
               <RefreshCw
-                className="h-4 w-4 text-[#635BFF] transition-transform duration-150"
+                className="h-4 w-4 text-brand transition-transform duration-150"
                 style={{ transform: `rotate(${Math.min(180, (pull / THRESHOLD) * 180)}deg)` }}
                 aria-hidden="true"
               />
             )}
-            <span className="text-[12px] font-medium text-[#425466]">
+            <span className="text-[12px] font-medium text-ink-soft">
               {refreshing ? "Refreshing…" : ready ? "Release to refresh" : "Pull to refresh"}
             </span>
           </div>
