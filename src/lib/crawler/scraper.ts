@@ -638,14 +638,19 @@ export async function fetchCaseDetailsForCases(
     await Promise.all(
       batch.map(async (it) => {
         const m = it.caseUrl?.match(/\/applications\/(\d+)(?:\/edit)?\?module=([a-z0-9_]+)/i);
-        if (!m) return;
+        if (!m) {
+          console.warn(`case detail ${it.caseNo}: unusable case_url ${JSON.stringify(it.caseUrl)}`);
+          return;
+        }
         try {
           const fields = await fetchCaseDetail(baseUrl, session, Number(m[1]), m[2]);
+          if (!fields.address) console.warn(`case detail ${it.caseNo}: portal page has no address`);
           if (fields.address || fields.companyReg || fields.customerName || fields.companyName) {
             out[it.caseNo] = fields;
           }
-        } catch {
-          // best-effort — leave this case unresolved
+        } catch (err) {
+          // best-effort — leave this case unresolved, but say why
+          console.warn(`case detail ${it.caseNo} failed:`, err instanceof Error ? err.message : err);
         }
       })
     );
