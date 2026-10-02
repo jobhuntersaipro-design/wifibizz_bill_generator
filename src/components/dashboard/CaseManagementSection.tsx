@@ -270,6 +270,9 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
 
 // ── Main Case Management Section ──
 
+// Bulk bill download scrapes and generates each case, so it is capped per run.
+const MAX_BILL_CASES = 30;
+
 export default function CaseManagementSection() {
   const [cases, setCases] = useState<CaseRow[]>([]);
   const [count, setCount] = useState(0);
@@ -426,6 +429,10 @@ export default function CaseManagementSection() {
   // CSV, or a ZIP of the ticked cases' bills (generated first where missing).
   async function downloadSelected(kind: "csv" | "internet" | "utility") {
     if (selected.size === 0 || bulkBusy) return;
+    if (kind !== "csv" && selected.size > MAX_BILL_CASES) {
+      toast.error(`Select up to ${MAX_BILL_CASES} cases to generate bills (${selected.size} selected).`);
+      return;
+    }
     setBulkBusy(kind);
     const label = kind === "csv" ? "CSV" : kind === "internet" ? `${UMOBILE_BILL_LABEL}s` : "Utility Bills";
     const toastId = toast.loading(`Preparing ${label}…`);
