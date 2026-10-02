@@ -18,6 +18,8 @@ authorized_users.json
 # ── Runtime / generated artifacts ──
 logs/
 jobs/
+# SmartPortal capture folders (capture_store), deleted after 7 days in-app
+captures/
 outputs/
 inspect_dumps/
 # Written by deploy.sh on the droplet: which ref is live, and what preceded it

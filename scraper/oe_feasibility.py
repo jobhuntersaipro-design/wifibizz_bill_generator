@@ -1698,6 +1698,7 @@ async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = 
     im_paths, id_paths, other_paths = [], [], []
     if submit and not dry_run:
         try:
+            import doc_urls
             import r2_download
             cust = payload.get("customer", {}) or {}
             im_keys = cust.get("im_doc_keys") or []
@@ -1716,6 +1717,12 @@ async def enter_full_order(payload: dict, user_key: str = None, dry_run: bool = 
                 id_paths = await asyncio.to_thread(r2_download.download_many, id_keys)
             if other_keys:
                 other_paths = await asyncio.to_thread(r2_download.download_many, other_keys)
+            # A client with its own bucket sends pre-signed links instead of
+            # keys (see doc_urls). Same thread rule, same skip-and-name contract.
+            for kind, paths in (("im", im_paths), ("id", id_paths), ("other", other_paths)):
+                links = cust.get(f"{kind}_doc_urls") or []
+                if links:
+                    paths.extend(await asyncio.to_thread(doc_urls.download_many, links))
         except Exception as e:
             return {"status": "error", "error": "doc_download_failed",
                     "stage": "documents", "message": f"R2 download: {e}"}
@@ -2641,20 +2648,35 @@ async def _shoot(page) -> bytes:
     return await page.screenshot(full_page=True, type="jpeg", quality=80)
 
 
-async def capture_screen(page, payload: dict, slot: str = "page1") -> dict | None:
-    """JPEG of the portal page -> R2. Never raises.
+def _local_capture_dir(payload: dict) -> str | None:
+    """The droplet folder this run's captures go to, or None for R2.
 
-    Returns a stage detail payload (the R2 key on success, the reason on
-    failure), or None when capture is switched off for this slot or the payload
-    has no order to file the frame under. The caller reports it under
-    `capture_stage_name(slot)`.
+    Set by the API server — never taken from a request body — for a client
+    whose captures must not enter BizzFlow's bucket (see capture_store). When it
+    is set, nothing in this run writes to R2.
+    """
+    art = (payload or {}).get("_artifacts")
+    if isinstance(art, dict) and art.get("store") == "local" and art.get("dir"):
+        return str(art["dir"])
+    return None
+
+
+async def capture_screen(page, payload: dict, slot: str = "page1") -> dict | None:
+    """JPEG of the portal page -> R2 (or the droplet, see _local_capture_dir).
+    Never raises.
+
+    Returns a stage detail payload (the R2 key, or the bare file name when kept
+    on the droplet, on success; the reason on failure), or None when capture is
+    switched off for this slot or the payload has no order to file the frame
+    under. The caller reports it under `capture_stage_name(slot)`.
     """
     if not _capture_enabled(slot):
         return None
 
     ref = (payload or {}).get("order_ref") or {}
     user_id, order_id = ref.get("user_id"), ref.get("order_id")
-    if not user_id or not order_id:
+    local_dir = _local_capture_dir(payload)
+    if not local_dir and (not user_id or not order_id):
         # An older BizzFlow that doesn't send order_ref — there is nowhere to
         # file the image, so skip silently rather than invent a key.
         return None
@@ -2664,6 +2686,17 @@ async def capture_screen(page, payload: dict, slot: str = "page1") -> dict | Non
     except Exception as e:  # noqa: BLE001
         print(f"  ⚠ {slot} screenshot failed: {type(e).__name__}: {e}", flush=True)
         return _detail("Screenshot not captured", "failed", f"{type(e).__name__}: {e}")
+
+    if local_dir:
+        try:
+            import capture_store
+            from r2_upload import screenshot_name
+            name = capture_store.save(local_dir, screenshot_name(ref.get("attempt", 1), slot), img)
+            print(f"  ✓ {slot} screenshot kept: {name}", flush=True)
+            return _detail(name)
+        except Exception as e:  # noqa: BLE001
+            print(f"  ⚠ {slot} screenshot not kept: {type(e).__name__}: {e}", flush=True)
+            return _detail("Screenshot not stored", "failed", f"{type(e).__name__}: {e}")
 
     try:
         from r2_upload import screenshot_key, upload_bytes
@@ -5679,7 +5712,8 @@ async def capture_erf_pdf(page, payload: dict, order_no: str, stage) -> dict | N
         return None
     ref = (payload or {}).get("order_ref") or {}
     user_id, order_id = ref.get("user_id"), ref.get("order_id")
-    if not user_id or not order_id:
+    local_dir = _local_capture_dir(payload)
+    if not local_dir and (not user_id or not order_id):
         return None
 
     frame = _frame(page)
@@ -5703,6 +5737,18 @@ async def capture_erf_pdf(page, payload: dict, order_no: str, stage) -> dict | N
 
     # The portal's own filename is logged, never used as the key — see erf_key.
     print(f"  ✓ e-RF downloaded: {portal_name} ({len(data)} bytes)", flush=True)
+    if local_dir:
+        try:
+            import capture_store
+            from r2_upload import erf_name
+            name = capture_store.save(local_dir, erf_name(order_no), data)
+            print(f"  ✓ e-RF kept: {name}", flush=True)
+            detail = _detail(name)
+        except Exception as e:  # noqa: BLE001
+            print(f"  ⚠ e-RF not kept: {type(e).__name__}: {e}", flush=True)
+            detail = _detail("e-RF not stored", "failed", f"{type(e).__name__}: {e}")
+        stage(capture_stage_name("erf"), detail)
+        return detail
     try:
         from r2_upload import erf_key, upload_bytes
         key = erf_key(user_id, order_id, order_no)

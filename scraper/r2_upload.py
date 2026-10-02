@@ -71,8 +71,13 @@ def screenshot_key(user_id: str, order_id: str, attempt: int = 1,
     JPEG, not PNG: the portal UI is flat colour and nine PNGs per attempt run to
     ~4.5MB against ~1.4MB as JPEG, with no loss that matters on screen text.
     """
-    return (f"order-screenshots/{user_id}/{order_id}/"
-            f"submit-{int(attempt)}-{slot_slug(slot)}.jpg")
+    return f"order-screenshots/{user_id}/{order_id}/{screenshot_name(attempt, slot)}"
+
+
+def screenshot_name(attempt: int = 1, slot: str = "page1") -> str:
+    """The file name of one capture — the last segment of `screenshot_key`, and
+    the whole name when the capture is kept on the droplet (capture_store)."""
+    return f"submit-{int(attempt)}-{slot_slug(slot)}.jpg"
 
 
 def erf_key(user_id: str, order_id: str, order_no: str) -> str:
@@ -92,8 +97,13 @@ def erf_key(user_id: str, order_id: str, order_no: str) -> str:
     The order number reaches a key and a URL, so it is stripped to [A-Za-z0-9].
     An empty result falls back to `order`, never to a bare `_erf.pdf`.
     """
+    return f"order-screenshots/{user_id}/{order_id}/{erf_name(order_no)}"
+
+
+def erf_name(order_no: str) -> str:
+    """The e-RF's file name — the last segment of `erf_key`."""
     safe = re.sub(r"[^A-Za-z0-9]+", "", order_no or "")[:32] or "order"
-    return f"order-screenshots/{user_id}/{order_id}/{safe}_erf.pdf"
+    return f"{safe}_erf.pdf"
 
 
 def upload_bytes(key: str, data: bytes, content_type: str) -> str:

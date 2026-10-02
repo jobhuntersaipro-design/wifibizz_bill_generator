@@ -1,3 +1,45 @@
+# Current Feature: SmartPortal as a second client of the order service (droplet)
+
+## Status
+
+CODE COMPLETE (branch `claude/exciting-johnson-mx5d5b`). Scraper-only, no migration, no Vercel change. NOT deployed:
+needs a droplet deploy (container recreated — `docker-compose.yml` gains a `./captures` mount) plus three env vars on
+the droplet. Brief: SmartPortal ticket 30.
+
+## Notes
+
+**One token per client.** `scraper/clients.py` maps `ORDER_ENTRY_API_TOKEN` → `bizzflow` and `SMARTPORTAL_API_TOKEN`
+→ `smartportal`, compared with `hmac.compare_digest` against every configured token; an unset/empty token never
+matches. Every job records `params.client` (a record with none is BizzFlow's). `GET /jobs/<id>`, `/log`, `/cancel`
+(incl. `?force=1`), `/live`, `GET /orders/batch/<id>` and the new captures routes answer only the owning client — the
+other gets the same 404 an unknown id gets. `GET /jobs` lists only the caller's rows; `slots_in_use`/`capacity` stay
+machine-wide. Unauthenticated `GET /jobs/<id>` is now 401 before the lookup (it was 404-or-401, which let anyone probe
+ids). Live view: the viewer token's HMAC key names the client (same `bizzflow-live-view:` scheme, keyed on that
+client's own token); SmartPortal's CORS origin is `SMARTPORTAL_LIVE_VIEW_ORIGIN`. **Dealer sessions/slots are keyed
+by (client, user):** a SmartPortal id becomes `smartportal-<id>` (required, `[A-Za-z0-9_-]{1,48}` so `_safe_key`
+cannot fold two ids together); BizzFlow ids are untouched, and a BizzFlow id starting `smartportal-` is refused.
+Pending dealer logins remember their client, so a pending id cannot be finished/polled/cancelled cross-app. The
+`order_finished` and `batch_finished` webhooks fire for BizzFlow jobs only. The job's start line logs `client=`.
+
+**Files.** SmartPortal documents arrive as `{type, url, file_name}`; `order_to_payload` files them as
+`id/im/other_doc_urls` and `doc_urls.py` fetches them: https only, host exactly in `SMARTPORTAL_DOCUMENT_HOSTS`,
+default port, no userinfo, no redirects, 30 s, 10 MB (header and while reading), jpeg/png/webp/pdf only, the bytes'
+type decides the extension, and only host+path is ever logged (a library exception's text is never printed). Links
+are checked at submit, so a bad one is a 400 before a job exists; a SmartPortal doc with a `key`, with no link at all,
+or an `id_doc_path` is refused; a BizzFlow job sending `url` is refused (BizzFlow never does). **Captures and the e-RF
+of a SmartPortal run never touch R2:** the API server (not the body) sets `payload._artifacts` to a droplet folder
+`captures/<job_id>/` (owner recorded in `.owner`) and clears `order_ref.user_id`, so no R2 key can be built. The stage
+value is the bare name (`submit-1-page1.jpg`, `<orderNo>_erf.pdf`). `GET /jobs/<id>/captures` lists
+`{name, size, content_type}`; `GET /jobs/<id>/captures/<name>` serves the file (`no-store`, `nosniff`). Folders are
+deleted 7 days after the job started (`CAPTURE_RETAIN_DAYS`), hourly at most, off `/health`.
+
+Verified: 48 new tests in `scraper/tests/test_smartportal_client.py` (ownership both ways, scoped sessions, webhook
+gating, link refusals incl. metadata IP / localhost / port / userinfo / suffix-host, redirect/size/type/time refusals,
+no link in any log or response, local capture + e-RF never calling R2, captures served to owner only, traversal,
+prune). Mutation-checked: making `owns()` always true fails 4; skipping the local-capture branch fails 1. Full scraper
+suite 531 passed + 1 skipped (was 483 passed + 1 skipped). NOT verified: a real SmartPortal run against the portal, a real
+pre-signed R2 link, and the droplet deploy.
+
 # Current Feature: Classic ⇄ Arc (uiarc.dev) design toggle
 
 ## Status

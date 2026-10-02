@@ -330,6 +330,11 @@ async def _upload_id_documents(frame, customer: dict, root=None) -> bool:
             files = download_many(list(customer["id_doc_keys"]))
         except Exception as e:  # noqa: BLE001
             print(f"  ⚠ could not fetch ID docs from R2: {e}")
+    elif customer.get("id_doc_urls"):
+        # Pre-signed links from a client with its own bucket (see doc_urls).
+        # download_many never raises and never logs a full link.
+        from doc_urls import download_many as download_links
+        files = download_links(list(customer["id_doc_urls"]))
 
     if not files:
         print("  ↳ no ID-copy document provided — attachment left empty.")

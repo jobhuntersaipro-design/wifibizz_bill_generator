@@ -4,6 +4,7 @@
 sessions/
 config/
 logs/
+captures/
 outputs/
 jobs/
 inspect_dumps/

@@ -24,6 +24,7 @@ services:
       - ./sessions:/app/sessions   # dealer login sessions (persist across restarts)
       - ./config:/app/config       # encryption key / optional creds
       - ./logs:/app/logs           # screenshots + job logs
+      - ./captures:/app/captures   # SmartPortal run captures, served by GET /jobs/<id>/captures (7 days)
     expose:
       - "5000"                     # internal only; Caddy proxies to it
 

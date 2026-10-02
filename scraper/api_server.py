@@ -25,6 +25,8 @@ from dotenv import find_dotenv, load_dotenv
 from flask import Flask, jsonify, request
 
 from job_logging import install as _install_job_logging, job_log
+import capture_store
+import clients
 import live_view
 
 # Route stdout/stderr per THREAD before anything can print. Every job used to
@@ -72,6 +74,8 @@ def health():
         _evict_finished_jobs_locked()
         active, oldest = _active_jobs_locked()
         slots = len(_active_slot_jobs_locked())
+    # Same clock, hourly at most: SmartPortal capture folders past retention.
+    capture_store.prune_if_due()
 
     return jsonify(
         {
@@ -390,13 +394,15 @@ def _job_summary(job_id, job, now=None):
     "what is holding the lock", which needs none of it.
     """
     params = job.get("params") or {}
+    client = clients.job_client(job)
     return {
         "job_id": job_id,
         "kind": params.get("kind"),
+        "client": client,
         # Which agent holds this slot. A BizzFlow user id (a cuid), not a name or
         # an email — enough to answer "whose run is this?" without the listing
-        # carrying personal data.
-        "user_key": params.get("user_key"),
+        # carrying personal data. Shown as the client sent it.
+        "user_key": clients.unscoped_user_key(client, params.get("user_key")),
         "dry_run": params.get("dry_run"),
         "batch_job_id": params.get("batch_job_id"),
         "status": job.get("status"),
@@ -453,10 +459,13 @@ def jobs_list():
     job whose owner never reported one leaves nothing to look up. That is what
     made the 2026-08-29 incident un-diagnosable from outside the box.
 
-    Rows carry no customer data — see _job_summary.
+    Rows carry no customer data — see _job_summary. Each client sees only its
+    own jobs; the slot numbers describe the whole machine, because a slot held
+    by the other app is still a slot this caller cannot have.
     """
-    if not _order_entry_authorized(request):
-        if not os.environ.get("ORDER_ENTRY_API_TOKEN"):
+    client = _request_client(request)
+    if not client:
+        if not clients.any_configured():
             return jsonify({"success": False, "error": "ORDER_ENTRY_DISABLED",
                             "message": "ORDER_ENTRY_API_TOKEN not configured on server."}), 503
         return jsonify({"success": False, "error": "UNAUTHORIZED"}), 401
@@ -465,7 +474,8 @@ def jobs_list():
     with JOBS_LOCK:
         reaped = _reap_stale_jobs_locked(now)
         _evict_finished_jobs_locked(now)
-        rows = [_job_summary(jid, job, now) for jid, job in JOBS.items()]
+        rows = [_job_summary(jid, job, now) for jid, job in JOBS.items()
+                if clients.owns(job, client)]
         active, oldest = _active_jobs_locked(now)
         slots = len(_active_slot_jobs_locked())
 
@@ -486,14 +496,16 @@ def jobs_list():
 
 @app.get("/jobs/<job_id>")
 def job_status(job_id):
+    # Every job in this registry is an order job or a batch of them now (the
+    # open scrape jobs are gone), and both carry customer data — so the token
+    # is checked before the id is even looked up.
+    client = _request_client(request)
+    if not client:
+        return jsonify({"error": "unauthorized"}), 401
     with JOBS_LOCK:
         job = JOBS.get(job_id)
-    if not job:
-        return jsonify({"error": "unknown_job"}), 404
-    # Order jobs carry customer PII — gate them like /orders, unlike the open
-    # scrape jobs that share this registry.
-    if _is_order_job(job) and not _order_entry_authorized(request):
-        return jsonify({"error": "unauthorized"}), 401
+    if not job or not clients.owns(job, client):
+        return _not_found()
     # Don't dump large results; return a summary.
     # NOTE: this passes through `stages`, whose details carry customer name and
     # address. That is safe only because order jobs are auth-gated above — the
@@ -528,16 +540,17 @@ def job_cancel(job_id):
     job thread, so a 202 means "asked", not "already stopped"; the caller learns
     the outcome from the job's own terminal state.
     """
-    if not _order_entry_authorized(request):
-        if not os.environ.get("ORDER_ENTRY_API_TOKEN"):
+    client = _request_client(request)
+    if not client:
+        if not clients.any_configured():
             return jsonify({"success": False, "error": "ORDER_ENTRY_DISABLED",
                             "message": "ORDER_ENTRY_API_TOKEN not configured on server."}), 503
         return jsonify({"success": False, "error": "UNAUTHORIZED"}), 401
 
     with JOBS_LOCK:
         job = JOBS.get(job_id)
-    if not job:
-        return jsonify({"error": "unknown_job"}), 404
+    if not job or not clients.owns(job, client):
+        return _not_found()
     if job.get("status") not in ("queued", "running"):
         return jsonify({"error": "not_running",
                         "message": "That job has already finished."}), 409
@@ -576,7 +589,7 @@ def job_cancel(job_id):
                 error_kind="abandoned",
             )
             JOBS[job_id] = job
-        print(f"[{datetime.utcnow().isoformat()}] job {job_id} FORCE-RELEASED")
+        print(f"[{datetime.utcnow().isoformat()}] job {job_id} ({client}) FORCE-RELEASED")
         return jsonify({"job_id": job_id, "forced": True,
                         "message": "Lock released. The run itself was not stopped."}), 200
 
@@ -594,13 +607,15 @@ def job_cancel(job_id):
 # and jsonify off-request raised "Working outside of application context",
 # killing the submit before its log even opened.
 def get_job_log(job_id):
+    # Order-job logs may contain customer PII — require a client token, and
+    # only the client that created the job may read it.
+    client = _request_client(request)
+    if not client:
+        return jsonify({"error": "unauthorized"}), 401
     with JOBS_LOCK:
         job = JOBS.get(job_id)
-    if not job:
-        return jsonify({"error": "unknown_job"}), 404
-    # Order-job logs may contain customer PII — require the shared secret.
-    if _is_order_job(job) and not _order_entry_authorized(request):
-        return jsonify({"error": "unauthorized"}), 401
+    if not job or not clients.owns(job, client):
+        return _not_found()
     log_path = job.get("log_path")
     if not log_path or not os.path.exists(log_path):
         return jsonify({"log": ""}), 200
@@ -610,17 +625,68 @@ def get_job_log(job_id):
 
 
 # ───────────────────────────────────────────────────────────────────────────
+# Captures kept on the droplet — SmartPortal's runs (see capture_store).
+#
+#   GET /jobs/<id>/captures          {"job_id", "captures": [{name, size, content_type}]}
+#   GET /jobs/<id>/captures/<name>   the file (image/jpeg or application/pdf)
+#
+# Owning client only; any other client, an unknown job, or a job with no
+# droplet captures (every BizzFlow job — its captures are in its R2 bucket) all
+# get the same 404. Ownership is read from the folder, so captures stay
+# fetchable after the job record expires or the process restarts, until
+# CAPTURE_RETAIN_DAYS deletes them.
+# ───────────────────────────────────────────────────────────────────────────
+def _capture_owner_ok(job_id, client) -> bool:
+    return bool(client) and capture_store.owner(job_id) == client
+
+
+@app.get("/jobs/<job_id>/captures")
+def job_captures(job_id):
+    client = _request_client(request)
+    if not client:
+        return jsonify({"error": "unauthorized"}), 401
+    if not _capture_owner_ok(job_id, client):
+        return _not_found()
+    return jsonify({"job_id": job_id, "captures": capture_store.list_captures(job_id)}), 200
+
+
+@app.get("/jobs/<job_id>/captures/<name>")
+def job_capture_file(job_id, name):
+    from flask import send_file
+
+    client = _request_client(request)
+    if not client:
+        return jsonify({"error": "unauthorized"}), 401
+    if not _capture_owner_ok(job_id, client):
+        return _not_found()
+    path = capture_store.path_for(job_id, name)
+    if not path:
+        return jsonify({"error": "unknown_capture"}), 404
+    resp = send_file(path, mimetype=capture_store.content_type(name),
+                     as_attachment=False, download_name=name, max_age=0)
+    resp.headers["Cache-Control"] = "no-store"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    return resp
+
+
+# ───────────────────────────────────────────────────────────────────────────
 # Live view — admin watches a run's browser. NOT gated by X-Internal-Token:
-# EventSource cannot send headers, so the gate is the viewer token Vercel
-# mints (HMAC under a key derived from ORDER_ENTRY_API_TOKEN, 30 min, one job).
-# CORS is granted to ONE origin on THIS route only.
+# EventSource cannot send headers, so the gate is the viewer token the client
+# app mints (HMAC under a key derived from THAT client's API token, 30 min, one
+# job — so it also names the client, and only the job's own client may watch).
+# CORS is granted to ONE origin per client on THIS route only.
 # ───────────────────────────────────────────────────────────────────────────
 LIVE_VIEW_PING_S = 15
 LIVE_VIEW_LOG_TAIL_BYTES = 4096
 
 
-def _live_headers():
-    origin = os.environ.get("LIVE_VIEW_ORIGIN", "")
+def _live_headers(client=None):
+    """CORS for the stream: the origin of the app whose viewer is asking.
+    BizzFlow's is LIVE_VIEW_ORIGIN; SmartPortal's is SMARTPORTAL_LIVE_VIEW_ORIGIN.
+    Before the client is known (a bad token) only BizzFlow's is sent, as before."""
+    env = ("SMARTPORTAL_LIVE_VIEW_ORIGIN" if client == clients.SMARTPORTAL
+           else "LIVE_VIEW_ORIGIN")
+    origin = os.environ.get(env, "")
     return {"Access-Control-Allow-Origin": origin} if origin else {}
 
 
@@ -636,21 +702,31 @@ def job_live(job_id):
     if request.method != "GET":
         return jsonify({"error": "method_not_allowed"}), 405, _live_headers()
     token = request.args.get("token", "")
-    if not live_view.verify_viewer_token(token, job_id, os.environ.get("ORDER_ENTRY_API_TOKEN", "")):
+    # A viewer token is an HMAC under the minting client's own API token, so the
+    # key that verifies it names the client. It must then be the job's client:
+    # BizzFlow cannot watch a SmartPortal run, nor the reverse, and the answer
+    # to trying is the same 404 an unknown job gets.
+    viewer_client = next(
+        (name for name, _env in clients.CLIENT_TOKEN_ENV
+         if clients.client_token(name)
+         and live_view.verify_viewer_token(token, job_id, clients.client_token(name))),
+        None,
+    )
+    if not viewer_client:
         return jsonify({"error": "unauthorized"}), 401, _live_headers()
     with JOBS_LOCK:
         job = JOBS.get(job_id)
-    if not job:
-        return jsonify({"error": "unknown_job"}), 404, _live_headers()
+    if not job or not clients.owns(job, viewer_client):
+        return jsonify({"error": "unknown_job"}), 404, _live_headers(viewer_client)
     if not job.get("live_view"):
-        return jsonify({"error": "no_live_view"}), 404, _live_headers()
+        return jsonify({"error": "no_live_view"}), 404, _live_headers(viewer_client)
     if request.args.get("probe") == "1":
         if not live_view.acquire_viewer_slot():
-            return jsonify({"error": "too_many_viewers"}), 429, _live_headers()
+            return jsonify({"error": "too_many_viewers"}), 429, _live_headers(viewer_client)
         live_view.release_viewer_slot()
-        return jsonify({"ok": True}), 200, _live_headers()
+        return jsonify({"ok": True}), 200, _live_headers(viewer_client)
     if live_view.viewer_count() >= live_view.LIVE_VIEW_MAX_VIEWERS:
-        return jsonify({"error": "too_many_viewers"}), 429, _live_headers()
+        return jsonify({"error": "too_many_viewers"}), 429, _live_headers(viewer_client)
 
     # Only a run still in flight gets a store made for it; a finished job with
     # none streams without frames rather than leaving an un-expiring store.
@@ -739,7 +815,7 @@ def job_live(job_id):
                 store.unsubscribe(sub)
             live_view.release_viewer_slot()
 
-    headers = {"Cache-Control": "no-store", "X-Accel-Buffering": "no", **_live_headers()}
+    headers = {"Cache-Control": "no-store", "X-Accel-Buffering": "no", **_live_headers(viewer_client)}
     return app.response_class(gen(), mimetype="text/event-stream", headers=headers)
 
 
@@ -748,18 +824,31 @@ def job_live(job_id):
 #
 # This submits real, billable orders, so it does NOT inherit the "NO
 # AUTHORIZATION" posture of the rest of this file. Callers must send the shared
-# secret in `X-Internal-Token`, matched against ORDER_ENTRY_API_TOKEN. If that
-# env var is unset, the route is hard-disabled (503) rather than left open.
+# secret in `X-Internal-Token`: BizzFlow's ORDER_ENTRY_API_TOKEN or SmartPortal's
+# SMARTPORTAL_API_TOKEN (clients.py). If neither is set, the routes are
+# hard-disabled (503) rather than left open.
 #
 # dry_run defaults to True. A real submission requires an explicit
 # {"dry_run": false} in the body. Order jobs reuse the JOBS registry + global
 # lock, so they never run concurrently with a scrape (single browser).
 # ───────────────────────────────────────────────────────────────────────────
+def _request_client(req) -> str | None:
+    """Which client sent this request ("bizzflow" / "smartportal"), or None.
+
+    One token per client — see clients.py. Compared constant-time against every
+    configured token; an unset token never matches.
+    """
+    return clients.client_for_token(req.headers.get("X-Internal-Token"))
+
+
 def _order_entry_authorized(req) -> bool:
-    expected = os.environ.get("ORDER_ENTRY_API_TOKEN")
-    if not expected:
-        return False  # route disabled when no secret is configured
-    return req.headers.get("X-Internal-Token") == expected
+    return _request_client(req) is not None
+
+
+def _not_found():
+    """The answer for an unknown job AND for another client's job — the same
+    404, so a job id cannot be probed across apps."""
+    return jsonify({"error": "unknown_job"}), 404
 
 
 def _redact_order_result(result):
@@ -945,8 +1034,11 @@ def _run_order_job_inner(job_id: str, payload: dict, dry_run: bool, user_key: st
     # a CLOSED one, after which every print in the process raises
     # ValueError('I/O operation on closed file.'). See job_logging for the full
     # sequence and the sixteen truncated job logs it produced.
+    with JOBS_LOCK:
+        client = clients.job_client(JOBS.get(job_id))
     with job_log(log_path) as lf:
-        print(f"[{datetime.utcnow().isoformat()}] Order job {job_id} started (dry_run={dry_run})")
+        print(f"[{datetime.utcnow().isoformat()}] Order job {job_id} started "
+              f"(client={client}, dry_run={dry_run})")
         with JOBS_LOCK:
             job = JOBS.get(job_id, {})
             job.update(status="running", started_at=datetime.utcnow().isoformat(), log_path=log_path)
@@ -1025,8 +1117,9 @@ def _run_order_job_inner(job_id: str, payload: dict, dry_run: bool, user_key: st
 
         # Outside every except: a run that errored is just as finished as one
         # that succeeded, and a failed submit is the result an agent most needs
-        # told about.
-        if notify_order_id:
+        # told about. BizzFlow's jobs only — SmartPortal polls GET /jobs/<id>,
+        # and its order ids mean nothing to BizzFlow's webhook.
+        if notify_order_id and client == clients.BIZZFLOW:
             _notify_bizzflow({"event": "order_finished", "orderId": notify_order_id,
                               "jobId": job_id})
 
@@ -1059,6 +1152,92 @@ def _notify_bizzflow(body: dict) -> bool:
     )
 
 
+_DOC_KINDS = ("id", "im", "other")
+
+
+def _raw_documents(order):
+    """The `documents` list of a raw order, however it arrived."""
+    docs = (order or {}).get("documents") if isinstance(order, dict) else None
+    if isinstance(docs, str):
+        try:
+            import json
+            docs = json.loads(docs)
+        except Exception:  # noqa: BLE001
+            docs = []
+    return docs if isinstance(docs, list) else []
+
+
+def _document_refusal(client, payload, raw_docs=()):
+    """Why this client may not send these documents, or None.
+
+    BizzFlow sends bucket keys (`key`), unchanged. SmartPortal sends pre-signed
+    links (`url` + `file_name`) and may NOT send keys: a key is read from
+    BizzFlow's bucket, which is exactly the crossing this rule exists to stop.
+    Links are checked here, before a job exists, so a bad one is a 400 the
+    caller can read rather than a run that quietly arrives with no ID copy.
+    The link itself is never echoed back — its query string is a credential.
+    """
+    import doc_urls
+
+    cust = payload.get("customer") if isinstance(payload.get("customer"), dict) else {}
+    if client == clients.SMARTPORTAL:
+        # A document with no link would be dropped silently, and the run would
+        # reach the portal without it — refuse instead.
+        for i, doc in enumerate(raw_docs):
+            if not isinstance(doc, dict) or not (doc.get("url") or doc.get("key")):
+                return {"success": False, "error": "INVALID_DOCUMENT_URL",
+                        "message": f"documents[{i}] has no `url`."}
+        if any(cust.get(f"{k}_doc_keys") for k in _DOC_KINDS):
+            return {"success": False, "error": "DOCUMENT_KEY_NOT_ALLOWED",
+                    "message": "Send each document as `url` + `file_name`, not `key`."}
+        if cust.get("id_doc_path"):
+            return {"success": False, "error": "DOCUMENT_PATH_NOT_ALLOWED",
+                    "message": "`id_doc_path` is not accepted."}
+        for kind in _DOC_KINDS:
+            links = cust.get(f"{kind}_doc_urls") or []
+            if not isinstance(links, list):
+                return {"success": False, "error": "INVALID_DOCUMENT_URL",
+                        "message": f"`{kind}_doc_urls` must be a list."}
+            for i, doc in enumerate(links):
+                try:
+                    doc_urls.check_url((doc or {}).get("url") if isinstance(doc, dict) else None)
+                except doc_urls.DocUrlError as e:
+                    return {"success": False, "error": "INVALID_DOCUMENT_URL",
+                            "message": f"{kind} document {i + 1}: {e}."}
+        return None
+
+    if any(cust.get(f"{k}_doc_urls") for k in _DOC_KINDS):
+        return {"success": False, "error": "DOCUMENT_URL_NOT_ALLOWED",
+                "message": "Send each document as an R2 `key`."}
+    return None
+
+
+def _scoped_key_or_error(client, raw, default=None):
+    """(scoped user key, None) or (None, a 400 response)."""
+    try:
+        return clients.scoped_user_key(client, raw, default=default), None
+    except clients.UserKeyError as e:
+        return None, (jsonify({"success": False, "error": "INVALID_USER_KEY",
+                               "message": str(e)}), 400)
+
+
+def _prepare_artifacts(client, job_id, payload):
+    """Decide where this run's captures and e-RF go, from the CLIENT — never
+    from the request body.
+
+    BizzFlow: its R2 bucket, as always. SmartPortal: a folder on this droplet
+    (capture_store), with `order_ref.user_id` cleared so no code path can build
+    an R2 key for the run at all.
+    """
+    payload.pop("_artifacts", None)
+    if client != clients.SMARTPORTAL:
+        return
+    if isinstance(payload.get("order_ref"), dict):
+        payload["order_ref"]["user_id"] = None
+    payload["_artifacts"] = {"store": "local",
+                             "dir": capture_store.create(job_id, client)}
+
+
 @app.post("/orders")
 def create_order():
     """
@@ -1070,8 +1249,9 @@ def create_order():
     Returns 202 {"job_id", "status"}. Poll GET /jobs/<job_id> for the result
     (status=success|error|needs_capture|dry_run inside `result`).
     """
-    if not _order_entry_authorized(request):
-        if not os.environ.get("ORDER_ENTRY_API_TOKEN"):
+    client = _request_client(request)
+    if not client:
+        if not clients.any_configured():
             return jsonify({"success": False, "error": "ORDER_ENTRY_DISABLED",
                             "message": "ORDER_ENTRY_API_TOKEN not configured on server."}), 503
         return jsonify({"success": False, "error": "UNAUTHORIZED"}), 401
@@ -1091,8 +1271,17 @@ def create_order():
 
     # Which user's captured dealer session to drive the order with. Required so
     # each order submits under the dealer account that user connected — never a
-    # shared identity.
-    user_key = data.get("user_key") or None
+    # shared identity. Scoped by client: a SmartPortal id is filed as
+    # `smartportal-<id>`, so the two apps' users can never share a portal
+    # session or a per-agent slot (and SmartPortal must always send one — no id
+    # would fall back to the stored local credentials).
+    user_key, bad = _scoped_key_or_error(client, data.get("user_key"))
+    if bad:
+        return bad
+
+    refusal = _document_refusal(client, payload, _raw_documents(data.get("order")))
+    if refusal:
+        return jsonify(refusal), 400
 
     # Stamp the authenticated user onto the artefact reference. Done HERE, after
     # the payload is built, so the R2 prefix a screenshot lands under always comes
@@ -1138,17 +1327,29 @@ def create_order():
             "created_at": datetime.utcnow().isoformat(),
             # user_key is recorded so the gate can be PER AGENT rather than
             # global: without it there is nothing in the registry to tell one
-            # agent's run from another's.
+            # agent's run from another's. `client` decides who may read, cancel
+            # or watch it.
             "params": {"dry_run": dry_run, "kind": "order_entry",
-                       "user_key": user_key},
+                       "user_key": user_key, "client": client},
             "live_view": live_view_on,
         }
+
+    try:
+        _prepare_artifacts(client, job_id, payload)
+    except Exception as e:  # noqa: BLE001 — the entry is already registered
+        _fail_job_now(job_id, f"Could not prepare the capture folder: {e}")
+        return jsonify({"success": False, "error": "SPAWN_FAILED",
+                        "message": "Could not prepare the capture folder."}), 500
+    print(f"[{datetime.utcnow().isoformat()}] order job {job_id} queued (client={client})")
+    capture_store.prune_if_due()
 
     # Report this run's completion to BizzFlow so the result email arrives with
     # the tab closed. Only for a REAL submit: a dry run places nothing, and
     # mailing an agent about it would train them to ignore the ones that count.
+    # BizzFlow's jobs only — SmartPortal polls and has no webhook.
     notify_order_id = None
-    if not dry_run and isinstance(payload.get("order_ref"), dict):
+    if (client == clients.BIZZFLOW and not dry_run
+            and isinstance(payload.get("order_ref"), dict)):
         notify_order_id = payload["order_ref"].get("order_id")
 
     try:
@@ -1180,7 +1381,8 @@ def create_order():
 # session cannot drive two portal flows at once.
 # ───────────────────────────────────────────────────────────────────────────
 def _run_batch_job(batch_job_id: str, batch_id: str, jobs, dry_run: bool,
-                   user_key: str, full_order: bool, do_pay: bool):
+                   user_key: str, full_order: bool, do_pay: bool,
+                   client: str = clients.BIZZFLOW):
     """Background runner for a whole batch. One member at a time, never stopping
     on a failure."""
     from batch_runner import run_batch
@@ -1201,6 +1403,12 @@ def _run_batch_job(batch_job_id: str, batch_id: str, jobs, dry_run: bool,
         # AUTHENTICATED user, never from anything in the request body.
         if user_key and isinstance(payload.get("order_ref"), dict):
             payload["order_ref"]["user_id"] = user_key
+        # And the same artefact rule: decided by the client, folder made here.
+        try:
+            _prepare_artifacts(client, job_id, payload)
+        except Exception as e:  # noqa: BLE001 — recorded as this member's failure
+            _fail_job_now(job_id, f"Could not prepare the capture folder: {e}")
+            raise
         # Called inline, not in a thread: the batch thread IS the worker, and a
         # second thread per member would run two portal flows at once.
         #
@@ -1250,8 +1458,10 @@ def _run_batch_job(batch_job_id: str, batch_id: str, jobs, dry_run: bool,
 
     # BizzFlow re-derives every outcome from its own reconciliation, so `results`
     # here is a log of what ran, not the verdict. The event is what matters.
-    _notify_bizzflow({"event": "batch_finished", "batchId": batch_id,
-                      "results": results})
+    # BizzFlow's batches only: SmartPortal polls GET /orders/batch/<id>.
+    if client == clients.BIZZFLOW:
+        _notify_bizzflow({"event": "batch_finished", "batchId": batch_id,
+                          "results": results})
 
 
 @app.post("/orders/batch")
@@ -1268,8 +1478,9 @@ def create_order_batch():
     each member stays pollable at GET /jobs/<jobId> exactly as a single submit is,
     so the existing per-order progress UI keeps working unchanged.
     """
-    if not _order_entry_authorized(request):
-        if not os.environ.get("ORDER_ENTRY_API_TOKEN"):
+    client = _request_client(request)
+    if not client:
+        if not clients.any_configured():
             return jsonify({"success": False, "error": "ORDER_ENTRY_DISABLED",
                             "message": "ORDER_ENTRY_API_TOKEN not configured on server."}), 503
         return jsonify({"success": False, "error": "UNAUTHORIZED"}), 401
@@ -1286,13 +1497,28 @@ def create_order_batch():
     except BatchRequestError as e:
         return jsonify({"success": False, "error": "INVALID_JOBS", "message": str(e)}), 400
 
-    user_key = data.get("user_key") or None
+    user_key, bad = _scoped_key_or_error(client, data.get("user_key"))
+    if bad:
+        return bad
     dry_run = data.get("dry_run", True)
     if not isinstance(dry_run, bool):
         return jsonify({"success": False, "error": "INVALID_DRY_RUN",
                         "message": "`dry_run` must be a boolean."}), 400
     full_order = bool(data.get("full_order", False))
     do_pay = bool(data.get("do_pay", False))
+
+    # Every member is checked up front, the way a lone submit is, so one bad
+    # link refuses the batch before anything runs rather than mid-way through.
+    from order_to_payload import order_to_payload
+    for i, (job_id, order) in enumerate(jobs):
+        if client == clients.SMARTPORTAL and not capture_store.valid_job_id(job_id):
+            # A member's job id names its capture folder.
+            return jsonify({"success": False, "error": "INVALID_JOBS",
+                            "message": f"jobs[{i}] id must be 1-64 letters, digits, '_' or '-'."}), 400
+        refusal = _document_refusal(client, order_to_payload(order), _raw_documents(order))
+        if refusal:
+            refusal["message"] = f"jobs[{i}]: {refusal['message']}"
+            return jsonify(refusal), 400
 
     # Same single-browser rule as /orders. Registering every member as `queued`
     # up front is deliberate: it makes GET /jobs/<id> answer from the moment the
@@ -1315,20 +1541,24 @@ def create_order_batch():
             "status": "queued",
             "created_at": datetime.utcnow().isoformat(),
             "params": {"dry_run": dry_run, "kind": "order_batch", "batch_id": batch_id,
-                       "total": len(jobs), "user_key": user_key},
+                       "total": len(jobs), "user_key": user_key, "client": client},
         }
         for job_id, _order in jobs:
             JOBS[job_id] = {
                 "status": "queued",
                 "created_at": datetime.utcnow().isoformat(),
                 "params": {"dry_run": dry_run, "kind": "order_entry",
-                           "batch_job_id": batch_job_id, "user_key": user_key},
+                           "batch_job_id": batch_job_id, "user_key": user_key,
+                           "client": client},
             }
+    print(f"[{datetime.utcnow().isoformat()}] batch {batch_job_id} queued "
+          f"({len(jobs)} orders, client={client})")
 
     try:
         Thread(
             target=_run_batch_job,
             args=(batch_job_id, batch_id, jobs, dry_run, user_key, full_order, do_pay),
+            kwargs={"client": client},
             daemon=True,
         ).start()
     except Exception as e:  # noqa: BLE001 — parent AND members are registered
@@ -1345,12 +1575,14 @@ def create_order_batch():
 
 @app.get("/orders/batch/<batch_job_id>")
 def batch_status(batch_job_id):
-    """Progress of one batch, for BizzFlow's UI poll."""
-    if not _order_entry_authorized(request):
+    """Progress of one batch, for the owning client's UI poll."""
+    client = _request_client(request)
+    if not client:
         return _internal_unauthorized_response()
     with JOBS_LOCK:
         job = JOBS.get(batch_job_id)
-        if not job or job.get("params", {}).get("kind") != "order_batch":
+        if (not job or job.get("params", {}).get("kind") != "order_batch"
+                or not clients.owns(job, client)):
             return jsonify({"success": False, "error": "NOT_FOUND"}), 404
         return jsonify({
             "status": job.get("status"),
@@ -1374,10 +1606,31 @@ def batch_status(batch_job_id):
 # ───────────────────────────────────────────────────────────────────────────
 def _internal_unauthorized_response():
     """Shared 401/503 response for internal, secret-gated routes."""
-    if not os.environ.get("ORDER_ENTRY_API_TOKEN"):
+    if not clients.any_configured():
         return jsonify({"success": False, "error": "DEALER_LOGIN_DISABLED",
                         "message": "ORDER_ENTRY_API_TOKEN not configured on server."}), 503
     return jsonify({"success": False, "error": "UNAUTHORIZED"}), 401
+
+
+# pending_id -> client that started the login. Pending ids are handed to the
+# caller, so a pending login answers only to the client that started it — the
+# same 404 rule as jobs. Bounded: entries are a few bytes and the oldest go.
+_PENDING_OWNER = {}
+_PENDING_OWNER_LOCK = Lock()
+_PENDING_OWNER_MAX = 2000
+
+
+def _remember_pending(pending_id, client):
+    with _PENDING_OWNER_LOCK:
+        _PENDING_OWNER[pending_id] = client
+        while len(_PENDING_OWNER) > _PENDING_OWNER_MAX:
+            _PENDING_OWNER.pop(next(iter(_PENDING_OWNER)))
+
+
+def _pending_is_foreign(pending_id, client) -> bool:
+    with _PENDING_OWNER_LOCK:
+        owner = _PENDING_OWNER.get(pending_id)
+    return owner is not None and owner != client
 
 
 def _login_refusal(user_key):
@@ -1419,14 +1672,17 @@ def dealer_request_otp():
     dealer account's registered email, needed for auto-OTP's `to:` filter) is
     optional — omitting it just skips auto-read, no manual-flow regression.
     Returns {pending_id, expires_in, auto_otp}."""
-    if not _order_entry_authorized(request):
+    client = _request_client(request)
+    if not client:
         return _internal_unauthorized_response()
 
     data = request.get_json(silent=True) or {}
     staff_code = (data.get("staff_code") or "").strip()
     password = data.get("password") or ""
     channel = (data.get("channel") or "Email").strip()
-    user_key = data.get("user_key") or "shared"
+    user_key, bad = _scoped_key_or_error(client, data.get("user_key"), default="shared")
+    if bad:
+        return bad
     registered_email = (data.get("registered_email") or "").strip()
     if not staff_code or not password:
         return jsonify({"success": False, "error": "STAFF_CODE_PASSWORD_REQUIRED",
@@ -1444,6 +1700,8 @@ def dealer_request_otp():
     )
     if result.get("error"):
         return jsonify({"success": False, **result}), 502
+    if result.get("pending_id"):
+        _remember_pending(result["pending_id"], client)
     return jsonify({"success": True, **result}), 200
 
 
@@ -1451,19 +1709,25 @@ def dealer_request_otp():
 def dealer_submit_otp():
     """Step 2: submit the user-typed OTP. Body: {pending_id, otp}. Saves the
     per-user session on success."""
-    if not _order_entry_authorized(request):
+    client = _request_client(request)
+    if not client:
         return _internal_unauthorized_response()
 
     data = request.get_json(silent=True) or {}
     pending_id = (data.get("pending_id") or "").strip()
     otp = (data.get("otp") or "").strip()
-    user_key = data.get("user_key") or None
+    user_key, bad = _scoped_key_or_error(client, data.get("user_key"))
+    if bad:
+        return bad
     if not pending_id or not otp:
         return jsonify({"success": False, "error": "PENDING_ID_OTP_REQUIRED",
                         "message": "pending_id and otp are required."}), 400
 
     import dealer_login_service
 
+    if _pending_is_foreign(pending_id, client):
+        return jsonify({"success": False, "error": "pending_not_found",
+                        "message": "Login attempt expired or unknown — start again."}), 404
     result = dealer_login_service.submit_otp(pending_id, otp, user_key)
     if result.get("error"):
         status = 404 if result["error"] == "pending_not_found" else 401
@@ -1477,15 +1741,21 @@ def dealer_check_now():
     waiting out the rest of the auto-read window or typing the code by hand.
     Body: {pending_id, user_key}. Same success shape as submit-otp; "error":
     "not_found" specifically means try again shortly, not a hard failure."""
-    if not _order_entry_authorized(request):
+    client = _request_client(request)
+    if not client:
         return _internal_unauthorized_response()
 
     data = request.get_json(silent=True) or {}
     pending_id = (data.get("pending_id") or "").strip()
-    user_key = data.get("user_key") or None
+    user_key, bad = _scoped_key_or_error(client, data.get("user_key"))
+    if bad:
+        return bad
     if not pending_id:
         return jsonify({"success": False, "error": "PENDING_ID_REQUIRED",
                         "message": "pending_id is required."}), 400
+    if _pending_is_foreign(pending_id, client):
+        return jsonify({"success": False, "error": "pending_not_found",
+                        "message": "Login attempt expired or unknown — start again."}), 404
 
     import dealer_login_service
 
@@ -1504,15 +1774,20 @@ def dealer_auto_otp_status():
     "not_applicable" means this login used the SMS channel (auto-read only
     ever applies to Email); the client should show the manual OTP form
     immediately instead of polling."""
-    if not _order_entry_authorized(request):
+    client = _request_client(request)
+    if not client:
         return _internal_unauthorized_response()
 
     data = request.get_json(silent=True) or {}
     pending_id = (data.get("pending_id") or "").strip()
-    user_key = data.get("user_key") or None
+    user_key, bad = _scoped_key_or_error(client, data.get("user_key"))
+    if bad:
+        return bad
     if not pending_id:
         return jsonify({"success": False, "error": "PENDING_ID_REQUIRED",
                         "message": "pending_id is required."}), 400
+    if _pending_is_foreign(pending_id, client):
+        return jsonify({"success": True, "status": "not_found"}), 200
 
     import dealer_login_service
 
@@ -1523,11 +1798,14 @@ def dealer_auto_otp_status():
 def dealer_logout():
     """Drop a user's saved dealer session (disconnect). Body: {user_key}.
     No portal round-trip — just deletes the local session file."""
-    if not _order_entry_authorized(request):
+    client = _request_client(request)
+    if not client:
         return _internal_unauthorized_response()
 
     data = request.get_json(silent=True) or {}
-    user_key = data.get("user_key") or "shared"
+    user_key, bad = _scoped_key_or_error(client, data.get("user_key"), default="shared")
+    if bad:
+        return bad
 
     # Same rule as connecting, for the same reason: a run in flight is driving
     # this user's session. Deleting the file does not kill the live browser (the
@@ -1554,11 +1832,14 @@ def dealer_logout():
 @app.post("/dealer/login/status")
 def dealer_status():
     """Validate a user's saved session. Body: {user_key}. Returns {connected}."""
-    if not _order_entry_authorized(request):
+    client = _request_client(request)
+    if not client:
         return _internal_unauthorized_response()
 
     data = request.get_json(silent=True) or {}
-    user_key = data.get("user_key") or "shared"
+    user_key, bad = _scoped_key_or_error(client, data.get("user_key"), default="shared")
+    if bad:
+        return bad
 
     import dealer_login_service
 
@@ -1568,12 +1849,17 @@ def dealer_status():
 @app.post("/dealer/login/cancel")
 def dealer_cancel():
     """Abandon a pending login and close its browser. Body: {pending_id}."""
-    if not _order_entry_authorized(request):
+    client = _request_client(request)
+    if not client:
         return _internal_unauthorized_response()
 
     data = request.get_json(silent=True) or {}
     pending_id = (data.get("pending_id") or "").strip()
-    user_key = data.get("user_key") or None
+    user_key, bad = _scoped_key_or_error(client, data.get("user_key"))
+    if bad:
+        return bad
+    if _pending_is_foreign(pending_id, client):
+        return jsonify({"success": True, "ok": True, "note": "nothing to cancel"}), 200
 
     import dealer_login_service
 
@@ -1589,11 +1875,16 @@ def dealer_address_search():
     Body: {user_key, state, value, query_by?}  (query_by: keyword|street|building|address_id)
     Returns {success, count, addresses:[{addressId, addressFull, serviceCategory, …}]}.
     """
-    if not _order_entry_authorized(request):
+    client = _request_client(request)
+    if not client:
         return _internal_unauthorized_response()
 
     data = request.get_json(silent=True) or {}
-    user_key = (data.get("user_key") or "").strip()
+    raw_key = data.get("user_key")
+    user_key, bad = _scoped_key_or_error(
+        client, raw_key.strip() if isinstance(raw_key, str) else raw_key)
+    if bad:
+        return bad
     state = (data.get("state") or "").strip()
     value = (data.get("value") or "").strip()
     query_by = (data.get("query_by") or "keyword").strip()
@@ -1636,11 +1927,16 @@ def dealer_feasibility_probe():
     Body: {user_key, state, address_id}
     Returns {success, serviceable, offers:[...], matched, message}.
     """
-    if not _order_entry_authorized(request):
+    client = _request_client(request)
+    if not client:
         return _internal_unauthorized_response()
 
     data = request.get_json(silent=True) or {}
-    user_key = (data.get("user_key") or "").strip()
+    raw_key = data.get("user_key")
+    user_key, bad = _scoped_key_or_error(
+        client, raw_key.strip() if isinstance(raw_key, str) else raw_key)
+    if bad:
+        return bad
     state = (data.get("state") or "").strip()
     address_id = str(data.get("address_id") or "").strip()
     if not user_key or not state or not address_id:

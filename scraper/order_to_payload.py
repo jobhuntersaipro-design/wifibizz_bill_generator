@@ -100,6 +100,20 @@ def order_to_payload(order: dict) -> dict:
         and d.get("type") not in ("id", "mykad", "passport", "im_conversation")
     ]
 
+    # The same three groups, for documents sent as pre-signed download links
+    # (`url` + `file_name`) by a client whose files live in its own bucket. The
+    # API server decides which client may send which form; this stays pure.
+    def _links(match):
+        return [
+            {"url": d.get("url"), "file_name": d.get("file_name") or d.get("fileName")}
+            for d in docs
+            if isinstance(d, dict) and d.get("url") and not d.get("key") and match(d.get("type"))
+        ]
+
+    id_doc_urls = _links(lambda t: t in ("id", "mykad", "passport"))
+    im_doc_urls = _links(lambda t: t == "im_conversation")
+    other_doc_urls = _links(lambda t: t not in ("id", "mykad", "passport", "im_conversation"))
+
     mykad = parse_mykad(id_number_raw) if mykad_like else {}
     gender = _get(order, "gender") or mykad.get("gender")
     birthday = _get(order, "birthday") or mykad.get("birthday")
@@ -150,6 +164,9 @@ def order_to_payload(order: dict) -> dict:
         "id_doc_keys": id_doc_keys,
         "im_doc_keys": im_doc_keys,
         "other_doc_keys": other_doc_keys,
+        "id_doc_urls": id_doc_urls,
+        "im_doc_urls": im_doc_urls,
+        "other_doc_urls": other_doc_urls,
         "id_doc_path": None,
     }
 
