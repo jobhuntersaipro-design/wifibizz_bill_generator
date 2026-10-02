@@ -400,30 +400,41 @@ export default function CaseManagementSection() {
     setSelected(new Set(json.case_nos as string[]), true);
   }
 
-  // Bills: fetch every ticked case's address from the portal, generate the bills
-  // the cases don't have yet, then ZIP them. Both endpoints take 20 cases a call.
+  // Bills: make sure every ticked case has an address (the route returns stored ones
+  // and scrapes the blank ones), then generate bills ONLY for cases that have one —
+  // a bill with a blank address is useless — then ZIP them. 20 cases a call.
   // ponytail: sequential batches in the browser; closing the tab stops the run.
   async function prepareBills(caseNos: string[], type: "internet" | "utility", label: string, toastId: string | number) {
     const post = (url: string, body: object) =>
       fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const batches: string[][] = [];
-    for (let i = 0; i < caseNos.length; i += 20) batches.push(caseNos.slice(i, i + 20));
-    const done = (i: number) => Math.min((i + 1) * 20, caseNos.length);
+    const chunk = (list: string[]) => {
+      const out: string[][] = [];
+      for (let i = 0; i < list.length; i += 20) out.push(list.slice(i, i + 20));
+      return out;
+    };
 
-    for (const [i, batch] of batches.entries()) {
-      toast.loading(`Fetching addresses… ${done(i - 1)} of ${caseNos.length}`, { id: toastId });
-      await post("/api/cases/address", { caseNos: batch }).catch(() => null); // best-effort, like the row button
+    const withAddress = new Set<string>();
+    for (const [i, batch] of chunk(caseNos).entries()) {
+      toast.loading(`Checking addresses… ${i * 20} of ${caseNos.length}`, { id: toastId });
+      const res = await post("/api/cases/address", { caseNos: batch }).catch(() => null);
+      const body = await res?.json().catch(() => ({}));
+      for (const [cn, address] of Object.entries((body?.addresses ?? {}) as Record<string, string>)) {
+        if (address.trim()) withAddress.add(cn);
+      }
     }
+    const noAddress = caseNos.filter((cn) => !withAddress.has(cn));
+    const ready = caseNos.filter((cn) => withAddress.has(cn));
+
     let failed = 0;
-    for (const [i, batch] of batches.entries()) {
-      toast.loading(`Generating ${label}… ${done(i - 1)} of ${caseNos.length}`, { id: toastId });
+    for (const [i, batch] of chunk(ready).entries()) {
+      toast.loading(`Generating ${label}… ${i * 20} of ${ready.length}`, { id: toastId });
       const res = await post("/api/bills/generate", { caseNos: batch, type, onlyMissing: true }).catch(() => null);
       const body = await res?.json().catch(() => ({}));
-      if (body?.error === "case_limit_reached") return { limitHit: true, failed };
+      if (body?.error === "case_limit_reached") return { limitHit: true, failed, noAddress };
       if (!res?.ok) failed += batch.length;
       else failed += (body.results ?? []).filter((r: { status: string }) => r.status !== "success").length;
     }
-    return { limitHit: false, failed };
+    return { limitHit: false, failed, noAddress };
   }
 
   // CSV, or a ZIP of the ticked cases' bills (generated first where missing).
@@ -438,9 +449,15 @@ export default function CaseManagementSection() {
     const toastId = toast.loading(`Preparing ${label}…`);
     try {
       if (kind !== "csv") {
-        const { limitHit, failed } = await prepareBills([...selected], kind, label, toastId);
+        const { limitHit, failed, noAddress } = await prepareBills([...selected], kind, label, toastId);
         window.dispatchEvent(new Event("usage-updated"));
         void fetchCases();
+        if (noAddress.length > 0) {
+          toast.warning(
+            `${noAddress.length} case${noAddress.length === 1 ? " has" : "s have"} no address in WifiBizz, so no bill was generated: ${noAddress.join(", ")}`,
+            { duration: 12000 },
+          );
+        }
         if (limitHit) toast.warning("Case limit reached — downloading the bills that were generated. Top up to generate the rest.", { duration: 8000 });
         else if (failed > 0) toast.warning(`${failed} bill${failed === 1 ? "" : "s"} could not be generated and ${failed === 1 ? "is" : "are"} left out.`, { duration: 8000 });
         toast.loading(`Zipping ${label}…`, { id: toastId });

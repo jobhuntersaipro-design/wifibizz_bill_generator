@@ -36,6 +36,8 @@ export async function fillMissingAddresses(
   const missing = cases.filter(
     (c) => (opts?.force || !c.full_address || !c.full_address.trim()) && c.case_url
   );
+  const noUrl = cases.filter((c) => (opts?.force || !c.full_address?.trim()) && !c.case_url);
+  if (noUrl.length > 0) console.warn(`Lazy address: no case_url, cannot scrape ${noUrl.map((c) => c.case_no).join(", ")}`);
   if (missing.length === 0) return {};
 
   const crawlEmail = user.wifibizzEmail || process.env.WIFIBIZZ_CRAWL_EMAIL || "";
@@ -47,7 +49,10 @@ export async function fillMissingAddresses(
       last_crawl_at: user.lastCrawlAt?.toISOString() ?? null,
     }) || process.env.WIFIBIZZ_CRAWL_PASSWORD || "";
 
-  if (!crawlEmail || !crawlPassword) return {};
+  if (!crawlEmail || !crawlPassword) {
+    console.warn("Lazy address: no WifiBizz credentials, cannot scrape addresses");
+    return {};
+  }
 
   try {
     const resolved = await fetchAddressesForCases(
