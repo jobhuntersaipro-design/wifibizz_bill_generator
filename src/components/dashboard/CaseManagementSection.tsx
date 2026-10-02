@@ -270,6 +270,9 @@ function CaseDetailPanel({ caseData, onClose, cacheBuster, onGenerateChat, chatL
 
 // ── Main Case Management Section ──
 
+// Bulk bill download scrapes and generates each case, so it is capped per run.
+const MAX_BILL_CASES = 30;
+
 export default function CaseManagementSection() {
   const [cases, setCases] = useState<CaseRow[]>([]);
   const [count, setCount] = useState(0);
@@ -397,13 +400,51 @@ export default function CaseManagementSection() {
     setSelected(new Set(json.case_nos as string[]), true);
   }
 
-  // CSV or a ZIP of the ticked cases' stored bills (cases with none are skipped).
+  // Bills: fetch every ticked case's address from the portal, generate the bills
+  // the cases don't have yet, then ZIP them. Both endpoints take 20 cases a call.
+  // ponytail: sequential batches in the browser; closing the tab stops the run.
+  async function prepareBills(caseNos: string[], type: "internet" | "utility", label: string, toastId: string | number) {
+    const post = (url: string, body: object) =>
+      fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const batches: string[][] = [];
+    for (let i = 0; i < caseNos.length; i += 20) batches.push(caseNos.slice(i, i + 20));
+    const done = (i: number) => Math.min((i + 1) * 20, caseNos.length);
+
+    for (const [i, batch] of batches.entries()) {
+      toast.loading(`Fetching addresses… ${done(i - 1)} of ${caseNos.length}`, { id: toastId });
+      await post("/api/cases/address", { caseNos: batch }).catch(() => null); // best-effort, like the row button
+    }
+    let failed = 0;
+    for (const [i, batch] of batches.entries()) {
+      toast.loading(`Generating ${label}… ${done(i - 1)} of ${caseNos.length}`, { id: toastId });
+      const res = await post("/api/bills/generate", { caseNos: batch, type, onlyMissing: true }).catch(() => null);
+      const body = await res?.json().catch(() => ({}));
+      if (body?.error === "case_limit_reached") return { limitHit: true, failed };
+      if (!res?.ok) failed += batch.length;
+      else failed += (body.results ?? []).filter((r: { status: string }) => r.status !== "success").length;
+    }
+    return { limitHit: false, failed };
+  }
+
+  // CSV, or a ZIP of the ticked cases' bills (generated first where missing).
   async function downloadSelected(kind: "csv" | "internet" | "utility") {
     if (selected.size === 0 || bulkBusy) return;
+    if (kind !== "csv" && selected.size > MAX_BILL_CASES) {
+      toast.error(`Select up to ${MAX_BILL_CASES} cases to generate bills (${selected.size} selected).`);
+      return;
+    }
     setBulkBusy(kind);
     const label = kind === "csv" ? "CSV" : kind === "internet" ? `${UMOBILE_BILL_LABEL}s` : "Utility Bills";
     const toastId = toast.loading(`Preparing ${label}…`);
     try {
+      if (kind !== "csv") {
+        const { limitHit, failed } = await prepareBills([...selected], kind, label, toastId);
+        window.dispatchEvent(new Event("usage-updated"));
+        void fetchCases();
+        if (limitHit) toast.warning("Case limit reached — downloading the bills that were generated. Top up to generate the rest.", { duration: 8000 });
+        else if (failed > 0) toast.warning(`${failed} bill${failed === 1 ? "" : "s"} could not be generated and ${failed === 1 ? "is" : "are"} left out.`, { duration: 8000 });
+        toast.loading(`Zipping ${label}…`, { id: toastId });
+      }
       const res = await fetch(kind === "csv" ? "/api/cases/export" : "/api/bills/bulk-download", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

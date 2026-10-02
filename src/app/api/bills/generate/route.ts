@@ -21,8 +21,10 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const caseNos: string[] = body.caseNos;
+    let caseNos: string[] = body.caseNos;
     const billType: "internet" | "utility" = body.type === "utility" ? "utility" : "internet";
+    // Bulk "generate what's missing": cases that already have this bill are left alone.
+    const onlyMissing = body.onlyMissing === true;
 
     if (!Array.isArray(caseNos) || caseNos.length === 0) {
       return NextResponse.json(
@@ -71,6 +73,16 @@ export async function POST(request: Request) {
         utilityUrl: c.utility_bill_url as string | null,
       }])
     );
+
+    if (onlyMissing) {
+      caseNos = caseNos.filter((cn) => {
+        const s = caseStatusMap.get(cn);
+        return s && !(billType === "utility" ? s.utilityUrl : s.internetUrl);
+      });
+      if (caseNos.length === 0) {
+        return NextResponse.json({ success: true, generated: 0, total: 0, skipped: 0, results: [] });
+      }
+    }
 
     // Separate into "free" (already charged) and "new" (will cost 1 each)
     const freeCases: string[] = [];
