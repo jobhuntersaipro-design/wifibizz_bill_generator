@@ -196,19 +196,43 @@ function realValue(raw: string): string {
   return /^[-–—]+$/.test(v) ? "" : v;
 }
 
+// The page also carries the address in parts (Unit No, Building Name, Street
+// Name, Postcode, City, State …). Some cases leave the combined "Address" blank
+// but fill the parts, so the address is rebuilt from them, in page order.
+// ponytail: label-name heuristic; if a case still comes back blank, the warning
+// below lists the page's labels so the missing one can be added here.
+const ADDRESS_PART_LABEL =
+  /^(unit|house|lot|floor|level|block|building|street|road|jalan|section|taman|area|postcode|post code|city|town|state)\b/i;
+
+/** Label → value pairs from a WifiBizz case view or edit page, in page order. */
+export function detailLabelPairs(html: string): [string, string][] {
+  const $ = cheerio.load(html);
+  const pairs: [string, string][] = [];
+  $("label").each((_, el) => {
+    const $label = $(el);
+    // Usually the value is the label's sibling; on some layouts the label sits
+    // alone in its own column and the value is in the next column.
+    let $value = $label.next();
+    if (!$value.length && !$label.parent().next().find("label").length) $value = $label.parent().next();
+    const raw = $value.is("input, textarea") ? String($value.val() ?? "") : $value.text();
+    pairs.push([normalizeDetailLabel($label.text()), realValue(raw)]);
+  });
+  return pairs;
+}
+
 /** Label/value pairs from a WifiBizz case view or edit page. */
 export function parseCaseDetailFields(html: string): CaseDetailFields {
-  const $ = cheerio.load(html);
   const out: CaseDetailFields = { address: "", companyName: "", companyReg: "", customerName: "" };
-  $("label").each((_, el) => {
-    const label = normalizeDetailLabel($(el).text());
-    const value = realValue($(el).next().text());
-    if (!value) return;
-    if (label === "Address") out.address = value;
+  const parts: string[] = [];
+  for (const [label, value] of detailLabelPairs(html)) {
+    if (!value) continue;
+    if (label === "Address" || label === "Installation Address") out.address = value;
     else if (label === "Company Name") out.companyName = value;
     else if (label === "Company Registration No") out.companyReg = value;
     else if (label === "Name" || label === "Full Name (as per ID)") out.customerName = value;
-  });
+    else if (ADDRESS_PART_LABEL.test(label) && !parts.includes(value)) parts.push(value);
+  }
+  if (!out.address) out.address = parts.join(" ");
   return out;
 }
 
@@ -252,7 +276,12 @@ async function fetchCaseDetail(
   if (!res.ok) throw new Error(`case detail ${caseId} returned ${res.status}`);
   const html = await res.text();
   if (!isCaseDetailPage(html)) throw new Error(`case detail ${caseId} is not a case page`);
-  return parseCaseDetailFields(html);
+  const fields = parseCaseDetailFields(html);
+  if (!fields.address) {
+    const labels = detailLabelPairs(html).map(([l, v]) => `${l}=${v ? "set" : "blank"}`).join(", ");
+    console.warn(`application ${caseId} (${module}) has no address; page labels: ${labels.slice(0, 1500)}`);
+  }
+  return fields;
 }
 
 // ── Step 3c: The business-details stage ──
@@ -644,7 +673,7 @@ export async function fetchCaseDetailsForCases(
         }
         try {
           const fields = await fetchCaseDetail(baseUrl, session, Number(m[1]), m[2]);
-          if (!fields.address) console.warn(`case detail ${it.caseNo}: portal page has no address`);
+          if (!fields.address) console.warn(`case detail ${it.caseNo} (application ${m[1]}): portal page has no address`);
           if (fields.address || fields.companyReg || fields.customerName || fields.companyName) {
             out[it.caseNo] = fields;
           }
