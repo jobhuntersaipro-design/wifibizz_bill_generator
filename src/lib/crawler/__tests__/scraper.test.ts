@@ -49,6 +49,40 @@ describe("parseCaseDetailFields", () => {
     `;
     expect(parseCaseDetailFields(html).customerName).toBe("TAN SENG BOON");
   });
+
+  it("rebuilds the address from its parts when the combined Address is blank", () => {
+    const html = `
+      <label>National ID No.</label><div>981020-01-6087</div>
+      <label>Address</label><div>-</div>
+      <label>Unit No</label><div>No.17</div>
+      <label>Building Name</label><div></div>
+      <label>Street Name</label><div>JALAN JAYA PUTRA 4/20</div>
+      <label>Section</label><div>TAMAN JAYA PUTRA</div>
+      <label>Postcode</label><div>81100</div>
+      <label>City</label><div>JOHOR BAHRU</div>
+      <label>State</label><div>JOHOR</div>
+      <label>Status</label><div>Processed</div>
+    `;
+    expect(parseCaseDetailFields(html).address).toBe("No.17 JALAN JAYA PUTRA 4/20 TAMAN JAYA PUTRA 81100 JOHOR BAHRU JOHOR");
+  });
+
+  it("reads a value that sits in the column after the label's own column", () => {
+    const html = `
+      <div class="row"><div class="col"><label>Address</label></div><div class="col"><span>3 JALAN SAGA</span></div></div>
+      <div class="row"><div class="col"><label>Name</label></div><div class="col"><span>LIM WEE KIM</span></div></div>
+    `;
+    const f = parseCaseDetailFields(html);
+    expect(f.address).toBe("3 JALAN SAGA");
+    expect(f.customerName).toBe("LIM WEE KIM");
+  });
+
+  it("does not borrow the next field's value for a label with nothing beside it", () => {
+    const html = `
+      <div class="form-group"><label>Address</label></div>
+      <div class="form-group"><label>Name</label><span>LIM WEE KIM</span></div>
+    `;
+    expect(parseCaseDetailFields(html).address).toBe("");
+  });
 });
 
 describe("extractCases", () => {
