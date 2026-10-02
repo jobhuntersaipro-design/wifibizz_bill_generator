@@ -25,6 +25,7 @@ import MergePdfDialog from "./MergePdfDialog";
 import { directorDisplay } from "@/lib/director-id";
 import { syncCasesToSheet } from "@/actions/settings";
 import { billDownloadPath, revisionFromPublicUrl } from "@/lib/bill-object";
+import { NO_ADDRESS_ERROR, hasAddress } from "@/lib/address-required";
 import {
   type CaseDateField,
   CASE_DATE_RANGE_ERROR,
@@ -430,11 +431,11 @@ export default function CaseManagementSection() {
       toast.loading(`Generating ${label}… ${i * 20} of ${ready.length}`, { id: toastId });
       const res = await post("/api/bills/generate", { caseNos: batch, type, onlyMissing: true }).catch(() => null);
       const body = await res?.json().catch(() => ({}));
-      if (body?.error === "case_limit_reached") return { limitHit: true, failed, noAddress };
+      if (body?.error === "case_limit_reached") return { limitHit: true, failed, noAddress, ready };
       if (!res?.ok) failed += batch.length;
       else failed += (body.results ?? []).filter((r: { status: string }) => r.status !== "success").length;
     }
-    return { limitHit: false, failed, noAddress };
+    return { limitHit: false, failed, noAddress, ready };
   }
 
   // CSV, or a ZIP of the ticked cases' bills (generated first where missing).
@@ -447,9 +448,12 @@ export default function CaseManagementSection() {
     setBulkBusy(kind);
     const label = kind === "csv" ? "CSV" : kind === "internet" ? `${UMOBILE_BILL_LABEL}s` : "Utility Bills";
     const toastId = toast.loading(`Preparing ${label}…`);
+    // Bills go out only for cases that have an address (see prepareBills).
+    let caseNos = [...selected];
     try {
       if (kind !== "csv") {
-        const { limitHit, failed, noAddress } = await prepareBills([...selected], kind, label, toastId);
+        const { limitHit, failed, noAddress, ready } = await prepareBills(caseNos, kind, label, toastId);
+        caseNos = ready;
         window.dispatchEvent(new Event("usage-updated"));
         void fetchCases();
         if (noAddress.length > 0) {
@@ -460,12 +464,16 @@ export default function CaseManagementSection() {
         }
         if (limitHit) toast.warning("Case limit reached — downloading the bills that were generated. Top up to generate the rest.", { duration: 8000 });
         else if (failed > 0) toast.warning(`${failed} bill${failed === 1 ? "" : "s"} could not be generated and ${failed === 1 ? "is" : "are"} left out.`, { duration: 8000 });
+        if (caseNos.length === 0) {
+          toast.error(`No ${label} generated — none of the selected cases has an installation address in WifiBizz.`, { id: toastId });
+          return;
+        }
         toast.loading(`Zipping ${label}…`, { id: toastId });
       }
       const res = await fetch(kind === "csv" ? "/api/cases/export" : "/api/bills/bulk-download", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ caseNos: [...selected], type: kind }),
+        body: JSON.stringify({ caseNos, type: kind }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -594,7 +602,12 @@ export default function CaseManagementSection() {
     if (chatLoadingCase) return;
     if (variant !== closingScriptVariant(c)) return;
     const open = (caseData: CaseRow) => setChatCase({ caseData, variant });
-    const needsAddress = !(c.full_address && c.full_address.trim()) && !!c.case_url;
+    const needsAddress = !hasAddress(c.full_address);
+    // No address and no WifiBizz page to scrape it from: nothing to generate.
+    if (needsAddress && !c.case_url) {
+      toast.error(NO_ADDRESS_ERROR, { duration: 8000 });
+      return;
+    }
     // NULL = the detail page has never been read. '' means it was, and the portal
     // has no name there — asking again would only fetch the same dash.
     const needsBizzFields = variant === "bizz" && !!c.case_url && c.director_name == null;
@@ -626,12 +639,16 @@ export default function CaseManagementSection() {
         setSelectedCase((prev) => (prev && prev.case_no === c.case_no ? { ...prev, full_address: address } : prev));
       }
       if (needsAddress && !address) {
-        toast.error("Couldn't fetch the installation address — generating chat without it.");
+        toast.error(NO_ADDRESS_ERROR, { duration: 8000 });
+        return;
       }
       open(merged);
     } catch (err) {
       console.error("Address fetch failed:", err);
-      toast.error("Couldn't fetch the installation address — generating chat without it.");
+      if (needsAddress) {
+        toast.error("Couldn't check the installation address, so the chat was not generated. Try again.");
+        return;
+      }
       open(c);
     } finally {
       setChatLoadingCase(null);

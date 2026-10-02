@@ -5,6 +5,7 @@ import { neon } from "@neondatabase/serverless";
 import { generateAuthorizationLetter } from "@/lib/bill-generator/authorization-letter";
 import { createTaAuthContext } from "@/lib/bill-generator/landlord-signature";
 import { parsePartiesSeed } from "@/lib/bill-generator/document-parties";
+import { NO_ADDRESS_ERROR, hasAddress } from "@/lib/address-required";
 import { fillMissingAddresses } from "@/lib/crawler/lazy-address";
 
 /**
@@ -86,6 +87,9 @@ export async function GET(request: Request) {
     };
     const resolved = await fillMissingAddresses(wifibizzUser, [caseData]);
     const fullAddress = resolved[caseData.case_no] ?? caseData.full_address;
+    if (!hasAddress(fullAddress)) {
+      return NextResponse.json({ success: false, error: NO_ADDRESS_ERROR }, { status: 422 });
+    }
 
     const ctx = await createTaAuthContext({
       tenantName: caseData.full_name,

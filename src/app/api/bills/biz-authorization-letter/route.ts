@@ -5,6 +5,7 @@ import { neon } from "@neondatabase/serverless";
 import { generateBizAuthorizationLetter } from "@/lib/bill-generator/biz-authorization-letter";
 import { loadRandomLandlordSignature } from "@/lib/bill-generator/landlord-signature";
 import { bizSignatureRng } from "@/lib/biz-director";
+import { NO_ADDRESS_ERROR, hasAddress } from "@/lib/address-required";
 import { fetchBizzDetailFields, fillMissingAddresses } from "@/lib/crawler/lazy-address";
 
 /**
@@ -77,6 +78,9 @@ export async function GET(request: Request) {
     // list-only has no address until the portal is asked for it.
     const resolved = await fillMissingAddresses(wifibizzUser, [caseData]);
     const fullAddress = resolved[caseData.case_no] ?? caseData.full_address;
+    if (!hasAddress(fullAddress)) {
+      return NextResponse.json({ success: false, error: NO_ADDRESS_ERROR }, { status: 422 });
+    }
 
     // Company, BRN and director are CRAWLED now (company + BRN off the list
     // row, the director off the detail page). The page is only fetched here for
