@@ -7,6 +7,7 @@ import { buildInternetBillPdf } from "@/lib/bill-generator/umobile-modem";
 import { generateUtilityBill } from "@/lib/bill-generator/utility-bill";
 import { getUserCaseUsage } from "@/lib/case-limit";
 import { fillMissingAddresses } from "@/lib/crawler/lazy-address";
+import { NO_ADDRESS_ERROR, hasAddress } from "@/lib/address-required";
 
 const MAX_BATCH = 20;
 
@@ -157,6 +158,10 @@ export async function POST(request: Request) {
       const caseData = caseDataMap.get(caseNo);
       if (!caseData) {
         return { caseNo, status: "error", error: "Case not found or not owned" };
+      }
+      // Still blank after the scrape above: no bill, and no charge.
+      if (!hasAddress(caseData.full_address)) {
+        return { caseNo, status: "error", error: NO_ADDRESS_ERROR } as const;
       }
 
       try {

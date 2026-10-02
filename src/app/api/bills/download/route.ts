@@ -6,6 +6,8 @@ import { r2KeyFromPublicUrl } from "@/lib/bill-object";
 import { persistBillPdf } from "@/lib/persist-bill";
 import { buildInternetBillPdf } from "@/lib/bill-generator/umobile-modem";
 import { getBytesFromR2 } from "@/lib/r2";
+import { fillMissingAddresses } from "@/lib/crawler/lazy-address";
+import { NO_ADDRESS_ERROR, hasAddress } from "@/lib/address-required";
 
 export async function GET(request: Request) {
   try {
@@ -38,7 +40,7 @@ export async function GET(request: Request) {
     // Get user's wifibizz_user id
     const wifibizzUser = await prisma.wifibizzUser.findUnique({
       where: { userId: session.user.id },
-      select: { id: true },
+      select: { id: true, wifibizzEmail: true, wifibizzPasswordEnc: true, lastCrawlAt: true, googleSheetId: true },
     });
 
     if (!wifibizzUser) {
@@ -84,10 +86,21 @@ export async function GET(request: Request) {
     // object so opening a row does not start a second generate.
     const previewOnly = url.searchParams.get("preview") === "1";
     if (type === "internet" && !previewOnly) {
+      // A rebuild is a fresh generate: same address rule as POST /api/bills/generate.
+      let fullAddress = String(rows[0].full_address ?? "");
+      if (!hasAddress(fullAddress)) {
+        const resolved = await fillMissingAddresses(wifibizzUser, [
+          { case_no: caseNo, full_address: fullAddress, case_url: (rows[0].case_url as string) || null },
+        ]);
+        fullAddress = resolved[caseNo] ?? "";
+      }
+      if (!hasAddress(fullAddress)) {
+        return NextResponse.json({ success: false, error: NO_ADDRESS_ERROR }, { status: 422 });
+      }
       const pdf = await buildInternetBillPdf({
         case_no: caseNo,
         full_name: String(rows[0].full_name ?? ""),
-        full_address: String(rows[0].full_address ?? ""),
+        full_address: fullAddress,
         mobile: String(rows[0].mobile ?? ""),
         case_url: String(rows[0].case_url ?? ""),
         provider: String(rows[0].provider ?? ""),

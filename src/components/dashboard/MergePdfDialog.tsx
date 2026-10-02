@@ -29,6 +29,7 @@ import {
 import { MergeIcon, GripIcon, CloseIcon } from "./icons";
 import { WhatsAppChat, makeRandomization } from "./ChatImageGenerator";
 import type { CaseRow } from "./shared";
+import { NO_ADDRESS_ERROR, hasAddress } from "@/lib/address-required";
 import { Button } from "@/components/ui/button";
 
 /** How many documents to fetch at once. The letter and the TIME invoice are
@@ -63,6 +64,8 @@ export default function MergePdfDialog({
   // keeps its own copy: an address looked up here has to reach the chat.
   const [chatCase, setChatCase] = useState<CaseRow>(caseData);
   const [addressLoading, setAddressLoading] = useState(false);
+  // The address lookup has run and come back empty (or could not run).
+  const [addressChecked, setAddressChecked] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
   const rand = useMemo(makeRandomization, []);
   // One case at a time, so the plan helpers get a single-element list.
@@ -95,13 +98,14 @@ export default function MergePdfDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cases, types]);
 
-  // The chat prints the installation address, which a list-only crawl never
-  // stored. Look it up the moment the chat is ticked — the same lazy fill the
-  // row button does — rather than silently printing a dash.
+  // Every document prints the installation address, which a list-only crawl
+  // never stored. Look it up as the dialog opens — the same lazy fill the row
+  // buttons do. If WifiBizz has none, nothing may be merged (NO_ADDRESS_ERROR).
   const wantsChat = types.includes("chat");
-  const needsAddress = !((chatCase.full_address || "").trim()) && !!chatCase.case_url;
+  const needsAddress = !hasAddress(chatCase.full_address) && !!chatCase.case_url;
+  const addressMissing = !hasAddress(chatCase.full_address) && (addressChecked || !chatCase.case_url);
   useEffect(() => {
-    if (!wantsChat || !needsAddress || addressLoading) return;
+    if (!needsAddress || addressLoading) return;
     let cancelled = false;
     setAddressLoading(true);
     (async () => {
@@ -117,23 +121,21 @@ export default function MergePdfDialog({
         if (address) {
           setChatCase((c) => ({ ...c, full_address: address }));
           onAddressResolved?.(chatCase.case_no, address);
-        } else {
-          toast.warning("Couldn't fetch the installation address — the chat will show none.");
         }
       } catch (err) {
         console.error("Address fetch failed:", err);
-        if (!cancelled) {
-          toast.warning("Couldn't fetch the installation address — the chat will show none.");
-        }
       } finally {
-        if (!cancelled) setAddressLoading(false);
+        if (!cancelled) {
+          setAddressLoading(false);
+          setAddressChecked(true);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wantsChat, needsAddress]);
+  }, [needsAddress]);
 
   const included = useMemo(() => items.filter((i) => !i.unavailable), [items]);
   // What will have to be generated, and what that costs. Both the warning and
@@ -169,7 +171,7 @@ export default function MergePdfDialog({
   }
 
   async function handleMerge() {
-    if (included.length === 0 || merging) return;
+    if (included.length === 0 || merging || addressMissing || addressLoading) return;
     setMerging(true);
     setDone(0);
 
@@ -441,7 +443,12 @@ export default function MergePdfDialog({
             )}
           {addressLoading && (
             <p className="text-xs text-ink-muted" aria-live="polite">
-              Fetching the installation address for the closing script…
+              Checking the installation address…
+            </p>
+          )}
+          {addressMissing && (
+            <p role="alert" className="rounded-md border border-danger/40 bg-danger/5 px-3 py-2 text-xs leading-relaxed text-danger">
+              {NO_ADDRESS_ERROR}
             </p>
           )}
 
@@ -462,7 +469,7 @@ export default function MergePdfDialog({
           )}
         </>
 
-        {pending.length > 0 && !merging && (
+        {pending.length > 0 && !merging && !addressMissing && (
           <p className="rounded-md border border-[#F5C86B] bg-[#FFF8E5] px-3 py-2 text-xs leading-relaxed text-[#66531C]">
             The {pending.map((t) => MERGE_DOC_LABELS[t]).join(" and the ")}{" "}
             {pending.length === 1 ? "has" : "have"} not been generated for this case yet, so
@@ -486,7 +493,7 @@ export default function MergePdfDialog({
           <Button unstyled variant="default"
             type="button"
             onClick={handleMerge}
-            disabled={merging || addressLoading || included.length === 0}
+            disabled={merging || addressLoading || addressMissing || included.length === 0}
             className="cursor-pointer rounded-md bg-brand px-3 py-2 text-[13px] font-semibold text-white transition-colors duration-150 hover:bg-ink disabled:cursor-not-allowed disabled:opacity-50"
           >
             {merging ? "Merging…" : `Merge ${included.length} document${included.length === 1 ? "" : "s"}`}
