@@ -47,6 +47,10 @@ class UserKeyError(ValueError):
     """The caller's user id cannot be used. Carries a message for the response."""
 
 
+class TokenConfigError(RuntimeError):
+    """Two clients were given the same token. The service must not start."""
+
+
 def client_token(client: str) -> str:
     """The configured token for a client, or "" when it is unset."""
     for name, env in CLIENT_TOKEN_ENV:
@@ -60,24 +64,50 @@ def any_configured() -> bool:
     return any(client_token(name) for name, _env in CLIENT_TOKEN_ENV)
 
 
+def check_tokens() -> None:
+    """Raise TokenConfigError if two clients share a token. Called at startup.
+
+    A shared token cannot be told apart: every SmartPortal call would match
+    BizzFlow's token and run as BizzFlow — BizzFlow's bucket, BizzFlow's
+    webhook, BizzFlow's user ids — with no error anywhere SmartPortal could see.
+    Disabling one of the two would not help (the shared value still matches the
+    other), so the service refuses to start. deploy.sh's health check then
+    fails and rolls the deploy back, which is as loud as this can be made.
+    """
+    seen = []
+    for name, env in CLIENT_TOKEN_ENV:
+        token = client_token(name)
+        if not token:
+            continue
+        for other_name, other_env, other in seen:
+            if hmac.compare_digest(token.encode(), other.encode()):
+                raise TokenConfigError(
+                    f"{env} is the same as {other_env}. Each client needs its own "
+                    f"token, or {name}'s calls would run as {other_name}'s. Set a "
+                    f"different {env} (or unset it) and restart.")
+        seen.append((name, env, token))
+
+
 def client_for_token(token) -> str | None:
     """The client a token belongs to, or None.
 
     Compared with hmac.compare_digest against EVERY configured token (no early
     exit on a match), and an unset or empty token never matches — an empty
-    header against an unset env var must not authenticate anybody.
+    header against an unset env var must not authenticate anybody. A token that
+    matches two clients authenticates neither (check_tokens stops the service
+    starting that way; this keeps the function right on its own).
     """
     if not isinstance(token, str) or not token:
         return None
     given = token.encode()
-    found = None
+    found = []
     for name, _env in CLIENT_TOKEN_ENV:
         expected = client_token(name)
         if not expected:
             continue
-        if hmac.compare_digest(given, expected.encode()) and found is None:
-            found = name
-    return found
+        if hmac.compare_digest(given, expected.encode()):
+            found.append(name)
+    return found[0] if len(found) == 1 else None
 
 
 def job_client(job) -> str:

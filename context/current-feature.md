@@ -20,6 +20,11 @@ by (client, user):** a SmartPortal id becomes `smartportal-<id>` (required, `[A-
 cannot fold two ids together); BizzFlow ids are untouched, and a BizzFlow id starting `smartportal-` is refused.
 Pending dealer logins remember their client, so a pending id cannot be finished/polled/cancelled cross-app. The
 `order_finished` and `batch_finished` webhooks fire for BizzFlow jobs only. The job's start line logs `client=`.
+**The service refuses to start if `SMARTPORTAL_API_TOKEN` equals `ORDER_ENTRY_API_TOKEN`** (`clients.check_tokens()`,
+called at import; asked by SmartPortal after review). A shared token cannot be told apart, so SmartPortal's calls would
+silently run as BizzFlow's; disabling one token would not help, since the shared value still matches the other.
+deploy.sh's health check fails and rolls back, and the error names both env vars but never the value. A token matching
+two clients also authenticates neither in `client_for_token`.
 
 **Files.** SmartPortal documents arrive as `{type, url, file_name}`; `order_to_payload` files them as
 `id/im/other_doc_urls` and `doc_urls.py` fetches them: https only, host exactly in `SMARTPORTAL_DOCUMENT_HOSTS`,
@@ -33,11 +38,11 @@ value is the bare name (`submit-1-page1.jpg`, `<orderNo>_erf.pdf`). `GET /jobs/<
 `{name, size, content_type}`; `GET /jobs/<id>/captures/<name>` serves the file (`no-store`, `nosniff`). Folders are
 deleted 7 days after the job started (`CAPTURE_RETAIN_DAYS`), hourly at most, off `/health`.
 
-Verified: 48 new tests in `scraper/tests/test_smartportal_client.py` (ownership both ways, scoped sessions, webhook
+Verified: 53 new tests in `scraper/tests/test_smartportal_client.py` (ownership both ways, scoped sessions, webhook
 gating, link refusals incl. metadata IP / localhost / port / userinfo / suffix-host, redirect/size/type/time refusals,
 no link in any log or response, local capture + e-RF never calling R2, captures served to owner only, traversal,
 prune). Mutation-checked: making `owns()` always true fails 4; skipping the local-capture branch fails 1. Full scraper
-suite 531 passed + 1 skipped (was 483 passed + 1 skipped). NOT verified: a real SmartPortal run against the portal, a real
+suite 536 passed + 1 skipped (was 483 passed + 1 skipped). NOT verified: a real SmartPortal run against the portal, a real
 pre-signed R2 link, and the droplet deploy.
 
 # Current Feature: Classic ⇄ Arc (uiarc.dev) design toggle

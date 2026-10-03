@@ -106,6 +106,47 @@ def test_an_unset_or_empty_token_never_matches(monkeypatch):
     assert clients.client_for_token(BF_TOKEN) == clients.BIZZFLOW
 
 
+def test_a_shared_token_stops_the_service_starting(monkeypatch):
+    # The same token for both apps cannot be told apart: SmartPortal's calls
+    # would silently run as BizzFlow's. Whitespace does not hide it.
+    monkeypatch.setenv("SMARTPORTAL_API_TOKEN", f"  {BF_TOKEN}\n")
+    with pytest.raises(clients.TokenConfigError) as e:
+        clients.check_tokens()
+    assert "SMARTPORTAL_API_TOKEN" in str(e.value)
+    assert "ORDER_ENTRY_API_TOKEN" in str(e.value)
+    assert BF_TOKEN not in str(e.value)          # the secret is never printed
+    # And on its own the lookup authenticates neither client with it.
+    assert clients.client_for_token(BF_TOKEN) is None
+
+
+@pytest.mark.parametrize("sp_token", [SP_TOKEN, "", None])
+def test_distinct_or_unset_tokens_start(monkeypatch, sp_token):
+    if sp_token is None:
+        monkeypatch.delenv("SMARTPORTAL_API_TOKEN")
+    else:
+        monkeypatch.setenv("SMARTPORTAL_API_TOKEN", sp_token)
+    clients.check_tokens()
+    assert clients.client_for_token(BF_TOKEN) == clients.BIZZFLOW
+
+
+def test_the_server_really_refuses_to_import_with_a_shared_token(tmp_path):
+    import subprocess
+
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = {**os.environ, "ORDER_ENTRY_API_TOKEN": "same-secret",
+           "SMARTPORTAL_API_TOKEN": "same-secret"}
+    run = subprocess.run([sys.executable, "-c", "import api_server"], cwd=here,
+                         env=env, capture_output=True, text=True, timeout=120)
+    assert run.returncode != 0
+    assert "TokenConfigError" in run.stderr
+    assert "same-secret" not in run.stderr + run.stdout
+    # Control: the same import with distinct tokens succeeds.
+    env["SMARTPORTAL_API_TOKEN"] = "other-secret"
+    ok = subprocess.run([sys.executable, "-c", "import api_server"], cwd=here,
+                        env=env, capture_output=True, text=True, timeout=120)
+    assert ok.returncode == 0, ok.stderr
+
+
 def test_a_job_with_no_client_recorded_belongs_to_bizzflow():
     legacy = {"status": "running", "params": {"kind": "order_entry", "user_key": "u"}}
     assert clients.owns(legacy, clients.BIZZFLOW)

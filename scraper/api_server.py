@@ -38,6 +38,10 @@ _install_job_logging()
 # and the rest are available without exporting them by hand.
 load_dotenv(find_dotenv())
 
+# Refuse to start if two clients share a token: their calls could not be told
+# apart, and SmartPortal's would silently run as BizzFlow's (see clients.py).
+clients.check_tokens()
+
 # Local dev: OE_HEADED=1 runs order/feasibility jobs in a VISIBLE Chromium so you
 # can watch the portal flow. login_manager launches headless by default; reuse
 # inspect_order_entry's headed monkeypatch. Never set this on the droplet (no X).
