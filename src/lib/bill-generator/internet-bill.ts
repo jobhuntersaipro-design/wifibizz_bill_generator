@@ -21,6 +21,7 @@ import {
   registerStandardFont,
 } from './pdf-utils';
 import { normalizeAddress } from './address-normalizer';
+import { generateUmobileMobile, umobileMobileStreamToken } from './umobile-mobile';
 
 // ── Original values (from the source PDF) ──────────────────────────
 const ORIGINAL_ACCOUNT = '30549703647';
@@ -121,15 +122,13 @@ function computeValues(customerMobile: string) {
   const newAccount = randomDigits(11);
   const newBillDigits = yyyymmdd(billDate) + randomDigits(8);
 
-  // Customer mobile — strip leading '+', ensure 12 digits
-  let mobileDigits = customerMobile.replace(/^\+/, '');
-  if (mobileDigits.length < 12) mobileDigits = mobileDigits.padEnd(12, '0');
-  else if (mobileDigits.length > 12) mobileDigits = mobileDigits.slice(0, 12);
+  // One Mobile No. for every slot on the bill. 6011 is 12 digits; any other prefix is 11.
+  const newMobile = generateUmobileMobile(customerMobile, randomDigits);
 
   return {
     newAccount,
     newBillDigits,
-    newMobile: mobileDigits,
+    newMobile,
     newBillDate: ddmmyyyy(billDate),
     newPeriodStart: ddmmyyyy(periodStart),
     newPeriodEnd: ddmmyyyy(periodEnd),
@@ -152,7 +151,7 @@ function buildReplacements(v: ReturnType<typeof computeValues>): {
     [ORIG_DUE_DATE, v.newDueDate],
     [ORIG_PAYMENT_DATE, v.newPaymentDate],
     [ORIG_PAYMENT_TIME, v.newPaymentTime],
-    [ORIGINAL_MOBILE, v.newMobile],
+    [ORIGINAL_MOBILE, umobileMobileStreamToken(v.newMobile)],
   ];
 
   const fmtDate = (s: string) => `${s.slice(0, 2)}/${s.slice(2, 4)}/${s.slice(4)}`;
