@@ -456,6 +456,64 @@ describe("TIME street truncation and locality repeats", () => {
     }
     expect(Math.min(...address.map((run) => run.y))).toBeCloseTo(TIME_ADDRESS_BASELINES_WITH_THIRD_STREET.at(-1)!, 1);
     expect(address.some((run) => Math.abs(run.y - TIME_ADDRESS_BASELINES[1]) < 0.05)).toBe(true);
+
+    // Charges boxes are x=342..553, y=606..661. The e-invoice mark is x=32..82, y=601..635.
+    // Only the address baselines move; these rectangles stay where the template drew them.
+    const ascent = font.heightAtSize(TIME_ADDRESS_FONT_SIZE, { descender: false });
+    const descent = font.heightAtSize(TIME_ADDRESS_FONT_SIZE) - ascent;
+    const charges = { left: 342, right: 553, bottom: 606, top: 661 };
+    const qr = { left: 32, right: 82, bottom: 601, top: TIME_ADDRESS_QR_TOP };
+    const overlaps = (
+      a: { left: number; right: number; bottom: number; top: number },
+      b: { left: number; right: number; bottom: number; top: number },
+    ) => a.left < b.right && a.right > b.left && a.bottom < b.top && a.top > b.bottom;
+    for (const run of address) {
+      const glyph = {
+        left: run.x,
+        right: run.x + font.widthOfTextAtSize(run.text, TIME_ADDRESS_FONT_SIZE),
+        bottom: run.y - descent,
+        top: run.y + ascent,
+      };
+      expect(overlaps(glyph, charges)).toBe(false);
+      expect(overlaps(glyph, qr)).toBe(false);
+    }
+  });
+
+  it("leaves every non-address run where the template put it when a third street line is drawn", async () => {
+    const when = new Date(2026, 9, 6);
+    const short = "12 Jalan Besar, Subang Jaya, Selangor, 47500, Malaysia";
+    const { extractTextRuns, loadPageCmaps } = await import("@/lib/bill-generator/tenancy-stamp");
+    const { getPageStreamRefs, transformStream } = await import("@/lib/bill-generator/pdf-utils");
+    const runsOf = async (address: string) => {
+      const bytes = await generateTimeInvoice(
+        { case_no: "TIME-ADDR-3", full_name: "CUSTOMER", full_address: address },
+        when,
+      );
+      const doc = await PDFDocument.load(bytes);
+      const page = doc.getPages()[0];
+      const cmaps = loadPageCmaps(doc, page);
+      const runs: { text: string; x: number; y: number }[] = [];
+      for (const entry of getPageStreamRefs(doc, page)) {
+        transformStream(doc, entry, (buf) => {
+          for (const run of extractTextRuns(buf.toString("latin1"), cmaps)) {
+            if (run.text.trim()) runs.push(run);
+          }
+          return { data: buf, count: 0 };
+        });
+      }
+      return runs;
+    };
+    const shortRuns = await runsOf(short);
+    const longRuns = await runsOf(THREE_STREET);
+    const { lines: shortLines } = await helveticaLines(short);
+    const { lines: longLines } = await helveticaLines(THREE_STREET);
+    const addressText = new Set([...shortLines, ...longLines]);
+    const rest = (runs: { text: string; x: number; y: number }[]) =>
+      runs
+        .filter((run) => !(addressText.has(run.text) && run.x < 80 && run.y > 630))
+        .map((run) => `${run.x.toFixed(2)}|${run.y.toFixed(2)}|${run.text}`)
+        .sort();
+    expect(rest(longRuns)).toEqual(rest(shortRuns));
   });
 
   it("names a sliced street street_truncated even when no token is missing", () => {
@@ -477,6 +535,29 @@ describe("TIME street truncation and locality repeats", () => {
     });
     expect(packed.streetTruncated).toBe(true);
     expect(audit.missing).toEqual([]);
+    expect(audit.pass).toBe(false);
+    expect(timeAuditDetail(audit).reason).toBe("street_truncated");
+  });
+
+  it("fails a cut street when the only cut words are the city already on the locality line", () => {
+    const measure = (text: string) => text.length * 5;
+    const maxWidth = 135;
+    const segment = `${Array.from({ length: 15 }, () => "AAAA").join(" ")} SUBANG JAYA`;
+    const packed = packAddress(
+      { streetSegments: [segment], postcode: "47500", locality: "SUBANG JAYA", state: "SELANGOR" },
+      measure,
+      maxWidth,
+    );
+    expect(packed.fullStreet.at(-1)).toBe("SUBANG JAYA");
+    expect(packed.street).not.toContain("SUBANG JAYA");
+    expect(packed.locality).toContain("SUBANG JAYA");
+    const lines = printedTimeAddress(packed);
+    const audit = auditTimeBillAddress(`${segment}, 47500 SUBANG JAYA SELANGOR`, lines, {
+      fullStreet: packed.fullStreet,
+      printedStreet: packed.street,
+    });
+    expect(audit.missing).toEqual([]);
+    expect(audit.streetTruncated).toBe(true);
     expect(audit.pass).toBe(false);
     expect(timeAuditDetail(audit).reason).toBe("street_truncated");
   });
