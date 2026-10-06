@@ -99,6 +99,12 @@ interface Draw {
    * what the template drew there before a different-width value can replace it.
    */
   template?: string;
+  /**
+   * Due Date only. The short template date is still the right-hand anchor, and
+   * `layoutDueDate` keeps it when the text fits the black box. A longer date
+   * shrinks and is centred instead of sliding out through the left edge.
+   */
+  fit?: 'due-date';
 }
 
 /** Case fields this generator needs. */
@@ -213,10 +219,11 @@ function page1Draws(f: TimeInvoiceFields, name: string, address: { street: strin
     // Customer block — Helvetica, matching the Arial the template set it in.
     { text: name, x: 42, y: 701.73, size: 9, font: 'helvB' },
 
-    // Summary boxes
+    // Summary boxes. Overdue is the template's own `MYR 0.00` at (368.7, 631.77)
+    // and is not redrawn. Current and Total Outstanding stay on these anchors.
     { text: total, x: 470.52, y: 630.77, size: 11, font: 'wsb', align: 'right', template: 'MYR 115.09' },
     { text: total, x: 364.52, y: 562.77, size: 11, font: 'wsb', align: 'right', template: 'MYR 115.09', white: true },
-    { text: longDate(f.dueDate), x: 466.96, y: 562.77, size: 11, font: 'wsb', align: 'right', template: '2 May 2026', white: true },
+    { text: longDate(f.dueDate), x: 466.96, y: 562.77, size: 11, font: 'wsb', align: 'right', template: '2 May 2026', white: true, fit: 'due-date' },
 
     // Bill summary
     { text: money(f.subtotalSen), x: 525.17, y: 399.63, size: 9, font: 'ws', align: 'right', template: '108.58' },
@@ -302,12 +309,18 @@ function page3Draws(f: TimeInvoiceFields): Draw[] {
  *
  * `now` is injectable so the date rules can be tested across a whole year rather
  * than on whichever day the suite happens to run.
+ *
+ * `dueDate`, when passed, is the date printed in the Due Date box. The seeded
+ * calculation still runs; production callers omit it. Layout tests pass a day
+ * the invoice-day rule (2–9) never produces, such as 30 September.
  */
 export async function generateTimeInvoice(
   caseData: TimeInvoiceCase,
   now = new Date(),
+  dueDate?: Date,
 ): Promise<Uint8Array> {
   const fields = computeInvoiceFields(caseData.case_no, now);
+  if (dueDate) fields.dueDate = dueDate;
 
   const pdfDoc = await PDFDocument.load(await readFile(TEMPLATE));
   pdfDoc.registerFontkit(fontkit);
@@ -363,12 +376,73 @@ export async function generateTimeInvoice(
   return pdfDoc.save();
 }
 
+/**
+ * The lower-right summary box on page 1: `448 602 105 -55 re` (x=448..553).
+ * White text that starts left of x=448 is off the black fill, so the first
+ * glyph looks cut off and the rest lands in the Total Outstanding box.
+ */
+export const TIME_DUE_DATE_BOX = { x: 448, width: 105 } as const;
+
+/** Advance-width inset on each side. Measured with `PDFFont.widthOfTextAtSize`. */
+export const TIME_DUE_DATE_PADDING = 6;
+
+/** Below this the date is smaller than the 8pt label above it. Day-30 months stay above it. */
+export const TIME_DUE_DATE_MIN_SIZE = 7;
+
+/**
+ * Place the Due Date value inside its box.
+ *
+ * A short date such as `2 May 2026` stays at 11pt, right-aligned to the
+ * template anchor — the same rule the money values use. That anchor was
+ * recovered from `2 May 2026`, so a longer date is shoved through the left
+ * edge. `30 September 2026` at 11pt is 106.7pt wide and the box is only 105.
+ *
+ * When the right-aligned 11pt line would come within `TIME_DUE_DATE_PADDING`
+ * of either edge, the size steps down by 0.25pt until the measured width fits
+ * the box minus that padding, and the line is centred so both sides match.
+ * The floor is `TIME_DUE_DATE_MIN_SIZE`.
+ */
+export function layoutDueDate(
+  text: string,
+  anchor: { x: number; size: number; template: string },
+  measure: (text: string, size: number) => number,
+): { x: number; size: number; width: number } {
+  const boxLeft = TIME_DUE_DATE_BOX.x;
+  const boxRight = boxLeft + TIME_DUE_DATE_BOX.width;
+  const limit = TIME_DUE_DATE_BOX.width - 2 * TIME_DUE_DATE_PADDING;
+  const rightEdge = anchor.x + measure(anchor.template, anchor.size);
+  const widthAtAnchor = measure(text, anchor.size);
+  const rightAlignedX = rightEdge - widthAtAnchor;
+  if (
+    rightAlignedX >= boxLeft + TIME_DUE_DATE_PADDING &&
+    rightEdge <= boxRight - TIME_DUE_DATE_PADDING
+  ) {
+    return { x: rightAlignedX, size: anchor.size, width: widthAtAnchor };
+  }
+
+  let quarter = Math.round(anchor.size * 4);
+  const minQuarter = Math.round(TIME_DUE_DATE_MIN_SIZE * 4);
+  while (quarter > minQuarter && measure(text, quarter / 4) > limit) quarter -= 1;
+  const size = quarter / 4;
+  const width = measure(text, size);
+  return { x: boxLeft + (TIME_DUE_DATE_BOX.width - width) / 2, size, width };
+}
+
 function drawAll(page: PDFPage, draws: Draw[], fonts: Record<FontKey, PDFFont>): void {
   for (const draw of draws) {
     const font = fonts[draw.font];
     let x = draw.x;
+    let size = draw.size;
 
-    if (draw.align === 'right' && draw.template) {
+    if (draw.fit === 'due-date' && draw.template) {
+      const placed = layoutDueDate(
+        draw.text,
+        { x: draw.x, size: draw.size, template: draw.template },
+        (text, at) => font.widthOfTextAtSize(text, at),
+      );
+      x = placed.x;
+      size = placed.size;
+    } else if (draw.align === 'right' && draw.template) {
       const rightEdge = draw.x + font.widthOfTextAtSize(draw.template, draw.size);
       x = rightEdge - font.widthOfTextAtSize(draw.text, draw.size);
     } else if (draw.align === 'center' && draw.template) {
@@ -379,7 +453,7 @@ function drawAll(page: PDFPage, draws: Draw[], fonts: Record<FontKey, PDFFont>):
     page.drawText(draw.text, {
       x,
       y: draw.y,
-      size: draw.size,
+      size,
       font,
       ...(draw.white ? { color: rgb(1, 1, 1) } : {}),
     });

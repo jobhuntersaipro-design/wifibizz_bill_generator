@@ -1,4 +1,7 @@
+import { readFile } from "fs/promises";
+import path from "path";
 import { describe, it, expect } from "vitest";
+import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import {
   buildInvoiceAddress,
@@ -21,7 +24,13 @@ import {
   type Measure,
 } from "@/lib/bill-generator/time-invoice-fields";
 import { auditTimeBillAddress, timeAuditDetail } from "@/lib/bill-generator/address-audit";
-import { generateTimeInvoice } from "@/lib/bill-generator/time-invoice";
+import {
+  generateTimeInvoice,
+  layoutDueDate,
+  TIME_DUE_DATE_BOX,
+  TIME_DUE_DATE_MIN_SIZE,
+  TIME_DUE_DATE_PADDING,
+} from "@/lib/bill-generator/time-invoice";
 import {
   randomQrModules,
   barcodeContent,
@@ -560,6 +569,140 @@ describe("TIME street truncation and locality repeats", () => {
     expect(audit.streetTruncated).toBe(true);
     expect(audit.pass).toBe(false);
     expect(timeAuditDetail(audit).reason).toBe("street_truncated");
+  });
+});
+
+// ── Due Date box ───────────────────────────────────────────────────
+
+const DUE_DATE_MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+/** The draw call in page1Draws. Changing it should fail the render test below. */
+const DUE_DATE_ANCHOR = { x: 466.96, size: 11, template: "2 May 2026" };
+
+const SYNTHETIC_CASE = {
+  case_no: "SYN-DUE-001",
+  full_name: "A. N. Example",
+  full_address: "12 Jalan Contoh, Taman Contoh, Subang Jaya, Selangor, 47500, Malaysia",
+};
+
+async function semiBoldMeasure() {
+  const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
+  const font = await doc.embedFont(
+    await readFile(path.join(process.cwd(), "bill_generator/fonts/WorkSans-SemiBold.ttf")),
+    { subset: false },
+  );
+  return (text: string, size: number) => font.widthOfTextAtSize(text, size);
+}
+
+async function page1Runs(dueDate?: Date) {
+  const bytes = await generateTimeInvoice(SYNTHETIC_CASE, new Date(2026, 9, 6), dueDate);
+  const { extractTextRuns, loadPageCmaps } = await import("@/lib/bill-generator/tenancy-stamp");
+  const { getPageStreamRefs, transformStream } = await import("@/lib/bill-generator/pdf-utils");
+  const doc = await PDFDocument.load(bytes);
+  const page = doc.getPages()[0];
+  const cmaps = loadPageCmaps(doc, page);
+  const runs: { text: string; x: number; y: number; size: number }[] = [];
+  for (const entry of getPageStreamRefs(doc, page)) {
+    transformStream(doc, entry, (buf) => {
+      for (const run of extractTextRuns(buf.toString("latin1"), cmaps)) {
+        if (run.text.trim()) runs.push(run);
+      }
+      return { data: buf, count: 0 };
+    });
+  }
+  return runs;
+}
+
+describe("Due Date summary box", () => {
+  it("fits every day-30 month, measured with Work Sans, inside the 105pt box", async () => {
+    expect(TIME_DUE_DATE_BOX).toEqual({ x: 448, width: 105 });
+    expect(TIME_DUE_DATE_PADDING).toBe(6);
+    expect(TIME_DUE_DATE_MIN_SIZE).toBe(7);
+
+    const measure = await semiBoldMeasure();
+    const boxRight = TIME_DUE_DATE_BOX.x + TIME_DUE_DATE_BOX.width;
+    for (const month of DUE_DATE_MONTHS) {
+      const text = `30 ${month} 2026`;
+      const placed = layoutDueDate(text, DUE_DATE_ANCHOR, measure);
+      const width = measure(text, placed.size);
+      expect(width + 2 * TIME_DUE_DATE_PADDING, text).toBeLessThanOrEqual(TIME_DUE_DATE_BOX.width);
+      expect(placed.x, text).toBeGreaterThanOrEqual(TIME_DUE_DATE_BOX.x + TIME_DUE_DATE_PADDING);
+      expect(placed.x + width, text).toBeLessThanOrEqual(boxRight - TIME_DUE_DATE_PADDING);
+      expect(placed.size, text).toBeGreaterThanOrEqual(9);
+      expect(placed.size, text).toBeLessThanOrEqual(DUE_DATE_ANCHOR.size);
+    }
+
+    for (const month of ["September", "November", "December"]) {
+      const text = `30 ${month} 2026`;
+      expect(measure(text, 11), text).toBeGreaterThan(TIME_DUE_DATE_BOX.width - 2 * TIME_DUE_DATE_PADDING);
+      expect(layoutDueDate(text, DUE_DATE_ANCHOR, measure).size, text).toBeLessThan(11);
+    }
+  });
+
+  it("leaves a short date on the template anchor at 11pt", async () => {
+    const measure = await semiBoldMeasure();
+    const right = DUE_DATE_ANCHOR.x + measure(DUE_DATE_ANCHOR.template, 11);
+    for (const text of ["1 May 2026", "2 May 2026"]) {
+      const placed = layoutDueDate(text, DUE_DATE_ANCHOR, measure);
+      expect(placed.size, text).toBe(11);
+      expect(placed.x + measure(text, 11), text).toBeCloseTo(right, 2);
+    }
+  });
+
+  it("draws the long dates inside the box and does not move the three money values", async () => {
+    const measure = await semiBoldMeasure();
+    const when = new Date(2026, 9, 6);
+    const total = `MYR ${money(computeInvoiceFields(SYNTHETIC_CASE.case_no, when).totalSen)}`;
+    const rightOf = (anchorX: number) => anchorX + measure("MYR 115.09", 11) - measure(total, 11);
+    // pdf-lib's embedded Work Sans does not round-trip through the template cmap,
+    // so the money values are identified by the anchor they were drawn at.
+    const summaryMoney = (runs: { text: string; x: number; y: number; size: number }[]) =>
+      runs
+        .filter((run) => {
+          if (run.text === "MYR 0.00" && run.y > 600) return true;
+          if (Math.abs(run.y - 630.77) < 0.5) return true;
+          if (Math.abs(run.y - 562.77) < 0.5 && run.x < 420) return true;
+          return false;
+        })
+        .map((run) => `${run.x.toFixed(2)}|${run.y.toFixed(2)}|${run.size.toFixed(2)}`)
+        .sort();
+
+    const september = await page1Runs(new Date(2026, 8, 30));
+    const may = await page1Runs(new Date(2026, 4, 1));
+    expect(summaryMoney(september)).toEqual(summaryMoney(may));
+
+    const overdue = september.find((run) => run.text === "MYR 0.00" && run.y > 600);
+    expect(overdue?.x).toBeCloseTo(368.7, 1);
+    expect(overdue?.y).toBeCloseTo(631.77, 1);
+    expect(overdue?.size).toBeCloseTo(11, 1);
+
+    const current = september.find((run) => Math.abs(run.y - 630.77) < 0.5 && Math.abs(run.size - 11) < 0.1);
+    expect(current?.x).toBeCloseTo(rightOf(470.52), 1);
+    expect(current?.y).toBeCloseTo(630.77, 1);
+    expect(current?.size).toBeCloseTo(11, 1);
+
+    const outstanding = september.find((run) => Math.abs(run.y - 562.77) < 0.5 && run.x < 420);
+    expect(outstanding?.x).toBeCloseTo(rightOf(364.52), 1);
+    expect(outstanding?.y).toBeCloseTo(562.77, 1);
+    expect(outstanding?.size).toBeCloseTo(11, 1);
+
+    for (const due of [new Date(2026, 9, 3), new Date(2026, 8, 30), new Date(2026, 4, 1)]) {
+      const text = longDate(due);
+      const runs = due.getMonth() === 8 ? september : due.getMonth() === 4 ? may : await page1Runs(due);
+      const placed = layoutDueDate(text, DUE_DATE_ANCHOR, measure);
+      const run = runs.find((item) => Math.abs(item.y - 562.77) < 0.5 && Math.abs(item.x - placed.x) < 1);
+      const width = measure(text, placed.size);
+      expect(run, text).toBeTruthy();
+      expect(run!.size, text).toBeCloseTo(placed.size, 1);
+      expect(run!.x, text).toBeGreaterThanOrEqual(TIME_DUE_DATE_BOX.x + TIME_DUE_DATE_PADDING - 0.05);
+      expect(run!.x + width, text).toBeLessThanOrEqual(
+        TIME_DUE_DATE_BOX.x + TIME_DUE_DATE_BOX.width - TIME_DUE_DATE_PADDING + 0.05,
+      );
+    }
   });
 });
 
