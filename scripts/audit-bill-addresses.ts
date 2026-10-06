@@ -17,8 +17,9 @@
  * row, as before.
  *
  * PASS for TIME means the printed lines contain no introduced `...`, no dropped source
- * token, and no pair of tokens run together (see `auditTimeBillAddress`). A FAIL row's
- * `reason` column says which of those fired (`ellipsis`, `missing=…`, `run-together=…`).
+ * token, no pair of tokens run together, and the drawn street is the whole wrap
+ * (see `auditTimeBillAddress`). A FAIL row's `reason` column says which of those
+ * fired (`ellipsis`, `street_truncated`, `missing=…`, `run-together=…`).
  *
  * Runs locally with no Google key: geocoding only fills a MISSING postcode / city / state,
  * never a street token, so the street half of the audit is exactly what production prints.
@@ -103,7 +104,10 @@ async function main() {
     if (bill === 'time') {
       const packed = await buildInvoiceAddress(row.full_address!, '', measure!, TIME_ADDRESS_MAX_WIDTH);
       const printed = printedTimeAddress(packed);
-      const audit = auditTimeBillAddress(row.full_address!, printed);
+      const audit = auditTimeBillAddress(row.full_address!, printed, {
+        fullStreet: packed.fullStreet,
+        printedStreet: packed.street,
+      });
       const detail = timeAuditDetail(audit);
       if (!audit.pass) {
         failed++;

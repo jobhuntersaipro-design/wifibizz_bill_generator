@@ -120,6 +120,30 @@ const SEEDS: CaseRow[] = [
     provider: 'TIME FTTH',
     full_address: '7 JALAN HILL PARK 3/1A - HILLPARK HOME SEMENYIH SELANGOR MALAYSIA 43500',
   },
+  {
+    case_no: 'T-SYN-244',
+    provider: 'TIME FTTH',
+    full_address:
+      'Level 8,Unit 7,RESIDENSI TIARA TITIWANGSA (D BRIGHTTON) - BLOCK A2 APARTMENT,28, Jalan Tiara Titiwangsa,,,53200,Kuala Lumpur,Wilayah Persekutuan Kuala Lumpur',
+  },
+  {
+    case_no: 'T-SYN-245',
+    provider: 'TIME FTTH',
+    full_address:
+      '106, G FLOOR, SPECTRUM APARTMENT - SHOPLOT BLOCK 1 Jalan PJS 11/2, Bandar Sunway, Petaling Jaya, Selangor , Malaysia',
+  },
+  {
+    case_no: 'T-SYN-246',
+    provider: 'TIME FTTH',
+    full_address:
+      '8-03, LEVEL 8, MENARA YAYASAN TUN ABDUL RAZAK, Jalan Bukit Bintang Kuala Lumpur Wilayah Persekutuan Kuala Lumpur',
+  },
+  {
+    case_no: 'T-SYN-247',
+    provider: 'TIME FTTH',
+    full_address:
+      'A-15-08, LEVEL 15, RESIDENSI VISTA PANORAMA HEIGHTS, BLOCK B2 APARTMENT WING, 36, JALAN BUKIT JALIL 1/2, TAMAN BUKIT JALIL, PAVILION RESIDENCE, SUBANG JAYA, Selangor, 47500, Malaysia',
+  },
 ];
 
 function joinUnit(unit: string, building: string, mode: number): string {
@@ -179,7 +203,10 @@ async function main() {
   for (const row of candidates()) {
     const packed = await buildInvoiceAddress(row.full_address, '', measure, TIME_ADDRESS_MAX_WIDTH);
     const lines = printedTimeAddress(packed);
-    const audit = auditTimeBillAddress(row.full_address, lines);
+    const audit = auditTimeBillAddress(row.full_address, lines, {
+      fullStreet: packed.fullStreet,
+      printedStreet: packed.street,
+    });
     if (!audit.pass) {
       failed++;
       if (failed <= 12) {
@@ -203,7 +230,7 @@ async function main() {
   }
   const mixed: CaseRow[] = [...seeds];
   const keys = [...buckets.keys()];
-  // 240 generated rows plus the three prod-audit shapes kept as seeds.
+  // 240 generated rows, plus the hand-written seeds beyond the original pair.
   while (mixed.length < 240 + (SEEDS.length - 2)) {
     let added = false;
     for (const key of keys) {
