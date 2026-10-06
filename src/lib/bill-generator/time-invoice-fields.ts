@@ -420,7 +420,7 @@ export function packAddress(
 }
 
 /** Street, locality, then MALAYSIA — the lines the invoice actually draws. */
-export function printedTimeAddress(address: InvoiceAddress): string[] {
+export function printedTimeAddress(address: { street: string[]; locality: string }): string[] {
   return [...address.street, address.locality, 'MALAYSIA'].filter((line) => line.trim());
 }
 
