@@ -122,6 +122,18 @@ describe("Umobile bill keeps every address token (ClickUp z8v9xngra2)", () => {
     expect(lines).toEqual(["99-G G JALAN J-AVENUE CHERAS SELATAN", "43200 CHERAS SELANGOR MALAYSIA"]);
   });
 
+  it("folds a full-width comma so the unit and the building stay separate", async () => {
+    const source =
+      "B-12-03A\uFF0CTHE REGINA, Jalan Subang Permai, TAMAN SUBANG PERMAI, SUBANG JAYA, Selangor, 47500, Malaysia";
+    const lines = await internetLines(source);
+    const text = lines.join(" ");
+    expect(text).not.toContain("\uFF0C");
+    expect(text).not.toContain("03ATHE");
+    expect(text).toContain("B-12-03A");
+    expect(text).toContain("THE REGINA");
+    expect(auditBillAddress(source, lines)).toEqual({ pass: true, missing: [] });
+  });
+
   it("does not print the state twice when it carries its honorific", async () => {
     const lines = await internetLines("No 99, Jalan Mutiara Emas 3/1, Taman Mount Austin, 81100 Johor Bahru, Johor Darul Ta'zim");
     expect(lines.at(-1)).toBe("81100 JOHOR BAHRU JOHOR MALAYSIA");

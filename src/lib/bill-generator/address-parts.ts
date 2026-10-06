@@ -11,7 +11,7 @@
  * and any future fix would have had to be made twice.
  */
 
-import { normalizeAddress, type UtilityAddressResult } from './address-normalizer';
+import { normalizeAddress, normalizePortalPunctuation, type UtilityAddressResult } from './address-normalizer';
 import postcodeTable from '../malaysia-postcodes.json';
 
 /**
@@ -19,14 +19,17 @@ import postcodeTable from '../malaysia-postcodes.json';
  * throws. Map the punctuation that actually turns up in portal addresses to its
  * ASCII equivalent and drop anything else, so a stray en-dash costs a character
  * rather than the whole document.
+ *
+ * Full-width and CJK punctuation is folded first (`normalizePortalPunctuation`).
+ * Doing the Latin-1 drop before that fold deletes `，` and glues the unit to the
+ * building (`B-12-03ATHE`).
  */
 export function sanitize(text: string): string {
-  return (text || '')
+  return normalizePortalPunctuation(text || '')
     .replace(/[‘’‛]/g, "'")
     .replace(/[“”]/g, '"')
     .replace(/[–—−]/g, '-')
     .replace(/…/g, '...')
-    .replace(/ /g, ' ')
     .split('')
     .filter((c) => c.charCodeAt(0) >= 32 && c.charCodeAt(0) <= 255)
     .join('')
@@ -104,9 +107,19 @@ export interface AddressParts {
  * up to the postcode, which preserves unit prefixes (`A-12-3`) that the parsed
  * components drop.
  */
+export interface ResolveAddressOptions {
+  /**
+   * Leave a trailing city on the street. The TIME invoice prints that city on
+   * the street and again on the postcode line. The authorization letter leaves
+   * this off, so a city is not said twice.
+   */
+  keepTrailingLocality?: boolean;
+}
+
 export async function resolveAddressParts(
   rawAddress: string,
   fullName: string,
+  options?: ResolveAddressOptions,
 ): Promise<AddressParts> {
   const raw = sanitize(rawAddress);
   if (!raw) return { streetSegments: [], hasTail: false };
@@ -150,7 +163,10 @@ export async function resolveAddressParts(
     // still sitting in the street text, and the address would print each of
     // them twice.
     streetPart = raw.replace(new RegExp(`\\b${escapeRegExp(postcode)}\\b`), ' ');
-    streetPart = stripTrailingLocality(streetPart, [locality, state]);
+    // State and country always leave the street — they are the locality line.
+    // The city stays when the caller asked for it (the TIME invoice).
+    const tails = options?.keepTrailingLocality ? [state] : [locality, state];
+    streetPart = stripTrailingLocality(streetPart, tails);
     hasTail = true;
   }
   streetPart = dropEmptySegments(streetPart);

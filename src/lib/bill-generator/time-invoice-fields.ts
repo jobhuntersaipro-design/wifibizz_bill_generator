@@ -13,6 +13,26 @@
 import { hashSeed, makeRng } from './owner-identity';
 import { resolveAddressParts } from './address-parts';
 
+/**
+ * Helvetica 9pt, the face and size the customer block is drawn in.
+ * The audit measures with the same pair so a line the bill wraps is a line the
+ * audit accepts.
+ */
+export const TIME_ADDRESS_FONT_SIZE = 9;
+
+/**
+ * From x=42 to the left edge of the Overdue / Current Charges boxes (x=342).
+ *
+ * The locality and MALAYSIA baselines (y=663.56 and y=650.56) sit beside those
+ * boxes, whose top is y=661. Text past x=342 paints over them. The e-invoice
+ * mark sits below, about y=601–634, so a fifth address line would land on it.
+ * Two street lines plus locality plus MALAYSIA is the whole box.
+ */
+export const TIME_ADDRESS_MAX_WIDTH = 300;
+
+/** Street lines the page can draw above the reserved locality and country. */
+export const TIME_ADDRESS_STREET_SLOTS = 2;
+
 // ── The plan ───────────────────────────────────────────────────────
 // Fixed for every invoice, per the 2026-08-23 decision: no speed mapping from
 // the case's Unifi package.
@@ -202,11 +222,44 @@ export interface InvoiceAddress {
 /** Measures a string in points. Supplied by the caller so this module stays pdf-free. */
 export type Measure = (text: string) => number;
 
-function truncateToWidth(text: string, measure: Measure, maxWidth: number): string {
-  if (measure(text) <= maxWidth) return text;
-  let out = text;
-  while (out.length > 1 && measure(`${out}...`) > maxWidth) out = out.slice(0, -1);
-  return `${out.trimEnd()}...`;
+/**
+ * Word-wrap `text` so every line measures within `maxWidth`.
+ *
+ * A single word wider than the box is broken mid-word. Letting it overhang is
+ * how a line crosses x=342 and paints over the charges boxes. An ellipsis is
+ * never inserted: `...` is what ate TAMAN SUBANG PERMAI off the TIME bill.
+ */
+function wrapMeasured(text: string, measure: Measure, maxWidth: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = '';
+
+  const breakWide = (word: string): string => {
+    let rest = word;
+    while (rest.length > 1 && measure(rest) > maxWidth) {
+      let cut = rest.length - 1;
+      while (cut > 1 && measure(rest.slice(0, cut)) > maxWidth) cut--;
+      lines.push(rest.slice(0, cut));
+      rest = rest.slice(cut);
+    }
+    return rest;
+  };
+
+  for (const word of words) {
+    if (!current) {
+      current = breakWide(word);
+      continue;
+    }
+    const candidate = `${current} ${word}`;
+    if (measure(candidate) <= maxWidth) {
+      current = candidate;
+    } else {
+      lines.push(current);
+      current = breakWide(word);
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
 }
 
 /**
@@ -217,6 +270,10 @@ function truncateToWidth(text: string, measure: Measure, maxWidth: number): stri
  * formatter emitted as many lines as it needed while the page drew a fixed
  * number, so the last line was silently dropped, and the last line was the state.
  *
+ * Uppercase BEFORE measuring. Helvetica caps are wider than the mixed-case
+ * portal text, so a line that fit in "Jalan Subang Permai" overflowed once it
+ * became "JALAN SUBANG PERMAI" and was then cut with `...`.
+ *
  * Width is measured, never counted. A line of `X` is far wider than a line of
  * address text of the same length, which is exactly what pushed the utility
  * bill's masked name outside its box.
@@ -226,34 +283,23 @@ export function packAddress(
   measure: Measure,
   maxWidth: number,
 ): InvoiceAddress {
-  const locality = [parts.postcode, parts.locality, parts.state]
+  const localityText = [parts.postcode, parts.locality, parts.state]
     .filter((p) => p && p.trim())
     .join(' ')
     .toUpperCase();
 
-  const lines: string[] = [];
-  let current = '';
-  for (const segment of parts.streetSegments) {
-    const candidate = current ? `${current}, ${segment}` : segment;
-    if (!current || measure(candidate) <= maxWidth) {
-      current = candidate;
-    } else {
-      lines.push(current);
-      current = segment;
-    }
-  }
-  if (current) lines.push(current);
+  const streetText = parts.streetSegments.map((s) => s.toUpperCase()).join(', ');
+  const street = wrapMeasured(streetText, measure, maxWidth).slice(0, TIME_ADDRESS_STREET_SLOTS);
+  // A postcode line fits the box. If one ever does not, the first wrapped piece
+  // is what draws — still with no ellipsis, and still inside the box.
+  const locality = localityText ? (wrapMeasured(localityText, measure, maxWidth)[0] ?? '') : '';
 
-  // Only two street slots exist on the page. Anything beyond them is folded into
-  // the second line and truncated to fit, rather than being dropped unseen.
-  let street = lines.map((l) => l.toUpperCase());
-  if (street.length > 2) {
-    street = [street[0], truncateToWidth(street.slice(1).join(', '), measure, maxWidth)];
-  } else {
-    street = street.map((l) => truncateToWidth(l, measure, maxWidth));
-  }
+  return { street, locality };
+}
 
-  return { street, locality: truncateToWidth(locality, measure, maxWidth) };
+/** Street, locality, then MALAYSIA — the lines the invoice actually draws. */
+export function printedTimeAddress(address: InvoiceAddress): string[] {
+  return [...address.street, address.locality, 'MALAYSIA'].filter((line) => line.trim());
 }
 
 /** Resolve a raw portal address into the invoice's customer block. */
@@ -263,6 +309,6 @@ export async function buildInvoiceAddress(
   measure: Measure,
   maxWidth: number,
 ): Promise<InvoiceAddress> {
-  const parts = await resolveAddressParts(rawAddress, fullName);
+  const parts = await resolveAddressParts(rawAddress, fullName, { keepTrailingLocality: true });
   return packAddress(parts, measure, maxWidth);
 }
