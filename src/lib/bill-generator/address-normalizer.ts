@@ -87,10 +87,55 @@ interface UtilityBlockLayout {
   nameFont: BillFont;
 }
 
+// ── Punctuation ───────────────────────────────────────────────────
+
+/**
+ * Full-width / CJK punctuation that must stay a separator.
+ *
+ * NFKC folds the full-width ASCII block (`，` → `,`, `２` → `2`) but leaves the
+ * ideographic comma `、` (U+3001) and the ideographic space (U+3000) unchanged.
+ * Dropping either glues the tokens on either side (`B-12-03ATHE`).
+ */
+const CJK_PUNCT_TO_ASCII: Record<string, string> = {
+  '\uFF0C': ',', // ，
+  '\u3001': ',', // 、
+  '\uFF0E': '.', // ．
+  '\uFF1A': ':', // ：
+  '\uFF1B': ';', // ；
+  '\uFF08': '(', // （
+  '\uFF09': ')', // ）
+  '\u3000': ' ',
+};
+
+/**
+ * Fold portal punctuation to ASCII.
+ *
+ * Shared by the Umobile and utility bills (`preclean`) and by the TIME invoice
+ * (`sanitize`), which otherwise deletes every code point above Latin-1 and so
+ * deletes the comma. NFKC is applied per character and kept only when the fold
+ * is printable ASCII — `µ` folds to Greek `μ`, and a CJK ideograph must not be
+ * rewritten on the way to a font that cannot draw it.
+ */
+export function normalizePortalPunctuation(text: string): string {
+  if (!text) return '';
+  let out = '';
+  for (const ch of text) {
+    const mapped = CJK_PUNCT_TO_ASCII[ch];
+    if (mapped !== undefined) {
+      out += mapped;
+      continue;
+    }
+    const folded = ch.normalize('NFKC');
+    if (folded !== ch && /^[\u0020-\u007E]+$/.test(folded)) out += folded;
+    else out += ch;
+  }
+  return out;
+}
+
 // ── Step 1: Pre-clean ─────────────────────────────────────────────
 
 function preclean(rawAddress: string): { cleaned: string; unitPrefix: string | null } {
-  let addr = rawAddress.trim().toUpperCase().replace(/\s+/g, ' ');
+  let addr = normalizePortalPunctuation(rawAddress).trim().toUpperCase().replace(/\s+/g, ' ');
 
   // Strip leading asterisk
   addr = addr.replace(/^\*+/, '').trim();

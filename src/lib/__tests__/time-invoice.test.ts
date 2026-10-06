@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import {
+  buildInvoiceAddress,
   computeInvoiceFields,
   packAddress,
+  printedTimeAddress,
   money,
   slashDate,
   longDate,
@@ -9,8 +12,12 @@ import {
   inclusiveDays,
   MONTHLY_SEN,
   SERVICE_TAX_PERCENT,
+  TIME_ADDRESS_FONT_SIZE,
+  TIME_ADDRESS_MAX_WIDTH,
   type Measure,
 } from "@/lib/bill-generator/time-invoice-fields";
+import { auditTimeBillAddress } from "@/lib/bill-generator/address-audit";
+import { generateTimeInvoice } from "@/lib/bill-generator/time-invoice";
 import {
   randomQrModules,
   barcodeContent,
@@ -221,14 +228,18 @@ describe("customer address block", () => {
     expect(packed.street.length).toBeLessThanOrEqual(2);
   });
 
-  it("marks a truncation instead of cutting a word off silently", () => {
+  it("wraps a line that does not fit and never inserts an ellipsis", () => {
     const packed = packAddress(
       { ...long, streetSegments: ["A".repeat(400), "B".repeat(400), "C".repeat(400)] },
       measure,
       MAX,
     );
-    expect(packed.street[1].endsWith("...")).toBe(true);
-    expect(measure(packed.street[1])).toBeLessThanOrEqual(MAX);
+    for (const line of [...packed.street, packed.locality]) {
+      expect(line.includes("...")).toBe(false);
+      expect(measure(line)).toBeLessThanOrEqual(MAX);
+    }
+    expect(packed.street[0].startsWith("AAAA")).toBe(true);
+    expect(packed.street.length).toBeLessThanOrEqual(2);
   });
 
   it("uppercases the block and drops empty locality parts", () => {
@@ -244,6 +255,97 @@ describe("customer address block", () => {
   it("produces no locality line at all when the address has no postcode", () => {
     const packed = packAddress({ streetSegments: ["12 JALAN BESAR"] }, measure, MAX);
     expect(packed.locality).toBe("");
+  });
+
+  it("uppercases before measuring, so a mixed-case line cannot overflow once capped", () => {
+    // Lowercase is narrower in a real font. A measure that only charges for caps
+    // is what the bill uses after the fold; the packer must wrap the caps.
+    const capsWider: Measure = (text) => {
+      let width = 0;
+      for (const ch of text) width += ch >= "A" && ch <= "Z" ? 8 : 4;
+      return width;
+    };
+    const packed = packAddress(
+      {
+        streetSegments: ["jalan subang permai yang sangat panjang sekali", "taman subang permai"],
+        postcode: "47500",
+        locality: "subang jaya",
+        state: "selangor",
+      },
+      capsWider,
+      80,
+    );
+    for (const line of [...packed.street, packed.locality]) {
+      expect(capsWider(line)).toBeLessThanOrEqual(80);
+      expect(line).toBe(line.toUpperCase());
+      expect(line.includes("...")).toBe(false);
+    }
+  });
+});
+
+const GOLDEN_ADDRESS =
+  "B-12-03A\uFF0CTHE REGINA, Jalan Subang Permai, TAMAN SUBANG PERMAI, SUBANG JAYA, Selangor, 47500, Malaysia";
+
+describe("TIME golden installation address", () => {
+  it("wraps the full street, keeps the full-width comma, and does not ellipsize", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const measure = (text: string) => font.widthOfTextAtSize(text, TIME_ADDRESS_FONT_SIZE);
+    const packed = await buildInvoiceAddress(GOLDEN_ADDRESS, "CUSTOMER", measure, TIME_ADDRESS_MAX_WIDTH);
+    const lines = printedTimeAddress(packed);
+
+    expect(lines.slice(0, -2).join(" ")).toBe(
+      "B-12-03A, THE REGINA, JALAN SUBANG PERMAI, TAMAN SUBANG PERMAI, SUBANG JAYA",
+    );
+    expect(lines.at(-2)).toBe("47500 SUBANG JAYA SELANGOR");
+    expect(lines.at(-1)).toBe("MALAYSIA");
+    expect(lines.join("\n")).not.toContain("...");
+    expect(lines.join("\n")).not.toContain("03ATHE");
+    for (const line of lines) expect(measure(line)).toBeLessThanOrEqual(TIME_ADDRESS_MAX_WIDTH);
+    expect(auditTimeBillAddress(GOLDEN_ADDRESS, lines).pass).toBe(true);
+  });
+
+  it("draws those lines on the invoice, inside the address box", async () => {
+    const bytes = await generateTimeInvoice(
+      { case_no: "TIME-ADDR-GOLDEN", full_name: "CUSTOMER", full_address: GOLDEN_ADDRESS },
+      new Date(2026, 9, 6),
+    );
+    const { extractTextRuns, loadPageCmaps } = await import("@/lib/bill-generator/tenancy-stamp");
+    const { getPageStreamRefs, transformStream } = await import("@/lib/bill-generator/pdf-utils");
+    const doc = await PDFDocument.load(bytes);
+    const page = doc.getPages()[0];
+    const cmaps = loadPageCmaps(doc, page);
+    const runs: { text: string; x: number; y: number }[] = [];
+    for (const entry of getPageStreamRefs(doc, page)) {
+      transformStream(doc, entry, (buf) => {
+        for (const run of extractTextRuns(buf.toString("latin1"), cmaps)) {
+          if (run.text.trim()) runs.push(run);
+        }
+        return { data: buf, count: 0 };
+      });
+    }
+
+    const text = runs.map((r) => r.text).join("\n");
+    expect(text).toContain("B-12-03A, THE REGINA, JALAN SUBANG PERMAI, TAMAN SUBANG");
+    expect(text).toContain("PERMAI, SUBANG JAYA");
+    expect(text).toContain("47500 SUBANG JAYA SELANGOR");
+    expect(text).toContain("MALAYSIA");
+    expect(text).not.toContain("...");
+    expect(text).not.toContain("03ATHE");
+
+    const address = runs.filter((r) =>
+      r.text.startsWith("B-12-03A") ||
+      r.text.startsWith("PERMAI, SUBANG") ||
+      r.text.startsWith("47500 SUBANG") ||
+      r.text === "MALAYSIA",
+    );
+    expect(address.length).toBeGreaterThanOrEqual(4);
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    for (const run of address) {
+      expect(run.x).toBeCloseTo(42, 0);
+      expect(run.y).toBeGreaterThanOrEqual(650);
+      expect(run.x + font.widthOfTextAtSize(run.text, TIME_ADDRESS_FONT_SIZE)).toBeLessThanOrEqual(342);
+    }
   });
 });
 

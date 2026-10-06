@@ -216,6 +216,20 @@ describe("sanitize", () => {
     expect(sanitize("JALAN 1\u20132, D\u2019BOULEVARD")).toBe("JALAN 1-2, D'BOULEVARD");
   });
 
+  it("folds full-width punctuation to ASCII before the Latin-1 drop", () => {
+    expect(sanitize("B-12-03A\uFF0CTHE REGINA")).toBe("B-12-03A,THE REGINA");
+    expect(sanitize("A\u3001B\u3000C")).toBe("A,B C");
+    expect(sanitize("\uFF12-T.12-U.01")).toBe("2-T.12-U.01");
+    expect(sanitize("NO\uFF0E 12")).toBe("NO. 12");
+    expect(sanitize("\uFF08TOWER A\uFF09")).toBe("(TOWER A)");
+  });
+
+  it("leaves a NFKC fold that is not ASCII alone", () => {
+    // µ (U+00B5) folds to Greek μ. Keeping µ is the safe choice: the fold is
+    // not ASCII, and dropping it would cost the character.
+    expect(sanitize("LOT \u00B5")).toBe("LOT \u00B5");
+  });
+
   it("drops what Latin-1 cannot encode, rather than letting pdf-lib throw", () => {
     expect(sanitize("TAMAN \u4e2d\u6587 JAYA")).toBe("TAMAN JAYA");
   });

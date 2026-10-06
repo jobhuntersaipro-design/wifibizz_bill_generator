@@ -55,7 +55,10 @@ import {
   computeInvoiceFields,
   longDate,
   money,
+  printedTimeAddress,
   slashDate,
+  TIME_ADDRESS_FONT_SIZE,
+  TIME_ADDRESS_MAX_WIDTH,
   PLAN_NAME,
   type TimeInvoiceFields,
 } from './time-invoice-fields';
@@ -70,12 +73,6 @@ import {
 
 const TEMPLATE = path.join(process.cwd(), 'bill_generator', 'template', 'time_invoice.pdf');
 const FONT_DIR = path.join(process.cwd(), 'bill_generator', 'fonts');
-
-/**
- * The customer block runs from the left margin to well short of the grey summary
- * box on the right. Measured, and the only bound the address is wrapped against.
- */
-const ADDRESS_MAX_WIDTH = 300;
 
 type FontKey = 'ws' | 'wsb' | 'helv' | 'helvB';
 type Align = 'left' | 'right' | 'center';
@@ -250,11 +247,12 @@ function page1Draws(f: TimeInvoiceFields, name: string, address: { street: strin
   // The locality is placed before MALAYSIA and both always draw, so the postcode
   // can never be the line that falls off the end — the failure the utility bill
   // had, where the formatter emitted more lines than the page had slots and
-  // silently dropped the last one, which was the state.
+  // silently dropped the last one, which was the state. Street lines are already
+  // wrapped to TIME_ADDRESS_MAX_WIDTH; nothing here adds an ellipsis.
   const slots = [688.56, 676.56, 663.56, 650.56];
-  const block = [...address.street.slice(0, 2), address.locality, 'MALAYSIA'].filter(Boolean);
+  const block = printedTimeAddress(address);
   block.slice(0, slots.length).forEach((line, i) => {
-    draws.push({ text: line, x: 42, y: slots[i], size: 9, font: 'helv' });
+    draws.push({ text: line, x: 42, y: slots[i], size: TIME_ADDRESS_FONT_SIZE, font: 'helv' });
   });
 
   return draws;
@@ -332,8 +330,8 @@ export async function generateTimeInvoice(
   const address = await buildInvoiceAddress(
     caseData.full_address,
     customerName,
-    (text) => fonts.helv.widthOfTextAtSize(text, 9),
-    ADDRESS_MAX_WIDTH,
+    (text) => fonts.helv.widthOfTextAtSize(text, TIME_ADDRESS_FONT_SIZE),
+    TIME_ADDRESS_MAX_WIDTH,
   );
 
   const pages = pdfDoc.getPages();
