@@ -96,6 +96,32 @@ interface CaseRow {
   full_address: string;
 }
 
+/** Shapes from the prod audit follow-up. Anonymised; not customer rows. */
+const SEEDS: CaseRow[] = [
+  { case_no: 'T-SYN-001', provider: 'TIME FTTH', full_address: GOLDEN },
+  {
+    case_no: 'T-SYN-002',
+    provider: 'TIME FTTH',
+    full_address:
+      '2-T.12-U.01 FTTH BLOK B2 APARTMENT 5R6 JALAN P5 A PRESINT 5 62200 PUTRAJAYA WILAYAH PERSEKUTUAN PUTRAJAYA',
+  },
+  {
+    case_no: 'T-SYN-241',
+    provider: 'TIME FTTH',
+    full_address: '*1087 JALAN BUBUL BATU 2 KAMPUNG MUHIBBAH SEMPORNA SABAH 91300',
+  },
+  {
+    case_no: 'T-SYN-242',
+    provider: 'TIME FTTH',
+    full_address: '*7190 JALAN BUKIT LALLANG 2 TAMAN LALLANG SEMPORNA SABAH 91300',
+  },
+  {
+    case_no: 'T-SYN-243',
+    provider: 'TIME FTTH',
+    full_address: '7 JALAN HILL PARK 3/1A - HILLPARK HOME SEMENYIH SELANGOR MALAYSIA 43500',
+  },
+];
+
 function joinUnit(unit: string, building: string, mode: number): string {
   if (!building) return unit;
   // Separators the portal actually pastes between a unit and a building name.
@@ -116,17 +142,9 @@ function joinUnit(unit: string, building: string, mode: number): string {
 }
 
 function candidates(): CaseRow[] {
-  const rows: CaseRow[] = [
-    { case_no: 'T-SYN-001', provider: 'TIME FTTH', full_address: GOLDEN },
-    {
-      case_no: 'T-SYN-002',
-      provider: 'TIME FTTH',
-      full_address:
-        '2-T.12-U.01 FTTH BLOK B2 APARTMENT 5R6 JALAN P5 A PRESINT 5 62200 PUTRAJAYA WILAYAH PERSEKUTUAN PUTRAJAYA',
-    },
-  ];
+  const rows: CaseRow[] = [...SEEDS];
 
-  let n = 3;
+  let n = SEEDS.length + 1;
   for (let u = 0; u < UNITS.length; u++) {
     for (let b = 0; b < BUILDINGS.length; b++) {
       for (let s = 0; s < STREETS.length; s++) {
@@ -175,9 +193,9 @@ async function main() {
   // The unit loop is the outer one, so the first rows are all `B-12-03A`.
   // Round-robin the units so the fixture actually contains LOT, NO., BLOK and
   // `2-T.12-U.01`, not two hundred copies of one condo unit.
-  const seeds = kept.slice(0, 2);
+  const seeds = kept.slice(0, SEEDS.length);
   const buckets = new Map<string, CaseRow[]>();
-  for (const row of kept.slice(2)) {
+  for (const row of kept.slice(SEEDS.length)) {
     const unit = UNITS.find((u) => row.full_address.startsWith(u)) ?? 'other';
     const list = buckets.get(unit) ?? [];
     list.push(row);
@@ -185,7 +203,8 @@ async function main() {
   }
   const mixed: CaseRow[] = [...seeds];
   const keys = [...buckets.keys()];
-  while (mixed.length < 240) {
+  // 240 generated rows plus the three prod-audit shapes kept as seeds.
+  while (mixed.length < 240 + (SEEDS.length - 2)) {
     let added = false;
     for (const key of keys) {
       const list = buckets.get(key);

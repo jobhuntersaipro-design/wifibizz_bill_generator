@@ -1198,5 +1198,20 @@
     "case_no": "T-SYN-240",
     "provider": "TIME FTTH",
     "full_address": "BLOK B2, THE REGINA, LORONG MALAWA COURT 2, TAMAN PUTRA PERDANA, KAMPAR, Perak, 31900, Malaysia"
+  },
+  {
+    "case_no": "T-SYN-241",
+    "provider": "TIME FTTH",
+    "full_address": "*1087 JALAN BUBUL BATU 2 KAMPUNG MUHIBBAH SEMPORNA SABAH 91300"
+  },
+  {
+    "case_no": "T-SYN-242",
+    "provider": "TIME FTTH",
+    "full_address": "*7190 JALAN BUKIT LALLANG 2 TAMAN LALLANG SEMPORNA SABAH 91300"
+  },
+  {
+    "case_no": "T-SYN-243",
+    "provider": "TIME FTTH",
+    "full_address": "7 JALAN HILL PARK 3/1A - HILLPARK HOME SEMENYIH SELANGOR MALAYSIA 43500"
   }
 ]

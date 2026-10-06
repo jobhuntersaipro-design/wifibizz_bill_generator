@@ -27,19 +27,23 @@ export const INTENTIONAL_NORMALISATIONS = [
 const FT = '(?:KUALA LUMPUR|PUTRAJAYA|LABUAN)';
 const STATE_NAMES = 'JOHOR|KEDAH|KELANTAN|NEGERI SEMBILAN|PAHANG|PERAK|SELANGOR|TERENGGANU';
 
+/**
+ * Tokens used for comparison. A leading or trailing mark (`*1087`, `#1087`, `1087*`)
+ * is not part of the token, so `*1087` and `1087` compare equal. Internal punctuation
+ * stays (`3/1A`, `B-12-03A`, `U.01`). This does not change what the bill prints.
+ */
 function tokens(text: string): string[] {
   return text
     .toUpperCase()
     .replace(/,/g, ' ')
     .split(/\s+/)
-    .map((t) => t.replace(/\.+$/, ''))
+    .map((t) => t.replace(/^[^A-Z0-9]+|[^A-Z0-9]+$/g, ''))
     .filter(Boolean);
 }
 
 function sourceTokens(source: string): string[] {
   const text = normalizePortalPunctuation(source)
     .toUpperCase()
-    .replace(/^\*+/, '')
     .replace(/,/g, ' ')
     .replace(/\bMALAYSIA\b/g, ' ')
     .replace(/(^|\s)\S*:\S*:\S*(?=\s|$)/g, ' ')
@@ -88,19 +92,35 @@ function ellipsisCount(text: string): number {
  * Two neighbouring source tokens jammed into one (`B-12-03A` + `THE` → `B-12-03ATHE`).
  * A missing-token check catches most of these; this names the join so the audit CSV
  * can say why a row failed.
+ *
+ * The jammed string has to be printed AND at least one of the two tokens has to be
+ * absent as its own token. Otherwise a real word that happens to be the concatenation
+ * (`HILL` + `PARK` inside an address that also contains `HILLPARK`) is a false fail.
  */
 function runTogetherTokens(source: string, bill: string): string[] {
   const toks = sourceTokens(source);
+  const printed = new Set(tokens(bill));
   const upper = bill.toUpperCase();
   const hits: string[] = [];
   for (let i = 0; i < toks.length - 1; i++) {
     const a = toks[i];
     const b = toks[i + 1];
     if (a.length < 2 || b.length < 2) continue;
+    if (printed.has(a) && printed.has(b)) continue;
     const jammed = a + b;
     if (upper.includes(jammed)) hits.push(jammed);
   }
   return [...new Set(hits)];
+}
+
+/** CSV fields for a TIME audit row. A fail always has a non-empty reason. */
+export function timeAuditDetail(audit: TimeAddressAudit): { missingTokens: string; reason: string } {
+  const parts = [
+    audit.ellipsis ? 'ellipsis' : '',
+    audit.missing.length ? `missing=${audit.missing.join(' ')}` : '',
+    audit.runTogether.length ? `run-together=${audit.runTogether.join(' ')}` : '',
+  ].filter(Boolean);
+  return { missingTokens: audit.missing.join(' '), reason: parts.join('; ') };
 }
 
 /**
