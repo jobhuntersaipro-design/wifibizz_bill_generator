@@ -23,15 +23,31 @@ export const TIME_ADDRESS_FONT_SIZE = 9;
 /**
  * From x=42 to the left edge of the Overdue / Current Charges boxes (x=342).
  *
- * The locality and MALAYSIA baselines (y=663.56 and y=650.56) sit beside those
- * boxes, whose top is y=661. Text past x=342 paints over them. The e-invoice
- * mark sits below, about y=601–634, so a fifth address line would land on it.
- * Two street lines plus locality plus MALAYSIA is the whole box.
+ * Those boxes are the rects `342 661 105 -55` and `448 661 105 -55`: x>=342,
+ * y=606–661. Text past x=342 paints over them.
  */
 export const TIME_ADDRESS_MAX_WIDTH = 300;
 
-/** Street lines the page can draw above the reserved locality and country. */
-export const TIME_ADDRESS_STREET_SLOTS = 2;
+/**
+ * Top of the e-invoice mark on page 1 of `time_invoice.pdf`.
+ * img4 is `50 0 0 33 32 601 cm` (top y=634). Xf1 is a 273×180 form scaled by
+ * 0.18315 at (32, 602), top y=635. Helvetica's descent is 207/1000, so 9pt
+ * ink reaches 1.86pt under the baseline. A baseline at 640.56 stays clear.
+ */
+export const TIME_ADDRESS_QR_TOP = 635;
+
+/**
+ * Street lines the page can draw. Two is the common case and keeps the
+ * template's four slots. A third is drawn only when the street still needs it
+ * after the trailing-locality drop; the fifth baseline then sits at y=640.56.
+ */
+export const TIME_ADDRESS_STREET_SLOTS = 3;
+
+/** Two street lines, the locality, then MALAYSIA. The template's own slots. */
+export const TIME_ADDRESS_BASELINES = [688.56, 676.56, 663.56, 650.56] as const;
+
+/** Three street lines, the locality, then MALAYSIA. The last baseline clears the e-invoice mark. */
+export const TIME_ADDRESS_BASELINES_WITH_THIRD_STREET = [688.56, 676.56, 664.56, 652.56, 640.56] as const;
 
 // ── The plan ───────────────────────────────────────────────────────
 // Fixed for every invoice, per the 2026-08-23 decision: no speed mapping from
@@ -210,11 +226,19 @@ export function computeInvoiceFields(caseNo: string, now = new Date()): TimeInvo
 // ── Customer block ─────────────────────────────────────────────────
 
 export interface InvoiceAddress {
-  /** Up to two street lines. */
+  /** Street lines actually drawn. At most TIME_ADDRESS_STREET_SLOTS. */
   street: string[];
   /**
-   * Postcode, city and state on one line. Always present when the address has a
-   * postcode, and always drawn — see `buildInvoiceAddress`.
+   * The street wrap before the page drops a line that does not fit.
+   * Equal to `street` when nothing was cut.
+   */
+  fullStreet: string[];
+  /** True when `fullStreet` is longer than `street`. The audit fails on this. */
+  streetTruncated: boolean;
+  /**
+   * Postcode, city and state on one line. Present when the address has a
+   * postcode. Omitted when it would only repeat a city or state the street
+   * already prints and the source has no postcode.
    */
   locality: string;
 }
@@ -262,13 +286,95 @@ function wrapMeasured(text: string, measure: Measure, maxWidth: number): string[
   return lines;
 }
 
+const LOCALITY_WORDS = ['MALAYSIA', 'WP', 'W.P', 'WILAYAH', 'PERSEKUTUAN', 'FEDERAL', 'TERRITORY', 'OF'];
+
+function localityTokens(text: string): string[] {
+  return text
+    .toUpperCase()
+    .split(/\s+/)
+    .map((t) => t.replace(/^[^A-Z0-9]+|[^A-Z0-9]+$/g, ''))
+    .filter(Boolean);
+}
+
+/** MALAYSIA has its own line. It is never also printed inside the street or the locality. */
+function withoutCountry(text: string): string {
+  return text
+    .replace(/\bMALAYSIA\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+,/g, ',')
+    .replace(/^[,\s]+|[,\s]+$/g, '')
+    .trim();
+}
+
+function localityVocabulary(parts: { postcode?: string; locality?: string; state?: string }): Set<string> {
+  const words = new Set<string>(LOCALITY_WORDS);
+  for (const piece of [parts.postcode, parts.locality, parts.state]) {
+    for (const token of localityTokens(piece ?? '')) words.add(token);
+  }
+  return words;
+}
+
+/** A segment whose every token is city, state, WP, Malaysia or the postcode. */
+function isLocalityOnlySegment(segment: string, vocab: Set<string>): boolean {
+  const tokens = localityTokens(segment);
+  return tokens.length > 0 && tokens.every((token) => vocab.has(token));
+}
+
 /**
- * Pack the address into the two street slots plus the locality line.
+ * Peel locality-only segments off the end. A segment that also names a street
+ * (`Jalan Bukit Bintang Kuala Lumpur`) stays whole.
+ */
+function dropTrailingLocalitySegments(segments: string[], vocab: Set<string>): string[] {
+  const out = [...segments];
+  while (out.length > 0 && isLocalityOnlySegment(out[out.length - 1], vocab)) out.pop();
+  return out;
+}
+
+function coversLocality(streetText: string, locality: string): boolean {
+  const folded = streetText
+    .toUpperCase()
+    .replace(/\bWILAYAH\s+PERSEKUTUAN\b/g, 'WP')
+    .replace(/\bFEDERAL\s+TERRITORY\s+OF\b/g, 'WP')
+    .replace(/\bW\.?\s*P\.?\b/g, 'WP');
+  const have = new Set(localityTokens(folded));
+  const need = localityTokens(locality);
+  return need.length > 0 && need.every((token) => have.has(token));
+}
+
+function localityLine(parts: { postcode?: string; locality?: string; state?: string }): string {
+  const city = (parts.locality ?? '').trim();
+  const state = (parts.state ?? '').trim();
+  // The postcode table names Kuala Lumpur as both city and state. Printing it
+  // twice on the one line adds nothing the source did not already say.
+  const stateAdds = state && state.toUpperCase() !== city.toUpperCase();
+  return withoutCountry([parts.postcode, city, stateAdds ? state : ''].filter((p) => p && p.trim()).join(' ')).toUpperCase();
+}
+
+/**
+ * Pack the address into the street slots plus the locality line.
  *
- * The locality line is reserved: postcode, city and state always draw, and it is
- * the street that yields. The utility bill got this the other way round — its
- * formatter emitted as many lines as it needed while the page drew a fixed
- * number, so the last line was silently dropped, and the last line was the state.
+ * The locality line is reserved when the address has a postcode: postcode, city
+ * and state draw, and it is the street that yields. The utility bill got this
+ * the other way round — its formatter emitted as many lines as it needed while
+ * the page drew a fixed number, so the last line was silently dropped, and the
+ * last line was the state.
+ *
+ * Trailing segments that only repeat the locality (city, state, Wilayah
+ * Persekutuan / WP, Malaysia, the postcode) are dropped when the street would
+ * otherwise need more than two lines, and only then. Dropping them on every
+ * address would take SUBANG JAYA off the golden street, which has to stay:
+ * `… TAMAN SUBANG PERMAI, SUBANG JAYA` then `47500 SUBANG JAYA SELANGOR`.
+ * The golden wrap is two lines with that segment, so it is left in place.
+ * Whole segments only — a street name that ends with the city is not split.
+ *
+ * A street that still needs a third line gets one. The fifth baseline clears
+ * the e-invoice mark. Anything beyond that is a real truncation: `fullStreet`
+ * keeps the lines that were not drawn, and the audit fails with
+ * `street_truncated` even when those words also sit on the locality line.
+ *
+ * With no postcode, a locality line that only repeats the city or state already
+ * printed on the street is omitted, so the bill does not say SELANGOR and then
+ * SELANGOR again. MALAYSIA is never put on either of those lines.
  *
  * Uppercase BEFORE measuring. Helvetica caps are wider than the mixed-case
  * portal text, so a line that fit in "Jalan Subang Permai" overflowed once it
@@ -283,22 +389,38 @@ export function packAddress(
   measure: Measure,
   maxWidth: number,
 ): InvoiceAddress {
-  const localityText = [parts.postcode, parts.locality, parts.state]
-    .filter((p) => p && p.trim())
-    .join(' ')
-    .toUpperCase();
+  const vocab = localityVocabulary(parts);
+  let segments = parts.streetSegments.map(withoutCountry).filter(Boolean);
+  const joinSegments = (rows: string[]) => rows.map((s) => s.toUpperCase()).join(', ');
 
-  const streetText = parts.streetSegments.map((s) => s.toUpperCase()).join(', ');
-  const street = wrapMeasured(streetText, measure, maxWidth).slice(0, TIME_ADDRESS_STREET_SLOTS);
+  let fullStreet = wrapMeasured(joinSegments(segments), measure, maxWidth);
+  if (fullStreet.length > 2) {
+    const trimmed = dropTrailingLocalitySegments(segments, vocab);
+    if (trimmed.length !== segments.length) {
+      segments = trimmed;
+      fullStreet = wrapMeasured(joinSegments(segments), measure, maxWidth);
+    }
+  }
+
+  const street = fullStreet.slice(0, TIME_ADDRESS_STREET_SLOTS);
+  const localityText = localityLine(parts);
   // A postcode line fits the box. If one ever does not, the first wrapped piece
   // is what draws — still with no ellipsis, and still inside the box.
-  const locality = localityText ? (wrapMeasured(localityText, measure, maxWidth)[0] ?? '') : '';
+  let locality = localityText ? (wrapMeasured(localityText, measure, maxWidth)[0] ?? '') : '';
+  if (!parts.postcode?.trim() && locality && coversLocality(street.join(' '), locality)) {
+    locality = '';
+  }
 
-  return { street, locality };
+  return {
+    street,
+    fullStreet,
+    streetTruncated: fullStreet.length > street.length,
+    locality,
+  };
 }
 
 /** Street, locality, then MALAYSIA — the lines the invoice actually draws. */
-export function printedTimeAddress(address: InvoiceAddress): string[] {
+export function printedTimeAddress(address: { street: string[]; locality: string }): string[] {
   return [...address.street, address.locality, 'MALAYSIA'].filter((line) => line.trim());
 }
 

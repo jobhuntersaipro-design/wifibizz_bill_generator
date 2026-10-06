@@ -29,17 +29,24 @@ describe("synthetic TIME address audit", () => {
     expect(rows.some((r) => r.full_address.includes("\uFF0C"))).toBe(true);
     expect(rows.some((r) => r.full_address.includes("2-T.12-U.01"))).toBe(true);
     expect(rows.some((r) => r.full_address.includes("LOT "))).toBe(true);
+    expect(rows.some((r) => r.full_address.includes("TIARA TITIWANGSA"))).toBe(true);
+    expect(rows.some((r) => r.full_address.includes("SPECTRUM APARTMENT"))).toBe(true);
+    expect(rows.some((r) => r.full_address.includes("MENARA YAYASAN"))).toBe(true);
 
     const doc = await PDFDocument.create();
     const font = await doc.embedFont(StandardFonts.Helvetica);
     const measure = (text: string) => font.widthOfTextAtSize(text, TIME_ADDRESS_FONT_SIZE);
     const failed: string[] = [];
     for (const row of rows) {
-      const lines = printedTimeAddress(
-        await buildInvoiceAddress(row.full_address, "", measure, TIME_ADDRESS_MAX_WIDTH),
-      );
-      const audit = auditTimeBillAddress(row.full_address, lines);
-      if (!audit.pass) failed.push(`${row.case_no} ${audit.missing.join(" ")} ${audit.runTogether.join(" ")}`);
+      const packed = await buildInvoiceAddress(row.full_address, "", measure, TIME_ADDRESS_MAX_WIDTH);
+      const lines = printedTimeAddress(packed);
+      const audit = auditTimeBillAddress(row.full_address, lines, {
+        fullStreet: packed.fullStreet,
+        printedStreet: packed.street,
+      });
+      if (!audit.pass) {
+        failed.push(`${row.case_no} ${audit.missing.join(" ")} ${audit.runTogether.join(" ")} ${audit.streetTruncated}`);
+      }
       for (const line of lines) {
         expect(line.includes("...")).toBe(false);
         expect(measure(line)).toBeLessThanOrEqual(TIME_ADDRESS_MAX_WIDTH);

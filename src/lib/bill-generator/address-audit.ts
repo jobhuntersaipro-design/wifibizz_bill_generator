@@ -82,6 +82,17 @@ export interface TimeAddressAudit extends AddressAudit {
   runTogether: string[];
   /** The bill grew an ellipsis the source did not already contain. */
   ellipsis: boolean;
+  /**
+   * The wrapped street is longer than the street that was drawn. Token presence
+   * is not enough: a cut line can be made of words that also sit on the locality line.
+   */
+  streetTruncated: boolean;
+}
+
+/** What `packAddress` wrapped, against the street lines the page actually drew. */
+export interface TimeStreetWrap {
+  fullStreet: string[];
+  printedStreet: string[];
 }
 
 function ellipsisCount(text: string): number {
@@ -117,25 +128,39 @@ function runTogetherTokens(source: string, bill: string): string[] {
 export function timeAuditDetail(audit: TimeAddressAudit): { missingTokens: string; reason: string } {
   const parts = [
     audit.ellipsis ? 'ellipsis' : '',
+    audit.streetTruncated ? 'street_truncated' : '',
     audit.missing.length ? `missing=${audit.missing.join(' ')}` : '',
     audit.runTogether.length ? `run-together=${audit.runTogether.join(' ')}` : '',
   ].filter(Boolean);
   return { missingTokens: audit.missing.join(' '), reason: parts.join('; ') };
 }
 
+function streetWasCut(wrap?: TimeStreetWrap): boolean {
+  if (!wrap) return false;
+  return wrap.fullStreet.join('\n') !== wrap.printedStreet.join('\n');
+}
+
 /**
  * TIME bill address audit. PASS means the printed lines have no introduced `...`,
- * no source token missing, and no pair of tokens run together.
+ * no source token missing, no pair of tokens run together, and the drawn street
+ * is the whole wrap. Pass `wrap` so a sliced street fails even when every token
+ * also appears on the locality line.
  */
-export function auditTimeBillAddress(source: string, billLines: string[]): TimeAddressAudit {
+export function auditTimeBillAddress(
+  source: string,
+  billLines: string[],
+  wrap?: TimeStreetWrap,
+): TimeAddressAudit {
   const bill = billLines.join(' ');
   const ellipsis = ellipsisCount(bill) > ellipsisCount(normalizePortalPunctuation(source));
   const { missing } = auditBillAddress(source, billLines);
   const runTogether = runTogetherTokens(source, bill);
+  const streetTruncated = streetWasCut(wrap);
   return {
-    pass: !ellipsis && missing.length === 0 && runTogether.length === 0,
+    pass: !ellipsis && missing.length === 0 && runTogether.length === 0 && !streetTruncated,
     missing,
     runTogether,
     ellipsis,
+    streetTruncated,
   };
 }

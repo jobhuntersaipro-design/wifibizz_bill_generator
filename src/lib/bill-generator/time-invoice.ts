@@ -57,6 +57,8 @@ import {
   money,
   printedTimeAddress,
   slashDate,
+  TIME_ADDRESS_BASELINES,
+  TIME_ADDRESS_BASELINES_WITH_THIRD_STREET,
   TIME_ADDRESS_FONT_SIZE,
   TIME_ADDRESS_MAX_WIDTH,
   PLAN_NAME,
@@ -239,18 +241,19 @@ function page1Draws(f: TimeInvoiceFields, name: string, address: { street: strin
     { text: money(f.roundedSen), x: 456.26, y: 110.7, size: 7, font: 'ws', align: 'center', template: '115.10' },
   ];
 
-  // The block is packed downward into the template's four slots rather than each
+  // The block is packed downward into the template's slots rather than each
   // line being pinned to a fixed one. An address with a single street line would
   // otherwise leave a blank row between the street and the postcode, which reads
   // as a missing line rather than a short address.
   //
-  // The locality is placed before MALAYSIA and both always draw, so the postcode
-  // can never be the line that falls off the end — the failure the utility bill
-  // had, where the formatter emitted more lines than the page had slots and
-  // silently dropped the last one, which was the state. Street lines are already
+  // Four lines (up to two street lines, the locality, MALAYSIA) keep the
+  // template baselines. A third street line uses a fifth baseline at y=640.56,
+  // which stays above the e-invoice mark (top y=635). Street lines are already
   // wrapped to TIME_ADDRESS_MAX_WIDTH; nothing here adds an ellipsis.
-  const slots = [688.56, 676.56, 663.56, 650.56];
   const block = printedTimeAddress(address);
+  const slots = block.length > TIME_ADDRESS_BASELINES.length
+    ? TIME_ADDRESS_BASELINES_WITH_THIRD_STREET
+    : TIME_ADDRESS_BASELINES;
   block.slice(0, slots.length).forEach((line, i) => {
     draws.push({ text: line, x: 42, y: slots[i], size: TIME_ADDRESS_FONT_SIZE, font: 'helv' });
   });
