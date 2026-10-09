@@ -14,9 +14,9 @@ import {
 } from "@/lib/admin-chat/prompt";
 import {
   CHAT_EFFORTS,
-  CHAT_MODELS,
   disabledToolsNamedIn,
   MAX_TOOL_DESCRIPTION_CHARS,
+  type ChatModel,
   type ChatSettings,
 } from "@/lib/admin-chat/settings-rules";
 import { cn } from "@/lib/utils";
@@ -74,10 +74,15 @@ function sameDraft(a: Draft, b: Draft): boolean {
 export function AssistantSettings({
   initial,
   tools,
+  models,
+  modelsLive,
   runtime,
 }: {
   initial: ChatSettings;
   tools: ToolInfo[];
+  /** Usable models, newest first: live from the Models API, or the built-in list. */
+  models: ChatModel[];
+  modelsLive: boolean;
   runtime: Runtime;
 }) {
   const [saved, setSaved] = useState<Draft>(() => toDraft(initial, tools));
@@ -125,7 +130,16 @@ export function AssistantSettings({
         model={draft.model}
         effort={draft.effort}
         runtime={runtime}
-        onModel={(model) => setDraft((d) => ({ ...d, model }))}
+        models={models}
+        modelsLive={modelsLive}
+        onModel={(model) =>
+          setDraft((d) => {
+            // An effort the new model does not accept would be refused on save.
+            const efforts = models.find((m) => m.id === model)?.efforts;
+            const keep = !efforts || !d.effort || efforts.includes(d.effort as ChatModel["efforts"][number]);
+            return { ...d, model, effort: keep ? d.effort : "" };
+          })
+        }
         onEffort={(effort) => setDraft((d) => ({ ...d, effort }))}
       />
 
@@ -223,16 +237,22 @@ function ModelCard({
   model,
   effort,
   runtime,
+  models,
+  modelsLive,
   onModel,
   onEffort,
 }: {
   model: string;
   effort: string;
   runtime: Runtime;
+  models: ChatModel[];
+  modelsLive: boolean;
   onModel: (v: string) => void;
   onEffort: (v: string) => void;
 }) {
-  const modelNote = CHAT_MODELS.find((m) => m.id === (model || runtime.model))?.note;
+  const current = models.find((m) => m.id === (model || runtime.model));
+  const modelNote = current?.note;
+  const efforts = CHAT_EFFORTS.filter((e) => !current || current.efforts.includes(e.id));
   const effortNote = CHAT_EFFORTS.find((e) => e.id === (effort || runtime.effort))?.note;
   return (
     <section className="rounded-xl border border-line bg-white">
@@ -253,13 +273,18 @@ function ModelCard({
           </label>
           <Select id="assistant-model" value={model} onChange={(e) => onModel(e.target.value)} className={SELECT_CLASS}>
             <option value="">Deployment default ({runtime.model})</option>
-            {CHAT_MODELS.map((m) => (
+            {models.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.label} ({m.id})
               </option>
             ))}
           </Select>
           {modelNote && <p className="mt-1.5 text-[12px] text-ink-faint">{modelNote}</p>}
+          <p className="mt-1 text-[12px] text-ink-faint">
+            {modelsLive
+              ? "Newest first, from Anthropic's model list — only models that work with this assistant are shown."
+              : "Built-in list: Anthropic's model list could not be read right now."}
+          </p>
         </div>
         <div>
           <label htmlFor="assistant-effort" className="mb-1.5 block text-[12.5px] font-medium text-ink-soft">
@@ -267,7 +292,7 @@ function ModelCard({
           </label>
           <Select id="assistant-effort" value={effort} onChange={(e) => onEffort(e.target.value)} className={SELECT_CLASS}>
             <option value="">Deployment default ({runtime.effort})</option>
-            {CHAT_EFFORTS.map((e) => (
+            {efforts.map((e) => (
               <option key={e.id} value={e.id}>
                 {e.label}
               </option>

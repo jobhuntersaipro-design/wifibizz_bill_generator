@@ -190,7 +190,7 @@ export async function POST(req: Request) {
               messages,
               output_config: { effort },
               // Readable summaries of the reasoning, shown in the panel's trace.
-              // Every model an admin can pick (CHAT_MODELS) accepts adaptive
+              // Every model an admin can pick (modelUnusableReason) accepts adaptive
               // thinking; this only sets what is returned. Blocks go back
               // unchanged in the tool loop below.
               thinking: { type: "adaptive", display: "summarized" },
