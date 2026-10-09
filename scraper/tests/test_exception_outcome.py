@@ -36,3 +36,15 @@ def test_portal_code_rides_along():
     out = exception_outcome("[40300805]: You're on our blacklist.", RuntimeError("x"))
     assert out["error"] == "blacklisted_ic"
     assert out["portal_code"] == "40300805"
+
+
+def test_a_login_page_landing_is_a_session_expiry_not_an_exception():
+    # 2026-10-08: filed as `exception`, the run was retried four times against
+    # the same dead session. Whatever popup is up, the login page decides it.
+    from order_entry import SessionExpiredError
+    err = SessionExpiredError("Your dealer session has expired — the portal sent "
+                              "the run to its login page (https://dealer.unifi.com.my/esales/login).")
+    for popup in (None, "Something the table has never seen."):
+        out = exception_outcome(popup, err)
+        assert out["error"] == "session_expired"
+        assert "esales/login" in out["message"]

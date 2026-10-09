@@ -122,10 +122,12 @@ def _run(refuse_js):
     return asyncio.run(go())
 
 
-def test_the_bracketed_address_is_searched_without_brackets_and_matched():
+def test_the_address_is_searched_as_words_and_matched():
     # The fake refuses exactly what the live portal refused.
     result, searched = _run("kw.includes('(') || kw.includes(')')")
     assert searched and "(" not in searched and ")" not in searched
+    # The unit's hyphens are MINUS to Oracle Text; they never reach the portal.
+    assert "-" not in searched
     assert result["status"] == "ok", result
     # The row the portal returns still carries its brackets, and is still taken.
     assert result["matched"] == ADDRESS
@@ -134,6 +136,8 @@ def test_the_bracketed_address_is_searched_without_brackets_and_matched():
 def test_an_oracle_refusal_is_reported_in_the_portals_own_words():
     # A future character the portal chokes on must say so, not read as an
     # unserviceable address — which sends an agent to question TM coverage.
+    # Its own code, too: "address not found" for a search the portal never ran
+    # sends the agent the wrong way.
     result, _ = _run("true")
-    assert result["error"] == "address_not_found"
+    assert result["error"] == "address_search_failed"
     assert "DRG-50901" in result["message"], result["message"]

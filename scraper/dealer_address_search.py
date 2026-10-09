@@ -21,7 +21,7 @@ Public entrypoint:
 import asyncio
 
 import dealer_web_login
-from order_entry import ORDER_ENTRY_URL, ensure_on_order_entry, InfraError
+from order_entry import ORDER_ENTRY_URL, InfraError, ensure_on_order_entry, portal_search_keyword
 
 SERVICE_NAME = "QryNIGAddress{PN}Um"
 
@@ -112,6 +112,9 @@ async def search_address(
     state = (state or "").strip().upper()
     value = (value or "").strip()
     qb = QUERY_BY.get(query_by, query_by if query_by in QUERY_BY.values() else "BY_KEYWORDS")
+    if qb == "BY_KEYWORDS":
+        # Oracle Text reads punctuation as operators — see portal_search_keyword.
+        value = portal_search_keyword(value)
 
     if state not in VALID_STATES:
         return {"success": False, "error": "invalid_state",

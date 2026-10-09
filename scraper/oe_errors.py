@@ -12,6 +12,13 @@ import re
 # ── Stable error codes (the contract with BizzFlow) ──
 ADDRESS_ALREADY_HAS_SERVICE = "address_already_has_service"
 ADDRESS_NOT_FOUND = "address_not_found"
+# The portal never ran the address search: its Oracle Text query parser refused
+# the keyword (ORA-29902 / DRG-50901) and put a Warning over an empty grid. Not
+# "no such address" — reading it that way sends an agent to question TM coverage
+# for an address the portal never looked up. The keyword is cleaned first
+# (`portal_search_keyword`), so reaching this means a character it does not yet
+# know about; the same keyword fails the same way, so it is terminal.
+ADDRESS_SEARCH_FAILED = "address_search_failed"
 # The address exists and is known to the portal, but TM does not serve it — only
 # other operators do. The near-opposite of ADDRESS_ALREADY_HAS_SERVICE, and not
 # something a retry or a different package can fix: no Unifi order can be placed
@@ -81,6 +88,11 @@ CUSTOMER_IC_NAME_MISMATCH = "customer_ic_name_mismatch"
 # Terminal by nature — the code goes to the customer's phone, so a retry is
 # three more runs asking a question only a person can answer.
 PII_VERIFICATION_REQUIRED = "pii_verification_required"
+# The portal sent the run to its login page (or its anti-bot page): the agent's
+# dealer session is no longer valid. Our code, not portal wording — the portal
+# just shows the login form. Terminal: every retry reuses the same session and
+# lands on the same page; only a reconnect fixes it.
+SESSION_EXPIRED = "session_expired"
 UNKNOWN_ERROR = "unknown_error"
 
 # ── Substring → code rules (matched against .modal-message, case-insensitive) ──
@@ -120,6 +132,8 @@ _RULES: list[tuple[str, str]] = [
     ("address already has", ADDRESS_ALREADY_HAS_SERVICE),
     ("no record to view", ADDRESS_NOT_FOUND),
     ("address not found", ADDRESS_NOT_FOUND),
+    ("drg-50901", ADDRESS_SEARCH_FAILED),
+    ("text query parser", ADDRESS_SEARCH_FAILED),
     # MSR (Multi-Service Request) edge cases
     ("maximum number of line", MSR_CUSTOMER_ID_LIMIT),
     ("max line", MSR_CUSTOMER_ID_LIMIT),

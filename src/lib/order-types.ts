@@ -452,6 +452,13 @@ export const ERF_NOT_DOWNLOADED = "erf_not_downloaded";
 export const SUBMIT_STOPPED = "submit_stopped";
 
 /**
+ * The run met the portal's login page: the agent's dealer session is gone.
+ * Reported by the scraper (its `session_expired` result or job error_kind).
+ * Terminal in `retry-policy` — every retry reuses the same dead session.
+ */
+export const SESSION_EXPIRED_CODE = "session_expired";
+
+/**
  * What a stopped run says on the row, in the history, and in the email.
  *
  * It leads with the portal, not with us: the Customer Order Number is minted
@@ -746,6 +753,90 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
       "It was abandoned after running far longer than any run should. It may " +
       "have reached the portal before it stopped.",
     fix: "Check at Unifi for this customer before submitting again.",
+    action: "check_portal",
+  },
+  address_search_failed: {
+    title: "The portal's address search failed",
+    subtext:
+      "The portal's own search (an Oracle text query) refused the address " +
+      "keyword, so it never looked the address up. Usually punctuation it reads " +
+      "as an operator.",
+    fix: "Edit the address keyword on the draft to plain words and numbers, then submit again.",
+    action: "fix_field",
+    section: "address",
+  },
+  customer_data_incomplete: {
+    title: "The portal says the customer's details are incomplete",
+    subtext:
+      "Unifi would not create the customer profile with the details sent \u2014 " +
+      "usually a missing or malformed email, ID number or phone number.",
+    fix: "Check the customer's email, ID number and mobile number on the draft, then submit again.",
+    action: "fix_field",
+    section: "customer",
+  },
+  multiple_customer_records: {
+    title: "Unifi holds more than one record for this customer",
+    subtext:
+      "The ID number is already registered at Unifi, and the run could not tell " +
+      "which of the existing records is this customer.",
+    fix: "Find the customer in the portal and note the name it is registered under. Tell your admin if the records need merging.",
+    action: "contact_admin",
+  },
+  residence_address_rejected: {
+    title: "The portal rejected the customer's residence address",
+    subtext:
+      "The customer profile was not created: the portal's address form refused " +
+      "what was sent. The message above names the field it objected to.",
+    fix: "Correct the address on the draft, then submit again.",
+    action: "fix_field",
+    section: "address",
+  },
+  offer_not_found: {
+    title: "This package is not offered at this address any more",
+    subtext:
+      "The portal's list for this address does not include the package on the " +
+      "draft. Unifi renames and replaces packages; the message above lists what " +
+      "it offers now.",
+    fix: "Choose the package again from the current list, then submit again.",
+    action: "fix_field",
+    section: "package",
+  },
+  no_offers_listed: {
+    title: "The portal offered no packages at this address",
+    subtext: "No package at all is listed for this unit \u2014 it is most likely not served by TM.",
+    fix: "Confirm the unit with the customer. If it is right, this address cannot take a Unifi line.",
+    action: "fix_field",
+    section: "address",
+  },
+  device_not_in_offer_list: {
+    title: "The chosen device is not offered with this package",
+    subtext:
+      "The portal's device list for this package does not include the device on " +
+      "the draft. The message above lists the devices it offers.",
+    fix: "Choose one of the listed devices on the draft, then submit again.",
+    action: "fix_field",
+    section: "device",
+  },
+  no_slots: {
+    title: "The portal offered no installation slot",
+    subtext:
+      "Every slot was taken or none was open. The order already exists in the " +
+      "portal, without an appointment.",
+    fix: "Open the order in the portal, add the appointment under Install Information, and continue it there. Do not resubmit \u2014 that creates a second order.",
+    action: "check_portal",
+  },
+  no_slots_on_date: {
+    title: "No installation slot on the chosen date",
+    subtext: "The portal had no slot on the date asked for. The order already exists in the portal.",
+    fix: "Open the order in the portal and book a slot on another day with the customer. Do not resubmit.",
+    action: "check_portal",
+  },
+  all_before_lead: {
+    title: "Every slot is sooner than the lead time allows",
+    subtext:
+      "The earliest slots the portal offered fall inside the appointment lead " +
+      "time. The order already exists in the portal.",
+    fix: "Open the order in the portal and book a later slot there. Do not resubmit.",
     action: "check_portal",
   },
   unknown_error: {

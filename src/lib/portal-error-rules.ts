@@ -29,6 +29,8 @@ export const PORTAL_ERROR_RULES: ReadonlyArray<readonly [needle: string, code: s
   ["address already has", "address_already_has_service"],
   ["no record to view", "address_not_found"],
   ["address not found", "address_not_found"],
+  ["drg-50901", "address_search_failed"],
+  ["text query parser", "address_search_failed"],
   ["maximum number of line", "msr_customer_id_limit"],
   ["max line", "msr_customer_id_limit"],
   ["customer id limit", "msr_customer_id_limit"],

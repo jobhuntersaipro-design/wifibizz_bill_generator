@@ -77,6 +77,27 @@ export const TERMINAL_ERROR_CODES: ReadonlySet<string> = new Set([
   // A person stopped this run on purpose. Retrying it automatically would undo
   // the one thing they asked for.
   "submit_stopped",
+  // The portal sent the run to its login page. Every retry opens the same dead
+  // session (2026-10-08: four tries, four login pages); only a reconnect helps.
+  "session_expired",
+  // The portal's text search refused the keyword — the same keyword, the same
+  // refusal.
+  "address_search_failed",
+  // The draft's details, as the portal judged them. Unchanged, they are judged
+  // the same way.
+  "customer_data_incomplete",
+  "multiple_customer_records",
+  "residence_address_rejected",
+  // The package or device is not on the portal's list for this address; the
+  // list does not change between tries.
+  "offer_not_found",
+  "no_offers_listed",
+  "device_not_in_offer_list",
+  // No acceptable slot, AFTER the order number was minted. A resubmit mints a
+  // second order; the appointment is added in the portal instead.
+  "no_slots",
+  "no_slots_on_date",
+  "all_before_lead",
 ]);
 
 /**
@@ -86,6 +107,11 @@ export const TERMINAL_ERROR_CODES: ReadonlySet<string> = new Set([
 export const NO_CREATE_RETRY_AFTER_MINT: ReadonlySet<string> = new Set([
   "next_click_failed",
   "pay_page_not_ready",
+  // The slot race lands at the pay tail, after the order number exists. Each
+  // automatic retry minted another order to meet the same calendar
+  // (2026-10-08: three runs, three orders); the copy already says to check the
+  // portal first.
+  "appointment_slot_taken",
 ]);
 
 /** Statuses that represent a finished, unsuccessful run. Nothing else retries —

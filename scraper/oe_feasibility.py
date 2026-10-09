@@ -22,18 +22,20 @@ import random
 import re
 import unicodedata
 
+import ai_match
 import dealer_web_login
 from appointment_policy import normalize_policy, choose_slot, describe_read_failure
 from customer_match import (describe_ic_name_mismatch, may_attach_existing)
-from oe_errors import (APPOINTMENT_SLOT_TAKEN, CUSTOMER_IC_NAME_MISMATCH,
+from oe_errors import (ADDRESS_SEARCH_FAILED, APPOINTMENT_SLOT_TAKEN, CUSTOMER_IC_NAME_MISMATCH,
                        DEVICE_OUT_OF_STOCK, ERF_NOT_DOWNLOADED, UNKNOWN_ERROR,
                        VOICE_NUMBER_TAKEN, APPOINTMENT_NOT_BOOKED,
-                       PII_VERIFICATION_REQUIRED,
+                       PII_VERIFICATION_REQUIRED, SESSION_EXPIRED,
                        is_missing_appointment, is_slot_taken, map_error,
                        portal_code)
 from oe_helpers import set_combobox
 from portal_states import to_portal_state
-from order_entry import ORDER_ENTRY_URL, _frame, bracketless_keyword, ensure_on_order_entry
+from order_entry import (ORDER_ENTRY_URL, SessionExpiredError, _frame, ensure_on_order_entry,
+                         portal_search_keyword)
 from delivery_address import set_delivery_address
 from shell_modal import describe_blocking_dialog, read_shell_dialog
 
@@ -368,7 +370,7 @@ async def select_address(frame, addr: dict) -> dict:
             return {"status": "error", "error": "address_missing",
                     "stage": "select_address", "message": "No address_id or keywords."}
         await frame.locator("#byKeywords").first.click()
-        await frame.locator('input[name="keywords"]').first.fill(bracketless_keyword(kw))
+        await frame.locator('input[name="keywords"]').first.fill(portal_search_keyword(kw))
 
     await frame.locator(".js-address-form .js-query").first.click()
     await asyncio.sleep(5)
@@ -379,10 +381,13 @@ async def select_address(frame, addr: dict) -> dict:
         # evaluate(), and read_dialog_texts would swallow that and report
         # nothing. Its JS reaches into #myIframe from the top document itself.
         refused = portal_search_error(await read_dialog_texts(frame.locator("body").page))
+        if refused:
+            return {"status": "error", "error": ADDRESS_SEARCH_FAILED,
+                    "stage": "select_address",
+                    "message": f"The portal refused the address search: {refused}"}
         return {"status": "error", "error": "address_not_found",
                 "stage": "select_address",
-                "message": (f"The portal refused the address search: {refused}" if refused
-                            else "No serviceable address returned.")}
+                "message": "No serviceable address returned."}
 
     if address_id:
         target, target_titles = rows[0]  # By Address Id returns exactly one row.
@@ -555,6 +560,7 @@ async def select_plan(frame, plan: dict, page=None) -> dict:
 
     row = frame.locator(f'.js-offer-grid tr.jqgrow:has(td[title="{name}"])').first
     matched = name
+    ai_matched = None
     if await row.count() == 0:
         row = frame.locator(f'.js-offer-grid tr.jqgrow:has(td[title*="{name}"])').first
     if await row.count() == 0:
@@ -572,9 +578,18 @@ async def select_plan(frame, plan: dict, page=None) -> dict:
                 return {"status": "error", "error": "no_offers_listed", "stage": "select_plan",
                         "message": ("The portal listed no readable offers for this "
                                     "address — it is likely not serviceable by TM.")}
-            return {"status": "error", "error": "offer_not_found", "stage": "select_plan",
-                    "message": (f"Plan '{name}' is not offered at this address. "
-                                f"The portal offers: {', '.join(offers)}")}
+            # Unifi renames packages. Opt-in, and only a confident pick of a
+            # listed offer is used — see ai_match.py.
+            ai = await ai_match.pick("package", name, offers)
+            if ai:
+                picked = await (page or frame.page).evaluate(OFFER_ROW_INDEX_JS, ai["choice"])
+                i = picked.get("i", -1)
+                if i >= 0:
+                    ai_matched = ai
+            if i < 0:
+                return {"status": "error", "error": "offer_not_found", "stage": "select_plan",
+                        "message": (f"Plan '{name}' is not offered at this address. "
+                                    f"The portal offers: {', '.join(offers)}")}
         row = rows.nth(i)
         # The fuzzy path can land on an offer whose name differs from what the
         # draft asked for, so report the portal's wording, not ours.
@@ -602,7 +617,12 @@ async def select_plan(frame, plan: dict, page=None) -> dict:
         print(f"  ⚠ portal refused the offer: {refusal['message']}", flush=True)
         return {"status": "error", "stage": "select_plan", "matched": matched,
                 **refusal}
-    return {"status": "ok", "stage": "select_plan", "matched": matched}
+    out = {"status": "ok", "stage": "select_plan", "matched": matched}
+    if ai_matched:
+        # Said on the order: the draft's name is not the portal's any more.
+        out["note"] = (f"Matched by AI: the draft asked for {name!r}; the portal "
+                       f"lists it as {matched!r}. {ai_matched['reason']}")[:300]
+    return out
 
 
 # Read the real state of the Order button and the offer grid in one pass.
@@ -1461,7 +1481,7 @@ async def run_feasibility(page, payload: dict, dry_run: bool = True,
         await capture_and_report(page, payload, "offer_grid", stage)
         stage("checking_plan", _detail(r.get("message") or r.get("error"), "failed"))
         return r
-    stage("checking_plan", _detail(r.get("matched")))
+    stage("checking_plan", _detail(r.get("matched"), note=r.get("note")))
     # The successful counterpart of the failure shots below: the grid with the
     # chosen plan row selected, so every attempt records what was offered here.
     await capture_and_report(page, payload, "offer_grid", stage)
@@ -1656,6 +1676,12 @@ def exception_outcome(popup: str | None, exc: BaseException) -> dict:
     already has TM services installed") lost its code, read as unclassified, and
     was auto-retried against an answer that cannot change (ORD-0275, 2026-09-28).
     """
+    if isinstance(exc, SessionExpiredError):
+        # The login page is the answer, whatever else is on screen: filed as a
+        # bare `exception` it was retried four times against the same dead
+        # session (2026-10-08). `session_expired` is a stop and a reconnect.
+        return {"status": "error", "stage": "order_entry", "error": SESSION_EXPIRED,
+                "message": str(exc), "exception": f"{type(exc).__name__}: {exc}"}
     code = map_error(popup) if popup else UNKNOWN_ERROR
     outcome = {"status": "error", "stage": "order_entry",
                "error": (code if code != UNKNOWN_ERROR else "portal_error")
@@ -3839,6 +3865,10 @@ async def fill_subproduct_tabs(page, payload: dict, on_stage=None) -> dict:
                     "error": dev.get("error"), "message": dev.get("message"),
                     "tabs": results}, dev)
             device_info = dev
+            if dev.get("note"):
+                # A device found under its new name (ai_match) — said on the
+                # order's timeline, not only in the job log.
+                stage("selecting_device", _detail(dev.get("device"), note=dev["note"]))
         # This tab is filled — capture it, top and bottom. The Broadband frames
         # are the only evidence of WHICH device the portal accepted (our
         # catalogue is a superset of what it actually offers) and at what
@@ -4612,8 +4642,12 @@ async def select_device(page, payload: dict) -> dict:
     tried: list = []
     available: list = []
     first_rejection = None
+    # Set when the draft's device was found under a new name (ai_match). Not a
+    # substitution: it is the same device, so it is said as a note, never as
+    # "ordered X instead".
+    renamed = None
 
-    for attempt in range(MAX_DEVICE_SUBSTITUTIONS + 1):
+    for attempt in range(MAX_DEVICE_SUBSTITUTIONS + 2):
         r = await _select_device_once(page, dev_code, dev_name, group_names=group_names,
                                       device_group_names=device_group_names)
         if r.get("offered"):
@@ -4623,7 +4657,9 @@ async def select_device(page, payload: dict) -> dict:
             return {**r, "available_devices": available}
         if r.get("status") == "ok":
             out = {**r, "available_devices": available}
-            if attempt > 0:
+            if renamed:
+                out["note"] = renamed
+            if first_rejection is not None:
                 out["substituted_device_code"] = dev_code
                 out["substituted_device_name"] = dev_name
                 out["rejected_device_code"] = first_rejection["code"]
@@ -4641,6 +4677,24 @@ async def select_device(page, payload: dict) -> dict:
         if r.get("error") not in ("device_rejected", "device_not_in_offer_list"):
             return {**r, "available_devices": available}
 
+        # Not on the list under the draft's name: Unifi may have renamed it.
+        # Asked once, before any substitution, and only a confident pick of a
+        # listed device is used — see ai_match.py.
+        if (r.get("error") == "device_not_in_offer_list" and renamed is None
+                and first_rejection is None and available):
+            wanted = dev_name or dev_code
+            ai = await ai_match.pick("device", wanted, [d["name"] for d in available])
+            same = next((d for d in available if ai and d["name"] == ai["choice"]), None)
+            if same:
+                renamed = (f"Matched by AI: the draft asked for {wanted!r}; the portal "
+                           f"lists it as {same['name']!r}. {ai['reason']}")[:300]
+                print(f"  ↻ device {wanted!r} is listed as {same['name']!r} — selecting it",
+                      flush=True)
+                await _close_offer_dialog(page)
+                dev_code, dev_name = same["code"], same["name"]
+                await asyncio.sleep(1.5)
+                continue
+
         tried.append(dev_code or dev_name)
         if first_rejection is None:
             first_rejection = {"code": dev_code, "name": dev_name or dev_code,
@@ -4649,7 +4703,7 @@ async def select_device(page, payload: dict) -> dict:
         nxt = next((d for d in available
                     if d["code"] and d["code"] not in tried
                     and d["name"] not in tried), None)
-        if not nxt or attempt == MAX_DEVICE_SUBSTITUTIONS:
+        if not nxt or len(tried) > MAX_DEVICE_SUBSTITUTIONS:
             return {"status": "error", "error": "device_rejected", "stage": "device",
                     "message": r.get("message"),
                     "device": first_rejection["name"],
@@ -4991,8 +5045,14 @@ async def fill_customer_order_info(page, payload: dict,
                                   payload=payload, stage=stage)
     steps["appointment"] = appt.get("status")
     if appt.get("status") not in ("ok", "skipped"):
-        return {"status": "error", "error": "appointment_failed",
+        stage("appointment", _detail(appt.get("message"), "failed"))
+        return {"status": "error", "error": appt.get("error") or "appointment_failed",
                 "stage": "appointment", "message": appt.get("message"), "steps": steps}
+    # The slot actually booked, as the calendar wrote it ("2026-10-08 17:00:00")
+    # — the Installation column reads it. Nothing is reported for a skip: a
+    # skip names no slot, and a guess would read as a booking.
+    if appt.get("status") == "ok" and appt.get("slot"):
+        stage("appointment", _detail(appt["slot"]))
     # The "appointment" frame is captured INSIDE _set_appointment, with the
     # calendar dialog open and the chosen slot clicked — the date being booked,
     # photographed at the moment of selection (user ask, 2026-08-26; this
@@ -5383,6 +5443,64 @@ async def _read_appointment_row(page) -> dict:
         return {"status": "readfail", "message": repr(e)}
 
 
+_ROW_SLOT_RE = re.compile(r"(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::(\d{2}))?")
+
+
+def appointment_row_slot(row: str | None) -> str | None:
+    """The slot an Appointment-table row holds, in the calendar's own format
+    ("2026-10-08 17:00:00"), or None when the row carries no date-time."""
+    m = _ROW_SLOT_RE.search(row or "")
+    return f"{m.group(1)} {m.group(2)}:{m.group(3) or '00'}" if m else None
+
+
+def already_booked_outcome(warn: str, booked: dict, rebooking: bool) -> dict:
+    """What "You have an appointment already." means, given the table read back.
+
+    This used to be taken at its word: any warning containing "already" made the
+    step `skipped`, which the first booking treats as done. On a REBOOK that is
+    exactly wrong — the portal has just refused the slot the order holds, the
+    edit control was not found, "+ Add" says the order has one already, and the
+    run had no way left to change it (2026-10-08: "You have an appointment
+    already.. Slots already taken: ['2026-10-08 17:00:00']", three runs, three
+    orders). So the claim is checked against the Appointment table:
+
+      first booking, a row      -> booked; the row's slot is reported.
+      first booking, no row     -> NOT booked: the portal's claim and its own
+                                   table disagree, and Pay will refuse later.
+      first booking, unreadable -> accepted, unverified — as the OK path does,
+                                   because "could not tell" is not "absent".
+      rebooking, anything       -> the order still holds the refused slot (or
+                                   none) and the run cannot change it: stop and
+                                   say so, rather than claim a rebook.
+    """
+    status = booked.get("status")
+    row = booked.get("row") or ""
+    slot = appointment_row_slot(row)
+    if rebooking:
+        held = f" ({slot})" if slot else (f" ({row[:80]})" if row else "")
+        if status == "norow":
+            return {"status": "error", "stage": "appointment", "error": APPOINTMENT_NOT_BOOKED,
+                    "message": (f"The portal refused \"+ Add\" with \"{warn}\", but the "
+                                f"order's Appointment table is empty, so the run could not "
+                                f"book a replacement slot. Add the appointment under "
+                                f"Install Information in the portal.")}
+        return {"status": "error", "stage": "appointment", "error": APPOINTMENT_SLOT_TAKEN,
+                "message": (f"The order still holds its appointment{held}, which the "
+                            f"portal no longer accepts, and the run could not change "
+                            f"it: \"+ Add\" answered \"{warn}\". Change the appointment "
+                            f"under Install Information in the portal.")}
+    if status == "ok":
+        return {"status": "ok", "stage": "appointment", "slot": slot, "row": row,
+                "note": warn}
+    if status == "norow":
+        return {"status": "error", "stage": "appointment", "error": APPOINTMENT_NOT_BOOKED,
+                "message": (f"The portal says \"{warn}\", but the order's Appointment "
+                            f"table is empty. Add the appointment under Install "
+                            f"Information in the portal.")}
+    return {"status": "skipped", "stage": "appointment",
+            "note": f"{warn} (unverified: {status})"}
+
+
 # Stamp the Appointment dialog so its OK can be pressed by IDENTITY.
 #
 # The OK click used to be `.last` of every visible dialog's OK button. That is
@@ -5461,7 +5579,8 @@ async def _set_appointment(page, policy=None, payload=None, stage=None,
     await asyncio.sleep(3)
     warn = await _dismiss_popup_ok(frame, page, exclude_title_re=r"appoint")
     if warn and re.search(r"already", warn, re.I):
-        return {"status": "skipped", "stage": "appointment", "note": warn}
+        return already_booked_outcome(warn, await _read_appointment_row(page),
+                                      rebooking=exclude is not None)
 
     diag = await _read_calendar(page)
     print(f"  calendar: dialog={diag.get('dialog')} days={diag.get('dayCells')} "
@@ -5479,8 +5598,11 @@ async def _set_appointment(page, policy=None, payload=None, stage=None,
 
     picked = choose_slot(slots, policy, exclude=exclude)
     if "slot" not in picked:
-        # The calendar was read fine; the POLICY excluded everything. Says which.
-        return {"status": "error", "stage": "appointment",
+        # The calendar was read fine; the POLICY excluded everything. Says which,
+        # and keeps the policy's own code (no_slots / no_slots_on_date /
+        # all_before_lead) — filed as `appointment_failed` it read as a glitch
+        # and was resubmitted, minting a second order to meet the same calendar.
+        return {"status": "error", "stage": "appointment", "error": picked.get("error"),
                 "message": picked["message"], "calendar": diag}
     candidates = picked["candidates"]
     print(f"  appointment policy picked {picked['slot']} "
@@ -6022,6 +6144,11 @@ async def pay_and_submit(page, do_pay: bool = False, max_next: int = 4,
                     payload=payload, stage=stage, exclude=taken_slots)
                 if appt.get("status") == "ok" and appt.get("slot"):
                     taken_slots.add(appt["slot"])  # excluded if IT collides too
+                    # The slot the order now holds replaces the one reported at
+                    # the appointment step (the Installation column reads the
+                    # latest), then the pointer goes back to where the run is.
+                    stage("appointment", _detail(appt["slot"], note="rebooked"))
+                    stage("pay")
                     continue  # retry the same Next; no budget step consumed
                 return {"status": "error",
                         "error": (APPOINTMENT_SLOT_TAKEN if not missing_appt

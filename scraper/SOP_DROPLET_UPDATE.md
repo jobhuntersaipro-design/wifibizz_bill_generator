@@ -286,6 +286,8 @@ Several behaviours are switchable **without a deploy at all** — edit
 | `OE_CAPTURE_SLOTS=page1,broadband` | take only these frames |
 | `ORDER_ENTRY_DO_PAY` | the Pay gate — leave `false` until a real payment is verified |
 | `OE_ORDER_TIMEOUT` | overall order timeout in seconds (default 600 for a full order) |
+| `OE_AI_MATCH=1` | when a package or device is not on the portal's list under the draft's name, ask Claude which listed option is the same product (renames). Needs `ANTHROPIC_API_KEY` set too. Only the names are sent; anything short of a confident pick stops the run as before. Off unless set |
+| `OE_AI_MATCH_MODEL` | the model `OE_AI_MATCH` uses (default `claude-opus-5-5`) |
 
 Prefer a switch over a deploy when you are firefighting: it does not rebuild
 Chromium, and it is faster.
