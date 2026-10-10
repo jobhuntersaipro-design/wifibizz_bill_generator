@@ -27,7 +27,7 @@ from appointment_policy import normalize_policy, choose_slot, describe_read_fail
 from customer_match import (describe_ic_name_mismatch, may_attach_existing)
 from oe_errors import (APPOINTMENT_SLOT_TAKEN, CUSTOMER_IC_NAME_MISMATCH,
                        DEVICE_OUT_OF_STOCK, ERF_NOT_DOWNLOADED, UNKNOWN_ERROR,
-                       VOICE_NUMBER_TAKEN, APPOINTMENT_NOT_BOOKED,
+                       VOICE_NUMBER_TAKEN, MOBILE_NUMBER_TAKEN, APPOINTMENT_NOT_BOOKED,
                        PII_VERIFICATION_REQUIRED,
                        is_missing_appointment, is_slot_taken, map_error,
                        portal_code)
@@ -3158,6 +3158,76 @@ async def _set_service_number_username(frame, page, email: str,
             "tried": sorted(tried)}
 
 
+# U Mobile line on a UNI5G plan (ClickUp z8v9xnhhkh): the number is TYPED, not
+# picked — 011 + 8 random digits — and re-rolled while the portal refuses it.
+MOBILE_NUMBER_ATTEMPTS = 10
+_MOBILE_TAB_RE = re.compile(r"mobile|uni5g|\b5g\b|postpaid|sim\b", re.I)
+
+
+def is_mobile_tab(tab_text: str | None) -> bool:
+    """A U Mobile sub-product tab — and none of the kinds already handled."""
+    t = tab_text or ""
+    if any(k in t for k in ("Broadband", "Voice", "TV", "Bundle")):
+        return False
+    return bool(_MOBILE_TAB_RE.search(t))
+
+
+def new_mobile_number(exclude: set | None = None, rng=_random) -> str:
+    """011 + 8 random digits, never one already in `exclude` (this order's tries)."""
+    exclude = exclude or set()
+    while True:
+        n = f"011{rng.randrange(10**8):08d}"
+        if n not in exclude:
+            return n
+
+
+_TAB_FORM_JS = r"""(() => {
+  const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
+  const p=[...d.querySelectorAll('.ui-tabs-panel, .tab-pane.active')].filter(e=>e.offsetParent!==null).pop();
+  if(!p) return 'nopanel';
+  return [...p.querySelectorAll('.form-group')].filter(g=>g.offsetParent!==null)
+    .map(g=>g.outerHTML.replace(/\s+/g,' ').slice(0,400)).join('\n');
+})()"""
+
+
+async def _set_mobile_number(frame, page, attempts: int = MOBILE_NUMBER_ATTEMPTS) -> dict:
+    """U Mobile tab: type 011+8 digits into the Service Number, Check, re-roll on refusal.
+
+    The tab has never been seen live, so its form is printed first. Any Warning/
+    Error after Check counts as a refusal (the taken-wording is unknown); none
+    means accepted.
+    """
+    # ponytail: field assumed to be the Broadband-style accNbr + Check; the
+    # printed markup is what corrects this if the live tab is a picker.
+    print(f"  ↳ mobile tab form:\n{await page.evaluate(_TAB_FORM_JS)}", flush=True)
+    tried, last_msg = [], None
+    for attempt in range(attempts):
+        num = new_mobile_number(set(tried))
+        tried.append(num)
+        fld = frame.locator('input[name="accNbr"]:visible:not([readonly])').last
+        try:
+            await fld.click(timeout=6000)
+            await fld.fill(num, timeout=6000)
+            await frame.locator('button.js-search-number:visible').last.click(timeout=6000)
+        except Exception as e:
+            return {"status": "error", "error": "service_number_fill_failed",
+                    "stage": "mobile_number", "message": f"{num}: {e}", "tried": tried}
+        await asyncio.sleep(2)
+        msg = await _dismiss_popup_ok(frame, page, exclude_title_re=r"offer")
+        if msg is None:
+            print(f"  ↳ mobile number {num} accepted (rejected before it: {tried[:-1]})",
+                  flush=True)
+            return {"status": "ok", "stage": "mobile_number", "number": num,
+                    "attempts": attempt + 1, "rejected": tried[:-1]}
+        last_msg = msg
+        print(f"  ↳ mobile number {num} rejected: {msg!r} — retrying "
+              f"({attempt + 1}/{attempts})", flush=True)
+    return {"status": "error", "error": MOBILE_NUMBER_TAKEN, "stage": "mobile_number",
+            "message": (f"The portal refused {attempts} generated U Mobile numbers "
+                        f"(tried {tried}). Last message: {last_msg!r}"),
+            "tried": tried}
+
+
 # The portal's wording when the voice number a run picked has already been
 # reserved by somebody else's order. Captured live 2026-08-21 on ORD-0018 /
 # order 2608000121894804:
@@ -3653,7 +3723,7 @@ async def _subproduct_tabs(frame):
     out = []
     for i in range(await anchors.count()):
         txt = ((await anchors.nth(i).inner_text()) or "").strip()
-        if any(k in txt for k in ("Broadband", "Voice", "TV", "Bundle")):
+        if any(k in txt for k in ("Broadband", "Voice", "TV", "Bundle")) or is_mobile_tab(txt):
             out.append((i, txt, anchors.nth(i)))
     return out
 
@@ -3704,8 +3774,8 @@ async def _reassign_service_numbers(page, email: str, tried: set,
     frame = _frame(page)
     touched, errors = {}, {}
     for _, txt, _loc in await _subproduct_tabs(frame):
-        if "Bundle" in txt or "Voice" in txt:
-            continue  # Bundle is page 1; Voice numbers come from a picker, not a name
+        if "Bundle" in txt or "Voice" in txt or is_mobile_tab(txt):
+            continue  # Bundle is page 1; Voice/Mobile numbers are not usernames
         switched = await page.evaluate(r"""((txt) => {
           const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return 'nodoc';
           const anchors=[...d.querySelectorAll('.ui-tabs-nav .ui-tabs-anchor')];
@@ -3805,6 +3875,8 @@ async def fill_subproduct_tabs(page, payload: dict, on_stage=None) -> dict:
         # Service number.
         if "Voice" in txt:
             sn = await _pick_voice_number(frame, page)
+        elif is_mobile_tab(txt):
+            sn = await _set_mobile_number(frame, page)
         else:
             sn = await _set_service_number_username(frame, page, email)
         results[txt] = {"install_contact": ic.get("status"), "service_number": sn,

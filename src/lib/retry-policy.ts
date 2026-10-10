@@ -42,6 +42,8 @@ export const TERMINAL_ERROR_CODES: ReadonlySet<string> = new Set([
   "address_not_found",
   // Needs a different device chosen by a human.
   "device_out_of_stock",
+  // Ten refused numbers already; a retry only mints another portal order.
+  "mobile_number_taken",
   // The portal disagrees with the customer's own details.
   "customer_ic_name_mismatch",
   // Unifi has blacklisted this customer. The same IC gets the same answer on
@@ -65,6 +67,8 @@ export const TERMINAL_ERROR_CODES: ReadonlySet<string> = new Set([
   // portal by hand — a whole resubmit would mint a duplicate order and then
   // most likely fail the same way.
   "appointment_not_booked",
+  // The agent's chosen day has no slot. Another run reads the same calendar.
+  "appointment_date_unavailable",
   // Money may already have moved. Retrying could charge a customer twice, and
   // the app's own copy for these says to confirm in the portal FIRST.
   "pay_click_did_not_take",
