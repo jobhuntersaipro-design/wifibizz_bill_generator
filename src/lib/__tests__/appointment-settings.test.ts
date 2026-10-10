@@ -7,7 +7,11 @@ import {
   describeLeadTime,
   leadHoursOrDefault,
   validateLeadHours,
+  isValidPreferredDate,
+  todayMyt,
 } from "@/lib/appointment-settings";
+import { resolveErrorCode } from "@/lib/portal-error-rules";
+import { retryVerdict } from "@/lib/retry-policy";
 
 describe("validateLeadHours", () => {
   it("accepts a whole number inside the range, from a string or a number", () => {
@@ -82,5 +86,38 @@ describe("describeLeadTime", () => {
 
   it("says what zero means instead of printing '0 hours'", () => {
     expect(describeLeadTime(0)).toContain("however soon");
+  });
+});
+
+describe("preferred installation date", () => {
+  // 2026-10-10 17:00 UTC = 2026-10-11 01:00 in Malaysia.
+  const now = new Date("2026-10-10T17:00:00Z");
+
+  it("measures 'today' on the Malaysia clock", () => {
+    expect(todayMyt(now)).toBe("2026-10-11");
+  });
+
+  it("refuses past dates and non-dates, accepts today and later", () => {
+    expect(isValidPreferredDate("2026-10-10", now)).toBe(false);
+    expect(isValidPreferredDate("2026-10-11", now)).toBe(true);
+    expect(isValidPreferredDate("2026-10-12", now)).toBe(true);
+    expect(isValidPreferredDate("2026-02-30", now)).toBe(false);
+    expect(isValidPreferredDate("12/10/2026", now)).toBe(false);
+  });
+
+  it("a date makes the policy fixed_date; blank keeps first_available", () => {
+    expect(appointmentPolicyFor(12, "2026-10-12")).toEqual({
+      strategy: "fixed_date", leadHours: 12, fixedDate: "2026-10-12",
+    });
+    expect(appointmentPolicyFor(12, null).strategy).toBe("first_available");
+    expect(appointmentPolicyFor(12, "").strategy).toBe("first_available");
+  });
+
+  it("the scraper's no-slots-on-date failure gets its own, non-retried code", () => {
+    expect(resolveErrorCode("appointment_failed", "no slots on 2026-10-12 (the portal offered 2026-10-13)"))
+      .toBe("appointment_date_unavailable");
+    expect(resolveErrorCode("appointment_failed", "the portal offered no slots")).toBe("appointment_failed");
+    expect(retryVerdict({ status: "failed", errorCode: "appointment_date_unavailable", errorMessage: null, autoRetries: 0, attempt: 1 } as never).retry)
+      .toBe(false);
   });
 });

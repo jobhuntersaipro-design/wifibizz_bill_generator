@@ -67,6 +67,11 @@ export function resolveErrorCode(
   code: string | null | undefined,
   message: string | null | undefined,
 ): string | null | undefined {
+  // The scraper files a preferred date with no slot under its catch-all
+  // `appointment_failed`; its own sentence ("no slots on 2026-10-12 …") names it.
+  if (code === "appointment_failed" && /^no slots on \d{4}-\d{2}-\d{2}/.test(message ?? "")) {
+    return "appointment_date_unavailable";
+  }
   if (code && !GENERIC_CODES.has(code)) return code;
   return classifyPortalMessage(message) ?? code;
 }

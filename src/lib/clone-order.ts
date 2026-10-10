@@ -53,6 +53,8 @@ export const NEVER_CLONED = [
   // Replication clones set it deliberately; an ordinary clone of one must not
   // inherit a policy nobody chose for it.
   "autoRetryDisabled",
+  // A day picked for one order is likely past (or wrong) for the next.
+  "preferredInstallDate",
 ] as const;
 
 export function cloneOrderInput<T extends Record<string, unknown>>(

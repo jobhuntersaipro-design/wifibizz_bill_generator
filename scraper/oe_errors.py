@@ -31,6 +31,9 @@ VOBB_UNAVAILABLE = "vobb_unavailable"
 # dry". Only reported after the whole retry budget is spent; a single collision
 # is handled in the flow and never reaches BizzFlow.
 VOICE_NUMBER_TAKEN = "voice_number_taken"
+# Every generated U Mobile number (011 + 8 digits) was refused at the mobile
+# tab's Check. Reported only after MOBILE_NUMBER_ATTEMPTS are spent.
+MOBILE_NUMBER_TAKEN = "mobile_number_taken"
 DEVICE_OUT_OF_STOCK = "device_out_of_stock"
 # The customer is on Unifi's blacklist. Raised at the Feasibility Check the
 # moment the offer row is chosen — the customer profile is created BEFORE

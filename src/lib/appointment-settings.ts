@@ -5,12 +5,10 @@
  * carries it to the scraper, so all three agree on what a valid lead time is.
  * Pure: no Prisma, no `next/*`, so it can be unit tested directly.
  *
- * This used to be a global policy an admin set for everyone, with a second
- * `fixed_date` strategy for watched test runs. Both are gone: the lead time is
- * now the agent's own choice per order, and a strategy that fails the order
- * outright when a named day has no slots is not one to hand to every agent.
- * The payload still names the strategy explicitly so the scraper — which still
- * understands both — needs no change.
+ * This used to be a global policy an admin set for everyone. The lead time is
+ * now the agent's own choice per order, and an order with a preferred
+ * installation date books that day (`fixed_date`) instead. The scraper already
+ * understood both strategies, so it needed no change.
  */
 
 /** What shipped before any of this was configurable. */
@@ -20,12 +18,24 @@ export const DEFAULT_LEAD_HOURS = 12;
 export const MIN_LEAD_HOURS = 0;
 export const MAX_LEAD_HOURS = 24 * 30;
 
-/** The shape the scraper reads. `strategy`/`fixedDate` are pinned here rather
- *  than chosen anywhere, so nothing in the app can send a fixed date again. */
-export interface AppointmentPolicy {
-  strategy: "first_available";
-  leadHours: number;
-  fixedDate: null;
+/** The shape the scraper reads. A fixed date comes only from the order's own
+ *  preferred installation date — the scraper then books that day's first slot
+ *  or fails, never another day. */
+export type AppointmentPolicy =
+  | { strategy: "first_available"; leadHours: number; fixedDate: null }
+  | { strategy: "fixed_date"; leadHours: number; fixedDate: string };
+
+/** Today in Malaysia time as "YYYY-MM-DD" — the portal's calendar clock. */
+export function todayMyt(now: Date = new Date()): string {
+  return new Date(now.getTime() + 8 * 3600_000).toISOString().slice(0, 10);
+}
+
+/** A real calendar date, "YYYY-MM-DD", not before today in Malaysia time. */
+export function isValidPreferredDate(value: string, now: Date = new Date()): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const d = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== value) return false;
+  return value >= todayMyt(now);
 }
 
 export type LeadHoursValidation =
@@ -74,7 +84,12 @@ export function leadHoursOrDefault(stored: number | null | undefined): number {
 }
 
 /** The policy object the scraper payload carries. */
-export function appointmentPolicyFor(stored: number | null | undefined): AppointmentPolicy {
+export function appointmentPolicyFor(
+  stored: number | null | undefined,
+  preferredDate?: string | null,
+): AppointmentPolicy {
+  const leadHours = leadHoursOrDefault(stored);
+  if (preferredDate) return { strategy: "fixed_date", leadHours, fixedDate: preferredDate };
   return {
     strategy: "first_available",
     leadHours: leadHoursOrDefault(stored),
