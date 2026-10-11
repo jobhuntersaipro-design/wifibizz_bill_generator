@@ -16,7 +16,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from oe_feasibility import (  # noqa: E402
-    _norm_addr, bracketless_keyword, match_address_row, portal_search_error)
+    _norm_addr, match_address_row, portal_search_error, portal_search_keyword)
 
 # The live grid row: 9 td titles; the 99-char one is the concatAddress with
 # the portal's double space after the blank-segment hyphen.
@@ -132,14 +132,30 @@ def test_brackets_become_a_space_so_words_never_fuse():
 def test_the_search_keyword_never_carries_a_bracket():
     # The portal parses the keyword as an Oracle Text query, where ( ) group;
     # a group inside a run of words is a syntax error (ORA-29902, live today).
-    kw = bracketless_keyword(HERMINGTON_GRID)
+    kw = portal_search_keyword(HERMINGTON_GRID)
     assert "(" not in kw and ")" not in kw
-    assert kw == HERMINGTON_GRID.replace("(BLOK B)", "BLOK B")
-    assert bracketless_keyword("HERMINGTON(BLOK B)") == "HERMINGTON BLOK B"
-    assert bracketless_keyword("NO BRACKETS") == "NO BRACKETS"
+    assert portal_search_keyword("HERMINGTON(BLOK B)") == "HERMINGTON BLOK B"
+    assert portal_search_keyword("NO BRACKETS") == "NO BRACKETS"
 
 
-def test_the_bracketless_keyword_still_finds_the_bracketed_row():
+def test_the_search_keyword_carries_no_oracle_text_operator():
+    # 2026-10-08: "NO 12-3, JALAN ..." failed DRG-50901 at column 12 with the
+    # brackets already gone — a hyphen is MINUS and a comma ACCUM.
+    assert portal_search_keyword("NO 12-3, JALAN SS2/24 & LORONG 5?") == \
+        "NO 12 3 JALAN SS2 24 LORONG 5"
+    assert portal_search_keyword("W.P. KUALA LUMPUR; TMN {SRI} [A] *x* $y% ~z! =") == \
+        "W P KUALA LUMPUR TMN SRI A x y z"
+    # Operator WORDS are operators too, in any case; a word that merely
+    # contains one is kept.
+    assert portal_search_keyword("JALAN NEAR SURAU and TAMAN Andaman") == \
+        "JALAN SURAU TAMAN Andaman"
+    assert portal_search_keyword("  ") == ""
+    assert portal_search_keyword(None) == ""
+    # Letters outside ASCII are words, not punctuation.
+    assert portal_search_keyword("Jalan Café 3") == "Jalan Café 3"
+
+
+def test_the_cleaned_keyword_still_finds_the_bracketed_row():
     # What the portal returns for the stripped keyword is the SAME bracketed
     # row, and the match must still take it — both halves have to agree.
     stored = HERMINGTON_GRID

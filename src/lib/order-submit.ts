@@ -20,6 +20,7 @@ import {
   PAGE1_CAPTURE_SLOT,
   POINT_OF_NO_RETURN,
   STOPPED_MSG,
+  SESSION_EXPIRED_CODE,
   SUBMIT_STOPPED,
   isPortalOrderNumber,
   isScreenshotKey,
@@ -297,6 +298,25 @@ function detailMessage(d: StageDetail): string {
  */
 const CUSTOMER_REFUSALS = new Set(["blacklisted_ic"]);
 
+/**
+ * The run met the portal's login page, so the stored expiry was wrong: mark the
+ * session expired now. Without this the next submit trusts the same stale
+ * expiry, starts, and lands on the login page again — and the banner keeps
+ * saying "connected" to an agent whose orders keep failing.
+ */
+async function expireDealerSession(orderId: string): Promise<void> {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: { lastSubmitUserId: true, userId: true },
+  });
+  const userId = order?.lastSubmitUserId ?? order?.userId;
+  if (!userId) return;
+  await prisma.dealerAccount.updateMany({
+    where: { userId, sessionExpiresAt: { gt: new Date() } },
+    data: { sessionExpiresAt: new Date() },
+  });
+}
+
 async function applyResult(
   orderId: string,
   result: OrderJobResult,
@@ -374,6 +394,7 @@ async function applyResult(
       message: data.errorMessage ?? null,
       errorCode: data.errorCode ?? null,
     });
+    if (data.errorCode === SESSION_EXPIRED_CODE) await expireDealerSession(orderId);
     return {
       status: o.status,
       stage: o.stage,
@@ -620,6 +641,7 @@ export async function pollOrderProgress(id: string): Promise<ProgressState | nul
       orderId: id, attempt: order.attempt, status: "failed", stage: o.stage,
       message: o.errorMessage, errorCode,
     });
+    if (errorCode === SESSION_EXPIRED_CODE) await expireDealerSession(id);
     return withDetails({
       status: o.status,
       stage: o.stage,

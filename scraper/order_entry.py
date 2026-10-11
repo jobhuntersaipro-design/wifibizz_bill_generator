@@ -28,6 +28,7 @@ oe_helpers — see SELECTOR_MAP.md and context/features/order-entry-build-spec.m
 
 import asyncio
 import re
+import unicodedata
 import os
 from datetime import datetime
 
@@ -56,6 +57,18 @@ LOGS_DIR = "logs"
 
 class InfraError(RuntimeError):
     """Infrastructure failure (browser/session). Caller may retry."""
+
+
+class SessionExpiredError(InfraError):
+    """The portal sent the run to its login page: the dealer session is gone.
+
+    Not a fault of ours, and not one a retry fixes — every retry opens the same
+    dead session and lands on the same login page (2026-10-08: four tries, four
+    identical failures, then an "infrastructure" email). Only the agent can fix
+    it, by reconnecting. A subclass of InfraError so every caller that already
+    treats InfraError as "reconnect" (the address search, the feasibility
+    probe) keeps doing so; the order job reports it as its own error_kind.
+    """
 
 
 class ShellDialogError(RuntimeError):
@@ -101,14 +114,17 @@ def _frame(page):
 async def ensure_on_order_entry(page) -> dict:
     """
     Navigate to the Order Entry CRM and clear any blocking announcement modal.
-    Raises InfraError if we land on login/no-devtool (session lost / detector).
+    Raises SessionExpiredError if we land on login/no-devtool (session lost /
+    detector).
     """
     await page.goto(ORDER_ENTRY_URL, wait_until="domcontentloaded")
     await page.wait_for_timeout(3000)
 
     if "no-devtool" in page.url.lower() or "login" in page.url.lower():
-        raise InfraError(
-            f"Landed on {page.url} — session invalid or anti-bot detector fired."
+        raise SessionExpiredError(
+            f"Your dealer session has expired — the portal sent the run to its "
+            f"login page ({page.url}; session invalid or anti-bot detector "
+            f"fired). Reconnect on the Order Entry page, then submit again."
         )
 
     # Clear the announcement/password modal on the outer (Ant) shell.
@@ -683,20 +699,35 @@ async def open_feasibility(frame) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 3 — select address  (MAPPED — SELECTOR_MAP §4b)
 # ─────────────────────────────────────────────────────────────────────────────
-def bracketless_keyword(keyword: str) -> str:
-    """The By-keyword search text, with its brackets taken out.
+# Oracle Text reads these as operators even with no punctuation around them —
+# "JALAN NEAR SURAU" is a NEAR query, "TAMAN AND" a syntax error. None of them
+# is ever the word that finds an address, so they are dropped, not escaped.
+_ORACLE_TEXT_OPERATOR_WORDS = frozenset({
+    "AND", "OR", "NOT", "NEAR", "MINUS", "ACCUM", "WITHIN", "ABOUT", "FUZZY",
+    "SYN", "NT", "BT",
+})
 
-    The portal runs the keyword through an Oracle Text CONTAINS query, where
-    `( )` are grouping operators — and a group sitting inside a run of plain
-    words is a parser error. Live 2026-09-25, "... HERMINGTON (BLOK B) TAMAN
-    ..." came back as a Warning: "ORA-29902 ... DRG-50901: text query parser
-    syntax error", with an empty grid behind it.
 
-    Safe to drop: Oracle Text indexes WORDS, and brackets are never part of a
-    word, so the bracketless keyword still finds "(BLOK B)". The grid match
-    ignores brackets too (`_norm_addr`), so the row is still recognised.
+def portal_search_keyword(keyword: str) -> str:
+    """The By-keyword search text as the portal can take it: words only.
+
+    The portal runs the keyword through an Oracle Text CONTAINS query, unescaped,
+    and Oracle Text reads punctuation as operators: `( )` group, `-` is MINUS,
+    `,` ACCUM, `&` AND, `?` fuzzy, and so on. Live 2026-09-25, "... HERMINGTON
+    (BLOK B) TAMAN ..." came back as a Warning: "ORA-29902 ... DRG-50901: text
+    query parser syntax error", with an empty grid behind it — and stripping
+    only the brackets left the same error for "NO 12-3, JALAN ..." (column 12,
+    2026-10-08).
+
+    Safe to drop: Oracle Text indexes WORDS, and punctuation is never part of a
+    word, so "B 17 03 JALAN KUCHAI" still finds "B-17-03, JALAN KUCHAI". The
+    grid match compares the full stored address (`_norm_addr`), never this
+    keyword, so the right row is still the one taken. Same rule as
+    SmartPortal's `portalSearchTerm`.
     """
-    return re.sub(r"\s+", " ", re.sub(r"[()]", " ", keyword or "")).strip()
+    text = unicodedata.normalize("NFKC", keyword or "")
+    words = re.sub(r"[\W_]+", " ", text).split()
+    return " ".join(w for w in words if w.upper() not in _ORACLE_TEXT_OPERATOR_WORDS)
 
 
 async def select_address(frame, address: dict) -> dict:
@@ -722,7 +753,7 @@ async def select_address(frame, address: dict) -> dict:
     await frame.locator(tab).first.click()
 
     if search_type == "By keyword":
-        await frame.locator('input[name="keywords"]').first.fill(bracketless_keyword(address["keywords"]))
+        await frame.locator('input[name="keywords"]').first.fill(portal_search_keyword(address["keywords"]))
 
     # Run the query, then check for the address-already-has-service warning.
     await frame.locator(".js-query").first.click()

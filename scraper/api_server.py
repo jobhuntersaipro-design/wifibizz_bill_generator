@@ -943,7 +943,7 @@ def _run_order_job_inner(job_id: str, payload: dict, dry_run: bool, user_key: st
     """
     import asyncio
 
-    from order_entry import InfraError, enter_order
+    from order_entry import InfraError, SessionExpiredError, enter_order
 
     # Hard cap on a single order run. A wedged portal step (slow AJAX, a lost
     # session mid-flow) must not let the job — and its Chromium — run forever.
@@ -1090,6 +1090,21 @@ def _run_order_job_inner(job_id: str, payload: dict, dry_run: bool, user_key: st
                     finished_at=datetime.utcnow().isoformat(),
                     error="The portal did not respond in time — it may be busy or your dealer session may have expired. Reconnect and try again.",
                     error_kind="portal_timeout",
+                    log_path=log_path,
+                )
+                JOBS[job_id] = job
+        except SessionExpiredError as e:
+            # The portal bounced the run to its login page. Its own error_kind:
+            # filed as `infra` it was retried automatically, against the same
+            # dead session, until the budget ran out.
+            print(f"[{datetime.utcnow().isoformat()}] SESSION EXPIRED: {e!r}")
+            with JOBS_LOCK:
+                job = JOBS.get(job_id, {})
+                job.update(
+                    status="error",
+                    finished_at=datetime.utcnow().isoformat(),
+                    error=str(e),
+                    error_kind="session_expired",
                     log_path=log_path,
                 )
                 JOBS[job_id] = job

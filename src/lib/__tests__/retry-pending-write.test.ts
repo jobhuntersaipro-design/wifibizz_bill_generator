@@ -19,6 +19,7 @@ const orderUpdate = vi.fn();
 const recordEvent = vi.fn();
 const attachStageDetail = vi.fn();
 const fetchMock = vi.fn();
+const dealerUpdateMany = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -26,6 +27,9 @@ vi.mock("@/lib/prisma", () => ({
       findUnique: (...a: unknown[]) => orderFindUnique(...a),
       update: (...a: unknown[]) => orderUpdate(...a),
       findMany: vi.fn().mockResolvedValue([]),
+    },
+    dealerAccount: {
+      updateMany: (...a: unknown[]) => dealerUpdateMany(...a),
     },
   },
 }));
@@ -277,5 +281,44 @@ describe("every failed attempt keeps the code it failed with", () => {
     const data = finalWrite();
     expect(data.errorCode).toBe("post_pay_not_confirmed");
     expect(data.autoRetryAt).toBeNull();
+  });
+});
+
+describe("a run that met the portal's login page", () => {
+  const LOGIN =
+    "Your dealer session has expired \u2014 the portal sent the run to its login page " +
+    "(https://dealer.unifi.com.my/esales/login; session invalid or anti-bot detector fired).";
+
+  beforeEach(() => {
+    orderFindUnique.mockResolvedValue({ ...IN_FLIGHT, userId: "u_owner", lastSubmitUserId: "u_agent" });
+  });
+
+  it("is not retried, and the submitter's session is marked expired", async () => {
+    // 2026-10-08: retried four times against the same dead session.
+    jobAnswers({
+      status: "done",
+      result: { status: "error", stage: "order_entry", error: "session_expired", message: LOGIN },
+    });
+    await pollOrderProgress("ord_1");
+    const data = finalWrite();
+    expect(data.errorCode).toBe("session_expired");
+    expect(data.autoRetryAt).toBeNull();
+    const where = (dealerUpdateMany.mock.calls[0]?.[0] as { where: { userId: string } }).where;
+    expect(where.userId).toBe("u_agent");
+  });
+
+  it("is handled the same when the droplet reports it as the job's error_kind", async () => {
+    jobAnswers({ status: "error", error: LOGIN, error_kind: "session_expired" });
+    await pollOrderProgress("ord_1");
+    const data = finalWrite();
+    expect(data.errorCode).toBe("session_expired");
+    expect(data.autoRetryAt).toBeNull();
+    expect(dealerUpdateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the session alone on any other failure", async () => {
+    jobAnswers({ status: "error", error: "Timeout 30000ms exceeded.", error_kind: "infra" });
+    await pollOrderProgress("ord_1");
+    expect(dealerUpdateMany).not.toHaveBeenCalled();
   });
 });

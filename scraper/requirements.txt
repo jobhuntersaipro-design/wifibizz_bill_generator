@@ -10,6 +10,9 @@ boto3==1.43.56
 cryptography==46.0.3
 python-dotenv==1.0.0
 requests==2.31.0
+# Only used when OE_AI_MATCH=1 (ai_match.py); imported lazily, so a missing or
+# unset key never affects an ordinary run.
+anthropic==1.12.1
 # Imported at load by login_manager -> gmail_otp_reader (only used if auto-OTP
 # is enabled; the dealer flow types OTP manually, but the import must resolve).
 google-api-python-client==2.187.0

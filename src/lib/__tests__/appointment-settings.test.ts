@@ -116,6 +116,9 @@ describe("preferred installation date", () => {
   it("the scraper's no-slots-on-date failure gets its own, non-retried code", () => {
     expect(resolveErrorCode("appointment_failed", "no slots on 2026-10-12 (the portal offered 2026-10-13)"))
       .toBe("appointment_date_unavailable");
+    // A newer scraper sends the policy's own code for the same refusal.
+    expect(resolveErrorCode("no_slots_on_date", "no slots on 2026-10-12 (the portal offered 2026-10-13)"))
+      .toBe("appointment_date_unavailable");
     expect(resolveErrorCode("appointment_failed", "the portal offered no slots")).toBe("appointment_failed");
     expect(retryVerdict({ status: "failed", errorCode: "appointment_date_unavailable", errorMessage: null, autoRetries: 0, attempt: 1 } as never).retry)
       .toBe(false);

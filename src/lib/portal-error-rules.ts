@@ -29,6 +29,8 @@ export const PORTAL_ERROR_RULES: ReadonlyArray<readonly [needle: string, code: s
   ["address already has", "address_already_has_service"],
   ["no record to view", "address_not_found"],
   ["address not found", "address_not_found"],
+  ["drg-50901", "address_search_failed"],
+  ["text query parser", "address_search_failed"],
   ["maximum number of line", "msr_customer_id_limit"],
   ["max line", "msr_customer_id_limit"],
   ["customer id limit", "msr_customer_id_limit"],
@@ -67,8 +69,11 @@ export function resolveErrorCode(
   code: string | null | undefined,
   message: string | null | undefined,
 ): string | null | undefined {
-  // The scraper files a preferred date with no slot under its catch-all
-  // `appointment_failed`; its own sentence ("no slots on 2026-10-12 …") names it.
+  // A preferred date with no slot. Older scrapers file it under the catch-all
+  // `appointment_failed` (its sentence, "no slots on 2026-10-12 …", names it);
+  // newer ones send the policy's own `no_slots_on_date`. A fixed date only ever
+  // comes from the preferred installation date, so both mean the same thing.
+  if (code === "no_slots_on_date") return "appointment_date_unavailable";
   if (code === "appointment_failed" && /^no slots on \d{4}-\d{2}-\d{2}/.test(message ?? "")) {
     return "appointment_date_unavailable";
   }
