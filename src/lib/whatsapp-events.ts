@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { whatsappFixtureEnabled, whatsappFixtureEvents } from "@/lib/whatsapp-inbox-fixture";
 import { directionLabel, type WhatsappExtract } from "@/lib/whatsapp-webhook";
 
 export const WHATSAPP_EVENT_LIMIT = 200;
@@ -11,6 +12,7 @@ export interface WhatsappEventView extends WhatsappExtract {
 }
 
 export async function listWhatsappEvents(): Promise<WhatsappEventView[]> {
+  if (whatsappFixtureEnabled()) return whatsappFixtureEvents();
   const rows = await prisma.whatsappWebhookEvent.findMany({
     orderBy: { receivedAt: "desc" },
     take: WHATSAPP_EVENT_LIMIT,

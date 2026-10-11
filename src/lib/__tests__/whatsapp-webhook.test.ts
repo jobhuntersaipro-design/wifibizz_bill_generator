@@ -99,6 +99,8 @@ beforeEach(() => {
   delete process.env.WHATSAPP_APP_SECRET;
   delete process.env.WHATSAPP_WEBHOOK_SECRET;
   delete process.env.VERCEL_ENV;
+  delete process.env.VERCEL;
+  delete process.env.WHATSAPP_INBOX_FIXTURE;
   create.mockResolvedValue({ id: "evt_1" });
   findMany.mockResolvedValue([]);
   verifyAdmin.mockResolvedValue(false);
@@ -400,6 +402,46 @@ describe("admin list", () => {
       fromWaId: "15551110000",
       receivedAt: "2026-10-11T02:30:00.000Z",
     });
+  });
+
+  it("keeps reading the database when the fixture flag is set on Vercel", async () => {
+    vi.stubEnv("WHATSAPP_INBOX_FIXTURE", "1");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("NODE_ENV", "development");
+    try {
+      verifyAdmin.mockResolvedValue(true);
+      findMany.mockResolvedValue([]);
+      const res = await adminList();
+      expect(res.status).toBe(200);
+      expect(findMany).toHaveBeenCalledWith({ orderBy: { receivedAt: "desc" }, take: 200 });
+      expect(await res.json()).toEqual({ events: [] });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("serves the local fixture and skips the database when the flag is on", async () => {
+    vi.stubEnv("WHATSAPP_INBOX_FIXTURE", "1");
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("NODE_ENV", "development");
+    try {
+      verifyAdmin.mockResolvedValue(true);
+      const res = await adminList();
+      expect(res.status).toBe(200);
+      expect(findMany).not.toHaveBeenCalled();
+      const body = await res.json() as { events: { id: string }[] };
+      expect(body.events.map((event) => event.id)).toEqual([
+        "evt_b_echo",
+        "evt_a_status",
+        "evt_a_image",
+        "evt_b_in",
+        "evt_a_echo",
+        "evt_a_in",
+      ]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("sends a non-admin away from the page", async () => {
