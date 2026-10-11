@@ -2,8 +2,10 @@
 
 ## Status
 
-CODE COMPLETE, VERIFIED IN BROWSER AGAINST THE LOCAL FIXTURE (branch `feature/whatsapp-reply`). Vercel-only,
-**migration `20261011130000_whatsapp_conversations`** (additive; Vercel's build applies it). Spec:
+MERGED TO MAIN AND DEPLOYED 2026-10-11 (`e01ccc4`, merge `ea76951`). Vercel-only; Vercel's production build
+applied **migration `20261011130000_whatsapp_conversations`** (seen in the build log). Sending stays off until
+`WHATSAPP_D360_API_KEY` is set on Vercel (Production only). The remote branch `feature/whatsapp-reply` still
+exists — the session's git proxy refuses branch deletes. Spec:
 [context/features/whatsapp-reply.md](features/whatsapp-reply.md).
 
 ## Goals
