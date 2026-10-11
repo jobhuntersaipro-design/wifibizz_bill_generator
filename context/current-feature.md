@@ -1,3 +1,61 @@
+# Current Feature: WhatsApp reply inbox (respond.io-style) on /admin/whatsapp
+
+## Status
+
+CODE COMPLETE, VERIFIED IN BROWSER AGAINST THE LOCAL FIXTURE (branch `feature/whatsapp-reply`). Vercel-only,
+**migration `20261011130000_whatsapp_conversations`** (additive; Vercel's build applies it). Spec:
+[context/features/whatsapp-reply.md](features/whatsapp-reply.md).
+
+## Goals
+
+- Reply from an open chat (text); templates only outside the 24-hour window
+- Sent / delivered / read / failed ticks from the status webhooks
+- Open / Closed + shared unread, filters and search
+- Customer panel: BizzFlow orders and cases matched by phone
+- Inbound images and PDFs viewable through an admin-only proxy
+- Every send audited
+
+## Notes
+
+Route A (user, 2026-10-11): official 360dialog coexistence; the "scan QR to login" is the coexistence onboarding
+QR scanned with the WhatsApp Business app. No Baileys. `morluto/rea` reviewed: a reverse-engineering MCP, not a
+respond.io codebase, not used. API sends are not echoed by the webhook, so each send is stored as a synthetic
+`api_send` row in `whatsapp_webhook_events`. Needs `WHATSAPP_D360_API_KEY` on Vercel (Production only — previews
+share the production DB) and the onboarding done once.
+
+## Built
+
+- `src/lib/whatsapp-send.ts` — 360dialog client: text, template, template list (approved, no variables), media
+  (two hops; only Meta's lookaside host is followed; jpeg/png/webp/pdf only). `sendRefusal` blocks preview
+  deployments and a missing key.
+- `src/actions/whatsapp.ts` — admin-gated send text / send template (re-checks the template against the live
+  list and stores its real body), close/reopen, mark read, contact lookup (orders + cases by `phoneVariants`).
+  A send that succeeds but cannot be stored says "do not send it again". Audited as `whatsapp_message_sent`
+  with the number, never the text.
+- `buildInbox` folds `statuses` into ticks on business messages (furthest wins; failed carries the API's
+  reason), gives inbound images/documents a media id, and reports `lastInboundAt` for the 24-hour window.
+- `/api/admin/whatsapp` returns chat state with the events; `/api/admin/whatsapp/media` proxies attachments.
+- UI: Open / Unread / Closed / All tabs with counts, shared unread, Close chat / Reopen, window badge
+  ("Reply window · 22h 0m left" / "Window closed · templates only"), composer (Enter sends, Shift+Enter new
+  line) that switches to the template picker when the window is closed, ticks, inline images, contact panel.
+- Local fixture (`WHATSAPP_INBOX_FIXTURE=1`, never on Vercel) now also fakes sends, templates and one contact,
+  in memory on `globalThis`.
+
+## Verified
+
+Dev server with the fixture and a locally minted admin token (throwaway credentials, no database, no key), in
+Chromium: template sent and shown in the thread; with the browser clock inside the window, a text reply sent
+by Enter appeared once per send and cleared the box; Close moved the chat to Closed, Reopen back; contact
+panel listed the fixture order; 390px has no horizontal overflow and the composer is on screen. 20 new
+vitest (`whatsapp-reply.test.ts`), 1340 passing; the 4 failing files are the e2e specs. `next build` clean,
+lint clean on touched files, `tsc` 3 pre-existing errors.
+
+## NOT verified
+
+Anything against 360dialog — no key here: a real send, the template list's response shape, real status
+ticks, media download, and the coexistence QR onboarding. The migration has not run against a database. The
+contact lookup has not run against real orders/cases (exact-match on stored mobile formats).
+
 # Current Feature: Admin assistant lists the latest models automatically
 
 ## Status

@@ -28,7 +28,8 @@ export type AuditAction =
   | "invite_created"
   | "password_changed"
   | "password_reset"
-  | "assistant_settings_updated";
+  | "assistant_settings_updated"
+  | "whatsapp_message_sent";
 
 /**
  * Record one event. NEVER throws.

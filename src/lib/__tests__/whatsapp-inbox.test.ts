@@ -50,6 +50,7 @@ describe("buildInbox", () => {
       customer: "15551110001",
       lastAt: "2025-10-09T08:53:21.000Z",
       preview: "third",
+      lastInboundAt: "2025-10-09T08:53:21.000Z",
       messages: [
         { id: "e1:m1", side: "inbound", at: "2025-10-09T08:53:20.000Z", text: long },
         { id: "e1:m2", side: "inbound", at: "2025-10-09T08:53:20.000Z", text: "second" },

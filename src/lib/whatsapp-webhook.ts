@@ -26,6 +26,7 @@ const DIRECTION: Record<string, string> = {
   smb_message_echoes: "Echo",
   statuses: "Status",
   history: "History",
+  api_send: "Sent",
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {

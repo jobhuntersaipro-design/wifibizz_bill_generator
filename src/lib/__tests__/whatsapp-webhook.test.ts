@@ -22,6 +22,9 @@ vi.mock("@/lib/prisma", () => ({
       create: (...args: unknown[]) => create(...args),
       findMany: (...args: unknown[]) => findMany(...args),
     },
+    whatsappConversation: {
+      findMany: async () => [],
+    },
   },
 }));
 
@@ -414,7 +417,7 @@ describe("admin list", () => {
       const res = await adminList();
       expect(res.status).toBe(200);
       expect(findMany).toHaveBeenCalledWith({ orderBy: { receivedAt: "desc" }, take: 200 });
-      expect(await res.json()).toEqual({ events: [] });
+      expect(await res.json()).toEqual({ events: [], conversations: {} });
     } finally {
       vi.unstubAllEnvs();
     }
