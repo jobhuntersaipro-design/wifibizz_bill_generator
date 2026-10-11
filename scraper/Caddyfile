@@ -1,5 +1,11 @@
 # Automatic HTTPS (Let's Encrypt) for the scraper API. Requires SCRAPER_DOMAIN
 # to be a real subdomain whose A record points at this droplet's IP.
 {$SCRAPER_DOMAIN} {
-	reverse_proxy scraper:5000
+	# WhatsApp gateway (bearer-token API, plus a public /wa/health).
+	handle_path /wa/* {
+		reverse_proxy whatsapp:3000
+	}
+	handle {
+		reverse_proxy scraper:5000
+	}
 }

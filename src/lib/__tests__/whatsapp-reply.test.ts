@@ -14,18 +14,11 @@ vi.mock("@/lib/prisma", () => ({
 vi.mock("@/lib/admin-gate", () => ({ requireAdmin: () => admin() }));
 vi.mock("@/lib/audit", () => ({ ADMIN_ACTOR: "admin", recordAudit: (...a: unknown[]) => audit(...a) }));
 
-import {
-  buildInbox,
-  chatInTab,
-  formatRemaining,
-  isClosed,
-  phoneVariants,
-  unreadFor,
-  windowOpen,
-  type InboxEvent,
-} from "@/lib/whatsapp-inbox";
-import { apiError, fetchMedia, sendRefusal, sendText, usableTemplates } from "@/lib/whatsapp-send";
-import { sendWhatsappTemplate, sendWhatsappText } from "@/actions/whatsapp";
+import { buildInbox, chatInTab, isClosed, phoneVariants, unreadFor, type InboxEvent } from "@/lib/whatsapp-inbox";
+import { fetchMedia, gatewayConfig, gatewayState, sendRefusal, sendText } from "@/lib/whatsapp-send";
+import { getWhatsappConnection, sendWhatsappText, whatsappConnectionAction } from "@/actions/whatsapp";
+
+const GW = { url: "https://scraper.example/wa", token: "TOKEN" };
 
 function event(id: string, receivedAt: string, field: string, value: unknown): InboxEvent {
   return { id, receivedAt, rawBody: JSON.stringify({ entry: [{ changes: [{ field, value }] }] }) };
@@ -62,6 +55,11 @@ describe("buildInbox ticks and media", () => {
     ]);
   });
 
+  it("shows a message stored twice as one bubble", () => {
+    const [chat] = buildInbox([inbound("wamid.D", 1760000000, "once"), inbound("wamid.D", 1760000000, "once")]);
+    expect(chat.messages.map((m) => m.text)).toEqual(["once"]);
+  });
+
   it("carries the API's reason on a failed message", () => {
     const [chat] = buildInbox([
       event("send", "2026-01-01T00:00:00.000Z", "api_send", {
@@ -91,15 +89,8 @@ describe("buildInbox ticks and media", () => {
   });
 });
 
-describe("reply window and chat state", () => {
+describe("chat state", () => {
   const last = "2026-01-01T00:00:00.000Z";
-  const lastMs = Date.parse(last);
-
-  it("is open for exactly 24 hours after the customer's last message", () => {
-    expect(windowOpen(last, lastMs + 24 * 3600_000 - 1)).toBe(true);
-    expect(windowOpen(last, lastMs + 24 * 3600_000)).toBe(false);
-    expect(windowOpen(null, lastMs)).toBe(false);
-  });
 
   it("reopens a closed chat when the customer writes again", () => {
     expect(isClosed(last, "2026-01-01T00:05:00.000Z")).toBe(true);
@@ -122,11 +113,6 @@ describe("reply window and chat state", () => {
     expect(chatInTab(chat, { closedAt: new Date(1760000200 * 1000).toISOString(), lastReadAt: null }, "closed")).toBe(true);
   });
 
-  it("formats the time left", () => {
-    expect(formatRemaining(30_000)).toBe("under a minute");
-    expect(formatRemaining(12 * 60_000)).toBe("12m");
-    expect(formatRemaining((23 * 60 + 5) * 60_000)).toBe("23h 5m");
-  });
 });
 
 describe("phoneVariants", () => {
@@ -138,64 +124,57 @@ describe("phoneVariants", () => {
   });
 });
 
-describe("360dialog client", () => {
-  afterEach(() => vi.unstubAllGlobals());
-
-  it("refuses on preview deployments and without a key", () => {
-    expect(sendRefusal("preview", "k")).toMatch(/preview/);
-    expect(sendRefusal("production", null)).toMatch(/WHATSAPP_D360_API_KEY/);
-    expect(sendRefusal("production", "k")).toBeNull();
+describe("gateway client", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
-  it("keeps only approved templates that need no parameters", () => {
-    const templates = usableTemplates({
-      waba_templates: [
-        { name: "b_ok", language: "en", status: "approved", category: "UTILITY", components: [{ type: "BODY", text: "Hello there" }] },
-        { name: "a_ok", language: "ms", status: "APPROVED", components: [{ type: "HEADER", format: "TEXT", text: "Hi" }, { type: "BODY", text: "Body" }] },
-        { name: "vars", language: "en", status: "approved", components: [{ type: "BODY", text: "Hi {{1}}" }] },
-        { name: "image", language: "en", status: "approved", components: [{ type: "HEADER", format: "IMAGE" }, { type: "BODY", text: "x" }] },
-        { name: "url", language: "en", status: "approved", components: [{ type: "BODY", text: "x" }, { type: "BUTTONS", buttons: [{ type: "URL", url: "https://a/{{1}}" }] }] },
-        { name: "pending", language: "en", status: "pending", components: [{ type: "BODY", text: "x" }] },
-      ],
-    });
-    expect(templates.map((t) => t.name)).toEqual(["a_ok", "b_ok"]);
-    expect(templates[1]).toEqual({ name: "b_ok", language: "en", category: "UTILITY", body: "Hello there" });
+  it("is configured only with both the URL and the token, trailing slash dropped", () => {
+    vi.stubEnv("WHATSAPP_GATEWAY_URL", "https://scraper.example/wa/");
+    vi.stubEnv("WHATSAPP_GATEWAY_TOKEN", "");
+    expect(gatewayConfig()).toBeNull();
+    vi.stubEnv("WHATSAPP_GATEWAY_TOKEN", " TOKEN ");
+    expect(gatewayConfig()).toEqual(GW);
   });
 
-  it("prefers the Cloud API's details sentence", () => {
-    expect(apiError({ error: { message: "(#131047) Re-engagement message", error_data: { details: "24 hours passed" } } }, 400)).toBe("24 hours passed");
-    expect(apiError({ error: { message: "Invalid parameter" } }, 400)).toBe("Invalid parameter");
-    expect(apiError(null, 502)).toBe("WhatsApp API answered 502.");
+  it("refuses on preview deployments and without the gateway", () => {
+    expect(sendRefusal("preview", GW)).toMatch(/preview/);
+    expect(sendRefusal("production", null)).toMatch(/WHATSAPP_GATEWAY_URL/);
+    expect(sendRefusal("production", GW)).toBeNull();
   });
 
-  it("posts a text in Cloud API shape and returns the wamid", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ messages: [{ id: "wamid.OK" }] }), { status: 200 }));
+  it("posts a text with the bearer token and returns the message id", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: "3EB0ABC" }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
-    expect(await sendText("KEY", CUSTOMER, "hello")).toEqual({ ok: true, wamid: "wamid.OK" });
+    expect(await sendText(GW, CUSTOMER, "hello")).toEqual({ ok: true, wamid: "3EB0ABC" });
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("https://waba-v2.360dialog.io/messages");
-    expect((init.headers as Record<string, string>)["D360-API-KEY"]).toBe("KEY");
-    expect(JSON.parse(init.body as string)).toEqual({
-      messaging_product: "whatsapp", recipient_type: "individual", to: CUSTOMER, type: "text", text: { body: "hello", preview_url: false },
-    });
+    expect(url).toBe("https://scraper.example/wa/send");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer TOKEN");
+    expect(JSON.parse(init.body as string)).toEqual({ to: CUSTOMER, text: "hello" });
   });
 
-  it("only follows a media URL on Meta's lookaside host, and only for allowed types", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ url: "https://evil.example/x", mime_type: "image/jpeg" }))));
-    expect(await fetchMedia("KEY", "1")).toEqual({ ok: false, status: 502 });
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ url: "https://lookaside.fbsbx.com/a?b=1", mime_type: "image/svg+xml" }))));
-    expect(await fetchMedia("KEY", "1")).toEqual({ ok: false, status: 415 });
+  it("passes the gateway's own refusal through", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "WhatsApp is not connected. Scan the QR on the WhatsApp tab." }), { status: 409 })));
+    expect(await sendText(GW, CUSTOMER, "hi")).toEqual({ ok: false, error: "WhatsApp is not connected. Scan the QR on the WhatsApp tab." });
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("fetch failed"); }));
+    expect(await sendText(GW, CUSTOMER, "hi")).toEqual({ ok: false, error: "Could not reach the WhatsApp gateway." });
+  });
 
-    const calls: string[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
-      calls.push(url);
-      return calls.length === 1
-        ? new Response(JSON.stringify({ url: "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=9&hash=h", mime_type: "image/png" }))
-        : new Response(new Uint8Array([1, 2, 3]));
-    }));
-    const media = await fetchMedia("KEY", "9");
+  it("reads the link state and only accepts a PNG data URL as the QR", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ status: "qr", qr: "data:image/png;base64,AAAA", me: null }))));
+    expect(await gatewayState(GW)).toEqual({ ok: true, state: { status: "qr", qr: "data:image/png;base64,AAAA", me: null, error: null } });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ status: "weird", qr: "javascript:alert(1)" }))));
+    const odd = await gatewayState(GW);
+    expect(odd.ok && odd.state).toEqual({ status: "starting", qr: null, me: null, error: null });
+  });
+
+  it("serves media only of an allowed type", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new Uint8Array([1]), { headers: { "content-type": "image/svg+xml" } })));
+    expect(await fetchMedia(GW, "ABC")).toEqual({ ok: false, status: 415 });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new Uint8Array([1, 2]), { headers: { "content-type": "image/png" } })));
+    const media = await fetchMedia(GW, "ABC");
     expect(media.ok && media.mime).toBe("image/png");
-    expect(calls[1]).toBe("https://waba-v2.360dialog.io/whatsapp_business/attachments/?mid=9&hash=h");
   });
 });
 
@@ -205,7 +184,8 @@ describe("send actions", () => {
     audit.mockReset();
     admin.mockResolvedValue(null);
     vi.stubEnv("VERCEL_ENV", "production");
-    vi.stubEnv("WHATSAPP_D360_API_KEY", "KEY");
+    vi.stubEnv("WHATSAPP_GATEWAY_URL", GW.url);
+    vi.stubEnv("WHATSAPP_GATEWAY_TOKEN", GW.token);
   });
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -230,7 +210,7 @@ describe("send actions", () => {
   });
 
   it("stores the sent reply so the inbox shows it, and audits it without the text", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ messages: [{ id: "wamid.NEW" }] }))));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: "wamid.NEW" }))));
     expect(await sendWhatsappText(CUSTOMER, "  your appointment is 10am  ")).toEqual({ success: true, data: undefined });
     const row = create.mock.calls[0][0].data as { rawBody: string; field: string; messageId: string };
     expect(row.field).toBe("api_send");
@@ -243,8 +223,8 @@ describe("send actions", () => {
   });
 
   it("does not store anything when WhatsApp refuses", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { message: "Re-engagement message" } }), { status: 400 })));
-    expect(await sendWhatsappText(CUSTOMER, "hi")).toEqual({ success: false, error: "Re-engagement message" });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "WhatsApp is not connected." }), { status: 409 })));
+    expect(await sendWhatsappText(CUSTOMER, "hi")).toEqual({ success: false, error: "WhatsApp is not connected." });
     expect(create).not.toHaveBeenCalled();
   });
 
@@ -253,19 +233,23 @@ describe("send actions", () => {
     expect((await sendWhatsappText(CUSTOMER, "   ")).success).toBe(false);
   });
 
-  it("sends only a template the account actually lists, storing its body", async () => {
-    const calls: string[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
-      calls.push(url);
-      if (url.includes("/v1/configs/templates")) {
-        return new Response(JSON.stringify({ waba_templates: [{ name: "follow_up", language: "en", status: "approved", components: [{ type: "BODY", text: "Following up" }] }] }));
-      }
-      return new Response(JSON.stringify({ messages: [{ id: "wamid.T" }] }));
-    }));
-    expect((await sendWhatsappTemplate(CUSTOMER, "made_up", "en")).success).toBe(false);
-    expect(calls.some((c) => c.endsWith("/messages"))).toBe(false);
-    expect(await sendWhatsappTemplate(CUSTOMER, "follow_up", "en")).toEqual({ success: true, data: undefined });
-    const row = create.mock.calls[0][0].data as { rawBody: string };
-    expect(buildInbox([{ id: "r", receivedAt: "2026-01-01T00:00:00.000Z", rawBody: row.rawBody }])[0].messages[0].text).toBe("Following up");
+  it("reads the connection and audits an unlink", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) =>
+      url.endsWith("/status")
+        ? new Response(JSON.stringify({ status: "open", me: "60198765432" }))
+        : new Response(JSON.stringify({ ok: true })),
+    ));
+    const res = await getWhatsappConnection();
+    expect(res.success && res.data.status).toBe("open");
+    expect(await whatsappConnectionAction("logout")).toEqual({ success: true, data: undefined });
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: "whatsapp_unlinked" }));
+  });
+
+  it("does not let a non-admin read the QR", async () => {
+    admin.mockResolvedValue({ success: false, error: "Unauthorized" });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await getWhatsappConnection()).toEqual({ success: false, error: "Unauthorized" });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

@@ -8,13 +8,14 @@ import { whatsappFixtureEnabled } from "@/lib/whatsapp-inbox-fixture";
 import { phoneVariants } from "@/lib/whatsapp-inbox";
 import { STATUS_LABELS } from "@/lib/order-types";
 import {
-  d360Key,
-  listTemplates,
+  gatewayAction,
+  gatewayConfig,
+  gatewayState,
   sendRefusal,
-  sendTemplate,
   sendText,
+  type GatewayConfig,
+  type GatewayState,
   type SendResult,
-  type TemplateView,
 } from "@/lib/whatsapp-send";
 
 type Result<T = undefined> = { success: true; data: T } | { success: false; error: string };
@@ -22,24 +23,19 @@ type Result<T = undefined> = { success: true; data: T } | { success: false; erro
 const WA_ID = /^\d{6,15}$/;
 const MAX_TEXT = 4096;
 
-const FIXTURE_TEMPLATES: TemplateView[] = [
-  { name: "follow_up", language: "en", category: "UTILITY", body: "Hi, following up on your Unifi application. Reply here when you are free." },
-  { name: "installation_reminder", language: "en", category: "UTILITY", body: "Reminder: your installation appointment is coming up. Reply to reschedule." },
-];
-
-/** The key, or why sending is off. The local fixture sends nowhere. */
-function sender(): { key: string | null; fixture: boolean; refusal: string | null } {
+/** The gateway, or why sending is off. The local fixture without a gateway sends nowhere. */
+function sender(): { config: GatewayConfig | null; fixture: boolean; refusal: string | null } {
   const fixture = whatsappFixtureEnabled();
-  const key = d360Key();
-  if (fixture && !key) return { key: null, fixture, refusal: null };
-  return { key, fixture, refusal: sendRefusal(process.env.VERCEL_ENV, key) };
+  const config = gatewayConfig();
+  if (fixture && !config) return { config: null, fixture, refusal: null };
+  return { config, fixture, refusal: sendRefusal(process.env.VERCEL_ENV, config) };
 }
 
-async function deliver(to: string, send: (key: string) => Promise<SendResult>): Promise<SendResult> {
-  const { key, fixture, refusal } = sender();
+async function deliver(send: (config: GatewayConfig) => Promise<SendResult>): Promise<SendResult> {
+  const { config, fixture, refusal } = sender();
   if (refusal) return { ok: false, error: refusal };
-  if (fixture && !key) return { ok: true, wamid: `wamid.fixture.${Date.now()}` };
-  return send(key as string);
+  if (fixture && !config) return { ok: true, wamid: `fixture${Date.now()}` };
+  return send(config as GatewayConfig);
 }
 
 export async function sendWhatsappText(to: string, text: string): Promise<Result> {
@@ -50,10 +46,10 @@ export async function sendWhatsappText(to: string, text: string): Promise<Result
   if (!body) return { success: false, error: "Type a message first." };
   if (body.length > MAX_TEXT) return { success: false, error: `Messages are limited to ${MAX_TEXT} characters.` };
 
-  const sent = await deliver(to, (key) => sendText(key, to, body));
+  const sent = await deliver((config) => sendText(config, to, body));
   if (!sent.ok) return { success: false, error: sent.error };
   try {
-    await appendApiSend({ to, wamid: sent.wamid, type: "text", text: body });
+    await appendApiSend({ to, wamid: sent.wamid, text: body });
   } catch (e) {
     console.error("[whatsapp] sent but not stored:", sent.wamid, e);
     return { success: false, error: "Sent, but it could not be saved to the inbox. Do not send it again." };
@@ -62,43 +58,29 @@ export async function sendWhatsappText(to: string, text: string): Promise<Result
   return { success: true, data: undefined };
 }
 
-export async function getWhatsappTemplates(): Promise<Result<TemplateView[]>> {
+/** The linked device: QR to scan, or the connected number. */
+export async function getWhatsappConnection(): Promise<Result<GatewayState>> {
   const denied = await requireAdmin();
   if (denied) return denied;
-  const { key, fixture, refusal } = sender();
-  if (refusal) return { success: false, error: refusal };
-  if (fixture && !key) return { success: true, data: FIXTURE_TEMPLATES };
-  const listed = await listTemplates(key as string);
-  return listed.ok ? { success: true, data: listed.templates } : { success: false, error: listed.error };
+  const { config, fixture } = sender();
+  if (fixture && !config) return { success: true, data: { status: "open", qr: null, me: "15550000000", error: null } };
+  if (!config) return { success: false, error: "WhatsApp is not set up (WHATSAPP_GATEWAY_URL / WHATSAPP_GATEWAY_TOKEN are missing)." };
+  const res = await gatewayState(config);
+  return res.ok ? { success: true, data: res.state } : { success: false, error: res.error };
 }
 
-export async function sendWhatsappTemplate(to: string, name: string, language: string): Promise<Result> {
+/** "connect" asks for a fresh QR after one expired; "logout" unlinks the number. */
+export async function whatsappConnectionAction(action: "connect" | "logout"): Promise<Result> {
   const denied = await requireAdmin();
   if (denied) return denied;
-  if (!WA_ID.test(to)) return { success: false, error: "Invalid WhatsApp number." };
-
-  // Re-read the list so only an approved, parameter-free template can be sent,
-  // and so the stored text is the template's real body.
-  const templates = await getWhatsappTemplates();
-  if (!templates.success) return templates;
-  const template = templates.data.find((t) => t.name === name && t.language === language);
-  if (!template) return { success: false, error: "That template is not available." };
-
-  const sent = await deliver(to, (key) => sendTemplate(key, to, name, language));
-  if (!sent.ok) return { success: false, error: sent.error };
-  try {
-    await appendApiSend({
-      to,
-      wamid: sent.wamid,
-      type: "template",
-      text: template.body || `Template · ${name}`,
-      template: { name, language },
-    });
-  } catch (e) {
-    console.error("[whatsapp] template sent but not stored:", sent.wamid, e);
-    return { success: false, error: "Sent, but it could not be saved to the inbox. Do not send it again." };
+  if (action !== "connect" && action !== "logout") return { success: false, error: "Invalid action." };
+  const config = gatewayConfig();
+  if (!config) return { success: false, error: "WhatsApp is not set up." };
+  const res = await gatewayAction(config, action);
+  if (!res.ok) return { success: false, error: res.error };
+  if (action === "logout") {
+    await recordAudit({ actor: ADMIN_ACTOR, action: "whatsapp_unlinked", detail: "Unlinked the WhatsApp number from BizzFlow." });
   }
-  await recordAudit({ actor: ADMIN_ACTOR, action: "whatsapp_message_sent", detail: `Sent template ${name} to ${to} on WhatsApp.` });
   return { success: true, data: undefined };
 }
 

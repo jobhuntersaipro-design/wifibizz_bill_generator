@@ -89,3 +89,6 @@ next-env.d.ts
 
 # Seeding input for scripts/seed-orders.ts — holds real customer addresses.
 addresses.txt
+
+# WhatsApp gateway data on the droplet (linked-device keys, media) — never commit
+/scraper/whatsapp/

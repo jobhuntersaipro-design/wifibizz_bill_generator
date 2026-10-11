@@ -5,7 +5,7 @@ import { authorizeWhatsappPost, extractWhatsappEvent, verifyChallenge } from "@/
 export const dynamic = "force-dynamic";
 
 /**
- * Public. 360dialog calls this; there is no session. The path is outside the
+ * Public. The WhatsApp gateway on the droplet calls this; there is no session. The path is outside the
  * auth proxy matcher in src/proxy.ts, so a logged-in agent is not required.
  */
 export async function GET(req: Request) {

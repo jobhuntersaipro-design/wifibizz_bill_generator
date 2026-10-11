@@ -1,19 +1,43 @@
 /**
- * 360dialog (WhatsApp Cloud API) client for the admin inbox. Server only: the
- * API key never leaves this module.
+ * Client for the WhatsApp gateway on the droplet (scraper/whatsapp-gateway):
+ * one WhatsApp number linked as a device by QR scan. Server only — the token
+ * never leaves this module.
  */
 
-const D360_BASE = "https://waba-v2.360dialog.io";
 const TIMEOUT_MS = 15_000;
 
 export type SendResult = { ok: true; wamid: string } | { ok: false; error: string };
 
-export interface TemplateView {
-  name: string;
-  language: string;
-  category: string | null;
-  /** The body as the customer will read it. */
-  body: string;
+export type GatewayStatus = "starting" | "qr" | "qr_expired" | "open" | "reconnecting" | "logged_out";
+
+export interface GatewayState {
+  status: GatewayStatus;
+  /** PNG data URL while a QR is waiting to be scanned. */
+  qr: string | null;
+  /** The linked number, once connected. */
+  me: string | null;
+  error: string | null;
+}
+
+export interface GatewayConfig {
+  url: string;
+  token: string;
+}
+
+export function gatewayConfig(): GatewayConfig | null {
+  const url = (process.env.WHATSAPP_GATEWAY_URL ?? "").trim().replace(/\/+$/, "");
+  const token = (process.env.WHATSAPP_GATEWAY_TOKEN ?? "").trim();
+  return url && token ? { url, token } : null;
+}
+
+/**
+ * Preview deployments share the production database and usually the
+ * production env, so a preview build must never message a real customer.
+ */
+export function sendRefusal(vercelEnv: string | undefined, config: GatewayConfig | null): string | null {
+  if (vercelEnv === "preview") return "Sending is disabled on preview deployments.";
+  if (!config) return "WhatsApp is not set up (WHATSAPP_GATEWAY_URL / WHATSAPP_GATEWAY_TOKEN are missing).";
+  return null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -24,126 +48,76 @@ function asString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-export function d360Key(): string | null {
-  const key = (process.env.WHATSAPP_D360_API_KEY ?? "").trim();
-  return key || null;
-}
-
-/**
- * Preview deployments share the production database and usually the
- * production env, so a preview build must never message a real customer.
- */
-export function sendRefusal(vercelEnv: string | undefined, key: string | null): string | null {
-  if (vercelEnv === "preview") return "Sending is disabled on preview deployments.";
-  if (!key) return "WhatsApp sending is not set up (WHATSAPP_D360_API_KEY is missing).";
-  return null;
-}
-
-/** The Cloud API's own sentence, e.g. the 24-hour re-engagement refusal. */
-export function apiError(body: unknown, status: number): string {
-  const error = asRecord(asRecord(body)?.error);
-  const details = asString(asRecord(error?.error_data)?.details);
-  const message = asString(error?.message) ?? asString(asRecord(body)?.message);
-  return details ?? message ?? `WhatsApp API answered ${status}.`;
-}
-
-async function d360(path: string, key: string, init?: RequestInit): Promise<Response> {
-  return fetch(`${D360_BASE}${path}`, {
+async function call(config: GatewayConfig, path: string, init?: RequestInit): Promise<Response> {
+  return fetch(`${config.url}${path}`, {
     ...init,
-    headers: { "D360-API-KEY": key, "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json", ...(init?.headers ?? {}) },
     signal: AbortSignal.timeout(TIMEOUT_MS),
     cache: "no-store",
   });
 }
 
-async function postMessage(key: string, payload: Record<string, unknown>): Promise<SendResult> {
+function unreachable(e: unknown): string {
+  return e instanceof Error && e.name === "TimeoutError" ? "The WhatsApp gateway timed out." : "Could not reach the WhatsApp gateway.";
+}
+
+export async function sendText(config: GatewayConfig, to: string, text: string): Promise<SendResult> {
   try {
-    const res = await d360("/messages", key, {
-      method: "POST",
-      body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", ...payload }),
-    });
-    const body: unknown = await res.json().catch(() => null);
-    if (!res.ok) return { ok: false, error: apiError(body, res.status) };
-    const messages = asRecord(body)?.messages;
-    const wamid = Array.isArray(messages) ? asString(asRecord(messages[0])?.id) : null;
-    if (!wamid) return { ok: false, error: "WhatsApp accepted the request but returned no message id." };
-    return { ok: true, wamid };
+    const res = await call(config, "/send", { method: "POST", body: JSON.stringify({ to, text }) });
+    const body = asRecord(await res.json().catch(() => null));
+    if (!res.ok) return { ok: false, error: asString(body?.error) ?? `WhatsApp gateway answered ${res.status}.` };
+    const id = asString(body?.id);
+    return id ? { ok: true, wamid: id } : { ok: false, error: "WhatsApp did not return a message id." };
   } catch (e) {
-    return { ok: false, error: e instanceof Error && e.name === "TimeoutError" ? "WhatsApp API timed out." : "Could not reach the WhatsApp API." };
+    return { ok: false, error: unreachable(e) };
   }
 }
 
-export function sendText(key: string, to: string, text: string): Promise<SendResult> {
-  return postMessage(key, { to, type: "text", text: { body: text, preview_url: false } });
-}
+const STATUSES: GatewayStatus[] = ["starting", "qr", "qr_expired", "open", "reconnecting", "logged_out"];
 
-export function sendTemplate(key: string, to: string, name: string, language: string): Promise<SendResult> {
-  return postMessage(key, { to, type: "template", template: { name, language: { code: language } } });
-}
-
-/**
- * Approved templates that can be sent with no parameters.
- *
- * ponytail: a template with {{variables}} or a media header needs values we do
- * not collect, so it is left out. Add a parameter form if those are needed.
- */
-export function usableTemplates(body: unknown): TemplateView[] {
-  const root = asRecord(body);
-  const list = root?.waba_templates ?? root?.data;
-  if (!Array.isArray(list)) return [];
-  const out: TemplateView[] = [];
-  for (const raw of list) {
-    const t = asRecord(raw);
-    const name = asString(t?.name);
-    const language = asString(t?.language);
-    if (!t || !name || !language || asString(t.status)?.toLowerCase() !== "approved") continue;
-    const components = Array.isArray(t.components) ? t.components.map(asRecord) : [];
-    let body = "";
-    let usable = true;
-    for (const c of components) {
-      if (!c) continue;
-      const type = asString(c.type)?.toUpperCase();
-      const text = asString(c.text) ?? "";
-      if (/\{\{/.test(text) || JSON.stringify(c.buttons ?? []).includes("{{")) usable = false;
-      if (type === "HEADER" && (asString(c.format)?.toUpperCase() ?? "TEXT") !== "TEXT") usable = false;
-      if (type === "BODY") body = text;
-    }
-    if (usable) out.push({ name, language, category: asString(t.category), body });
-  }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
-}
-
-export async function listTemplates(key: string): Promise<{ ok: true; templates: TemplateView[] } | { ok: false; error: string }> {
+export async function gatewayState(config: GatewayConfig): Promise<{ ok: true; state: GatewayState } | { ok: false; error: string }> {
   try {
-    const res = await d360("/v1/configs/templates?limit=1000", key);
-    const body: unknown = await res.json().catch(() => null);
-    if (!res.ok) return { ok: false, error: apiError(body, res.status) };
-    return { ok: true, templates: usableTemplates(body) };
-  } catch {
-    return { ok: false, error: "Could not load templates." };
+    const res = await call(config, "/status");
+    const body = asRecord(await res.json().catch(() => null));
+    if (!res.ok) return { ok: false, error: asString(body?.error) ?? `WhatsApp gateway answered ${res.status}.` };
+    const status = STATUSES.find((s) => s === body?.status) ?? "starting";
+    const qr = asString(body?.qr);
+    return {
+      ok: true,
+      state: {
+        status,
+        qr: qr?.startsWith("data:image/png;base64,") ? qr : null,
+        me: asString(body?.me),
+        error: asString(body?.error),
+      },
+    };
+  } catch (e) {
+    return { ok: false, error: unreachable(e) };
+  }
+}
+
+/** POST /connect (new QR) or /logout (unlink the number). */
+export async function gatewayAction(config: GatewayConfig, action: "connect" | "logout"): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await call(config, `/${action}`, { method: "POST", body: "{}" });
+    if (res.ok) return { ok: true };
+    const body = asRecord(await res.json().catch(() => null));
+    return { ok: false, error: asString(body?.error) ?? `WhatsApp gateway answered ${res.status}.` };
+  } catch (e) {
+    return { ok: false, error: unreachable(e) };
   }
 }
 
 /** Only what the inbox renders. The type decides the response header, never the upstream one. */
 export const MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
 
-/**
- * Two hops: the media id resolves to a lookaside.fbsbx.com URL, which 360dialog
- * serves on its own host with the same key.
- */
-export async function fetchMedia(key: string, mediaId: string): Promise<{ ok: true; bytes: ArrayBuffer; mime: string } | { ok: false; status: number }> {
+export async function fetchMedia(config: GatewayConfig, mediaId: string): Promise<{ ok: true; bytes: ArrayBuffer; mime: string } | { ok: false; status: number }> {
   try {
-    const meta = await d360(`/${encodeURIComponent(mediaId)}`, key);
-    if (!meta.ok) return { ok: false, status: meta.status === 404 ? 404 : 502 };
-    const info = asRecord(await meta.json().catch(() => null));
-    const url = asString(info?.url);
-    const mime = asString(info?.mime_type)?.split(";")[0].trim().toLowerCase() ?? "";
-    if (!url || !MEDIA_TYPES.has(mime)) return { ok: false, status: 415 };
-    const parsed = new URL(url);
-    if (parsed.hostname !== "lookaside.fbsbx.com") return { ok: false, status: 502 };
-    const file = await d360(`${parsed.pathname}${parsed.search}`, key);
-    if (!file.ok) return { ok: false, status: 502 };
-    return { ok: true, bytes: await file.arrayBuffer(), mime };
+    const res = await call(config, `/media/${encodeURIComponent(mediaId)}`);
+    if (!res.ok) return { ok: false, status: res.status === 404 ? 404 : 502 };
+    const mime = (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+    if (!MEDIA_TYPES.has(mime)) return { ok: false, status: 415 };
+    return { ok: true, bytes: await res.arrayBuffer(), mime };
   } catch {
     return { ok: false, status: 502 };
   }

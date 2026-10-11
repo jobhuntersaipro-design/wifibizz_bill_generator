@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { WhatsappConnection } from "@/components/admin/whatsapp-connection";
 import { WhatsappContactPanel } from "@/components/admin/whatsapp-contact";
 import { WhatsappEvents } from "@/components/admin/whatsapp-events";
 import { WhatsappThread } from "@/components/admin/whatsapp-thread";
@@ -20,17 +21,8 @@ import { formatKualaLumpur } from "@/lib/whatsapp-webhook";
 import { toast } from "@/lib/toast";
 
 const POLL_MS = 8_000;
-const CLOCK_MS = 30_000;
 
 type Conversations = Record<string, ConversationState>;
-
-/** Wall clock in 30 s steps. 0 on the server, so nothing time-relative is pre-rendered. */
-function subscribeClock(onChange: () => void) {
-  const id = setInterval(onChange, CLOCK_MS);
-  return () => clearInterval(id);
-}
-const clockNow = () => Math.floor(Date.now() / CLOCK_MS) * CLOCK_MS;
-const clockServer = () => 0;
 
 export function WhatsappDesk({
   initial,
@@ -40,6 +32,7 @@ export function WhatsappDesk({
   initialConversations: Conversations;
 }) {
   const [view, setView] = useState<"inbox" | "raw">("inbox");
+  const [connected, setConnected] = useState(false);
 
   return (
     <div className="space-y-4">
@@ -53,7 +46,12 @@ export function WhatsappDesk({
           <ViewButton current={view} id="raw" onSelect={setView}>Raw events</ViewButton>
         </div>
       </div>
-      {view === "inbox" ? <WhatsappInbox initial={initial} initialConversations={initialConversations} /> : <WhatsappEvents initial={initial} />}
+      <WhatsappConnection onConnectedChange={setConnected} />
+      {view === "inbox" ? (
+        <WhatsappInbox initial={initial} initialConversations={initialConversations} connected={connected} />
+      ) : (
+        <WhatsappEvents initial={initial} />
+      )}
     </div>
   );
 }
@@ -89,7 +87,15 @@ const TABS: { id: InboxTab; label: string }[] = [
   { id: "all", label: "All" },
 ];
 
-function WhatsappInbox({ initial, initialConversations }: { initial: WhatsappEventView[]; initialConversations: Conversations }) {
+function WhatsappInbox({
+  initial,
+  initialConversations,
+  connected,
+}: {
+  initial: WhatsappEventView[];
+  initialConversations: Conversations;
+  connected: boolean;
+}) {
   const [events, setEvents] = useState(initial);
   const [conversations, setConversations] = useState(initialConversations);
   const [error, setError] = useState<string | null>(null);
@@ -98,7 +104,6 @@ function WhatsappInbox({ initial, initialConversations }: { initial: WhatsappEve
   const [tab, setTab] = useState<InboxTab>("open");
   const [selected, setSelected] = useState<string | null>(null);
   const [contacts, setContacts] = useState<Record<string, WhatsappContact | string>>({});
-  const now = useSyncExternalStore(subscribeClock, clockNow, clockServer);
   const selectedRef = useRef<string | null>(null);
 
   /** Shared read state: the newest customer message on screen counts as read. */
@@ -268,7 +273,7 @@ function WhatsappInbox({ initial, initialConversations }: { initial: WhatsappEve
           <WhatsappThread
             chat={active}
             closedAt={conversations[active.customer]?.closedAt ?? null}
-            now={now}
+            connected={connected}
             onBack={() => select(null)}
             onToggleClosed={(closed) => void toggleClosed(active, closed)}
             onSent={() => void load(false)}

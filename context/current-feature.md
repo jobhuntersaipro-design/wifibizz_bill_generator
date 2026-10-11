@@ -1,62 +1,43 @@
-# Current Feature: WhatsApp reply inbox (respond.io-style) on /admin/whatsapp
+# Current Feature: WhatsApp inbox linked by QR scan (replaces 360dialog)
 
 ## Status
 
-MERGED TO MAIN AND DEPLOYED 2026-10-11 (`e01ccc4`, merge `ea76951`). Vercel-only; Vercel's production build
-applied **migration `20261011130000_whatsapp_conversations`** (seen in the build log). Sending stays off until
-`WHATSAPP_D360_API_KEY` is set on Vercel (Production only). The remote branch `feature/whatsapp-reply` still
-exists — the session's git proxy refuses branch deletes. Spec:
-[context/features/whatsapp-reply.md](features/whatsapp-reply.md).
-
-## Goals
-
-- Reply from an open chat (text); templates only outside the 24-hour window
-- Sent / delivered / read / failed ticks from the status webhooks
-- Open / Closed + shared unread, filters and search
-- Customer panel: BizzFlow orders and cases matched by phone
-- Inbound images and PDFs viewable through an admin-only proxy
-- Every send audited
+CODE COMPLETE (branch `feature/whatsapp-qr-gateway`). Vercel + droplet, no new migration (the reply inbox's
+`20261011130000_whatsapp_conversations` is already on production). **Needs a droplet deploy**, env on both
+sides, and one manual Caddy reload on the first deploy. Spec: [context/features/whatsapp-reply.md](features/whatsapp-reply.md).
 
 ## Notes
 
-Route A (user, 2026-10-11): official 360dialog coexistence; the "scan QR to login" is the coexistence onboarding
-QR scanned with the WhatsApp Business app. No Baileys. `morluto/rea` reviewed: a reverse-engineering MCP, not a
-respond.io codebase, not used. API sends are not echoed by the webhook, so each send is stored as a synthetic
-`api_send` row in `whatsapp_webhook_events`. Needs `WHATSAPP_D360_API_KEY` on Vercel (Production only — previews
-share the production DB) and the onboarding done once.
+Asked 2026-10-11: "I thought I can just scan the WhatsApp code and log in then start messaging." Chosen: the
+unofficial QR route (WhatsApp Web protocol via Baileys), **replacing** 360dialog. Ban risk stated and accepted.
 
-## Built
+**Built.** `scraper/whatsapp-gateway/` (server.mjs, convert.mjs + node:test) as a `whatsapp` compose service;
+Caddy `/wa/*`; deploy.sh reloads Caddy after rebuilding. BizzFlow: `whatsapp-send.ts` is now the gateway client
+(send, status, connect/logout, media); a connection card on `/admin/whatsapp` shows the live QR (polled every
+3 s), "QR expired → Show new QR", or "Connected as +60…" with a confirmed Disconnect (audited
+`whatsapp_unlinked`). The composer is plain text and is disabled with a reason while nothing is linked.
+Removed: templates, the 24-hour window badge, `WHATSAPP_D360_API_KEY`. The webhook route still accepts the
+360dialog header, unchanged.
 
-- `src/lib/whatsapp-send.ts` — 360dialog client: text, template, template list (approved, no variables), media
-  (two hops; only Meta's lookaside host is followed; jpeg/png/webp/pdf only). `sendRefusal` blocks preview
-  deployments and a missing key.
-- `src/actions/whatsapp.ts` — admin-gated send text / send template (re-checks the template against the live
-  list and stores its real body), close/reopen, mark read, contact lookup (orders + cases by `phoneVariants`).
-  A send that succeeds but cannot be stored says "do not send it again". Audited as `whatsapp_message_sent`
-  with the number, never the text.
-- `buildInbox` folds `statuses` into ticks on business messages (furthest wins; failed carries the API's
-  reason), gives inbound images/documents a media id, and reports `lastInboundAt` for the 24-hour window.
-- `/api/admin/whatsapp` returns chat state with the events; `/api/admin/whatsapp/media` proxies attachments.
-- UI: Open / Unread / Closed / All tabs with counts, shared unread, Close chat / Reopen, window badge
-  ("Reply window · 22h 0m left" / "Window closed · templates only"), composer (Enter sends, Shift+Enter new
-  line) that switches to the template picker when the window is closed, ticks, inline images, contact panel.
-- Local fixture (`WHATSAPP_INBOX_FIXTURE=1`, never on Vercel) now also fakes sends, templates and one contact,
-  in memory on `globalThis`.
+**Verified here:** the gateway, run in this sandbox through its proxy, got a **real QR from WhatsApp's
+servers**; the admin tab showed it, it rotated, it expired to "Show new QR" without reconnecting in a loop
+(one connection in the log), and the button brought a fresh one. Send refused while unlinked, both in the
+gateway (409) and the UI. Connected strip, Disconnect confirm and a text send checked in fixture mode.
+5 gateway tests, 1340 vitest (gateway excluded from vitest), `next build` clean, lint clean, `tsc` 3
+pre-existing. A clean `npm ci --omit=dev` from the lockfile loads Baileys.
 
-## Verified
+**NOT verified:** a scan (no phone here), so no real message has been received or sent, no receipt and no
+media download; the Docker image build (Docker Hub rate-limited this sandbox; the one pull that worked failed
+at `npm ci` inside the build, most likely the sandbox proxy); the droplet deploy and Caddy route.
 
-Dev server with the fixture and a locally minted admin token (throwaway credentials, no database, no key), in
-Chromium: template sent and shown in the thread; with the browser clock inside the window, a text reply sent
-by Enter appeared once per send and cleared the box; Close moved the chat to Closed, Reopen back; contact
-panel listed the fixture order; 390px has no horizontal overflow and the composer is on screen. 20 new
-vitest (`whatsapp-reply.test.ts`), 1340 passing; the 4 failing files are the e2e specs. `next build` clean,
-lint clean on touched files, `tsc` 3 pre-existing errors.
-
-## NOT verified
-
-Anything against 360dialog — no key here: a real send, the template list's response shape, real status
-ticks, media download, and the coexistence QR onboarding. The migration has not run against a database. The
-contact lookup has not run against real orders/cases (exact-match on stored mobile formats).
+**To go live:**
+1. Droplet `.env`: `WHATSAPP_GATEWAY_TOKEN=<long random>`, `WHATSAPP_WEBHOOK_URL=https://bizzflow.top/api/whatsapp/webhook`,
+   `WHATSAPP_WEBHOOK_SECRET=<same as Vercel>`.
+2. Deploy the new scraper tag. The deploy script running is the OLD one, so once after it:
+   `docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile`.
+3. Vercel Production: `WHATSAPP_GATEWAY_URL=https://scraper.bizzflow.top/wa`, `WHATSAPP_GATEWAY_TOKEN` (same),
+   and `WHATSAPP_WEBHOOK_SECRET` if not already set. Redeploy.
+4. `/admin/whatsapp` → scan the QR from the business phone (Settings → Linked devices).
 
 # Current Feature: Admin assistant lists the latest models automatically
 
