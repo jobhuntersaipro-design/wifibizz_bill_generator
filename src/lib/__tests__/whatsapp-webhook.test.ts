@@ -97,6 +97,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   delete process.env.WHATSAPP_VERIFY_TOKEN;
   delete process.env.WHATSAPP_APP_SECRET;
+  delete process.env.WHATSAPP_WEBHOOK_SECRET;
+  delete process.env.VERCEL_ENV;
   create.mockResolvedValue({ id: "evt_1" });
   findMany.mockResolvedValue([]);
   verifyAdmin.mockResolvedValue(false);
@@ -262,6 +264,59 @@ describe("POST", () => {
   it("accepts an unsigned body when the secret is unset", async () => {
     const res = await webhookPost(JSON.stringify(INBOUND), { "x-hub-signature-256": "sha256=deadbeef" });
     expect(res.status).toBe(200);
+    expect(create).toHaveBeenCalled();
+  });
+
+  it("rejects a missing webhook secret and stores nothing", async () => {
+    process.env.WHATSAPP_WEBHOOK_SECRET = "whsec";
+    const res = await webhookPost(JSON.stringify(INBOUND));
+    expect(res.status).toBe(401);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a wrong webhook secret and stores nothing", async () => {
+    process.env.WHATSAPP_WEBHOOK_SECRET = "whsec";
+    const res = await webhookPost(JSON.stringify(INBOUND), { "x-webhook-secret": "nope" });
+    expect(res.status).toBe(401);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("stores the body when X-Webhook-Secret matches", async () => {
+    process.env.WHATSAPP_WEBHOOK_SECRET = "whsec\n";
+    const raw = JSON.stringify(INBOUND);
+    const res = await webhookPost(raw, { "x-webhook-secret": "whsec" });
+    expect(res.status).toBe(200);
+    expect(create).toHaveBeenCalledWith({
+      data: { ...extractWhatsappEvent(INBOUND), rawBody: raw },
+    });
+  });
+
+  it("accepts the same secret on D360-Webhook-Secret", async () => {
+    process.env.WHATSAPP_WEBHOOK_SECRET = "whsec";
+    const res = await webhookPost(JSON.stringify(INBOUND), { "d360-webhook-secret": "whsec" });
+    expect(res.status).toBe(200);
+    expect(create).toHaveBeenCalled();
+  });
+
+  it("rejects in production when neither secret is configured", async () => {
+    process.env.VERCEL_ENV = "production";
+    const res = await webhookPost(JSON.stringify(INBOUND));
+    expect(res.status).toBe(401);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("accepts either a valid hub signature or the webhook header when both secrets are set", async () => {
+    const raw = '{ "entry": [] }';
+    process.env.WHATSAPP_WEBHOOK_SECRET = "whsec";
+    process.env.WHATSAPP_APP_SECRET = "app-secret";
+    const bySignature = await webhookPost(raw, { "x-hub-signature-256": sign("app-secret", raw) });
+    expect(bySignature.status).toBe(200);
+    create.mockClear();
+    const byHeader = await webhookPost(raw, {
+      "x-webhook-secret": "whsec",
+      "x-hub-signature-256": "sha256=deadbeef",
+    });
+    expect(byHeader.status).toBe(200);
     expect(create).toHaveBeenCalled();
   });
 

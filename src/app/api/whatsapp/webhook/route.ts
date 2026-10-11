@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { extractWhatsappEvent, signatureOk, verifyChallenge } from "@/lib/whatsapp-webhook";
+import { authorizeWhatsappPost, extractWhatsappEvent, verifyChallenge } from "@/lib/whatsapp-webhook";
 
 export const dynamic = "force-dynamic";
 
@@ -25,14 +25,20 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const raw = Buffer.from(await req.arrayBuffer());
-  const secret = process.env.WHATSAPP_APP_SECRET;
-  if (secret) {
-    if (!signatureOk(raw, req.headers.get("x-hub-signature-256"), secret)) {
-      return new NextResponse("forbidden", {
-        status: 403,
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-      });
-    }
+  const allowed = authorizeWhatsappPost({
+    vercelEnv: process.env.VERCEL_ENV,
+    webhookSecret: process.env.WHATSAPP_WEBHOOK_SECRET,
+    appSecret: process.env.WHATSAPP_APP_SECRET,
+    webhookHeader: req.headers.get("x-webhook-secret"),
+    d360Header: req.headers.get("d360-webhook-secret"),
+    hubSignature: req.headers.get("x-hub-signature-256"),
+    raw,
+  });
+  if (!allowed.ok) {
+    return new NextResponse(allowed.status === 401 ? "unauthorized" : "forbidden", {
+      status: allowed.status,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
   }
 
   const text = raw.toString("utf8");

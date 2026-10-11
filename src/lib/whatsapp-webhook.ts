@@ -52,6 +52,42 @@ export function signatureOk(raw: Uint8Array, header: string | null, secret: stri
   return safeEqual(expected, header ?? "");
 }
 
+function headerMatches(expected: string, header: string | null): boolean {
+  if (!header) return false;
+  return safeEqual(header, expected);
+}
+
+/**
+ * POST gate. When both secrets are set, either check is enough: a matching
+ * `X-Webhook-Secret` or `D360-Webhook-Secret` header, or a valid
+ * `X-Hub-Signature-256`. 360dialog sends the header, not Meta's signature.
+ * Production with neither secret configured rejects the body. Other
+ * environments still accept it so local dev can post samples unsigned.
+ */
+export function authorizeWhatsappPost(input: {
+  vercelEnv: string | undefined;
+  webhookSecret: string | undefined;
+  appSecret: string | undefined;
+  webhookHeader: string | null;
+  d360Header: string | null;
+  hubSignature: string | null;
+  raw: Uint8Array;
+}): { ok: true } | { ok: false; status: 401 | 403 } {
+  const webhook = (input.webhookSecret ?? "").trim();
+  const app = input.appSecret ?? "";
+  const hasWebhook = webhook.length > 0;
+  const hasApp = app.length > 0;
+
+  if (hasWebhook && (headerMatches(webhook, input.webhookHeader) || headerMatches(webhook, input.d360Header))) {
+    return { ok: true };
+  }
+  if (hasApp && signatureOk(input.raw, input.hubSignature, app)) return { ok: true };
+  if (!hasWebhook && !hasApp) {
+    return input.vercelEnv === "production" ? { ok: false, status: 401 } : { ok: true };
+  }
+  return { ok: false, status: hasApp && !hasWebhook ? 403 : 401 };
+}
+
 /**
  * GET verification. The challenge is returned as plain text only when mode,
  * token, and challenge are all present and the token matches.
