@@ -588,6 +588,17 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
       "so check it there before creating a second one.",
     action: "resubmit",
   },
+  mobile_number_taken: {
+    title: "Every generated U Mobile number was refused",
+    subtext:
+      "The mobile tab is filled with 011 + 8 random digits, and the portal " +
+      "refused each one at Check. The run tries ten different numbers before " +
+      "giving up \u2014 the portal\u2019s last message is below.",
+    fix:
+      "The order already exists in the portal, so check it there before " +
+      "submitting again. If every number keeps being refused, tell your admin.",
+    action: "check_portal",
+  },
   appointment_slot_taken: {
     title: "Appointment slot taken by another order",
     subtext:
@@ -602,6 +613,19 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
       "order already exists in the portal, so check it there before creating " +
       "a second one.",
     action: "resubmit",
+  },
+  appointment_date_unavailable: {
+    title: "No slot on the preferred installation date",
+    subtext:
+      "The portal's calendar had no slot on the date picked for this order, so " +
+      "the run stopped rather than book a different day. The message below " +
+      "names the dates the portal did offer.",
+    fix:
+      "Agree a new date with the customer, change it on the order, and submit " +
+      "again. The portal may already hold an order number for this run, so " +
+      "check it there before creating a second one.",
+    action: "fix_field",
+    section: "appointment",
   },
   appointment_not_booked: {
     title: "The order has no appointment on it",
@@ -823,12 +847,6 @@ export const SUBMIT_ERROR_CODES: Record<string, SubmitErrorCopy> = {
       "Every slot was taken or none was open. The order already exists in the " +
       "portal, without an appointment.",
     fix: "Open the order in the portal, add the appointment under Install Information, and continue it there. Do not resubmit \u2014 that creates a second order.",
-    action: "check_portal",
-  },
-  no_slots_on_date: {
-    title: "No installation slot on the chosen date",
-    subtext: "The portal had no slot on the date asked for. The order already exists in the portal.",
-    fix: "Open the order in the portal and book a slot on another day with the customer. Do not resubmit.",
     action: "check_portal",
   },
   all_before_lead: {
@@ -1421,6 +1439,8 @@ export interface OrderListItem {
   // predates the field (or came from the bulk script) and will submit with the
   // default — the two are shown differently, so a dash never reads as a choice.
   appointmentLeadHours: number | null;
+  // "YYYY-MM-DD" the agent asked for; null = book by lead time.
+  preferredInstallDate: string | null;
   attempt: number; // how many submit runs this draft has had
   // Automatic retries spent since the last MANUAL submit, and the timestamp
   // that says another one is owed. Together they are what makes a row read

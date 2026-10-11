@@ -69,6 +69,14 @@ export function resolveErrorCode(
   code: string | null | undefined,
   message: string | null | undefined,
 ): string | null | undefined {
+  // A preferred date with no slot. Older scrapers file it under the catch-all
+  // `appointment_failed` (its sentence, "no slots on 2026-10-12 …", names it);
+  // newer ones send the policy's own `no_slots_on_date`. A fixed date only ever
+  // comes from the preferred installation date, so both mean the same thing.
+  if (code === "no_slots_on_date") return "appointment_date_unavailable";
+  if (code === "appointment_failed" && /^no slots on \d{4}-\d{2}-\d{2}/.test(message ?? "")) {
+    return "appointment_date_unavailable";
+  }
   if (code && !GENERIC_CODES.has(code)) return code;
   return classifyPortalMessage(message) ?? code;
 }

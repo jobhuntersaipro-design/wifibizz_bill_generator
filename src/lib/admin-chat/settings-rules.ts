@@ -13,17 +13,82 @@ export const MIN_INSTRUCTIONS_CHARS = 50;
 export const MIN_TOOL_DESCRIPTION_CHARS = 20;
 export const MAX_TOOL_DESCRIPTION_CHARS = 2000;
 
+export interface ChatModel {
+  id: string;
+  label: string;
+  note: string;
+  /** The effort levels this model accepts, of the ones the page offers. */
+  efforts: ChatEffort[];
+}
+
+/** The chat route sends `max_tokens: 16000`; a model capped below that refuses every turn. */
+export const CHAT_MAX_TOKENS = 16000;
+
 /**
- * The models an admin may pick. Only models that accept everything the chat
- * route sends — adaptive thinking, `output_config.effort` and the
- * `fallbacks: "default"` refusal fallback — so a pick can never turn every
- * question into an API error. (Haiku 4.5 is left out for exactly that reason.)
+ * Price notes by model id. The Models API does not return pricing, so a model
+ * not listed here shows a generic note rather than a guessed price.
  */
-export const CHAT_MODELS: { id: string; label: string; note: string }[] = [
-  { id: "claude-opus-5-5", label: "Claude Opus 5.5", note: "$4 / $20 per million tokens (in / out). Balanced." },
-  { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", note: "$2 / $10. Faster and half the price." },
-  { id: "claude-fable-5-1", label: "Claude Fable 5.1", note: "$10 / $50. Most capable, slowest." },
+const MODEL_NOTES: Record<string, string> = {
+  "claude-opus-5-5": "$4 / $20 per million tokens (in / out). Balanced.",
+  "claude-sonnet-5-5": "$2 / $10. Faster and half the price.",
+  "claude-fable-5-1": "$10 / $50. Most capable, slowest.",
+};
+const UNPRICED_NOTE = "Price not listed here — check Anthropic's pricing page.";
+
+/**
+ * The fallback list, used only when the live list from the Models API cannot
+ * be read (no key, API down). Every entry is known to accept what the route sends.
+ */
+export const CHAT_MODELS: ChatModel[] = [
+  { id: "claude-opus-5-5", label: "Claude Opus 5.5", note: MODEL_NOTES["claude-opus-5-5"], efforts: ["low", "medium", "high"] },
+  { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", note: MODEL_NOTES["claude-sonnet-5-5"], efforts: ["low", "medium", "high"] },
+  { id: "claude-fable-5-1", label: "Claude Fable 5.1", note: MODEL_NOTES["claude-fable-5-1"], efforts: ["low", "medium", "high"] },
 ];
+
+/** The parts of a Models API entry the picker reads (a subset of the SDK's BetaModelInfo). */
+export interface ApiModelInfo {
+  id: string;
+  display_name: string;
+  created_at: string;
+  max_tokens: number | null;
+  allowed_fallback_models: string[] | null;
+  capabilities: {
+    effort: { supported: boolean } & Partial<Record<ChatEffort, { supported: boolean } | null>>;
+    thinking: { types: { adaptive: { supported: boolean } } };
+  } | null;
+}
+
+/**
+ * Why the chat route cannot use a model, or null when it can. The route sends
+ * adaptive thinking, `output_config.effort` and `fallbacks: "default"` on every
+ * call, so a model missing any of them would turn every question into an error.
+ * An empty `allowed_fallback_models` is the API's way of saying "no fallbacks".
+ */
+export function modelUnusableReason(m: ApiModelInfo): string | null {
+  const c = m.capabilities;
+  if (!c) return "capabilities not reported";
+  if (!c.thinking?.types?.adaptive?.supported) return "no adaptive thinking";
+  if (!c.effort?.supported) return "no effort setting";
+  if (!m.allowed_fallback_models?.length) return "no refusal fallback";
+  if (m.max_tokens !== null && m.max_tokens < CHAT_MAX_TOKENS) return `max output ${m.max_tokens} tokens`;
+  return null;
+}
+
+/** Usable models from the API, newest release first. */
+export function chatModelsFromApi(infos: readonly ApiModelInfo[]): ChatModel[] {
+  return infos
+    .filter((m) => modelUnusableReason(m) === null)
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+    .map((m) => ({
+      id: m.id,
+      label: m.display_name,
+      note: MODEL_NOTES[m.id] ?? UNPRICED_NOTE,
+      efforts: CHAT_EFFORTS.map((e) => e.id).filter((e) => m.capabilities!.effort[e]?.supported),
+    }));
+}
+
+/** A string shaped like an Anthropic model id — what a stored row may hold. */
+const MODEL_ID = /^claude-[a-z0-9.-]{1,80}$/;
 
 export const CHAT_EFFORTS: { id: ChatEffort; label: string; note: string }[] = [
   { id: "low", label: "Low", note: "Fastest, cheapest; fine for simple lookups." },
@@ -88,6 +153,7 @@ export function normalizeChatSettings(
   input: ChatSettings,
   knownTools: readonly { name: string; description: string }[],
   defaultInstructions: string,
+  models: readonly ChatModel[] = CHAT_MODELS,
 ): { ok: true; settings: ChatSettings } | { ok: false; error: string } {
   const known = new Map(knownTools.map((t) => [t.name, t.description]));
 
@@ -125,12 +191,16 @@ export function normalizeChatSettings(
   }
 
   const model = input.model?.trim() || null;
-  if (model !== null && !CHAT_MODELS.some((m) => m.id === model)) {
+  const picked = model === null ? null : models.find((m) => m.id === model);
+  if (model !== null && !picked) {
     return { ok: false, error: `Unknown model "${model}".` };
   }
   const effort = input.effort || null;
   if (effort !== null && !CHAT_EFFORTS.some((e) => e.id === effort)) {
     return { ok: false, error: `Unknown effort "${effort}".` };
+  }
+  if (picked && effort !== null && !picked.efforts.includes(effort)) {
+    return { ok: false, error: `${picked.label} does not accept effort "${effort}".` };
   }
 
   return { ok: true, settings: { instructions, disabledTools, toolDescriptions, model, effort } };
@@ -166,9 +236,9 @@ export function chatSettingsFromRow(
     instructions: row.instructions?.trim() ? row.instructions : null,
     disabledTools: Array.isArray(row.disabledTools) ? row.disabledTools : [],
     toolDescriptions: descriptions,
-    // An id no longer offered (or a hand-edited row) falls back to the
-    // deployment's choice rather than sending the API a model it may refuse.
-    model: CHAT_MODELS.some((m) => m.id === row.model) ? row.model! : null,
+    // The offered list is live, so any id-shaped value is kept (it was checked
+    // against that list when saved). Junk falls back to the deployment's choice.
+    model: typeof row.model === "string" && MODEL_ID.test(row.model) ? row.model : null,
     effort: CHAT_EFFORTS.find((e) => e.id === row.effort)?.id ?? null,
   };
 }

@@ -36,7 +36,7 @@ import {
   dealerSessionLive,
   startSubmitRun,
 } from "@/lib/order-start";
-import { MAX_LEAD_HOURS, MIN_LEAD_HOURS } from "@/lib/appointment-settings";
+import { MAX_LEAD_HOURS, MIN_LEAD_HOURS, isValidPreferredDate } from "@/lib/appointment-settings";
 import {
   nextOrderReference,
   recordEvent,
@@ -240,6 +240,14 @@ const orderInputSchema = z.object({
     .min(MIN_LEAD_HOURS)
     .max(MAX_LEAD_HOURS)
     .optional(),
+  // "YYYY-MM-DD", Malaysia time. Optional: blank keeps the lead-time booking.
+  // Past dates refused here as well as in the picker — actions are POST-able.
+  preferredInstallDate: z
+    .string()
+    .refine((v) => isValidPreferredDate(v), {
+      message: "Preferred installation date must be today or later.",
+    })
+    .optional(),
   // The ID copy is required: the portal's Personal Customer form marks it so, and
   // a draft without one dies mid-submit with the form filled and nothing saying
   // why. Enforced here rather than only in the form because Server Actions are
@@ -289,6 +297,7 @@ export interface OrderInput {
   deviceName?: string;
   remarks?: string;
   appointmentLeadHours?: number;
+  preferredInstallDate?: string;
   documents?: OrderDocument[];
 }
 
@@ -417,6 +426,7 @@ export async function saveOrder(rawInput: OrderInput) {
     deviceName: input.deviceName || null,
     remarks: input.remarks || null,
     appointmentLeadHours: input.appointmentLeadHours ?? null,
+    preferredInstallDate: input.preferredInstallDate || null,
     documents: (input.documents ?? []).slice(0, MAX_DOCS) as unknown as Prisma.InputJsonValue,
   };
 
@@ -508,6 +518,7 @@ function toOrderListItem(
     deviceCode: o.deviceCode,
     remarks: o.remarks,
     appointmentLeadHours: o.appointmentLeadHours,
+    preferredInstallDate: o.preferredInstallDate,
     attempt: o.attempt,
     autoRetries: o.autoRetries,
     autoRetryAt: o.autoRetryAt ? o.autoRetryAt.toISOString() : null,

@@ -56,10 +56,9 @@ export function buildOrderJobRequest(
     // portal refuses the chosen device. A channel bundle is not a device.
     deviceOfferGroups: offerGroups.devices,
     // Built from the order itself, so the single submit and the batch runner
-    // cannot book different slots for the same draft. `strategy`/`fixedDate`
-    // are pinned inside appointmentPolicyFor — the scraper still understands a
-    // fixed date, but nothing in the app can send one.
-    appointment: appointmentPolicyFor(order.appointmentLeadHours),
+    // cannot book different slots for the same draft. A preferred installation
+    // date becomes the scraper's `fixed_date`: that day's first slot or a stop.
+    appointment: appointmentPolicyFor(order.appointmentLeadHours, order.preferredInstallDate),
     id: order.id,
     idType: order.idType,
     idNumber: order.idNumber,

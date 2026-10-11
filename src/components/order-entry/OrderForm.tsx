@@ -41,7 +41,9 @@ import {
   MAX_LEAD_HOURS,
   MIN_LEAD_HOURS,
   describeLeadTime,
+  isValidPreferredDate,
   leadHoursOrDefault,
+  todayMyt,
   validateLeadHours,
 } from "@/lib/appointment-settings";
 import { DEALER_OFFERS, ID_TYPES, MYKAD_LIKE_ID_TYPES, type IdType } from "@/lib/dealer-offers";
@@ -238,6 +240,8 @@ export function OrderForm({
   // Appointment lead time, as typed. Held as a string so the field can be
   // emptied while editing — a number state would snap a cleared box back to 0.
   const [leadHours, setLeadHours] = useState(String(DEFAULT_LEAD_HOURS));
+  // "YYYY-MM-DD" or "" — blank books by lead time, as before.
+  const [preferredDate, setPreferredDate] = useState("");
 
   const [documents, setDocuments] = useState<OrderDocument[]>([]);
   const [docType, setDocType] = useState("im_conversation");
@@ -649,6 +653,8 @@ export function OrderForm({
         // submits with the default — so show the default rather than a blank
         // box the agent would have to guess at.
         setLeadHours(String(leadHoursOrDefault(o.appointmentLeadHours as number | null)));
+        // Not carried into a clone: a day picked for one order is not the next one's.
+        if (editingId) setPreferredDate((o.preferredInstallDate as string | null) ?? "");
         // Only keep documents that carry a namespaced key (servable via the
         // authenticated proxy); drop any legacy public-URL entries.
         if (editingId) {
@@ -974,6 +980,10 @@ export function OrderForm({
       toast.error(lead.error);
       return;
     }
+    if (preferredDate && !isValidPreferredDate(preferredDate)) {
+      toast.error("Preferred installation date must be today or later.");
+      return;
+    }
     setSaving(true);
     const result = await saveOrder({
       id: draftId ?? undefined,
@@ -1000,6 +1010,7 @@ export function OrderForm({
       deviceName: isWithDevice ? deviceName : "",
       remarks,
       appointmentLeadHours: lead.leadHours,
+      preferredInstallDate: preferredDate || undefined,
       documents,
     });
     setSaving(false);
@@ -1630,6 +1641,25 @@ export function OrderForm({
         </div>
         <div className="p-6 space-y-3">
           <div className="max-w-xs space-y-1.5">
+            <Label htmlFor="preferred-install-date" className={labelCls}>
+              Preferred installation date <span className="text-ink-muted font-normal">(optional)</span>
+            </Label>
+            <Input
+              id="preferred-install-date"
+              type="date"
+              min={todayMyt()}
+              value={preferredDate}
+              onChange={(e) => setPreferredDate(e.target.value)}
+              className={inputCls}
+            />
+          </div>
+          {preferredDate ? (
+            <p className="text-[11px] text-ink-muted">
+              Books the first slot the portal lists on this day. If that day has no slot, the
+              submit stops with an error — it never books a different day.
+            </p>
+          ) : null}
+          <div className={`max-w-xs space-y-1.5 ${preferredDate ? "hidden" : ""}`}>
             <Label htmlFor="lead-hours" className={labelCls}>
               Earliest slot, in hours from submit
             </Label>
@@ -1645,10 +1675,10 @@ export function OrderForm({
               className={inputCls}
             />
           </div>
-          <p className="text-[11px] text-ink-muted">
+          <p className={`text-[11px] text-ink-muted ${preferredDate ? "hidden" : ""}`}>
             {leadPreview}
           </p>
-          <p className="text-[11px] text-ink-muted">
+          <p className={`text-[11px] text-ink-muted ${preferredDate ? "hidden" : ""}`}>
             The submit takes the earliest slot the portal offers at or after that point. If the
             portal has none, the order fails rather than booking something sooner.
           </p>

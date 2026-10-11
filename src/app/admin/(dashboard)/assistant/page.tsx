@@ -3,6 +3,7 @@ import { AssistantSettings, type ToolInfo } from "@/components/admin/assistant-s
 import { CHAT_TOOLS } from "@/lib/admin-chat/tools";
 import { chatConfig } from "@/lib/admin-chat/config";
 import { loadChatSettings } from "@/lib/admin-chat/settings";
+import { listChatModels } from "@/lib/admin-chat/models";
 import { TOOL_LABELS } from "@/lib/admin-chat/settings-rules";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +16,7 @@ function toolInputs(schema: z.ZodType): ToolInfo["inputs"] {
 
 export default async function AdminAssistantPage() {
   const cfg = chatConfig();
-  const settings = await loadChatSettings();
+  const [settings, { models, live }] = await Promise.all([loadChatSettings(), listChatModels()]);
   const tools: ToolInfo[] = CHAT_TOOLS.map((t) => ({
     name: t.name,
     label: TOOL_LABELS[t.name]?.label ?? t.name,
@@ -35,6 +36,8 @@ export default async function AdminAssistantPage() {
       <AssistantSettings
         initial={settings}
         tools={tools}
+        models={models}
+        modelsLive={live}
         runtime={{
           enabled: cfg.enabled,
           model: cfg.model,

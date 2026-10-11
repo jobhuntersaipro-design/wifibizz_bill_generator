@@ -85,6 +85,10 @@ model Order {
   // written before this column existed, and anything the bulk script writes —
   // and resolves to DEFAULT_LEAD_HOURS when the job payload is built.
   appointmentLeadHours Int? @map("appointment_lead_hours")
+  // The day the agent wants installation on, "YYYY-MM-DD" in Malaysia time. Set:
+  // the run books that day's first slot or stops — never another day. NULL keeps
+  // the lead-time behaviour above.
+  preferredInstallDate String? @map("preferred_install_date")
 
   // Submission result
   status       String  @default("draft") // draft | submitting | submitted | failed

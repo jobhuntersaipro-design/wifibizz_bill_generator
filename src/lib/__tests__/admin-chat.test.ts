@@ -51,7 +51,7 @@ const { classifyOrderLookup, maskPhone, orderSummary, orderDetail, toolResult, M
   await import("@/lib/admin-chat/format");
 const { CHAT_TOOLS, toolDefinitions, runTool } = await import("@/lib/admin-chat/tools");
 const { systemPrompt, dateBlock, DEFAULT_INSTRUCTIONS, SAFETY_BLOCK } = await import("@/lib/admin-chat/prompt");
-const { normalizeChatSettings, disabledToolsNamedIn, chatSettingsFromRow, effectiveModel, CHAT_MODELS } = await import(
+const { normalizeChatSettings, disabledToolsNamedIn, chatSettingsFromRow, effectiveModel, CHAT_MODELS, chatModelsFromApi, modelUnusableReason } = await import(
   "@/lib/admin-chat/settings-rules"
 );
 const { CHAT_LIMITS } = await import("@/lib/admin-chat/config");
@@ -533,9 +533,11 @@ describe("admin-edited settings", () => {
     expect(normalizeChatSettings({ ...base, model: "claude-haiku-4-5" }, known, DEFAULT_INSTRUCTIONS).ok).toBe(false);
     expect(normalizeChatSettings({ ...base, effort: "max" as never }, known, DEFAULT_INSTRUCTIONS).ok).toBe(false);
   });
-  it("a stored model no longer offered falls back to the deployment's", () => {
+  it("a stored model that is not a model id falls back to the deployment's", () => {
     const row = { instructions: null, disabledTools: [], toolDescriptions: {} };
-    expect(chatSettingsFromRow({ ...row, model: "claude-old-1", effort: "extreme" })).toMatchObject({ model: null, effort: null });
+    expect(chatSettingsFromRow({ ...row, model: "gpt-4o", effort: "extreme" })).toMatchObject({ model: null, effort: null });
+    // The list is live, so a saved id the built-in list never knew is kept.
+    expect(chatSettingsFromRow({ ...row, model: "claude-haiku-5-5" })).toMatchObject({ model: "claude-haiku-5-5" });
     expect(chatSettingsFromRow({ ...row, model: CHAT_MODELS[1].id, effort: "low" })).toMatchObject({
       model: CHAT_MODELS[1].id,
       effort: "low",
@@ -552,5 +554,62 @@ describe("every tool has trace wording", async () => {
       expect(TOOL_LABEL[t.name], t.name).toBeTruthy();
       expect(TOOL_ACTIVE_LABEL[t.name], t.name).toBeTruthy();
     }
+  });
+});
+
+describe("the live model list", () => {
+  const usable = (over: Record<string, unknown> = {}) => ({
+    id: "claude-x-1",
+    display_name: "Claude X 1",
+    created_at: "2026-01-01T00:00:00Z",
+    max_tokens: 64000,
+    allowed_fallback_models: ["claude-sonnet-5-5"],
+    capabilities: {
+      effort: { supported: true, low: { supported: true }, medium: { supported: true }, high: { supported: true } },
+      thinking: { types: { adaptive: { supported: true } } },
+    },
+    ...over,
+  });
+  it("keeps only models that accept everything the chat route sends", () => {
+    expect(modelUnusableReason(usable())).toBeNull();
+    expect(modelUnusableReason(usable({ capabilities: null }))).not.toBeNull();
+    expect(modelUnusableReason(usable({ allowed_fallback_models: [] }))).toBe("no refusal fallback");
+    expect(modelUnusableReason(usable({ allowed_fallback_models: null }))).toBe("no refusal fallback");
+    expect(modelUnusableReason(usable({ max_tokens: 8192 }))).toMatch(/max output/);
+    expect(
+      modelUnusableReason(usable({
+        capabilities: { effort: { supported: true }, thinking: { types: { adaptive: { supported: false } } } },
+      })),
+    ).toBe("no adaptive thinking");
+    expect(
+      modelUnusableReason(usable({
+        capabilities: { effort: { supported: false }, thinking: { types: { adaptive: { supported: true } } } },
+      })),
+    ).toBe("no effort setting");
+  });
+  it("lists newest first, drops unusable ones, and reads each model's effort levels", () => {
+    const list = chatModelsFromApi([
+      usable({ id: "claude-old", created_at: "2025-01-01T00:00:00Z" }),
+      usable({ id: "claude-new", created_at: "2026-09-01T00:00:00Z" }),
+      usable({ id: "claude-broken", allowed_fallback_models: [] }),
+      usable({
+        id: "claude-lowonly",
+        created_at: "2024-01-01T00:00:00Z",
+        capabilities: {
+          effort: { supported: true, low: { supported: true }, medium: { supported: false }, high: null },
+          thinking: { types: { adaptive: { supported: true } } },
+        },
+      }),
+    ]);
+    expect(list.map((m) => m.id)).toEqual(["claude-new", "claude-old", "claude-lowonly"]);
+    expect(list[2].efforts).toEqual(["low"]);
+    expect(list[0].note).toMatch(/Price not listed/);
+  });
+  it("saving checks the model against the live list and its effort levels", () => {
+    const base = { instructions: null, disabledTools: [], toolDescriptions: {}, model: null, effort: null };
+    const models = [{ id: "claude-haiku-5-5", label: "Claude Haiku 5.5", note: "", efforts: ["low" as const] }];
+    expect(normalizeChatSettings({ ...base, model: "claude-haiku-5-5", effort: "low" }, [], DEFAULT_INSTRUCTIONS, models).ok).toBe(true);
+    expect(normalizeChatSettings({ ...base, model: "claude-haiku-5-5", effort: "high" }, [], DEFAULT_INSTRUCTIONS, models).ok).toBe(false);
+    expect(normalizeChatSettings({ ...base, model: "claude-opus-5-5" }, [], DEFAULT_INSTRUCTIONS, models).ok).toBe(false);
   });
 });

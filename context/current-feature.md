@@ -1,3 +1,29 @@
+# Current Feature: Admin assistant lists the latest models automatically
+
+## Status
+
+CODE COMPLETE (branch `feature/admin-chat-dynamic-models`, not committed). Vercel-only, no migration.
+
+## Notes
+
+Asked 2026-10-10: "why is there no Haiku 5.5? can you always list the latest model?" The model picker on
+`/admin/assistant` was a hand-typed `CHAT_MODELS` (Opus 5.5 / Sonnet 5.5 / Fable 5.1) written in #42 and
+never updated. Haiku 5.5 was not excluded on purpose; only Haiku 4.5 was, for lacking adaptive thinking.
+
+Now `listChatModels()` (`src/lib/admin-chat/models.ts`) reads Anthropic's Models API
+(`client.beta.models.list`), cached 1h per instance, and `chatModelsFromApi` keeps only models that accept
+everything the chat route sends: adaptive thinking, the effort setting, a non-empty
+`allowed_fallback_models` (the route sends `fallbacks: "default"`), and max output >= 16,000. Newest first.
+Each model offers only the effort levels it reports. No key, an API error or an empty result falls back
+to the old list, and the page says which list it is showing. Saving validates against the same live list,
+and an effort the picked model refuses is rejected. A stored model id is now kept if it is id-shaped
+(the list is live, so the built-in three are no longer the whole truth). The API returns no prices: known
+models keep their price note, others read "Price not listed".
+
+Verified: 3 new tests (filter, ordering + per-model efforts, save validation), 1270 vitest, lint clean,
+`npm run build` clean. NOT verified: the live API call — no `ANTHROPIC_API_KEY` locally (Vercel only), so
+whether Haiku 5.5 passes the filter is first known on the deployed page. Not checked in the browser.
+
 # Current Feature: SmartPortal as a second client of the order service (droplet)
 
 ## Status

@@ -271,6 +271,7 @@ export function OrderDetails({ order }: { order: OrderListItem }) {
                 : `${order.appointmentLeadHours} hour${order.appointmentLeadHours === 1 ? "" : "s"}`
             }
           />
+          <DetailRow label="Preferred installation date" value={order.preferredInstallDate} />
           <DetailRow label="Reference" value={order.reference} />
           <DetailRow label="Created" value={formatCreatedFull(order.createdAt)} />
           {order.createdByEmail && (

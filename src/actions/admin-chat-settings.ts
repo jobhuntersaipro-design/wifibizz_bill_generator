@@ -7,6 +7,7 @@ import { CHAT_TOOLS } from "@/lib/admin-chat/tools";
 import { DEFAULT_INSTRUCTIONS } from "@/lib/admin-chat/prompt";
 import { normalizeChatSettings, type ChatSettings } from "@/lib/admin-chat/settings-rules";
 import { loadChatSettings } from "@/lib/admin-chat/settings";
+import { listChatModels } from "@/lib/admin-chat/models";
 
 /**
  * Save the assistant's instructions and tool settings. Admin-gated; validated
@@ -33,7 +34,8 @@ export async function saveChatSettings(input: ChatSettings) {
     model: typeof input?.model === "string" ? input.model : null,
     effort: typeof input?.effort === "string" ? (input.effort as ChatSettings["effort"]) : null,
   };
-  const res = normalizeChatSettings(shaped, CHAT_TOOLS, DEFAULT_INSTRUCTIONS);
+  const { models } = await listChatModels();
+  const res = normalizeChatSettings(shaped, CHAT_TOOLS, DEFAULT_INSTRUCTIONS, models);
   if (!res.ok) return { success: false as const, error: res.error };
 
   try {
