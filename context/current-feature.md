@@ -2,7 +2,8 @@
 
 ## Status
 
-CODE COMPLETE (branch `feature/whatsapp-qr-gateway`). Vercel + droplet, no new migration (the reply inbox's
+MERGED TO MAIN (`adc5c27`, merge `35eb95b`), Vercel production deployed and READY. **Droplet NOT deployed** —
+the session's git proxy refuses tag pushes, so `scraper-v2026.10.11-2` must be cut on the Mac. Vercel + droplet, no new migration (the reply inbox's
 `20261011130000_whatsapp_conversations` is already on production). **Needs a droplet deploy**, env on both
 sides, and one manual Caddy reload on the first deploy. Spec: [context/features/whatsapp-reply.md](features/whatsapp-reply.md).
 
