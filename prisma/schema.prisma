@@ -604,3 +604,15 @@ model WhatsappWebhookEvent {
   @@index([receivedAt])
   @@map("whatsapp_webhook_events")
 }
+
+// Per-chat state for the admin WhatsApp inbox. Keyed on the customer's wa_id.
+// A chat is closed while closed_at is newer than its last inbound message, so
+// a new customer message reopens it without a webhook-side write.
+model WhatsappConversation {
+  waId       String    @id @map("wa_id")
+  closedAt   DateTime? @map("closed_at")
+  lastReadAt DateTime? @map("last_read_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  @@map("whatsapp_conversations")
+}

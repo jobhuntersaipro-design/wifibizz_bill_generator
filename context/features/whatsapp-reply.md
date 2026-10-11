@@ -37,13 +37,16 @@ Layout is copied from respond.io's public UI by eye, no code or assets.
    returned `wamid` as `message_id`). One table stays the single store; `buildInbox` reads it like an echo.
 2. **24-hour window.** Pure `windowClosesAt(chat)` = last inbound + 24 h. Header countdown; composer swaps to a
    template picker when closed. Templates listed from 360dialog (`GET /v1/configs/templates` — confirm the exact
-   path against the account at build time), approved ones only.
+   path against the account at build time), approved ones only, and only those with no `{{variables}}` and
+   no media header (we collect no parameters).
 3. **Ticks.** `buildInbox` folds `statuses` rows onto the message with the same `wamid`; furthest status wins.
    A `failed` status shows its error title.
-4. **Conversation state.** Migration: `whatsapp_conversations` (`wa_id` PK, `status` open|closed, `last_read_at`,
-   `updated_at`). A new inbound message reopens a closed chat. Replaces the localStorage "opened" map.
-5. **Layout.** Three panes ≥1024px: chat list | thread + composer | customer panel. Below that, list → thread
-   as two screens with a back button. Existing `Inbox` / `Raw events` toggle kept.
+4. **Conversation state.** Migration: `whatsapp_conversations` (`wa_id` PK, `closed_at`, `last_read_at`,
+   `updated_at`). Closed means `closed_at` is newer than the last customer message, so a new customer message
+   reopens the chat with no webhook-side write. Replaces the localStorage "opened" map.
+5. **Layout.** Chat list | thread + composer from 768px; the customer panel joins at ≥1280px (the admin sidebar
+   leaves too little width below that). On a phone, list → thread as two screens with a back button. Existing
+   `Inbox` / `Raw events` toggle kept.
 6. **Customer panel.** Normalise the wa_id (`60…`) and match `orders.mobile` and `wifibizz_cases.mobile` in the
    same normalised form; links to `/admin/orders/[id]`. Read-only.
 7. **Media.** `GET /api/admin/whatsapp/media?id=` (admin-gated) resolves the media id through 360dialog and

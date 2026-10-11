@@ -1,38 +1,44 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { WhatsappContactPanel } from "@/components/admin/whatsapp-contact";
 import { WhatsappEvents } from "@/components/admin/whatsapp-events";
+import { WhatsappThread } from "@/components/admin/whatsapp-thread";
+import { getWhatsappContact, markWhatsappRead, setWhatsappClosed, type WhatsappContact } from "@/actions/whatsapp";
 import type { WhatsappEventView } from "@/lib/whatsapp-events";
-import { buildInbox, filterInbox, openedAtAfterViewing, unreadCount } from "@/lib/whatsapp-inbox";
+import {
+  buildInbox,
+  chatInTab,
+  filterInbox,
+  isClosed,
+  unreadFor,
+  type ConversationState,
+  type InboxChat,
+  type InboxTab,
+} from "@/lib/whatsapp-inbox";
 import { formatKualaLumpur } from "@/lib/whatsapp-webhook";
+import { toast } from "@/lib/toast";
 
 const POLL_MS = 8_000;
-const OPENED_KEY = "whatsapp-inbox-opened";
+const CLOCK_MS = 30_000;
 
-function readOpened(): Record<string, string> {
-  try {
-    const raw = localStorage.getItem(OPENED_KEY);
-    const parsed: unknown = raw ? JSON.parse(raw) : {};
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    const opened: Record<string, string> = {};
-    for (const [key, value] of Object.entries(parsed)) {
-      if (typeof value === "string") opened[key] = value;
-    }
-    return opened;
-  } catch {
-    return {};
-  }
+type Conversations = Record<string, ConversationState>;
+
+/** Wall clock in 30 s steps. 0 on the server, so nothing time-relative is pre-rendered. */
+function subscribeClock(onChange: () => void) {
+  const id = setInterval(onChange, CLOCK_MS);
+  return () => clearInterval(id);
 }
+const clockNow = () => Math.floor(Date.now() / CLOCK_MS) * CLOCK_MS;
+const clockServer = () => 0;
 
-function writeOpened(opened: Record<string, string>) {
-  try {
-    localStorage.setItem(OPENED_KEY, JSON.stringify(opened));
-  } catch {
-    // Private mode can reject the write. The badge still updates in memory.
-  }
-}
-
-export function WhatsappDesk({ initial }: { initial: WhatsappEventView[] }) {
+export function WhatsappDesk({
+  initial,
+  initialConversations,
+}: {
+  initial: WhatsappEventView[];
+  initialConversations: Conversations;
+}) {
   const [view, setView] = useState<"inbox" | "raw">("inbox");
 
   return (
@@ -40,14 +46,14 @@ export function WhatsappDesk({ initial }: { initial: WhatsappEventView[] }) {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-ink">WhatsApp</h1>
-          <p className="text-sm text-ink-muted mt-1">Read only. Inbound on the left, business replies on the right.</p>
+          <p className="mt-1 hidden text-sm text-ink-muted sm:block">Customer messages on the left, business replies on the right. Replies send from the business number.</p>
         </div>
         <div className="flex rounded-lg border border-line bg-white p-0.5">
           <ViewButton current={view} id="inbox" onSelect={setView}>Inbox</ViewButton>
           <ViewButton current={view} id="raw" onSelect={setView}>Raw events</ViewButton>
         </div>
       </div>
-      {view === "inbox" ? <WhatsappInbox initial={initial} /> : <WhatsappEvents initial={initial} />}
+      {view === "inbox" ? <WhatsappInbox initial={initial} initialConversations={initialConversations} /> : <WhatsappEvents initial={initial} />}
     </div>
   );
 }
@@ -76,13 +82,37 @@ function ViewButton({
   );
 }
 
-function WhatsappInbox({ initial }: { initial: WhatsappEventView[] }) {
+const TABS: { id: InboxTab; label: string }[] = [
+  { id: "open", label: "Open" },
+  { id: "unread", label: "Unread" },
+  { id: "closed", label: "Closed" },
+  { id: "all", label: "All" },
+];
+
+function WhatsappInbox({ initial, initialConversations }: { initial: WhatsappEventView[]; initialConversations: Conversations }) {
   const [events, setEvents] = useState(initial);
+  const [conversations, setConversations] = useState(initialConversations);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState("");
+  const [tab, setTab] = useState<InboxTab>("open");
   const [selected, setSelected] = useState<string | null>(null);
-  const [opened, setOpened] = useState<Record<string, string> | null>(null);
+  const [contacts, setContacts] = useState<Record<string, WhatsappContact | string>>({});
+  const now = useSyncExternalStore(subscribeClock, clockNow, clockServer);
+  const selectedRef = useRef<string | null>(null);
+
+  /** Shared read state: the newest customer message on screen counts as read. */
+  const markRead = useCallback((chat: InboxChat, state: Conversations) => {
+    const at = chat.lastInboundAt;
+    if (!at) return;
+    const prev = state[chat.customer]?.lastReadAt ?? null;
+    if (prev && Date.parse(prev) >= Date.parse(at)) return;
+    setConversations((current) => ({
+      ...current,
+      [chat.customer]: { closedAt: current[chat.customer]?.closedAt ?? null, lastReadAt: at },
+    }));
+    void markWhatsappRead(chat.customer, at);
+  }, []);
 
   const load = useCallback(async (manual: boolean) => {
     if (manual) setRefreshing(true);
@@ -93,22 +123,21 @@ function WhatsappInbox({ initial }: { initial: WhatsappEventView[] }) {
         return;
       }
       if (!res.ok) {
-        setError("Could not refresh events.");
+        setError("Could not refresh chats.");
         return;
       }
-      const data = (await res.json()) as { events: WhatsappEventView[] };
+      const data = (await res.json()) as { events: WhatsappEventView[]; conversations: Conversations };
       setEvents(data.events);
+      setConversations(data.conversations);
       setError(null);
+      const open = selectedRef.current && buildInbox(data.events).find((c) => c.customer === selectedRef.current);
+      if (open) markRead(open, data.conversations);
     } catch {
-      setError("Could not refresh events.");
+      setError("Could not refresh chats.");
     } finally {
       if (manual) setRefreshing(false);
     }
-  }, []);
-
-  useEffect(() => {
-    setOpened(readOpened());
-  }, []);
+  }, [markRead]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -118,25 +147,69 @@ function WhatsappInbox({ initial }: { initial: WhatsappEventView[] }) {
   }, [load]);
 
   const chats = useMemo(() => buildInbox(events), [events]);
-  const visible = useMemo(() => filterInbox(chats, query), [chats, query]);
+  const searched = useMemo(() => filterInbox(chats, query), [chats, query]);
+  const visible = searched.filter((chat) => chatInTab(chat, conversations[chat.customer], tab));
   const active = chats.find((chat) => chat.customer === selected) ?? null;
 
-  useEffect(() => {
-    if (!active) return;
-    const prev = readOpened();
-    const at = openedAtAfterViewing(active.messages, new Date().toISOString());
-    if (prev[active.customer] === at) return;
-    const next = { ...prev, [active.customer]: at };
-    writeOpened(next);
-    setOpened(next);
-  }, [active]);
+  function select(chat: InboxChat | null) {
+    setSelected(chat?.customer ?? null);
+    selectedRef.current = chat?.customer ?? null;
+    if (!chat) return;
+    markRead(chat, conversations);
+    if (contacts[chat.customer] === undefined) {
+      void getWhatsappContact(chat.customer).then((res) =>
+        setContacts((current) => ({ ...current, [chat.customer]: res.success ? res.data : res.error })),
+      );
+    }
+  }
+
+  async function toggleClosed(chat: InboxChat, closed: boolean) {
+    const prev = conversations[chat.customer];
+    const closedAt = closed ? new Date().toISOString() : null;
+    setConversations((current) => ({
+      ...current,
+      [chat.customer]: { lastReadAt: current[chat.customer]?.lastReadAt ?? null, closedAt },
+    }));
+    const res = await setWhatsappClosed(chat.customer, closed);
+    if (!res.success) {
+      toast.error(res.error);
+      setConversations((current) => ({ ...current, [chat.customer]: prev ?? { closedAt: null, lastReadAt: null } }));
+      return;
+    }
+    if (closed) select(null);
+  }
 
   return (
     <div className="flex h-[calc(100dvh-11rem)] min-h-[24rem] overflow-hidden rounded-lg border border-line bg-white md:h-[calc(100dvh-13rem)]">
       <section className={`${active ? "hidden md:flex" : "flex"} w-full min-w-0 flex-col border-line md:w-80 md:shrink-0 md:border-r`}>
         <div className="space-y-2 border-b border-line p-3">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs text-ink-muted">{chats.length === 0 ? "No chats" : `${visible.length} chat${visible.length === 1 ? "" : "s"}`}</p>
+          <div className="flex gap-1" role="group" aria-label="Filter chats">
+            {TABS.map(({ id, label }) => {
+              const count = searched.filter((chat) => chatInTab(chat, conversations[chat.customer], id)).length;
+              const on = tab === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setTab(id)}
+                  className={`min-h-9 flex-1 rounded-md px-2 text-xs font-medium ${on ? "bg-ink text-white" : "text-ink-muted hover:bg-wash hover:text-ink"}`}
+                >
+                  {label} <span className={on ? "text-white/70" : ""}>{count}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-2">
+            <label htmlFor="whatsapp-search" className="sr-only">Search number or message</label>
+            <input
+              id="whatsapp-search"
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search number or message"
+              className="min-w-0 flex-1 rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink placeholder:text-ink-muted"
+            />
             <button
               type="button"
               onClick={() => void load(true)}
@@ -146,32 +219,24 @@ function WhatsappInbox({ initial }: { initial: WhatsappEventView[] }) {
               {refreshing ? "Refreshing…" : "Refresh"}
             </button>
           </div>
-          <label htmlFor="whatsapp-search" className="sr-only">Search number or message</label>
-          <input
-            id="whatsapp-search"
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search number or message"
-            className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink placeholder:text-ink-muted"
-          />
         </div>
         {error && <p className="m-3 text-sm text-danger bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
         <div className="min-h-0 flex-1 overflow-y-auto">
           {visible.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-ink-muted">
-              {chats.length === 0 ? "No WhatsApp chats yet" : "No chats match"}
+              {chats.length === 0 ? "No WhatsApp chats yet" : query ? "No chats match" : `No ${tab === "all" ? "" : `${tab} `}chats`}
             </p>
           ) : (
             <ul>
               {visible.map((chat) => {
-                const unread = opened ? unreadCount(chat.messages, opened[chat.customer] ?? null) : 0;
+                const state = conversations[chat.customer];
+                const unread = unreadFor(chat, state);
                 const on = chat.customer === selected;
                 return (
                   <li key={chat.customer}>
                     <button
                       type="button"
-                      onClick={() => setSelected(chat.customer)}
+                      onClick={() => select(chat)}
                       aria-current={on ? "true" : undefined}
                       className={`w-full border-b border-line/60 px-3 py-3 text-left hover:bg-wash ${on ? "bg-wash" : ""}`}
                     >
@@ -181,9 +246,13 @@ function WhatsappInbox({ initial }: { initial: WhatsappEventView[] }) {
                       </span>
                       <span className="mt-1 flex items-center justify-between gap-2">
                         <span className="truncate text-sm text-ink-muted">{chat.preview}</span>
-                        {unread > 0 && (
-                          <span className="shrink-0 rounded-full bg-ink px-1.5 py-0.5 text-[11px] font-medium text-white">{unread}</span>
-                        )}
+                        {isClosed(chat.lastInboundAt, state?.closedAt) ? (
+                          <span className="shrink-0 rounded-full bg-wash px-1.5 py-0.5 text-[11px] font-medium text-ink-muted">Closed</span>
+                        ) : unread > 0 ? (
+                          <span className="shrink-0 rounded-full bg-ink px-1.5 py-0.5 text-[11px] font-medium text-white">
+                            {unread}<span className="sr-only"> unread</span>
+                          </span>
+                        ) : null}
                       </span>
                     </button>
                   </li>
@@ -196,32 +265,14 @@ function WhatsappInbox({ initial }: { initial: WhatsappEventView[] }) {
 
       <section className={`${active ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col`}>
         {active ? (
-          <>
-            <div className="flex items-center gap-2 border-b border-line px-3 py-3">
-              <button
-                type="button"
-                onClick={() => setSelected(null)}
-                className="rounded-lg px-2 py-1 text-sm font-medium text-ink hover:bg-wash md:hidden"
-              >
-                Chats
-              </button>
-              <h2 className="font-mono text-sm font-medium text-ink">{active.customer}</h2>
-            </div>
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
-              {active.messages.map((message) => {
-                const echo = message.side === "echo";
-                return (
-                  <div key={message.id} className={`flex ${echo ? "justify-end" : "justify-start"}`}>
-                    <div className={`max-w-[80%] rounded-lg px-3 py-2 ${echo ? "bg-ink text-white" : "bg-wash text-ink"}`}>
-                      <span className="sr-only">{echo ? "Business" : "Customer"}</span>
-                      <p className="whitespace-pre-wrap break-words text-sm">{message.text}</p>
-                      <p className={`mt-1 text-[11px] ${echo ? "text-white/70" : "text-ink-muted"}`}>{formatKualaLumpur(message.at)}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </>
+          <WhatsappThread
+            chat={active}
+            closedAt={conversations[active.customer]?.closedAt ?? null}
+            now={now}
+            onBack={() => select(null)}
+            onToggleClosed={(closed) => void toggleClosed(active, closed)}
+            onSent={() => void load(false)}
+          />
         ) : (
           <div className="flex flex-1 items-center justify-center p-8 text-center">
             <p className="text-sm text-ink-muted">Select a chat</p>
@@ -229,10 +280,7 @@ function WhatsappInbox({ initial }: { initial: WhatsappEventView[] }) {
         )}
       </section>
 
-      <aside className="hidden w-56 shrink-0 flex-col border-l border-line p-4 lg:flex">
-        <h2 className="text-sm font-semibold text-ink">Contact</h2>
-        <p className="mt-2 text-sm text-ink-muted">Contact details coming soon</p>
-      </aside>
+      <WhatsappContactPanel waId={active?.customer ?? null} contact={active ? contacts[active.customer] : undefined} />
     </div>
   );
 }
