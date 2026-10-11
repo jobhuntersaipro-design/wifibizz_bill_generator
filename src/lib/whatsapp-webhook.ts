@@ -61,8 +61,9 @@ function headerMatches(expected: string, header: string | null): boolean {
  * POST gate. When both secrets are set, either check is enough: a matching
  * `X-Webhook-Secret` or `D360-Webhook-Secret` header, or a valid
  * `X-Hub-Signature-256`. 360dialog sends the header, not Meta's signature.
- * Production with neither secret configured rejects the body. Other
- * environments still accept it so local dev can post samples unsigned.
+ * With neither secret set, an unsigned body is accepted only locally
+ * (`VERCEL_ENV` unset, empty, or `development`). Preview and production
+ * share the production database, so both reject it, as does any other value.
  */
 export function authorizeWhatsappPost(input: {
   vercelEnv: string | undefined;
@@ -83,7 +84,8 @@ export function authorizeWhatsappPost(input: {
   }
   if (hasApp && signatureOk(input.raw, input.hubSignature, app)) return { ok: true };
   if (!hasWebhook && !hasApp) {
-    return input.vercelEnv === "production" ? { ok: false, status: 401 } : { ok: true };
+    const env = input.vercelEnv ?? "";
+    return env === "" || env === "development" ? { ok: true } : { ok: false, status: 401 };
   }
   return { ok: false, status: hasApp && !hasWebhook ? 403 : 401 };
 }

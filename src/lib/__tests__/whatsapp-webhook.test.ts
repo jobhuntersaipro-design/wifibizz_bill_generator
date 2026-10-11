@@ -261,10 +261,34 @@ describe("POST", () => {
     expect(create).not.toHaveBeenCalled();
   });
 
-  it("accepts an unsigned body when the secret is unset", async () => {
+  it("accepts an unsigned body locally when VERCEL_ENV is unset", async () => {
+    expect(process.env.VERCEL_ENV).toBeUndefined();
     const res = await webhookPost(JSON.stringify(INBOUND), { "x-hub-signature-256": "sha256=deadbeef" });
     expect(res.status).toBe(200);
     expect(create).toHaveBeenCalled();
+  });
+
+  it("accepts an unsigned body when VERCEL_ENV is development or empty", async () => {
+    for (const env of ["development", ""]) {
+      process.env.VERCEL_ENV = env;
+      const res = await webhookPost(JSON.stringify(INBOUND));
+      expect(res.status).toBe(200);
+    }
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects an unsigned preview post when neither secret is configured", async () => {
+    process.env.VERCEL_ENV = "preview";
+    const res = await webhookPost(JSON.stringify(INBOUND));
+    expect(res.status).toBe(401);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unsigned post for any other non-local VERCEL_ENV", async () => {
+    process.env.VERCEL_ENV = "staging";
+    const res = await webhookPost(JSON.stringify(INBOUND));
+    expect(res.status).toBe(401);
+    expect(create).not.toHaveBeenCalled();
   });
 
   it("rejects a missing webhook secret and stores nothing", async () => {
@@ -302,6 +326,24 @@ describe("POST", () => {
     process.env.VERCEL_ENV = "production";
     const res = await webhookPost(JSON.stringify(INBOUND));
     expect(res.status).toBe(401);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("still accepts a matching secret header in production", async () => {
+    process.env.VERCEL_ENV = "production";
+    process.env.WHATSAPP_WEBHOOK_SECRET = "whsec";
+    const res = await webhookPost(JSON.stringify(INBOUND), { "x-webhook-secret": "whsec" });
+    expect(res.status).toBe(200);
+    expect(create).toHaveBeenCalled();
+  });
+
+  it("still rejects a missing or wrong secret header in production", async () => {
+    process.env.VERCEL_ENV = "production";
+    process.env.WHATSAPP_WEBHOOK_SECRET = "whsec";
+    const missing = await webhookPost(JSON.stringify(INBOUND));
+    expect(missing.status).toBe(401);
+    const wrong = await webhookPost(JSON.stringify(INBOUND), { "x-webhook-secret": "nope" });
+    expect(wrong.status).toBe(401);
     expect(create).not.toHaveBeenCalled();
   });
 
