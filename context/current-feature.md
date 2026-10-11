@@ -1,3 +1,27 @@
+# Current Feature: WhatsApp reply inbox (respond.io-style) on /admin/whatsapp
+
+## Status
+
+PLANNED (branch `feature/whatsapp-reply`). Vercel-only, one migration (`whatsapp_conversations`). Spec:
+[context/features/whatsapp-reply.md](features/whatsapp-reply.md).
+
+## Goals
+
+- Reply from an open chat (text); templates only outside the 24-hour window
+- Sent / delivered / read / failed ticks from the status webhooks
+- Open / Closed + shared unread, filters and search
+- Customer panel: BizzFlow orders and cases matched by phone
+- Inbound images and PDFs viewable through an admin-only proxy
+- Every send audited
+
+## Notes
+
+Route A (user, 2026-10-11): official 360dialog coexistence; the "scan QR to login" is the coexistence onboarding
+QR scanned with the WhatsApp Business app. No Baileys. `morluto/rea` reviewed: a reverse-engineering MCP, not a
+respond.io codebase, not used. API sends are not echoed by the webhook, so each send is stored as a synthetic
+`api_send` row in `whatsapp_webhook_events`. Needs `WHATSAPP_D360_API_KEY` on Vercel (Production only — previews
+share the production DB) and the onboarding done once.
+
 # Current Feature: Admin assistant lists the latest models automatically
 
 ## Status
