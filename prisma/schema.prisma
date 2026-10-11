@@ -587,3 +587,20 @@ model AdminChatEscalation {
   @@index([status, createdAt])
   @@map("admin_chat_escalations")
 }
+
+// WhatsApp Cloud API webhooks forwarded by 360dialog (coexistence spike).
+// No relation to cases, bills, customers, or orders — this table is the only store.
+model WhatsappWebhookEvent {
+  id          String   @id @default(cuid())
+  receivedAt  DateTime @default(now()) @map("received_at")
+  field       String?
+  fromWaId    String?  @map("from_wa_id")
+  toWaId      String?  @map("to_wa_id")
+  messageId   String?  @map("message_id")
+  messageType String?  @map("message_type")
+  textPreview String?  @map("text_preview")
+  rawBody     String   @map("raw_body")
+
+  @@index([receivedAt])
+  @@map("whatsapp_webhook_events")
+}

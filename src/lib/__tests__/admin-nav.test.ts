@@ -15,6 +15,8 @@ describe("top-level sections", () => {
     expect(adminNavContext("/admin/plans")).toEqual({ title: "Plan Settings", back: null });
     expect(adminNavContext("/admin/umobile-image")).toEqual({ title: "Umobile Image", back: null });
     expect(adminNavContext("/admin/landlord-signature")).toEqual({ title: "Landlord Signature", back: null });
+    expect(adminNavContext("/admin/assistant")).toEqual({ title: "Assistant", back: null });
+    expect(adminNavContext("/admin/whatsapp")).toEqual({ title: "WhatsApp", back: null });
   });
 
   it("is not confused by a trailing slash", () => {
