@@ -35,7 +35,7 @@ export interface InboxChat {
   messages: InboxMessage[];
   lastAt: string;
   preview: string;
-  /** Newest customer message. Opens the 24-hour reply window. */
+  /** Newest customer message. A closed chat reopens when this is newer. */
   lastInboundAt: string | null;
 }
 
@@ -44,6 +44,8 @@ const MEDIA_TYPES = new Set(["image", "video", "audio", "document", "sticker", "
 interface Draft extends InboxMessage {
   customer: string;
   messageId: string;
+  /** Set only when WhatsApp gave the message an id; used to drop repeats. */
+  dedupeKey: string | null;
   atMs: number;
   receivedMs: number;
   index: number;
@@ -139,12 +141,14 @@ function pushList(
     const stamp = asString(item.timestamp);
     const stamped = stamp !== null ? Number(stamp) * 1000 : NaN;
     const atMs = Number.isFinite(stamped) ? stamped : receivedMs;
-    const messageId = asString(item.id) ?? String(index);
+    const realId = asString(item.id);
+    const messageId = realId ?? String(index);
     const media = side === "inbound" ? mediaOf(item) : undefined;
     out.push({
       id: `${event.id}:${messageId}`,
       customer,
       messageId,
+      dedupeKey: realId ? `${side}:${realId}` : null,
       side,
       at: new Date(atMs).toISOString(),
       text,
@@ -193,8 +197,15 @@ export function buildInbox(events: InboxEvent[]): InboxChat[] {
     }
   }
 
+  // The same message can be stored twice (a webhook retried after it had already
+  // landed, or re-sent on reconnect). One bubble per WhatsApp message id.
+  const seen = new Set<string>();
   const byCustomer = new Map<string, Draft[]>();
   for (const draft of drafts) {
+    if (draft.dedupeKey) {
+      if (seen.has(draft.dedupeKey)) continue;
+      seen.add(draft.dedupeKey);
+    }
     const list = byCustomer.get(draft.customer);
     if (list) list.push(draft);
     else byCustomer.set(draft.customer, [draft]);
@@ -248,21 +259,6 @@ export function filterInbox(chats: InboxChat[], query: string): InboxChat[] {
   );
 }
 
-/** The customer-service window: free-form replies only within 24 h of the customer's last message. */
-export const REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
-
-/** When free-form replies stop being allowed. Null when the customer never wrote. */
-export function windowClosesAt(lastInboundAt: string | null): string | null {
-  if (!lastInboundAt) return null;
-  const at = Date.parse(lastInboundAt);
-  return Number.isNaN(at) ? null : new Date(at + REPLY_WINDOW_MS).toISOString();
-}
-
-export function windowOpen(lastInboundAt: string | null, nowMs: number): boolean {
-  const closes = windowClosesAt(lastInboundAt);
-  return closes !== null && Date.parse(closes) > nowMs;
-}
-
 /** A newer customer message reopens a closed chat. */
 export function isClosed(lastInboundAt: string | null, closedAt: string | null | undefined): boolean {
   if (!closedAt) return false;
@@ -310,11 +306,3 @@ export function phoneVariants(waId: string): string[] {
   return [...out];
 }
 
-/** "23h 5m" / "12m" / "under a minute" for the reply-window badge. */
-export function formatRemaining(ms: number): string {
-  if (ms < 60_000) return "under a minute";
-  const minutes = Math.floor(ms / 60_000);
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
-}

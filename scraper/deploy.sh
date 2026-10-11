@@ -181,6 +181,9 @@ info "$(git describe --tags --always)"
 say "Rebuilding containers"
 cd "$APP_DIR"
 docker compose up -d --build
+# The Caddyfile is bind-mounted, so an edit to it never recreates the caddy
+# container. Reload it explicitly; a no-op when nothing changed.
+docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 || info "caddy reload skipped"
 
 # ── 5. Verify, and undo it if that fails ───────────────────────────────────
 say "Waiting for /health (up to ${HEALTH_TIMEOUT}s)"

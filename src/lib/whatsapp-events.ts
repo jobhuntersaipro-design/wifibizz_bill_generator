@@ -14,7 +14,7 @@ export interface WhatsappEventView extends WhatsappExtract {
 
 /**
  * Local fixture only: replies and chat state live in memory so the inbox can
- * be exercised without a database or a 360dialog key. Gone on restart. Held on
+ * be exercised without a database or the WhatsApp gateway. Gone on restart. Held on
  * globalThis because the dev server loads this module separately for server
  * actions and route handlers.
  */
@@ -54,19 +54,16 @@ export async function listWhatsappEvents(): Promise<WhatsappEventView[]> {
 export async function appendApiSend(input: {
   to: string;
   wamid: string;
-  type: "text" | "template";
   text: string;
-  template?: { name: string; language: string };
 }): Promise<void> {
   const nowMs = Date.now();
   const item: Record<string, unknown> = {
     to: input.to,
     id: input.wamid,
     timestamp: String(Math.floor(nowMs / 1000)),
-    type: input.type,
+    type: "text",
     text: { body: input.text },
   };
-  if (input.template) item.template = input.template;
   const body = {
     object: "whatsapp_business_account",
     entry: [{ changes: [{ field: "api_send", value: { message_echoes: [item] } }] }],

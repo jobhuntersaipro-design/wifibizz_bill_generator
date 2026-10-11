@@ -28,6 +28,17 @@ services:
     expose:
       - "5000"                     # internal only; Caddy proxies to it
 
+  # WhatsApp linked device (QR scan) for the admin WhatsApp tab. Unofficial
+  # WhatsApp Web protocol via Baileys; see whatsapp-gateway/server.mjs.
+  whatsapp:
+    build: ./whatsapp-gateway
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./whatsapp:/data           # linked-device keys + received media (survive rebuilds)
+    expose:
+      - "3000"                     # internal only; Caddy proxies /wa/* to it
+
   caddy:
     image: caddy:2
     restart: unless-stopped
@@ -42,6 +53,7 @@ services:
       - caddy_config:/config
     depends_on:
       - scraper
+      - whatsapp
 
 volumes:
   caddy_data:

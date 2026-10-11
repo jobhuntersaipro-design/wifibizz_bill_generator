@@ -1,5 +1,27 @@
 # WhatsApp Reply Inbox (respond.io-style) on /admin/whatsapp
 
+## Transport: a QR-linked device, not 360dialog (user, 2026-10-11, later the same day)
+
+The user chose to link the number **by scanning a QR like WhatsApp Web** and to **replace** the 360dialog
+sending path. That is the unofficial WhatsApp Web protocol; the ban risk was stated and accepted. No 360dialog
+key, no templates, no 24-hour window.
+
+- `scraper/whatsapp-gateway/` — Node 22 + Baileys `7.0.0-rc14` (pinned), a new `whatsapp` service in the
+  droplet's docker-compose, auth keys and received media on the `./whatsapp` volume. Caddy serves it at
+  `scraper.bizzflow.top/wa/*`. API (bearer `WHATSAPP_GATEWAY_TOKEN`): `GET /status` (QR as PNG data URL),
+  `POST /send`, `POST /connect` (new QR), `POST /logout`, `GET /media/:id`; `GET /health` is public.
+- It posts incoming messages, replies typed on the phone and delivery receipts to the existing
+  `/api/whatsapp/webhook` (header `X-Webhook-Secret`) **in the Cloud API shape** (`convert.mjs`), so the inbox,
+  the webhook route and the raw-events view did not change. Replies sent from BizzFlow are stored by BizzFlow
+  (`appendApiSend`) and the gateway skips their echo.
+- An unscanned QR expires after ~2 minutes and the gateway **stops** (`qr_expired`) until "Show new QR" —
+  it does not reconnect forever with nobody watching.
+- Groups, broadcasts, channels and LID-only chats without a phone number are ignored.
+
+The 360dialog-specific notes below (templates, window, API key) are superseded.
+
+# WhatsApp Reply Inbox (respond.io-style) on /admin/whatsapp
+
 ## Decision
 
 Route A (user, 2026-10-11): the official WhatsApp Business Platform through 360dialog, number onboarded with
