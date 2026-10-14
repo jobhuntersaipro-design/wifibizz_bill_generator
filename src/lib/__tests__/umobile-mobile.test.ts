@@ -1,15 +1,11 @@
 import { inflateSync } from "zlib";
-import { readFileSync } from "fs";
-import path from "path";
 import { describe, expect, it } from "vitest";
 import { PDFDocument, PDFName } from "pdf-lib";
 import { generateInternetBill, type CaseData } from "@/lib/bill-generator/internet-bill";
 import { getPageStreamRefs } from "@/lib/bill-generator/pdf-utils";
 import {
   generateUmobileMobile,
-  umobileMobileDigitLength,
   umobileMobileStreamToken,
-  umobileMobileSuffixLength,
 } from "@/lib/bill-generator/umobile-mobile";
 
 const GOLDEN =
@@ -76,88 +72,33 @@ function caseFor(kind: "home" | "business", mobile: string): CaseData {
   };
 }
 
-describe("Umobile Mobile No. length", () => {
-  it("uses 8 suffix digits for 6011 and 7 for every other prefix", () => {
-    expect(umobileMobileSuffixLength("6011")).toBe(8);
-    expect(umobileMobileDigitLength("6011")).toBe(12);
-    for (const prefix of ["6012", "6013", "6014", "6016", "6017", "6018", "6019", "6010"]) {
-      expect(umobileMobileSuffixLength(prefix)).toBe(7);
-      expect(umobileMobileDigitLength(prefix)).toBe(11);
-    }
+describe("Umobile Mobile No. is a new 011 number", () => {
+  it("is 011 + 8 random digits, 60 samples", () => {
+    const randomDigits = randomDigitsFrom(lcg(20261014));
+    const numbers = Array.from({ length: 60 }, () => generateUmobileMobile(randomDigits));
+    for (const n of numbers) expect(n).toMatch(/^011\d{8}$/);
+    expect(new Set(numbers).size).toBe(60);
   });
 
-  it("keeps a complete customer number and drops a padded extra digit", () => {
-    const frozen = () => {
-      throw new Error("suffix was already the right length");
-    };
-    expect(generateUmobileMobile("+60177540173", frozen)).toBe("60177540173");
-    expect(generateUmobileMobile("+601775401730", frozen)).toBe("60177540173");
-    expect(generateUmobileMobile("+601112345678", frozen)).toBe("601112345678");
-    expect(generateUmobileMobile("6011123456789", frozen)).toBe("601112345678");
-  });
-
-  it("fills a short suffix with the requested count of random digits", () => {
-    const calls: number[] = [];
-    const randomDigits = (count: number) => {
-      calls.push(count);
-      return "9".repeat(count);
-    };
-    expect(generateUmobileMobile("6017", randomDigits)).toBe("60179999999");
-    expect(generateUmobileMobile("6011", randomDigits)).toBe("601199999999");
-    expect(calls).toEqual([7, 8]);
-    expect(umobileMobileStreamToken("60179999999")).toBe("60179999999 ");
-    expect(umobileMobileStreamToken("601199999999")).toBe("601199999999");
-  });
-
-  it("leaves a non-digit mobile on the template's 12-wide slot", () => {
-    expect(generateUmobileMobile("", () => "1")).toBe("000000000000");
-    expect(generateUmobileMobile("+60-17", () => "1")).toBe("60-170000000");
-  });
-
-  it("samples 80 numbers across 6011 and four other prefixes with zero failures", () => {
-    const prefixes = ["6011", "6012", "6013", "6017", "6019"];
-    const randomDigits = randomDigitsFrom(lcg(20261004));
-    const rows = prefixes.flatMap((prefix) =>
-      Array.from({ length: 16 }, () => {
-        const number = generateUmobileMobile(prefix, randomDigits);
-        const digits = number.length;
-        const pass =
-          number.startsWith(prefix) &&
-          digits === umobileMobileDigitLength(prefix) &&
-          /^\d+$/.test(number);
-        return { prefix, number, digits, result: pass ? "PASS" : "FAIL" };
-      }),
-    );
-    expect(rows.length).toBeGreaterThanOrEqual(50);
-    expect(new Set(rows.map((row) => row.prefix)).size).toBeGreaterThanOrEqual(4);
-    expect(rows.filter((row) => row.result === "FAIL")).toEqual([]);
-    expect(rows.filter((row) => row.prefix === "6011").every((row) => row.digits === 12)).toBe(true);
-    expect(rows.filter((row) => row.prefix !== "6011").every((row) => row.digits === 11)).toBe(true);
-
-    const csvPath = path.join(process.cwd(), "docs/umobile-mobile-length-samples.csv");
-    const csv = readFileSync(csvPath, "utf8").trim().split("\n");
-    const body = csv.slice(1).map((line) => {
-      const [prefix, number, digits, result] = line.split(",");
-      return { prefix, number, digits: Number(digits), result };
-    });
-    expect(body).toEqual(rows);
+  it("asks for exactly 8 digits and leaves the 12th template slot blank", () => {
+    expect(generateUmobileMobile((count) => "9".repeat(count))).toBe("01199999999");
+    expect(umobileMobileStreamToken("01199999999")).toBe("01199999999 ");
   });
 });
 
 describe("Umobile bill prints one Mobile No.", () => {
-  const cases: { kind: "home" | "business"; mobile: string; expect: string }[] = [
-    { kind: "home", mobile: "+60177540173", expect: "60177540173" },
-    { kind: "home", mobile: "+601112345678", expect: "601112345678" },
-    { kind: "business", mobile: "+60177540173", expect: "60177540173" },
-    { kind: "business", mobile: "+601112345678", expect: "601112345678" },
+  const cases: { kind: "home" | "business"; mobile: string }[] = [
+    { kind: "home", mobile: "+60177540173" },
+    { kind: "home", mobile: "+601112345678" },
+    { kind: "business", mobile: "+60177540173" },
+    { kind: "business", mobile: "" },
   ];
 
   for (const row of cases) {
-    it(`${row.kind} ${row.expect.slice(0, 4)} prints ${row.expect.length} digits once`, async () => {
+    it(`${row.kind} case mobile "${row.mobile}" prints a new 011 number`, async () => {
       const pdf = await generateInternetBill(caseFor(row.kind, row.mobile));
       const printed = await printedMobile(pdf);
-      expect(printed).toBe(row.expect);
-      expect(printed).toHaveLength(row.expect.length);
+      expect(printed).toMatch(/^011\d{8}$/);
 
       const text = await billText(pdf);
       expect(text).toContain("2-T.12-U.01");

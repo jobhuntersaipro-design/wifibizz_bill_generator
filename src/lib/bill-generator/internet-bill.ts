@@ -86,7 +86,7 @@ function yyyymmdd(d: Date): string {
   return `${d.getFullYear()}${mm}${dd}`;
 }
 
-function computeValues(customerMobile: string) {
+function computeValues() {
   const today = new Date();
 
   // T-1 month
@@ -122,8 +122,8 @@ function computeValues(customerMobile: string) {
   const newAccount = randomDigits(11);
   const newBillDigits = yyyymmdd(billDate) + randomDigits(8);
 
-  // One Mobile No. for every slot on the bill. 6011 is 12 digits; any other prefix is 11.
-  const newMobile = generateUmobileMobile(customerMobile, randomDigits);
+  // One Mobile No. for every slot on the bill: a new U Mobile number, 011 + 8 random digits.
+  const newMobile = generateUmobileMobile(randomDigits);
 
   return {
     newAccount,
@@ -183,7 +183,7 @@ export interface CaseData extends BusinessSignals {
 
 export async function generateInternetBill(caseData: CaseData): Promise<Buffer> {
   // Compute replacement values
-  const v = computeValues(caseData.mobile);
+  const v = computeValues();
   const { streamReplacements, textReplacements } = buildReplacements(v);
 
   // Normalize address
