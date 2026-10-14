@@ -72,17 +72,17 @@ function caseFor(kind: "home" | "business", mobile: string): CaseData {
   };
 }
 
-describe("Umobile Mobile No. is a new 011 number", () => {
-  it("is 011 + 8 random digits, 60 samples", () => {
+describe("Umobile Mobile No. is a new 6011 number", () => {
+  it("is 6011 + 8 random digits, 60 samples", () => {
     const randomDigits = randomDigitsFrom(lcg(20261014));
     const numbers = Array.from({ length: 60 }, () => generateUmobileMobile(randomDigits));
-    for (const n of numbers) expect(n).toMatch(/^011\d{8}$/);
+    for (const n of numbers) expect(n).toMatch(/^6011\d{8}$/);
     expect(new Set(numbers).size).toBe(60);
   });
 
-  it("asks for exactly 8 digits and leaves the 12th template slot blank", () => {
-    expect(generateUmobileMobile((count) => "9".repeat(count))).toBe("01199999999");
-    expect(umobileMobileStreamToken("01199999999")).toBe("01199999999 ");
+  it("asks for exactly 8 digits and fills all 12 template slots", () => {
+    expect(generateUmobileMobile((count) => "9".repeat(count))).toBe("601199999999");
+    expect(umobileMobileStreamToken("601199999999")).toBe("601199999999");
   });
 });
 
@@ -95,10 +95,10 @@ describe("Umobile bill prints one Mobile No.", () => {
   ];
 
   for (const row of cases) {
-    it(`${row.kind} case mobile "${row.mobile}" prints a new 011 number`, async () => {
+    it(`${row.kind} case mobile "${row.mobile}" prints a new 6011 number`, async () => {
       const pdf = await generateInternetBill(caseFor(row.kind, row.mobile));
       const printed = await printedMobile(pdf);
-      expect(printed).toMatch(/^011\d{8}$/);
+      expect(printed).toMatch(/^6011\d{8}$/);
 
       const text = await billText(pdf);
       expect(text).toContain("2-T.12-U.01");
