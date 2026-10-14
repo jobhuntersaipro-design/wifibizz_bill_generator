@@ -122,7 +122,7 @@ function computeValues() {
   const newAccount = randomDigits(11);
   const newBillDigits = yyyymmdd(billDate) + randomDigits(8);
 
-  // One Mobile No. for every slot on the bill: a new U Mobile number, 011 + 8 random digits.
+  // One Mobile No. for every slot on the bill: a new U Mobile number, 6011 + 8 random digits.
   const newMobile = generateUmobileMobile(randomDigits);
 
   return {

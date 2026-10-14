@@ -1,10 +1,10 @@
 /**
  * Mobile No. printed on a Umobile bill (Home and Business share this): a new
- * U Mobile number, `011` + 8 random digits (ClickUp z8v9xnhhkh). The case's own
+ * U Mobile number, `6011` + 8 random digits (ClickUp z8v9xnhhkh). The case's own
  * mobile is not used.
  */
 export function generateUmobileMobile(randomDigits: (count: number) => string): string {
-  return "011" + randomDigits(8);
+  return "6011" + randomDigits(8);
 }
 
 /**
