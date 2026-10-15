@@ -5,6 +5,8 @@ import { neon } from "@neondatabase/serverless";
 import { r2KeyFromPublicUrl } from "@/lib/bill-object";
 import { persistBillPdf } from "@/lib/persist-bill";
 import { buildInternetBillPdf } from "@/lib/bill-generator/umobile-modem";
+import { generateUtilityBill } from "@/lib/bill-generator/utility-bill";
+import { borneoState } from "@/lib/bill-generator/borneo-electric-bill";
 import { getBytesFromR2 } from "@/lib/r2";
 import { fillMissingAddresses } from "@/lib/crawler/lazy-address";
 import { NO_ADDRESS_ERROR, hasAddress } from "@/lib/address-required";
@@ -82,10 +84,13 @@ export async function GET(request: Request) {
     const filename = `${prefix}_${caseNo}${orderSuffix}.pdf`;
 
     // Default internet GET rebuilds from the live pool and returns those bytes
-    // as an attachment. `preview=1` (case-detail iframe) only reads the stored
-    // object so opening a row does not start a second generate.
+    // as an attachment. A Sabah/Sarawak utility bill rebuilds too, so a TNB bill
+    // stored before SESB/SESCO existed is replaced instead of served again.
+    // `preview=1` (case-detail iframe) only reads the stored object so opening a
+    // row does not start a second generate.
     const previewOnly = url.searchParams.get("preview") === "1";
-    if (type === "internet" && !previewOnly) {
+    const rebuild = type === "internet" || borneoState(String(rows[0].full_address ?? "")) !== null;
+    if (rebuild && !previewOnly) {
       // A rebuild is a fresh generate: same address rule as POST /api/bills/generate.
       let fullAddress = String(rows[0].full_address ?? "");
       if (!hasAddress(fullAddress)) {
@@ -97,7 +102,7 @@ export async function GET(request: Request) {
       if (!hasAddress(fullAddress)) {
         return NextResponse.json({ success: false, error: NO_ADDRESS_ERROR }, { status: 422 });
       }
-      const pdf = await buildInternetBillPdf({
+      const caseData = {
         case_no: caseNo,
         full_name: String(rows[0].full_name ?? ""),
         full_address: fullAddress,
@@ -105,11 +110,12 @@ export async function GET(request: Request) {
         case_url: String(rows[0].case_url ?? ""),
         provider: String(rows[0].provider ?? ""),
         package: String(rows[0].package ?? ""),
-      });
+      };
+      const pdf = type === "internet" ? await buildInternetBillPdf(caseData) : await generateUtilityBill(caseData);
       const stored = await persistBillPdf({
         userId: wifibizzUser.id,
         caseNo,
-        type: "internet",
+        type,
         previousUrl: billUrl,
         pdf,
       });

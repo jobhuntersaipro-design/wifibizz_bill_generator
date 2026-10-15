@@ -5,6 +5,12 @@
 MERGED TO MAIN (`2021e46`, merge `a59c6fa`), pushed 2026-10-15 — Vercel deploys from main. Vercel-only, no migration,
 no droplet deploy. ClickUp z8v9xnhwva. NOT verified on the real surface (Case List / Order Entry with the golden account).
 
+**Fix 2026-10-15 ("still failed"):** a case that already had a stored utility bill (TNB, from before) kept getting that
+stored PDF from `/api/bills/download` — the Case List button and Combine both go there, and only internet bills were
+rebuilt. A non-preview download now rebuilds when the address is Sabah/Sarawak, so the old TNB bill is replaced by
+SESB/SESCO; other states still get the stored file. The detail-panel preview shows the stored bill until that first
+download. Route test added (fails without the fix). Prod not checked: the ticket's aiboot1 login is refused there.
+
 ## Notes
 
 `generateUtilityBill` routes a Sabah or Sarawak address to `borneo-electric-bill.ts`; every other state keeps
