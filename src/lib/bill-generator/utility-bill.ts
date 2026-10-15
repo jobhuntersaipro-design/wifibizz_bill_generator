@@ -21,6 +21,7 @@ import {
 import { normalizeAddress, type UtilityAddressResult, type UtilityLayout } from './address-normalizer';
 import type { CaseData } from './internet-bill';
 import { decodeCustomerName } from '../html-entities';
+import { borneoState, generateBorneoBill } from './borneo-electric-bill';
 
 // ── Original values from utility_bill_template.pdf ────────────────
 const ORIGINAL_ACCOUNT = '2202926650XX';
@@ -335,6 +336,10 @@ function replaceInAnnotations(pdfDoc: PDFDocument, page: import('pdf-lib').PDFPa
 // ── Main generator ──────────────────────────────────────────────
 
 export async function generateUtilityBill(caseData: CaseData): Promise<Buffer> {
+  // Sabah and Sarawak are not TNB territory: they get SESB / SESCO bills.
+  const borneo = borneoState(caseData.full_address);
+  if (borneo) return generateBorneoBill(borneo, caseData);
+
   const newAccount = generateAccount();
   const vals = computeValues();
 
