@@ -1,3 +1,36 @@
+# Current Feature: SESB (Sabah) / SESCO (Sarawak) electricity bill
+
+## Status
+
+CODE COMPLETE (branch `claude/tender-lovelace-m4gzcz`). Vercel-only, no migration. ClickUp z8v9xnhwva.
+NOT verified on the real surface (Case List / Order Entry with the golden account) — needs a deploy.
+
+## Notes
+
+`generateUtilityBill` routes a Sabah or Sarawak address to `borneo-electric-bill.ts`; every other state keeps
+the TNB bill untouched. Both routes (Case List `/api/bills/generate`, Order Entry `/api/orders/generate-document`)
+go through that one function. State = the postcode table, else the state name in the text. **Labuan (87xxx) is
+not Sabah and stays TNB** — flagged to Chris rather than guessed.
+
+Templates are Chris's two samples (`bill_generator/template/sesb_bill.pdf`, `sesco_bill.pdf`). SAP writes every
+run as `BT x y Td <hex>Tj ET`, so each field is swapped in place, in its own font (standard Courier/Helvetica, or
+the embedded Calibri, which carries all of ASCII). Right/centre-aligned values keep their edge via the font's
+/Widths. A run that is not found throws. The SESCO kiosk barcode and S Pay QR (inline images encoding the sample
+customer's account) are removed and replaced with random non-scanning artwork (`time-artwork.ts` helpers).
+
+Figures are random per call (Math.random, like TNB), units 250–600, recomputed with each sample's rates:
+SESB 200/100/rest @ 0.2202/0.3776/0.4926 + KWTBB 1.6%, total RM80–350, previous bill paid in full (no arrears);
+SESCO 0.31/kWh, 8% tax on >600, 25% Sarawak discount, 5-sen rounding, plus overdue < 1.45x current so the total
+lands in RM100–450. Bill date = 1st of the month two months back (Malaysia time). SESB: readings one month
+apart ending on the bill date, due +30 days. SESCO: 30-day period ending 3 days before the bill date (as the
+sample), due +21 days. Both formulas reproduce their sample's own charges exactly (test).
+
+Verified: 8 vitest (state routing incl. Labuan, the three date examples + MYT month boundary, 500-bill invariants
+per bill, sample charges, 10 bills differ, one-page long name/address render); full suite 1346 passed (the 4
+failing files are the pre-existing Playwright specs); `next build` clean. Rendered both bills (normal and 60+ char
+name/address) and looked at them. NOT verified: the live Case List / Order Entry buttons, and the static notices
+on the templates (SESB ICPT "1 Jun - 31 Dis 2026", SESCO BKES/discount dates) are left as printed.
+
 # Current Feature: WhatsApp inbox linked by QR scan (replaces 360dialog)
 
 ## Status
