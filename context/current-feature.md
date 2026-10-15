@@ -2,8 +2,8 @@
 
 ## Status
 
-CODE COMPLETE (branch `claude/tender-lovelace-m4gzcz`). Vercel-only, no migration. ClickUp z8v9xnhwva.
-NOT verified on the real surface (Case List / Order Entry with the golden account) — needs a deploy.
+MERGED TO MAIN (`2021e46`, merge `a59c6fa`), pushed 2026-10-15 — Vercel deploys from main. Vercel-only, no migration,
+no droplet deploy. ClickUp z8v9xnhwva. NOT verified on the real surface (Case List / Order Entry with the golden account).
 
 ## Notes
 
