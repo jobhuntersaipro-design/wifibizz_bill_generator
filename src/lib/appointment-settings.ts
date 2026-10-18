@@ -30,12 +30,20 @@ export function todayMyt(now: Date = new Date()): string {
   return new Date(now.getTime() + 8 * 3600_000).toISOString().slice(0, 10);
 }
 
-/** A real calendar date, "YYYY-MM-DD", not before today in Malaysia time. */
+/** How far ahead a preferred installation date may be (user, 2026-10-18). */
+export const MAX_PREFERRED_DAYS = 14;
+
+/** The last pickable preferred date: today + MAX_PREFERRED_DAYS, Malaysia time. */
+export function maxPreferredDate(now: Date = new Date()): string {
+  return todayMyt(new Date(now.getTime() + MAX_PREFERRED_DAYS * 86_400_000));
+}
+
+/** A real calendar date, "YYYY-MM-DD", from today to MAX_PREFERRED_DAYS ahead (Malaysia time). */
 export function isValidPreferredDate(value: string, now: Date = new Date()): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const d = new Date(`${value}T00:00:00Z`);
   if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== value) return false;
-  return value >= todayMyt(now);
+  return value >= todayMyt(now) && value <= maxPreferredDate(now);
 }
 
 export type LeadHoursValidation =

@@ -42,6 +42,7 @@ import {
   MIN_LEAD_HOURS,
   describeLeadTime,
   isValidPreferredDate,
+  maxPreferredDate,
   leadHoursOrDefault,
   todayMyt,
   validateLeadHours,
@@ -981,7 +982,7 @@ export function OrderForm({
       return;
     }
     if (preferredDate && !isValidPreferredDate(preferredDate)) {
-      toast.error("Preferred installation date must be today or later.");
+      toast.error("Preferred installation date must be within the next 14 days.");
       return;
     }
     setSaving(true);
@@ -1648,13 +1649,14 @@ export function OrderForm({
               id="preferred-install-date"
               type="date"
               min={todayMyt()}
+              max={maxPreferredDate()}
               value={preferredDate}
               onChange={(e) => setPreferredDate(e.target.value)}
               className={inputCls}
             />
           </div>
           <p className="text-[11px] text-ink-muted max-w-md">
-            Pick a date and the submit books the first slot the portal lists on that day. If
+            Pick a date up to 14 days ahead and the submit books the first slot the portal lists on that day. If
             that day has no slot, the submit stops with an error and never books a different
             day. Leave it blank to book the earliest slot after the lead time.
           </p>

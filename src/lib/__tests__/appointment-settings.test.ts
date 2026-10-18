@@ -8,6 +8,7 @@ import {
   leadHoursOrDefault,
   validateLeadHours,
   isValidPreferredDate,
+  maxPreferredDate,
   todayMyt,
 } from "@/lib/appointment-settings";
 import { resolveErrorCode } from "@/lib/portal-error-rules";
@@ -103,6 +104,12 @@ describe("preferred installation date", () => {
     expect(isValidPreferredDate("2026-10-12", now)).toBe(true);
     expect(isValidPreferredDate("2026-02-30", now)).toBe(false);
     expect(isValidPreferredDate("12/10/2026", now)).toBe(false);
+  });
+
+  it("allows up to 14 days ahead, not 15", () => {
+    expect(maxPreferredDate(now)).toBe("2026-10-25");
+    expect(isValidPreferredDate("2026-10-25", now)).toBe(true);
+    expect(isValidPreferredDate("2026-10-26", now)).toBe(false);
   });
 
   it("a date makes the policy fixed_date; blank keeps first_available", () => {

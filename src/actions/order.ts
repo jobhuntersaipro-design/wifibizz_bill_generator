@@ -241,11 +241,12 @@ const orderInputSchema = z.object({
     .max(MAX_LEAD_HOURS)
     .optional(),
   // "YYYY-MM-DD", Malaysia time. Optional: blank keeps the lead-time booking.
-  // Past dates refused here as well as in the picker — actions are POST-able.
+  // Past dates and dates beyond 14 days refused here as well as in the picker —
+  // actions are POST-able.
   preferredInstallDate: z
     .string()
     .refine((v) => isValidPreferredDate(v), {
-      message: "Preferred installation date must be today or later.",
+      message: "Preferred installation date must be within the next 14 days.",
     })
     .optional(),
   // The ID copy is required: the portal's Personal Customer form marks it so, and
