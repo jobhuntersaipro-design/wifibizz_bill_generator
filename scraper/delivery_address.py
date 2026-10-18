@@ -58,6 +58,10 @@ async def _tick_default_billing(frame) -> dict:
                 "detail": "skipped (no Default From Billing Address control)"}
     if await box.is_checked():
         return {"status": "ok", "detail": "already ticked (address left as the portal set it)"}
+    # The portal sometimes greys the box out with the address already filled
+    # (order 2610000129700826). It cannot be ticked; forcing it is not ours to do.
+    if await box.is_disabled():
+        return {"status": "ok", "detail": "box disabled by the portal (address left as the portal set it)"}
     await box.check(timeout=5000)
 
     dialog = frame.locator(_DIALOG).first

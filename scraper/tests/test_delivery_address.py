@@ -170,6 +170,16 @@ def test_already_ticked_box_is_left_alone():
     assert st["opened"] == 0 and st["okCount"] == 0
 
 
+def test_a_disabled_box_is_left_alone():
+    # Live 2026-10-18: the portal greyed the box out and filled the address itself.
+    disabled = delivery_page().replace('name="defaultBillingAddress"',
+                                       'name="defaultBillingAddress" disabled')
+    res, st = run_step(disabled)
+    assert res == {"status": "ok",
+                   "detail": "box disabled by the portal (address left as the portal set it)"}
+    assert st["opened"] == 0 and st["okCount"] == 0
+
+
 def test_ticking_without_a_dialog_is_fine():
     # The portal may fill the address on tick with no dialog at all.
     no_dialog = delivery_page().replace("q('#enterAddress').style.display = 'block';", "")
