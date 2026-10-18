@@ -8,10 +8,9 @@ Infomation dialog open over the tab, listing TWO accounts for the customer
 (7042172192, 7042171533 — both AHMAD FAIZAL BIN HASSAN). With one account the
 portal fills it silently; with two it stops to ask, and nothing answered.
 
-Why two: page 1's account step was written to CREATE a new billing account per
-order, so every re-submit of the same customer added one. The user's rule
-(2026-08-27): always select the first account from the list, on page 1 as well,
-and only press "+ Add" when the customer has no account at all.
+Page 1 now always creates a new account (user, 2026-10-18), so a list that
+pops up over a later tab must pick the account page 1 applied (`prefer`), and
+only falls back to the first row when that account is not listed.
 
 Run from the scraper/ dir:
     pytest tests/test_account_dialog.py
@@ -127,17 +126,28 @@ def test_empty_account_list_is_reported_not_okayed():
     assert st["open"] is True
 
 
-def test_page1_selects_the_first_existing_account_instead_of_adding():
+def test_prefer_picks_the_named_account_not_the_first():
+    res, st = _run(ACCOUNT_DIALOG, lambda f, p: select_first_account(f, p, prefer="7042171533"))
+    assert res["status"] == "ok"
+    assert st["highlighted"] == ["7042171533"]
+    assert st["open"] is False
+
+
+def test_prefer_not_listed_falls_back_to_the_first():
+    res, st = _run(ACCOUNT_DIALOG, lambda f, p: select_first_account(f, p, prefer="7000000000"))
+    assert res["status"] == "ok"
+    assert st["highlighted"] == ["7042172192"]
+
+
+def test_page1_presses_add_even_when_accounts_exist():
+    # User, 2026-10-18: always create a new account. This fixture's "+ Add"
+    # opens no form, so the step fails, but it must have pressed Add and not
+    # quietly picked an existing account.
     hidden = ACCOUNT_DIALOG.replace('style="display:block"', 'style="display:none"')
     res, st = _run(PAGE1 + hidden, create_billing_account)
-    assert res["status"] == "ok"
-    assert "7042172192" in res["note"]
-    # The step now reads page 1's Account field back — OK'ing the list is only a
-    # success if the portal actually put the account there (order
-    # 2608000122708912 is what a green tick over an empty field costs).
-    assert res["account"] == "7042172192"
-    assert st["added"] == 0
-    assert st["open"] is False
+    assert st["added"] == 1
+    assert st["highlighted"] == []
+    assert res["status"] == "error"
 
 
 # ---------------------------------------------------------------------------
@@ -158,9 +168,8 @@ def test_a_list_that_opens_late_is_still_used():
         "onclick=\"setTimeout(()=>document.querySelector('.ui-dialog').style.display='block',5000)\"")
     assert late != PAGE1, "fixture did not change"
     res, st = _run(late + hidden, create_billing_account)
-    assert res["status"] == "ok", res
-    assert res["account"] == "7042172192"
-    assert st["added"] == 0
+    # Found in time: "+ Add" was pressed inside it (the fixture opens no form).
+    assert st["added"] == 1
 
 
 # Another picker left on top, with a grid and an OK of its own. The addon click

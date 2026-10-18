@@ -290,3 +290,41 @@ def test_the_customer_name_is_what_gets_typed():
     res, st = _run(ADD_ACCOUNT, probe)
     assert st["acctName"] == PAYLOAD["customer"]["name"]
     assert res["unanswered"] == []
+
+
+# ── an existing customer still gets a NEW account (user, 2026-10-18) ─────────
+# The list already holds two accounts. Saving the Add form inserts the new row
+# at the TOP (so position cannot be what picks it) and leaves the list open;
+# the list's OK writes the highlighted row into page 1's field.
+EXISTING = (ADD_ACCOUNT
+    .replace('<table><tbody><tr class="jqgfirstrow"><td></td></tr></tbody></table>\n    <div>No record to view</div>',
+             '<table><tbody><tr class="jqgfirstrow"><td></td></tr>'
+             '<tr class="jqgrow" onclick="this.classList.add(\'ui-state-highlight\')"><td>7042172192</td><td>AHMAD</td></tr>'
+             '<tr class="jqgrow" onclick="this.classList.add(\'ui-state-highlight\')"><td>7042171533</td><td>AHMAD</td></tr>'
+             '</tbody></table>')
+    .replace('''<button class="js-ok" onclick="hide('list')">OK</button>''',
+             '''<button class="js-ok" onclick="var r=document.querySelector('#list tr.ui-state-highlight td'); if(r) document.querySelector('input[name=acctId]').value=r.innerText; hide('list')">OK</button>''')
+    .replace("document.querySelector('input[name=acctId]').value='7042196340';\n  hide('add'); hide('list');",
+             "var tb=document.querySelector('#list tbody'), tr=document.createElement('tr');"
+             " tr.className='jqgrow'; tr.onclick=function(){this.classList.add('ui-state-highlight');};"
+             " tr.innerHTML='<td>7042196340</td><td>AHMAD</td>'; tb.insertBefore(tr, tb.children[1]);"
+             " hide('add');"))
+
+
+def test_existing_customer_gets_a_new_account_selected():
+    assert "7042171533" in EXISTING and "insertBefore" in EXISTING, "fixture did not change"
+    res, st = _run(EXISTING, lambda f, p: create_billing_account(
+        f, p, "AHMAD FAIZAL BIN HASSAN", PAYLOAD))
+    assert res["status"] == "ok", res
+    assert res["account"] == "7042196340"
+    assert st["created"] == 1
+    assert st["openDialogs"] == 0
+
+
+def test_an_old_account_landing_on_page1_is_an_error():
+    # The new row never appears: the step must not fall back to an old account.
+    no_new_row = EXISTING.replace("tb.insertBefore(tr, tb.children[1]);", "")
+    res, st = _run(no_new_row, lambda f, p: create_billing_account(
+        f, p, "AHMAD FAIZAL BIN HASSAN", PAYLOAD))
+    assert res["status"] == "error"
+    assert res["error"] == "account_not_new"

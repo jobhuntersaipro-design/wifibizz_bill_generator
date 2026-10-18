@@ -2022,8 +2022,15 @@ async def wait_for_page1_form(page, timeout_s: int = PAGE1_READY_TIMEOUT_S) -> d
 _ACCOUNT_DIALOG_RE = re.compile(r"account\s*info", re.I)  # portal spells it "Infomation"
 
 
-async def select_first_account(frame, page) -> dict:
-    """If the portal's Account Infomation list is up, take its FIRST row and OK.
+def _account_number(text: str) -> str:
+    """The account number in a list row or in page 1's field ("NAME[7043680722]")."""
+    m = re.search(r"\b\d{8,}\b", text or "")
+    return m.group(0) if m else ""
+
+
+async def select_first_account(frame, page, prefer: str = "") -> dict:
+    """If the portal's Account Infomation list is up, take a row and OK: the one
+    holding `prefer` (the account page 1 created) when given, else the FIRST.
 
     The portal fills a single account silently but STOPS to ask when the
     customer has more than one — live 2026-08-27 it did so over the Broadband
@@ -2036,6 +2043,12 @@ async def select_first_account(frame, page) -> dict:
     if not await dlg.count():
         return {"status": "absent"}
     row = dlg.locator('tr.jqgrow').first
+    # Page 1 creates a new account per order (user, 2026-10-18), so a list
+    # popping up over a later tab must pick THAT account, not the oldest one.
+    if prefer:
+        wanted = dlg.locator('tr.jqgrow').filter(has_text=prefer).first
+        if await wanted.count():
+            row = wanted
     if not await row.count():
         return {"status": "error", "error": "account_list_empty", "stage": "account",
                 "message": "The Account Infomation list is open but has no account to select."}
@@ -2287,23 +2300,16 @@ async def _account_field_value(frame) -> str:
 
 async def create_billing_account(frame, page, acct_name: str = "",
                                  payload: dict | None = None) -> dict:
-    """Billing account for the order: the customer's FIRST existing account, or
-    a new one only when they have none. VERIFIES the field afterwards.
+    """Billing account for the order: ALWAYS a newly created account, selected
+    on page 1, even when the customer already has accounts (user, 2026-10-18).
 
-    Until 2026-08-27 this CREATED a new account per order, so every re-submit
-    of the same customer added one — and once a customer had two, the portal
-    stopped over the Broadband tab to ask which, stranding the order (ORD-0017,
-    2608000122669349). Then: open the Account Infomation dialog; if it lists an
-    account, select_first_account takes the first row and OKs. Otherwise the
-    VERIFIED add sequence (with GENEROUS waits — rushing makes the Reason and
-    Success popups stack and one gets left open, covering page-1): '+ Add' ->
-    fill EVERY starred field -> OK the form -> the "Reason" popup -> OK -> final OK.
+    Sequence: open the Account Infomation list, note the existing account
+    numbers, '+ Add' -> fill every starred field -> OK -> the "Reason" popup ->
+    OK -> select the row that was not in the list before -> OK. The page-1 field
+    is read back: empty is account_not_set, an old account is account_not_new.
 
-    Every branch below used to end in status "ok", including the ones that do
-    nothing at all (dialog never opened; the Add form refused), which is how
-    order 2608000122708912 reached page 1's Next with *Account empty and red
-    while the timeline showed a green tick. The page-1 field is now read back
-    and an empty one is an error naming the branch that ran.
+    Until 2026-10-18 an existing customer got their FIRST existing account
+    instead (rule of 2026-08-27, ORD-0017).
     Skips cleanly when the offer has no account field."""
     acct_input = frame.locator('input[name="acctId"]:not(.js-acct-combobox)').first
     if not await acct_input.count():
@@ -2319,6 +2325,12 @@ async def create_billing_account(frame, page, acct_name: str = "",
     if result.get("status") != "ok":
         return result
     account = await _account_field_value(frame)
+    before = result.pop("before_accounts", [])
+    if account and _account_number(account) in before:
+        return {"status": "error", "stage": "account", "error": "account_not_new",
+                "message": (f"A new billing account was meant to be created and selected, "
+                            f"but page 1's Account reads {account!r}, an account the "
+                            f"customer already had ({', '.join(before)}).")}
     if account:
         return {**result, "account": account}
     note = result.get("note") or ("created a new account" if result.get("created") else "")
@@ -2353,14 +2365,16 @@ async def _apply_billing_account(frame, page, acct_name: str = "",
             break
         await asyncio.sleep(0.5)
 
-    # An existing account wins — the first one, always.
-    existing = await select_first_account(frame, page)
-    if existing.get("status") == "ok":
-        await asyncio.sleep(2)
-        return {"status": "ok", "stage": "account",
-                "note": f"selected first existing account {existing.get('account')}"}
+    # Always create a new account, even when the customer already has some
+    # (user, 2026-10-18). Note the existing numbers so the new one can be told
+    # apart afterwards.
+    before = []
+    if await listing.count():
+        for t in await listing.last.locator('tr.jqgrow').all_inner_texts():
+            if _account_number(t):
+                before.append(_account_number(t))
 
-    # No account yet: '+ Add' -> Add Account form.
+    # '+ Add' -> Add Account form.
     probe = await page.evaluate(r"""(() => {
       const f=document.querySelector('#myIframe'), d=f&&f.contentDocument; if(!d) return {r:'nodoc'};
       const vis=e=>e&&e.offsetParent!==null;
@@ -2423,17 +2437,26 @@ async def _apply_billing_account(frame, page, acct_name: str = "",
         await asyncio.sleep(3)  # generous — don't rush the next popup
 
     # Finally apply + close the Account Infomation list if it's still open: select
-    # the newest row + OK. Verify NO dialog remains (else it covers page-1).
+    # the row that was not there before '+ Add' (the new account) + OK. Verify
+    # NO dialog remains (else it covers page-1).
     closed = False
     for _ in range(4):
         if await frame.locator('.ui-dialog:visible').count() == 0:
             closed = True
             break
         rows = frame.locator('.ui-dialog:visible tr.jqgrow')
-        m = await rows.count()
-        if m:
+        texts = await rows.all_inner_texts()
+        new = [i for i, t in enumerate(texts)
+               if _account_number(t) and _account_number(t) not in before]
+        pick = new[-1] if new else (len(texts) - 1 if texts and not before else None)
+        if texts and pick is None:
+            return {"status": "error", "stage": "account", "error": "account_not_new",
+                    "message": ("The new billing account does not appear in the Account "
+                                f"list (it still shows only {', '.join(before)}), so it "
+                                "could not be selected.")}
+        if pick is not None:
             try:
-                await rows.nth(m - 1).click(timeout=3000)
+                await rows.nth(pick).click(timeout=3000)
                 await asyncio.sleep(0.6)
             except Exception:
                 pass
@@ -2444,6 +2467,7 @@ async def _apply_billing_account(frame, page, acct_name: str = "",
             pass
         await asyncio.sleep(2.5)
     return {"status": "ok", "stage": "account", "created": True, "closed": closed,
+            "before_accounts": before,
             "filled": form.get("filled") or [], "unanswered": form.get("unanswered") or [],
             "form_fields": [f.get("label") for f in (form.get("fields") or [])]}
 
@@ -3887,7 +3911,8 @@ async def fill_subproduct_tabs(page, payload: dict, on_stage=None) -> dict:
         # A customer with more than one billing account gets the Account
         # Infomation list over the tab; it is not a warning, so the sweep above
         # leaves it, and the first click on the tab dies on its backdrop.
-        acct = await select_first_account(frame, page)
+        acct = await select_first_account(
+            frame, page, prefer=_account_number(await _account_field_value(frame)))
         if acct.get("status") != "absent":
             print(f"  ↳ account list over the {txt} tab: {acct}", flush=True)
         # Install Contact is a SHARED field at the top of the page (set on page 1),
