@@ -2299,7 +2299,7 @@ async def _account_field_value(frame) -> str:
 
 
 async def create_billing_account(frame, page, acct_name: str = "",
-                                 payload: dict | None = None) -> dict:
+                                 payload: dict | None = None, stage=None) -> dict:
     """Billing account for the order: ALWAYS a newly created account, selected
     on page 1, even when the customer already has accounts (user, 2026-10-18).
 
@@ -2321,7 +2321,7 @@ async def create_billing_account(frame, page, acct_name: str = "",
         except Exception:
             return {"status": "skipped", "stage": "account", "reason": "not_applicable",
                     "note": "no account field"}
-    result = await _apply_billing_account(frame, page, acct_name, payload)
+    result = await _apply_billing_account(frame, page, acct_name, payload, stage)
     if result.get("status") != "ok":
         return result
     account = await _account_field_value(frame)
@@ -2346,7 +2346,7 @@ async def create_billing_account(frame, page, acct_name: str = "",
 
 
 async def _apply_billing_account(frame, page, acct_name: str = "",
-                                 payload: dict | None = None) -> dict:
+                                 payload: dict | None = None, stage=None) -> dict:
     """Select the first existing account, or add one. See create_billing_account."""
     acct_input = frame.locator('input[name="acctId"]:not(.js-acct-combobox)').first
     addon = acct_input.locator(
@@ -2440,6 +2440,7 @@ async def _apply_billing_account(frame, page, acct_name: str = "",
     # the row that was not there before '+ Add' (the new account) + OK. Verify
     # NO dialog remains (else it covers page-1).
     closed = False
+    shot = False
     for _ in range(4):
         if await frame.locator('.ui-dialog:visible').count() == 0:
             closed = True
@@ -2460,6 +2461,11 @@ async def _apply_billing_account(frame, page, acct_name: str = "",
                 await asyncio.sleep(0.6)
             except Exception:
                 pass
+            # The list with the new account selected, before OK: which account
+            # this order took (user ask, 2026-10-18). Best-effort, once.
+            if payload is not None and stage is not None and not shot:
+                shot = True
+                await capture_and_report(page, payload, "account", stage)
         try:
             await frame.locator('.ui-dialog:visible .js-ok, '
                                 '.ui-dialog:visible button:has-text("OK")').last.click(timeout=5000)
@@ -3042,7 +3048,7 @@ async def complete_new_connection(page, payload: dict = None, on_stage=None) -> 
     stage("installation_contact", _step_detail(steps["install_contact"], "selected"))
     await cancel_customer_popup(page)
     stage("billing_account")
-    steps["account"] = await create_billing_account(frame, page, acct_name, payload)
+    steps["account"] = await create_billing_account(frame, page, acct_name, payload, stage)
     # Key "account" — the account number the portal actually applied. This read
     # "name" until 2026-08-27, a key the step never returns, so the detail always
     # fell back to the customer name and showed a green tick over an account step

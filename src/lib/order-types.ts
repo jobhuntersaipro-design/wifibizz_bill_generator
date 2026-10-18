@@ -159,6 +159,11 @@ const CAPTURE_SLOTS: Record<string, { label: string; caption: string }> = {
     label: "At the moment of failure",
     caption: "The page exactly as the portal showed it when this attempt's failing step gave up.",
   },
+  account: {
+    label: "Billing account selected",
+    caption:
+      "The Account list with the newly created account highlighted, just before OK.",
+  },
   page1: {
     label: "New Connection page 1",
     caption:

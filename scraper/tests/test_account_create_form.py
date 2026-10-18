@@ -328,3 +328,21 @@ def test_an_old_account_landing_on_page1_is_an_error():
         f, p, "AHMAD FAIZAL BIN HASSAN", PAYLOAD))
     assert res["status"] == "error"
     assert res["error"] == "account_not_new"
+
+
+def test_the_selected_new_account_is_photographed_before_ok(monkeypatch):
+    import oe_feasibility
+    shots = []
+
+    async def fake_capture(page, payload, slot, stage):
+        hl = await page.evaluate("""() => [...document.querySelector('#myIframe')
+          .contentDocument.querySelectorAll('tr.ui-state-highlight td:first-child')]
+          .map(t => t.innerText)""")
+        shots.append((slot, hl))
+
+    monkeypatch.setattr(oe_feasibility, "capture_and_report", fake_capture)
+    res, _ = _run(EXISTING, lambda f, p: create_billing_account(
+        f, p, "AHMAD FAIZAL BIN HASSAN", PAYLOAD, stage=lambda *a: None))
+    assert res["status"] == "ok", res
+    # One frame, taken with the NEW account highlighted.
+    assert shots == [("account", ["7042196340"])]
