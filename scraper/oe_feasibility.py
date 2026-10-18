@@ -5133,11 +5133,9 @@ async def fill_customer_order_info(page, payload: dict,
 
     # ── Delivery details + order confirmation ────────────────────────────────
     stage("delivery_terms")
-    # Delivery address := installation address. The Default From Billing Address
-    # box only opens the Enter Address dialog; delivery_address.py rewrites it
-    # from the order's installation address before OK, so a billing account
-    # carrying an older address can no longer become the delivery address.
-    delivery = await set_delivery_address(frame, page, payload)
+    # Tick Default From Billing Address; the portal fills the delivery address
+    # itself, so it is never typed (delivery_address.py).
+    delivery = await set_delivery_address(frame, page)
     if delivery.get("status") != "ok":
         return {**delivery, "steps": steps}
     steps["delivery_addr"] = delivery["detail"]
