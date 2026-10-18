@@ -1653,12 +1653,11 @@ export function OrderForm({
               className={inputCls}
             />
           </div>
-          {preferredDate ? (
-            <p className="text-[11px] text-ink-muted">
-              Books the first slot the portal lists on this day. If that day has no slot, the
-              submit stops with an error — it never books a different day.
-            </p>
-          ) : null}
+          <p className="text-[11px] text-ink-muted max-w-md">
+            Pick a date and the submit books the first slot the portal lists on that day. If
+            that day has no slot, the submit stops with an error and never books a different
+            day. Leave it blank to book the earliest slot after the lead time.
+          </p>
           <div className={`max-w-xs space-y-1.5 ${preferredDate ? "hidden" : ""}`}>
             <Label htmlFor="lead-hours" className={labelCls}>
               Earliest slot, in hours from submit
