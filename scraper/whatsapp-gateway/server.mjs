@@ -106,9 +106,20 @@ async function onMessages({ messages }) {
 /** History sync, sent by the phone after a fresh QR link. Only the last HISTORY_DAYS reach BizzFlow. */
 async function onHistory(set) {
   const since = Math.floor(Date.now() / 1000) - HISTORY_DAYS * 86400;
-  const bodies = historyBatches(set, state.me, since);
+  // History can land before connection "open" sets state.me.
+  const me = state.me ?? phoneOf(sock?.user?.id);
+  // Most chats are keyed by an opaque @lid; resolve the ones the batch did not map.
+  const mapped = new Set((set.lidPnMappings ?? []).map((m) => m.lid));
+  const missing = [...new Set((set.messages ?? []).map((m) => m.key?.remoteJid).filter((j) => j?.endsWith("@lid") && !mapped.has(j)))];
+  const found = missing.length ? await sock?.signalRepository?.lidMapping?.getPNsForLIDs(missing).catch(() => null) : null;
+  const lidPnMappings = [...(set.lidPnMappings ?? []), ...(found ?? []).filter(Boolean)];
+  const bodies = historyBatches({ ...set, lidPnMappings }, me, since);
   for (const body of bodies) await postWebhook(body);
-  if (bodies.length) logger.warn({ batches: bodies.length, progress: set.progress }, "history posted");
+  const kept = bodies.reduce((n, b) => n + b.entry[0].changes[0].value.messages.length + b.entry[0].changes[0].value.message_echoes.length, 0);
+  logger.warn(
+    { received: set.messages?.length ?? 0, kept, chats: set.chats?.length ?? 0, unmappedLids: missing.length - (found?.length ?? 0), me: Boolean(me), syncType: set.syncType, progress: set.progress, hook: Boolean(HOOK_URL) },
+    "history batch",
+  );
 }
 
 async function onUpdates(updates) {
