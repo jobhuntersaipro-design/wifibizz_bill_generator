@@ -162,6 +162,10 @@ async function start() {
   s.ev.on("messaging-history.set", (e) => void onHistory(e).catch((err) => logger.error(err)));
   s.ev.on("connection.update", async (u) => {
     if (mine !== generation) return;
+    if (u.isNewLogin) {
+      // Scanned. WhatsApp now drops the socket and we must reconnect to finish linking.
+      Object.assign(state, { status: "reconnecting", qr: null });
+    }
     if (u.qr) {
       state.status = "qr";
       state.qr = await QRCode.toDataURL(u.qr, { margin: 1, width: 320 });
@@ -173,8 +177,11 @@ async function start() {
     if (u.connection === "close") {
       const code = u.lastDisconnect?.error?.output?.statusCode;
       const wasShowingQr = state.status === "qr";
+      // 408 is both "QR expired" and "connection lost": only an unpaired socket has an expired QR.
+      const paired = Boolean(s.authState?.creds?.me);
+      logger.warn({ code, paired, reason: u.lastDisconnect?.error?.message }, "connection closed");
       state.qr = null;
-      if (wasShowingQr && code === DisconnectReason.timedOut) {
+      if (wasShowingQr && !paired && code === DisconnectReason.timedOut) {
         // Nobody scanned. Wait for "Show new QR" (POST /connect) instead of
         // reconnecting forever with no one watching.
         state.status = "qr_expired";
