@@ -1,3 +1,16 @@
+# Current Feature: WhatsApp CRM (respond.io-style chat desk)
+
+## Status
+
+PLANNED 2026-10-20, awaiting review. Nothing built. Spec: [context/features/whatsapp-crm.md](features/whatsapp-crm.md).
+
+## Notes
+
+Asked 2026-10-20: clone respond.io — link WhatsApp by QR, a CRM for handling chats, no AI in BizzFlow (Meta AI
+replies from the phone). Review of the built inbox found 7 gaps (200-row event window, dropped `@lid` chats, no
+history on link, no voice/video, no names, lossy webhook, text-only sending). Four open questions in the spec,
+the first being one shared number vs one number per agent.
+
 # Current Feature: SESB (Sabah) / SESCO (Sarawak) electricity bill
 
 ## Status
