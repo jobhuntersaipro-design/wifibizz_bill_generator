@@ -30,13 +30,32 @@ const HOOK_SECRET = (process.env.WHATSAPP_WEBHOOK_SECRET || "").trim();
 const MAX_MEDIA_BYTES = 10 * 1024 * 1024;
 const HISTORY_DAYS = Number(process.env.WHATSAPP_HISTORY_DAYS || 14);
 
-const logger = pino({ level: process.env.LOG_LEVEL || "warn" });
+const recentErrors = [];
+const logger = pino({
+  level: process.env.LOG_LEVEL || "warn",
+  hooks: {
+    // Keep the last few error messages (text only, no payload) for /health.
+    logMethod(args, method, level) {
+      if (level >= 50) {
+        const msg = args.find((a) => typeof a === "string") ?? args[0]?.err?.message ?? args[0]?.message ?? "error";
+        recentErrors.push(`${new Date().toISOString()} ${String(msg).slice(0, 160)}`);
+        if (recentErrors.length > 5) recentErrors.shift();
+      }
+      return method.apply(this, args);
+    },
+  },
+});
 const agent = process.env.WA_PROXY_URL
   ? new (await import("https-proxy-agent")).HttpsProxyAgent(process.env.WA_PROXY_URL)
   : undefined;
 
 /** What BizzFlow's admin tab shows. */
 const state = { status: "starting", qr: null, me: null, error: null };
+// Counts only (no ids, no text): served on the public /health so the import can be checked remotely.
+const stats = {
+  webhook: { configured: Boolean((process.env.WHATSAPP_WEBHOOK_URL || "").trim()), ok: 0, failed: 0, lastStatus: null },
+  history: { sets: 0, received: 0, inWindow: 0, kept: 0, unmappedLids: 0, lastAt: null },
+};
 let sock = null;
 let generation = 0;
 /** Ids this gateway sent: BizzFlow stores those itself, so their echo is skipped. */
@@ -60,14 +79,23 @@ async function postWebhook(body) {
         body: payload,
         signal: AbortSignal.timeout(15_000),
       });
-      if (res.ok) return;
+      stats.webhook.lastStatus = res.status;
+      if (res.ok) {
+        stats.webhook.ok += 1;
+        return;
+      }
       logger.warn({ status: res.status }, "webhook refused");
-      if (res.status === 401 || res.status === 403) return;
+      if (res.status === 401 || res.status === 403) {
+        stats.webhook.failed += 1;
+        return;
+      }
     } catch (e) {
+      stats.webhook.lastStatus = "unreachable";
       logger.warn({ err: e?.message }, "webhook unreachable");
     }
     await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
   }
+  stats.webhook.failed += 1;
 }
 
 async function saveMedia(msg, field, id) {
@@ -115,9 +143,19 @@ async function onHistory(set) {
   const lidPnMappings = [...(set.lidPnMappings ?? []), ...(found ?? []).filter(Boolean)];
   const bodies = historyBatches({ ...set, lidPnMappings }, me, since);
   for (const body of bodies) await postWebhook(body);
+  const inWindow = (set.messages ?? []).filter((m) => Number(m.messageTimestamp?.toNumber?.() ?? m.messageTimestamp ?? 0) >= since).length;
   const kept = bodies.reduce((n, b) => n + b.entry[0].changes[0].value.messages.length + b.entry[0].changes[0].value.message_echoes.length, 0);
+  const h = stats.history;
+  Object.assign(h, {
+    sets: h.sets + 1,
+    received: h.received + (set.messages?.length ?? 0),
+    inWindow: h.inWindow + inWindow,
+    kept: h.kept + kept,
+    unmappedLids: h.unmappedLids + missing.length - (found?.length ?? 0),
+    lastAt: new Date().toISOString(),
+  });
   logger.warn(
-    { received: set.messages?.length ?? 0, kept, chats: set.chats?.length ?? 0, unmappedLids: missing.length - (found?.length ?? 0), me: Boolean(me), syncType: set.syncType, progress: set.progress, hook: Boolean(HOOK_URL) },
+    { received: set.messages?.length ?? 0, inWindow, kept, chats: set.chats?.length ?? 0, unmappedLids: missing.length - (found?.length ?? 0), me: Boolean(me), syncType: set.syncType, progress: set.progress, hook: Boolean(HOOK_URL) },
     "history batch",
   );
 }
@@ -224,7 +262,7 @@ async function readJson(req) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://gateway");
   try {
-    if (url.pathname === "/health") return json(res, 200, { ok: true, status: state.status });
+    if (url.pathname === "/health") return json(res, 200, { ok: true, status: state.status, ...stats, recentErrors });
     if (!authorized(req)) return json(res, 401, { error: "unauthorized" });
 
     if (req.method === "GET" && url.pathname === "/status") return json(res, 200, state);
@@ -277,4 +315,6 @@ const server = http.createServer(async (req, res) => {
 
 if (!TOKEN) logger.error("WHATSAPP_GATEWAY_TOKEN is not set; every API call will be refused");
 server.listen(PORT, () => logger.warn(`whatsapp gateway on :${PORT}`));
+// One empty body at start proves the webhook URL and secret: /health shows lastStatus 200 or why not.
+void postWebhook({ object: "whatsapp_business_account", entry: [] });
 await start();
