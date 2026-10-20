@@ -47,8 +47,9 @@ window shows a few chats at most, and a batch row keeps only its first message i
 
 - Gateway handles Baileys `messaging-history.set` (`chats`, `contacts`, `messages`). Convert with the same
   `convert.mjs`, post in batches of ≤100 to the webhook with field `history`, contacts' names included.
-- `syncFullHistory` stays **false**: WhatsApp then sends its default recent window, not every message ever.
-  Turning it on is one flag if the window proves too short.
+- **Full sync, last 14 days** (user, 2026-10-20): `syncFullHistory: true`, and the gateway drops any message
+  older than 14 days (`WHATSAPP_HISTORY_DAYS`, default 14) before posting, so every chat and message from the
+  past 14 days comes in and nothing older is stored.
 - History media is **not downloaded** (1 GB droplet disk); the thread shows "Photo / document — not imported".
 - History rows never trigger classification on arrival (see Phase 4 caps).
 
@@ -71,8 +72,9 @@ window shows a few chats at most, and a batch row keeps only its first message i
 ### Phase 4 — Claude sorts the chat
 
 - `GET /api/cron/whatsapp-classify` (every 5 min in `vercel.json`, `CRON_SECRET`, same as retry-sweep). Picks
-  chats where `last_inbound_at > classified_at`, newest first, **20 per run**, and only chats with a customer
-  message in the **last 30 days** — so importing history does not classify hundreds of dead chats at once.
+  chats where `last_inbound_at > classified_at`, newest first, covering **every chat with a customer message in the last 14 days**
+  (same window as the import). 20 chats per run is only a guard against the function timeout, not a cap —
+  the rest are picked up by the next runs, so a fresh import is fully sorted within a few runs.
 - Per chat: last 30 messages + the three label lists with their descriptions + the chat's current values →
   Claude with a forced tool call returning `{stage, folder, tags, reason}`. **Only names from the lists** are
   accepted; anything else is dropped, so Claude can never invent a label.
@@ -113,6 +115,7 @@ replies (Meta AI does that), multiple WhatsApp numbers, groups, sending media, W
   protocol.
 - **Meta AI + a linked device:** not confirmed that Meta AI's replies reach a linked device as normal
   `from_me` messages, or that Meta AI keeps working while a Baileys device is linked. Check on the first real scan.
-- **How far back the default history goes** is WhatsApp's choice and unknown until a real scan.
-- **Cost:** one Haiku call per active chat per 5 min at most; the 20-per-run cap bounds a burst.
+- **Full sync volume:** the phone may send its whole history before the 14-day filter drops it; the filter runs
+  in the gateway, so only 14 days reach BizzFlow, but the first sync may take minutes on a busy number.
+- **Cost:** one Haiku call per active chat per 5 min at most; a fresh import costs one call per chat active in the last 14 days.
 - Migration is Vercel-applied on build; the gateway change needs a droplet deploy (scraper tag).

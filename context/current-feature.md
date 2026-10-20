@@ -8,7 +8,7 @@ SPEC ONLY, not started. Spec: [context/features/whatsapp-crm.md](features/whatsa
 
 Asked 2026-10-20: QR-linked WhatsApp like WhatsApp Web, plus CRM — folders, tags, lead stage sorted from chat
 content. Meta AI does the replying. Decided: Claude applies the labels (admin can override, admin-set fields
-locked), past chats imported by history sync, admin edits the label lists, reply box kept. Needs a
+locked), past 14 days fully synced and sorted, admin edits the label lists, reply box kept. Needs a
 `whatsapp_messages` table (one row per message) because the inbox reads only the latest 200 webhook events.
 
 # Current Feature: SESB (Sabah) / SESCO (Sarawak) electricity bill
