@@ -15,7 +15,7 @@ contact panel (and a collapsible block below xl), each field "AI" / "Set by admi
 by folder / stage / tag; `GET /api/cron/whatsapp-classify` every 5 min — Claude (`WHATSAPP_CRM_MODEL`, default
 `claude-haiku-5-5`, effort low, JSON schema with the lists as enums) sorts chats with a customer message newer
 than their last sorting, last 14 days, 20 per run, IC/passport numbers masked; admin-set fields never touched.
-Gateway: `syncFullHistory` + `shouldSyncHistoryMessage: () => true`, `Browsers.macOS("Desktop")`, history
+Gateway: `syncFullHistory` + `shouldSyncHistoryMessage: () => true`, `Browsers.ubuntu("BizzFlow")` (macOS Desktop + full sync is refused by WhatsApp before a QR, fixed 2026-10-20), history
 batches of 100 posted as field `history`, older than `WHATSAPP_HISTORY_DAYS` (14) dropped, no media download,
 LID chats resolved through `lidPnMappings`, contact names sent as Cloud API `contacts`.
 

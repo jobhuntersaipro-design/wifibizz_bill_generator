@@ -130,9 +130,10 @@ async function start() {
     logger,
     agent,
     fetchAgent: agent,
-    // Desktop + full sync is what makes the phone send its whole history on link;
-    // onHistory keeps only the last HISTORY_DAYS.
-    browser: Browsers.macOS("Desktop"),
+    // Not Browsers.macOS("Desktop"): with syncFullHistory WhatsApp now terminates
+    // that pairing before a QR is issued (2026-10-20). As a non-Desktop device the
+    // phone sends its recent history (months), and onHistory keeps HISTORY_DAYS.
+    browser: Browsers.ubuntu("BizzFlow"),
     markOnlineOnConnect: false,
     syncFullHistory: true,
     shouldSyncHistoryMessage: () => true,
