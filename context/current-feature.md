@@ -1,3 +1,16 @@
+# Current Feature: WhatsApp CRM on /admin/whatsapp (respond.io clone)
+
+## Status
+
+SPEC ONLY, not started. Spec: [context/features/whatsapp-crm.md](features/whatsapp-crm.md).
+
+## Notes
+
+Asked 2026-10-20: QR-linked WhatsApp like WhatsApp Web, plus CRM — folders, tags, lead stage sorted from chat
+content. Meta AI does the replying. Decided: Claude applies the labels (admin can override, admin-set fields
+locked), past chats imported by history sync, admin edits the label lists, reply box kept. Needs a
+`whatsapp_messages` table (one row per message) because the inbox reads only the latest 200 webhook events.
+
 # Current Feature: SESB (Sabah) / SESCO (Sarawak) electricity bill
 
 ## Status
