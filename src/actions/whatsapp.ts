@@ -3,9 +3,9 @@
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/admin-gate";
 import { ADMIN_ACTOR, recordAudit } from "@/lib/audit";
-import { appendApiSend, updateConversation } from "@/lib/whatsapp-events";
+import { appendApiSend, updateConversation, updateCrm, type CrmPatch } from "@/lib/whatsapp-events";
 import { whatsappFixtureEnabled } from "@/lib/whatsapp-inbox-fixture";
-import { phoneVariants } from "@/lib/whatsapp-inbox";
+import { LABEL_COLORS, phoneVariants, type LabelKind } from "@/lib/whatsapp-inbox";
 import { STATUS_LABELS } from "@/lib/order-types";
 import {
   gatewayAction,
@@ -170,4 +170,139 @@ export async function getWhatsappContact(waId: string): Promise<Result<WhatsappC
   } catch {
     return { success: false, error: "Could not look up this number." };
   }
+}
+
+const KINDS: LabelKind[] = ["stage", "folder", "tag"];
+const KIND_WORD: Record<LabelKind, string> = { stage: "stage", folder: "folder", tag: "tag" };
+
+function fixtureRefusal(): Result | null {
+  return whatsappFixtureEnabled() ? { success: false, error: "Editing lists needs the database (fixture mode)." } : null;
+}
+
+/** Add or edit a stage, folder or tag. */
+export async function saveWhatsappLabel(input: {
+  id?: string;
+  kind: LabelKind;
+  name: string;
+  description: string;
+  color: string;
+}): Promise<Result> {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+  const refused = fixtureRefusal();
+  if (refused) return refused;
+  const name = input.name.trim().replace(/\s+/g, " ");
+  const description = input.description.trim();
+  if (!KINDS.includes(input.kind)) return { success: false, error: "Invalid list." };
+  if (!name || name.length > 40) return { success: false, error: "Name must be 1–40 characters." };
+  if (description.length > 300) return { success: false, error: "Description is limited to 300 characters." };
+  const color = input.color in LABEL_COLORS ? input.color : "gray";
+  try {
+    if (input.id) {
+      await prisma.whatsappLabel.update({ where: { id: input.id }, data: { name, description, color } });
+    } else {
+      const last = await prisma.whatsappLabel.findFirst({ where: { kind: input.kind }, orderBy: { sort: "desc" } });
+      await prisma.whatsappLabel.create({ data: { kind: input.kind, name, description, color, sort: (last?.sort ?? -1) + 1 } });
+    }
+  } catch (e) {
+    const code = (e as { code?: string }).code;
+    return { success: false, error: code === "P2002" ? `A ${KIND_WORD[input.kind]} with that name already exists.` : "Could not save." };
+  }
+  await recordAudit({
+    actor: ADMIN_ACTOR,
+    action: "whatsapp_label_saved",
+    detail: `${input.id ? "Edited" : "Added"} WhatsApp ${KIND_WORD[input.kind]} "${name}".`,
+  });
+  return { success: true, data: undefined };
+}
+
+/** Move a label one place up or down in its list. */
+export async function moveWhatsappLabel(id: string, direction: -1 | 1): Promise<Result> {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+  const refused = fixtureRefusal();
+  if (refused) return refused;
+  const label = await prisma.whatsappLabel.findUnique({ where: { id } });
+  if (!label) return { success: false, error: "Not found." };
+  const list = await prisma.whatsappLabel.findMany({ where: { kind: label.kind }, orderBy: [{ sort: "asc" }, { name: "asc" }] });
+  const from = list.findIndex((l) => l.id === id);
+  const to = from + direction;
+  if (to < 0 || to >= list.length) return { success: true, data: undefined };
+  [list[from], list[to]] = [list[to], list[from]];
+  await prisma.$transaction(list.map((l, sort) => prisma.whatsappLabel.update({ where: { id: l.id }, data: { sort } })));
+  return { success: true, data: undefined };
+}
+
+/** Delete a label and clear it from every chat in the same transaction. */
+export async function deleteWhatsappLabel(id: string): Promise<Result> {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+  const refused = fixtureRefusal();
+  if (refused) return refused;
+  const label = await prisma.whatsappLabel.findUnique({ where: { id } });
+  if (!label) return { success: false, error: "Not found." };
+  await prisma.$transaction([
+    prisma.$executeRaw`UPDATE whatsapp_conversations SET stage_id = NULL, stage_by = NULL WHERE stage_id = ${id}`,
+    prisma.$executeRaw`UPDATE whatsapp_conversations SET folder_id = NULL, folder_by = NULL WHERE folder_id = ${id}`,
+    prisma.$executeRaw`UPDATE whatsapp_conversations SET tag_ids = array_remove(tag_ids, ${id}) WHERE ${id} = ANY(tag_ids)`,
+    prisma.whatsappLabel.delete({ where: { id } }),
+  ]);
+  await recordAudit({ actor: ADMIN_ACTOR, action: "whatsapp_label_deleted", detail: `Deleted WhatsApp ${KIND_WORD[label.kind as LabelKind] ?? "label"} "${label.name}".` });
+  return { success: true, data: undefined };
+}
+
+/** How many chats use a label, for the delete confirmation. */
+export async function countWhatsappLabelUse(id: string): Promise<Result<number>> {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+  if (whatsappFixtureEnabled()) return { success: true, data: 0 };
+  const count = await prisma.whatsappConversation.count({
+    where: { OR: [{ stageId: id }, { folderId: id }, { tagIds: { has: id } }] },
+  });
+  return { success: true, data: count };
+}
+
+export type CrmField = "stage" | "folder" | "tags";
+
+/** An admin sets a chat's stage, folder or tags. Claude leaves that field alone afterwards. */
+export async function setWhatsappChatLabel(
+  waId: string,
+  field: CrmField,
+  value: string | string[] | null,
+): Promise<Result> {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+  if (!WA_ID.test(waId)) return { success: false, error: "Invalid WhatsApp number." };
+  const ids = field === "tags" ? (Array.isArray(value) ? value : []) : typeof value === "string" ? [value] : [];
+  if (!whatsappFixtureEnabled() && ids.length > 0) {
+    const kind = field === "tags" ? "tag" : field;
+    const found = await prisma.whatsappLabel.count({ where: { id: { in: ids }, kind } });
+    if (found !== new Set(ids).size) return { success: false, error: "That label no longer exists. Refresh the page." };
+  }
+  const patch: CrmPatch =
+    field === "stage" ? { stageId: ids[0] ?? null, stageBy: "admin" }
+    : field === "folder" ? { folderId: ids[0] ?? null, folderBy: "admin" }
+    : { tagIds: [...new Set(ids)], tagsBy: "admin" };
+  try {
+    await updateCrm(waId, patch);
+  } catch {
+    return { success: false, error: "Could not update the chat." };
+  }
+  await recordAudit({ actor: ADMIN_ACTOR, action: "whatsapp_chat_labelled", detail: `Set the ${field} of WhatsApp chat ${waId}.` });
+  return { success: true, data: undefined };
+}
+
+/** Hand a field back to Claude; the next sorting run decides it again. */
+export async function releaseWhatsappChatLabel(waId: string, field: CrmField): Promise<Result> {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+  if (!WA_ID.test(waId)) return { success: false, error: "Invalid WhatsApp number." };
+  const patch: CrmPatch =
+    field === "stage" ? { stageBy: null } : field === "folder" ? { folderBy: null } : { tagsBy: null };
+  try {
+    await updateCrm(waId, { ...patch, classifiedAt: null });
+  } catch {
+    return { success: false, error: "Could not update the chat." };
+  }
+  return { success: true, data: undefined };
 }

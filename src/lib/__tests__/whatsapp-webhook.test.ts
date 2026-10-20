@@ -15,6 +15,15 @@ import {
 const create = vi.fn();
 const findMany = vi.fn();
 const verifyAdmin = vi.fn();
+const ingest = vi.fn();
+const listChatSummaries = vi.fn();
+
+vi.mock("@/lib/whatsapp-store", () => ({
+  ingestWebhook: (...args: unknown[]) => ingest(...args),
+  backfillFromEvents: async () => {},
+  listChatSummaries: (...args: unknown[]) => listChatSummaries(...args),
+  listThread: async () => [],
+}));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -23,6 +32,9 @@ vi.mock("@/lib/prisma", () => ({
       findMany: (...args: unknown[]) => findMany(...args),
     },
     whatsappConversation: {
+      findMany: async () => [],
+    },
+    whatsappLabel: {
       findMany: async () => [],
     },
   },
@@ -367,6 +379,12 @@ describe("POST", () => {
     expect(create).toHaveBeenCalled();
   });
 
+  it("splits the body into message rows", async () => {
+    const res = await webhookPost(JSON.stringify(INBOUND));
+    expect(res.status).toBe(200);
+    expect(ingest).toHaveBeenCalledWith(INBOUND);
+  });
+
   it("returns 500 when the insert fails and does not claim the event was received", async () => {
     create.mockRejectedValueOnce(new Error("db down"));
     const res = await webhookPost(JSON.stringify(INBOUND));
@@ -376,8 +394,23 @@ describe("POST", () => {
 });
 
 describe("admin list", () => {
+  it("returns chats and labels by default and searches on the server", async () => {
+    verifyAdmin.mockResolvedValue(true);
+    listChatSummaries.mockResolvedValue([{ customer: "15551110000" }]);
+    const res = await adminList(new Request("http://localhost/api/admin/whatsapp?q=hours"));
+    expect(res.status).toBe(200);
+    expect(listChatSummaries).toHaveBeenCalledWith("hours");
+    expect(await res.json()).toEqual({ chats: [{ customer: "15551110000" }], labels: [] });
+  });
+
+  it("refuses a malformed chat id", async () => {
+    verifyAdmin.mockResolvedValue(true);
+    const res = await adminList(new Request("http://localhost/api/admin/whatsapp?chat=abc"));
+    expect(res.status).toBe(400);
+  });
+
   it("refuses a request without an admin session", async () => {
-    const res = await adminList();
+    const res = await adminList(new Request("http://localhost/api/admin/whatsapp?view=raw"));
     expect(res.status).toBe(401);
     expect(findMany).not.toHaveBeenCalled();
   });
@@ -395,7 +428,7 @@ describe("admin list", () => {
       textPreview: "jk6 test: hi, what are your hours?",
       rawBody: JSON.stringify(INBOUND),
     }]);
-    const res = await adminList();
+    const res = await adminList(new Request("http://localhost/api/admin/whatsapp?view=raw"));
     expect(res.status).toBe(200);
     expect(findMany).toHaveBeenCalledWith({ orderBy: { receivedAt: "desc" }, take: 200 });
     const body = await res.json() as { events: { direction: string; fromWaId: string }[] };
@@ -414,10 +447,10 @@ describe("admin list", () => {
     try {
       verifyAdmin.mockResolvedValue(true);
       findMany.mockResolvedValue([]);
-      const res = await adminList();
+      const res = await adminList(new Request("http://localhost/api/admin/whatsapp?view=raw"));
       expect(res.status).toBe(200);
       expect(findMany).toHaveBeenCalledWith({ orderBy: { receivedAt: "desc" }, take: 200 });
-      expect(await res.json()).toEqual({ events: [], conversations: {} });
+      expect(await res.json()).toEqual({ events: [] });
     } finally {
       vi.unstubAllEnvs();
     }
@@ -430,7 +463,7 @@ describe("admin list", () => {
     vi.stubEnv("NODE_ENV", "development");
     try {
       verifyAdmin.mockResolvedValue(true);
-      const res = await adminList();
+      const res = await adminList(new Request("http://localhost/api/admin/whatsapp?view=raw"));
       expect(res.status).toBe(200);
       expect(findMany).not.toHaveBeenCalled();
       const body = await res.json() as { events: { id: string }[] };

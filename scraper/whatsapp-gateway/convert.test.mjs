@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { customerWaId, envelope, phoneOf, toCloudItem, toStatus } from "./convert.mjs";
+import { customerWaId, envelope, historyBatches, phoneOf, toCloudItem, toStatus } from "./convert.mjs";
 
 test("customer number from a phone JID, the LID alt, or nothing for groups", () => {
   assert.equal(customerWaId({ remoteJid: "60123456789@s.whatsapp.net" }), "60123456789");
@@ -63,4 +63,38 @@ test("envelope is the shape the BizzFlow inbox parses", () => {
     object: "whatsapp_business_account",
     entry: [{ changes: [{ field: "messages", value: { messages: [{ id: "x" }] } }] }],
   });
+});
+
+test("history keeps the last N days, resolves LID chats, names chats, drops media ids", () => {
+  const now = 1760000000;
+  const [body, ...rest] = historyBatches(
+    {
+      messages: [
+        { key: { id: "OLD", remoteJid: "60111222333@s.whatsapp.net" }, messageTimestamp: now - 20 * 86400, message: { conversation: "old" } },
+        { key: { id: "H1", remoteJid: "999@lid" }, messageTimestamp: now - 3600, pushName: "Ali", message: { conversation: "price?" } },
+        { key: { id: "H2", remoteJid: "999@lid", fromMe: true }, messageTimestamp: now - 60, message: { conversation: "RM129" } },
+        { key: { id: "H3", remoteJid: "60222333444@s.whatsapp.net" }, messageTimestamp: now, message: { imageMessage: { mimetype: "image/jpeg" } } },
+        { key: { id: "G", remoteJid: "120363@g.us" }, messageTimestamp: now, message: { conversation: "group" } },
+      ],
+      contacts: [{ id: "60222333444@s.whatsapp.net", notify: "Siti" }],
+      lidPnMappings: [{ lid: "999@lid", pn: "60999888777@s.whatsapp.net" }],
+    },
+    "60198765432",
+    now - 14 * 86400,
+  );
+  assert.equal(rest.length, 0);
+  const change = body.entry[0].changes[0];
+  assert.equal(change.field, "history");
+  assert.deepEqual(change.value.messages.map((m) => m.id), ["H1", "H3"]);
+  assert.deepEqual(change.value.message_echoes.map((m) => [m.id, m.to]), [["H2", "60999888777"]]);
+  assert.equal(change.value.messages[1].image.id, undefined);
+  assert.deepEqual(
+    change.value.contacts.sort((a, b) => a.wa_id.localeCompare(b.wa_id)),
+    [{ wa_id: "60222333444", profile: { name: "Siti" } }, { wa_id: "60999888777", profile: { name: "Ali" } }],
+  );
+});
+
+test("history is split into batches", () => {
+  const messages = Array.from({ length: 250 }, (_, i) => ({ key: { id: `M${i}`, remoteJid: "60111222333@s.whatsapp.net" }, messageTimestamp: 100, message: { conversation: "x" } }));
+  assert.equal(historyBatches({ messages }, "602", 0).length, 3);
 });

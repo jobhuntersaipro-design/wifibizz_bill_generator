@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { whatsappFixtureEnabled, whatsappFixtureEvents } from "@/lib/whatsapp-inbox-fixture";
-import type { ConversationState } from "@/lib/whatsapp-inbox";
+import { buildInbox, unreadFor, type ChatSummary, type ConversationState, type InboxMessage, type Label } from "@/lib/whatsapp-inbox";
+import { ingestWebhook, listChatSummaries, listThread } from "@/lib/whatsapp-store";
 import { directionLabel, extractWhatsappEvent, type WhatsappExtract } from "@/lib/whatsapp-webhook";
 
 export const WHATSAPP_EVENT_LIMIT = 200;
@@ -82,6 +83,79 @@ export async function appendApiSend(input: {
     return;
   }
   await prisma.whatsappWebhookEvent.create({ data: { ...extracted, rawBody } });
+  await ingestWebhook(body);
+}
+
+/** Fixture chats: built from the fixture events like the old inbox, plus in-memory CRM state. */
+type FixtureCrm = Pick<ChatSummary, "stageId" | "folderId" | "tagIds" | "stageBy" | "folderBy" | "tagsBy" | "aiReason">;
+const fixtureCrm = ((fixtureMemory as { whatsappFixtureCrm?: Map<string, FixtureCrm> }).whatsappFixtureCrm ??= new Map());
+
+function fixtureEvents() {
+  return [...fixtureSent, ...whatsappFixtureEvents()];
+}
+
+export async function listChats(q = ""): Promise<ChatSummary[]> {
+  if (!whatsappFixtureEnabled()) return listChatSummaries(q);
+  const needle = q.trim().toLowerCase();
+  return buildInbox(fixtureEvents())
+    .filter((chat) => !needle || chat.customer.includes(needle) || chat.messages.some((m) => m.text.toLowerCase().includes(needle)))
+    .map((chat) => {
+      const state = fixtureState.get(chat.customer);
+      return {
+        customer: chat.customer,
+        name: chat.customer === "15551110001" ? "Fixture Customer" : null,
+        lastAt: chat.lastAt,
+        preview: chat.preview,
+        lastInboundAt: chat.lastInboundAt,
+        unread: unreadFor(chat, state),
+        closedAt: state?.closedAt ?? null,
+        lastReadAt: state?.lastReadAt ?? null,
+        stageId: null,
+        folderId: null,
+        tagIds: [],
+        stageBy: null,
+        folderBy: null,
+        tagsBy: null,
+        aiReason: null,
+        ...fixtureCrm.get(chat.customer),
+      };
+    });
+}
+
+export async function getThread(waId: string): Promise<InboxMessage[]> {
+  if (!whatsappFixtureEnabled()) return listThread(waId);
+  return buildInbox(fixtureEvents()).find((chat) => chat.customer === waId)?.messages ?? [];
+}
+
+const FIXTURE_LABELS: Label[] = [
+  { id: "seed_stage_new", kind: "stage", name: "New", description: "First contact.", color: "gray", sort: 0 },
+  { id: "seed_stage_interested", kind: "stage", name: "Interested", description: "Asked about a plan or price.", color: "blue", sort: 1 },
+  { id: "seed_folder_home", kind: "folder", name: "Home Fibre", description: "Residential internet.", color: "blue", sort: 0 },
+  { id: "seed_tag_price", kind: "tag", name: "Price question", description: "Asks how much a plan costs.", color: "blue", sort: 0 },
+];
+
+function toLabel(row: { id: string; kind: string; name: string; description: string; color: string; sort: number }): Label {
+  return { ...row, kind: row.kind === "folder" ? "folder" : row.kind === "tag" ? "tag" : "stage" };
+}
+
+export async function listLabels(): Promise<Label[]> {
+  if (whatsappFixtureEnabled()) return FIXTURE_LABELS;
+  const rows = await prisma.whatsappLabel.findMany({ orderBy: [{ kind: "asc" }, { sort: "asc" }, { name: "asc" }] });
+  return rows.map(toLabel);
+}
+
+export type CrmPatch = Partial<Pick<ChatSummary, "stageId" | "folderId" | "tagIds" | "stageBy" | "folderBy" | "tagsBy" | "aiReason">> & {
+  classifiedAt?: Date | null;
+};
+
+export async function updateCrm(waId: string, patch: CrmPatch): Promise<void> {
+  if (whatsappFixtureEnabled()) {
+    const { classifiedAt: _ignored, ...rest } = patch;
+    void _ignored;
+    fixtureCrm.set(waId, { ...(fixtureCrm.get(waId) ?? { stageId: null, folderId: null, tagIds: [], stageBy: null, folderBy: null, tagsBy: null, aiReason: null }), ...rest });
+    return;
+  }
+  await prisma.whatsappConversation.upsert({ where: { waId }, create: { waId, ...patch }, update: patch });
 }
 
 export async function listConversations(): Promise<Record<string, ConversationState>> {

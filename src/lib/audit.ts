@@ -30,7 +30,10 @@ export type AuditAction =
   | "password_reset"
   | "assistant_settings_updated"
   | "whatsapp_message_sent"
-  | "whatsapp_unlinked";
+  | "whatsapp_unlinked"
+  | "whatsapp_label_saved"
+  | "whatsapp_label_deleted"
+  | "whatsapp_chat_labelled";
 
 /**
  * Record one event. NEVER throws.

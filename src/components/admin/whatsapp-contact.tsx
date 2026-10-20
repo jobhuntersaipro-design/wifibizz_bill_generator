@@ -3,7 +3,18 @@ import type { WhatsappContact } from "@/actions/whatsapp";
 import { formatKualaLumpur } from "@/lib/whatsapp-webhook";
 
 /** BizzFlow orders and cases that carry this WhatsApp number. Read-only. */
-export function WhatsappContactPanel({ waId, contact }: { waId: string | null; contact: WhatsappContact | string | undefined }) {
+export function WhatsappContactPanel({
+  waId,
+  name,
+  contact,
+  crm,
+}: {
+  waId: string | null;
+  name?: string | null;
+  contact: WhatsappContact | string | undefined;
+  /** Stage / folder / tag controls for the open chat. */
+  crm?: React.ReactNode;
+}) {
   return (
     <aside className="hidden w-72 shrink-0 flex-col overflow-y-auto border-l border-line p-4 xl:flex">
       <h2 className="text-sm font-semibold text-ink">Contact</h2>
@@ -11,7 +22,9 @@ export function WhatsappContactPanel({ waId, contact }: { waId: string | null; c
         <p className="mt-2 text-sm text-ink-muted">Select a chat</p>
       ) : (
         <>
+          {name && <p className="mt-1 text-sm font-medium text-ink">{name}</p>}
           <p className="mt-1 font-mono text-sm text-ink">+{waId}</p>
+          {crm && <div className="mt-4">{crm}</div>}
           {contact === undefined ? (
             <p className="mt-4 text-sm text-ink-muted">Looking up BizzFlow records…</p>
           ) : typeof contact === "string" ? (

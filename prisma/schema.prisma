@@ -609,10 +609,61 @@ model WhatsappWebhookEvent {
 // A chat is closed while closed_at is newer than its last inbound message, so
 // a new customer message reopens it without a webhook-side write.
 model WhatsappConversation {
-  waId       String    @id @map("wa_id")
-  closedAt   DateTime? @map("closed_at")
-  lastReadAt DateTime? @map("last_read_at")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
+  waId          String    @id @map("wa_id")
+  closedAt      DateTime? @map("closed_at")
+  lastReadAt    DateTime? @map("last_read_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  // Chat summary, kept current by every webhook write (src/lib/whatsapp-store.ts).
+  name          String?
+  lastMessageAt DateTime? @map("last_message_at")
+  lastInboundAt DateTime? @map("last_inbound_at")
+  lastPreview   String?   @map("last_preview")
+  // CRM. *_by is who set the field last: "ai" or "admin". Claude only writes
+  // a field it set last, so an admin's choice sticks until handed back.
+  stageId       String?   @map("stage_id")
+  folderId      String?   @map("folder_id")
+  tagIds        String[]  @default([]) @map("tag_ids")
+  stageBy       String?   @map("stage_by")
+  folderBy      String?   @map("folder_by")
+  tagsBy        String?   @map("tags_by")
+  aiReason      String?   @map("ai_reason")
+  classifiedAt  DateTime? @map("classified_at")
 
+  @@index([lastMessageAt])
   @@map("whatsapp_conversations")
+}
+
+// One row per WhatsApp message (live, imported history, or sent from BizzFlow).
+// whatsapp_webhook_events stays the raw log; the inbox reads this table.
+model WhatsappMessage {
+  messageId String   @id @map("message_id")
+  waId      String   @map("wa_id")
+  fromMe    Boolean  @map("from_me")
+  type      String
+  text      String
+  media     Json?
+  status    String?
+  error     String?
+  // live | history | bizzflow
+  source    String
+  sentAt    DateTime @map("sent_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([waId, sentAt])
+  @@map("whatsapp_messages")
+}
+
+// Admin-edited CRM lists. kind: stage | folder | tag. `description` is what
+// Claude reads to decide when a label applies.
+model WhatsappLabel {
+  id          String   @id @default(cuid())
+  kind        String
+  name        String
+  description String   @default("")
+  color       String   @default("gray")
+  sort        Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([kind, name])
+  @@map("whatsapp_labels")
 }
