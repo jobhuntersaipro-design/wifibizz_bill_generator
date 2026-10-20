@@ -20,6 +20,8 @@ export interface InboxMedia {
 export interface InboxMessage {
   id: string;
   side: InboxSide;
+  /** Business messages typed in BizzFlow (vs the phone or Meta AI). */
+  fromBizzflow?: boolean;
   at: string;
   text: string;
   /** Business messages only, once a status webhook names them. */
@@ -67,7 +69,7 @@ function titleType(type: string): string {
 }
 
 /** Full text, or a type label plus caption and filename. Never the 160-char preview. */
-function messageText(item: Record<string, unknown>): string | null {
+export function messageText(item: Record<string, unknown>): string | null {
   const type = asString(item.type);
   const text = asString(asRecord(item.text)?.body);
   if (type === "text") return text ?? "";
@@ -87,7 +89,7 @@ function messageText(item: Record<string, unknown>): string | null {
 }
 
 /** Images (and stickers) render inline; documents open in a new tab. */
-function mediaOf(item: Record<string, unknown>): InboxMedia | undefined {
+export function mediaOf(item: Record<string, unknown>): InboxMedia | undefined {
   const type = asString(item.type);
   const kind = type === "image" || type === "sticker" ? "image" : type === "document" ? "document" : null;
   if (!kind || !type) return undefined;
@@ -97,7 +99,7 @@ function mediaOf(item: Record<string, unknown>): InboxMedia | undefined {
   return { id, kind, mime: asString(block?.mime_type) };
 }
 
-const TICK_RANK: Record<TickStatus, number> = { sent: 1, delivered: 2, read: 3, failed: 4 };
+export const TICK_RANK: Record<TickStatus, number> = { sent: 1, delivered: 2, read: 3, failed: 4 };
 
 interface Tick {
   status: TickStatus;
@@ -306,3 +308,68 @@ export function phoneVariants(waId: string): string[] {
   return [...out];
 }
 
+
+/** One row of the chat list. The thread is fetched separately. */
+export interface ChatSummary {
+  customer: string;
+  name: string | null;
+  lastAt: string;
+  preview: string;
+  lastInboundAt: string | null;
+  /** Customer messages newer than the shared last read. */
+  unread: number;
+  closedAt: string | null;
+  lastReadAt: string | null;
+  stageId: string | null;
+  folderId: string | null;
+  tagIds: string[];
+  stageBy: LabelSetter | null;
+  folderBy: LabelSetter | null;
+  tagsBy: LabelSetter | null;
+  aiReason: string | null;
+}
+
+export type LabelSetter = "ai" | "admin";
+export type LabelKind = "stage" | "folder" | "tag";
+
+export interface Label {
+  id: string;
+  kind: LabelKind;
+  name: string;
+  description: string;
+  color: string;
+  sort: number;
+}
+
+/** Palette for label chips. Unknown names fall back to gray. */
+export const LABEL_COLORS: Record<string, string> = {
+  gray: "bg-gray-100 text-gray-700",
+  blue: "bg-blue-100 text-blue-700",
+  green: "bg-green-100 text-green-700",
+  amber: "bg-amber-100 text-amber-800",
+  red: "bg-red-100 text-red-700",
+  violet: "bg-violet-100 text-violet-700",
+  pink: "bg-pink-100 text-pink-700",
+  teal: "bg-teal-100 text-teal-700",
+};
+
+export function summaryInTab(chat: ChatSummary, tab: InboxTab): boolean {
+  const closed = isClosed(chat.lastInboundAt, chat.closedAt);
+  if (tab === "open") return !closed;
+  if (tab === "closed") return closed;
+  if (tab === "unread") return chat.unread > 0;
+  return true;
+}
+
+export interface ChatFilter {
+  folderId: string | null;
+  stageId: string | null;
+  tagId: string | null;
+}
+
+export function matchesFilter(chat: ChatSummary, filter: ChatFilter): boolean {
+  if (filter.folderId && chat.folderId !== filter.folderId) return false;
+  if (filter.stageId && chat.stageId !== filter.stageId) return false;
+  if (filter.tagId && !chat.tagIds.includes(filter.tagId)) return false;
+  return true;
+}

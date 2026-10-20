@@ -2,11 +2,15 @@
 // and reads (src/lib/whatsapp-inbox.ts). Keeping that shape means the inbox and
 // the webhook route did not change when the transport did.
 
-/** Customer phone digits for a 1:1 chat, or null for groups, broadcasts, channels. */
-export function customerWaId(key) {
+/**
+ * Customer phone digits for a 1:1 chat, or null for groups, broadcasts, channels.
+ * `lidToPn` resolves a LID chat whose key carries no phone JID (history sync).
+ */
+export function customerWaId(key, lidToPn) {
   let jid = key?.remoteJid ?? "";
   // Newer WhatsApp addresses some chats by an opaque LID; the phone JID rides alongside.
-  if (jid.endsWith("@lid")) jid = key?.remoteJidAlt ?? "";
+  if (jid.endsWith("@lid")) jid = key?.remoteJidAlt ?? lidToPn?.get(jid) ?? "";
+  if (/^\d+$/.test(jid)) jid = `${jid}@s.whatsapp.net`;
   if (!jid.endsWith("@s.whatsapp.net")) return null;
   const digits = jid.split("@")[0].split(":")[0];
   return /^\d{6,15}$/.test(digits) ? digits : null;
@@ -106,6 +110,60 @@ export function toStatus(key, update, waId) {
 }
 
 /** The webhook body. `field` is what the raw-events view labels the row with. */
-export function envelope(field, valueKey, items) {
-  return { object: "whatsapp_business_account", entry: [{ changes: [{ field, value: { [valueKey]: items } }] }] };
+export function envelope(field, valueKey, items, extra = {}) {
+  return { object: "whatsapp_business_account", entry: [{ changes: [{ field, value: { [valueKey]: items, ...extra } }] }] };
+}
+
+/** Cloud API `contacts` entry: how BizzFlow learns a chat's display name. */
+export function contactEntry(waId, name) {
+  const clean = typeof name === "string" ? name.trim() : "";
+  return clean ? [{ wa_id: waId, profile: { name: clean.slice(0, 120) } }] : [];
+}
+
+/**
+ * One history sync chunk → webhook bodies of at most `size` messages, field
+ * `history`. Messages older than `sinceSec` are dropped here, so they never
+ * reach BizzFlow. Media is not downloaded for history: the id is removed so
+ * the inbox shows the type and caption without a broken link.
+ */
+export function historyBatches({ messages = [], contacts = [], chats = [], lidPnMappings = [] }, me, sinceSec, size = 100) {
+  const lidToPn = new Map(lidPnMappings.map((m) => [m.lid, m.pn]));
+  const names = new Map();
+  const nameFor = (jid, name) => {
+    const waId = customerWaId({ remoteJid: jid }, lidToPn);
+    if (waId && name && !names.has(waId)) names.set(waId, name);
+  };
+  for (const c of contacts) {
+    const name = c.name ?? c.notify ?? c.verifiedName;
+    nameFor(c.phoneNumber ?? c.id, name);
+    if (c.lid) nameFor(c.lid, name);
+  }
+  for (const c of chats) nameFor(c.id, c.name);
+
+  const items = [];
+  for (const msg of messages) {
+    if (Number(seconds(msg.messageTimestamp)) < sinceSec) continue;
+    const waId = customerWaId(msg.key, lidToPn);
+    if (!waId || !me) continue;
+    const converted = toCloudItem(msg, waId, me);
+    if (!converted) continue;
+    const item = converted.item;
+    const block = item[item.type];
+    if (block && typeof block === "object") delete block.id;
+    if (!msg.key.fromMe && msg.pushName && !names.has(waId)) names.set(waId, msg.pushName);
+    items.push({ fromMe: Boolean(msg.key.fromMe), waId, item });
+  }
+
+  const bodies = [];
+  for (let i = 0; i < items.length; i += size) {
+    const chunk = items.slice(i, i + size);
+    const seen = new Set(chunk.map((c) => c.waId));
+    const value = {
+      messages: chunk.filter((c) => !c.fromMe).map((c) => c.item),
+      message_echoes: chunk.filter((c) => c.fromMe).map((c) => c.item),
+      contacts: [...seen].flatMap((waId) => contactEntry(waId, names.get(waId))),
+    };
+    bodies.push({ object: "whatsapp_business_account", entry: [{ changes: [{ field: "history", value }] }] });
+  }
+  return bodies;
 }

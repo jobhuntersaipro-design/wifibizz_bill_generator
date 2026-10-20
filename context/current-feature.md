@@ -1,3 +1,40 @@
+# Current Feature: WhatsApp CRM on /admin/whatsapp (respond.io clone)
+
+## Status
+
+MERGED TO MAIN 2026-10-20, Vercel deploys it (migration `20261020120000_whatsapp_crm` applies on build: new
+`whatsapp_messages`, `whatsapp_labels` with seeded lists, CRM columns on `whatsapp_conversations`). **The gateway
+half (history import) needs a droplet deploy** (scraper tag) and then **Disconnect + rescan** on /admin/whatsapp —
+WhatsApp only sends history on a fresh link. Spec: [context/features/whatsapp-crm.md](features/whatsapp-crm.md).
+
+Built: one row per message (`src/lib/whatsapp-store.ts`, webhook + BizzFlow sends go through `ingestWebhook`;
+old raw events are copied over once on first read), chat list paginated off `whatsapp_conversations` with
+server-side search (name, number, any message), thread fetched per chat; Settings tab to add / edit / reorder /
+delete stages, folders, tags (delete clears chats, asks first with the count); stage/folder/tag controls in the
+contact panel (and a collapsible block below xl), each field "AI" / "Set by admin" with "Let AI manage"; filters
+by folder / stage / tag; `GET /api/cron/whatsapp-classify` every 5 min — Claude (`WHATSAPP_CRM_MODEL`, default
+`claude-haiku-5-5`, effort low, JSON schema with the lists as enums) sorts chats with a customer message newer
+than their last sorting, last 14 days, 20 per run, IC/passport numbers masked; admin-set fields never touched.
+Gateway: `syncFullHistory` + `shouldSyncHistoryMessage: () => true`, `Browsers.macOS("Desktop")`, history
+batches of 100 posted as field `history`, older than `WHATSAPP_HISTORY_DAYS` (14) dropped, no media download,
+LID chats resolved through `lidPnMappings`, contact names sent as Cloud API `contacts`.
+
+Verified: SQL against a local Postgres 16 with the real code (backfill, dedupe, summaries, unread with history
+counted as read, out-of-order statuses, search incl. literal `%`, late old history keeps the newest preview,
+label delete, due query); classifier end to end with a stubbed Anthropic response (admin-set folder untouched,
+IC not in the request, no re-run once sorted); 13 new vitest + updated webhook/reply tests, full suite 1365
+passed (4 failing files = the pre-existing Playwright specs); 7 gateway tests; `next build` clean; lint at
+baseline; page driven in Chromium (fixture mode) at 1440 and 390 — set stage/tag, filter, Settings, no overflow.
+NOT verified: a real Anthropic call (no key here — the request shape is the documented one), a real history
+sync from a phone, Meta AI replies through a linked device, the droplet deploy.
+
+## Notes
+
+Asked 2026-10-20: QR-linked WhatsApp like WhatsApp Web, plus CRM — folders, tags, lead stage sorted from chat
+content. Meta AI does the replying. Decided: Claude applies the labels (admin can override, admin-set fields
+locked), past 14 days fully synced and sorted, admin edits the label lists, reply box kept. Needs a
+`whatsapp_messages` table (one row per message) because the inbox reads only the latest 200 webhook events.
+
 # Current Feature: SESB (Sabah) / SESCO (Sarawak) electricity bill
 
 ## Status

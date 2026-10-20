@@ -9,6 +9,7 @@ import { formatKualaLumpur } from "@/lib/whatsapp-webhook";
 
 export function WhatsappThread({
   chat,
+  name,
   closedAt,
   connected,
   onBack,
@@ -16,6 +17,7 @@ export function WhatsappThread({
   onSent,
 }: {
   chat: InboxChat;
+  name?: string | null;
   closedAt: string | null;
   /** The linked WhatsApp number is online; sending needs it. */
   connected: boolean;
@@ -41,7 +43,9 @@ export function WhatsappThread({
         >
           Chats
         </button>
-        <h2 className="font-mono text-sm font-medium text-ink">{chat.customer}</h2>
+        <h2 className="min-w-0 truncate text-sm font-medium text-ink">
+          {name ? <>{name} <span className="font-mono font-normal text-ink-muted">+{chat.customer}</span></> : <span className="font-mono">{chat.customer}</span>}
+        </h2>
         <button
           type="button"
           onClick={() => onToggleClosed(!closed)}
@@ -69,6 +73,7 @@ function Bubble({ message }: { message: InboxMessage }) {
         {message.media && <Media media={message.media} />}
         <p className="whitespace-pre-wrap break-words text-sm">{message.text}</p>
         <p className={`mt-1 flex items-center justify-end gap-1 text-[11px] ${business ? "text-white/70" : "text-ink-muted"}`}>
+          {message.fromBizzflow && <span>BizzFlow ·</span>}
           {formatKualaLumpur(message.at)}
           {business && <Tick status={message.status} />}
         </p>

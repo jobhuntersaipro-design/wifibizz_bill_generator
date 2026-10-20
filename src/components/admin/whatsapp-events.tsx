@@ -27,7 +27,7 @@ export function WhatsappEvents({ initial }: { initial: WhatsappEventView[] }) {
   const load = useCallback(async (manual: boolean) => {
     if (manual) setRefreshing(true);
     try {
-      const res = await fetch("/api/admin/whatsapp", { cache: "no-store" });
+      const res = await fetch("/api/admin/whatsapp?view=raw", { cache: "no-store" });
       if (res.status === 401) {
         setError("Session expired. Sign in again.");
         return;

@@ -11,6 +11,12 @@ vi.mock("@/lib/prisma", () => ({
     whatsappConversation: { upsert: (...a: unknown[]) => upsert(...a), findMany: async () => [] },
   },
 }));
+const ingest = vi.fn();
+vi.mock("@/lib/whatsapp-store", () => ({
+  ingestWebhook: (...a: unknown[]) => ingest(...a),
+  listChatSummaries: async () => [],
+  listThread: async () => [],
+}));
 vi.mock("@/lib/admin-gate", () => ({ requireAdmin: () => admin() }));
 vi.mock("@/lib/audit", () => ({ ADMIN_ACTOR: "admin", recordAudit: (...a: unknown[]) => audit(...a) }));
 
@@ -212,6 +218,7 @@ describe("send actions", () => {
   it("stores the sent reply so the inbox shows it, and audits it without the text", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: "wamid.NEW" }))));
     expect(await sendWhatsappText(CUSTOMER, "  your appointment is 10am  ")).toEqual({ success: true, data: undefined });
+    expect(ingest).toHaveBeenCalledTimes(1);
     const row = create.mock.calls[0][0].data as { rawBody: string; field: string; messageId: string };
     expect(row.field).toBe("api_send");
     expect(row.messageId).toBe("wamid.NEW");

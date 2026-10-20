@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { authorizeWhatsappPost, extractWhatsappEvent, verifyChallenge } from "@/lib/whatsapp-webhook";
+import { ingestWebhook } from "@/lib/whatsapp-store";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +57,9 @@ export async function POST(req: Request) {
     await prisma.whatsappWebhookEvent.create({
       data: { ...extracted, rawBody: text },
     });
+    // One row per message for the inbox. A failure here is a 500, so the gateway
+    // retries; the raw row may repeat, the messages do not (keyed on the WhatsApp id).
+    if (parsed !== null) await ingestWebhook(parsed);
   } catch (error) {
     console.error(
       "[whatsapp/webhook] store failed:",

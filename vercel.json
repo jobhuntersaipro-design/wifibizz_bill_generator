@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/retry-sweep",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/whatsapp-classify",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

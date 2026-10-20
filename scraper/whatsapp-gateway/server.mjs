@@ -10,6 +10,7 @@
 //   WHATSAPP_WEBHOOK_SECRET  sent as X-Webhook-Secret
 //   WA_DATA_DIR              auth state + media (default /data)
 //   WA_PROXY_URL             optional outbound proxy (local testing only)
+//   WHATSAPP_HISTORY_DAYS    history imported on a fresh link (default 14)
 
 import http from "node:http";
 import { timingSafeEqual } from "node:crypto";
@@ -17,7 +18,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import makeWASocket, { Browsers, DisconnectReason, downloadMediaMessage, useMultiFileAuthState } from "baileys";
 import QRCode from "qrcode";
 import pino from "pino";
-import { MEDIA_MIME, customerWaId, envelope, phoneOf, toCloudItem, toStatus } from "./convert.mjs";
+import { MEDIA_MIME, contactEntry, customerWaId, envelope, historyBatches, phoneOf, toCloudItem, toStatus } from "./convert.mjs";
 
 const PORT = Number(process.env.PORT || 3000);
 const DATA = process.env.WA_DATA_DIR || "/data";
@@ -27,6 +28,7 @@ const TOKEN = (process.env.WHATSAPP_GATEWAY_TOKEN || "").trim();
 const HOOK_URL = (process.env.WHATSAPP_WEBHOOK_URL || "").trim();
 const HOOK_SECRET = (process.env.WHATSAPP_WEBHOOK_SECRET || "").trim();
 const MAX_MEDIA_BYTES = 10 * 1024 * 1024;
+const HISTORY_DAYS = Number(process.env.WHATSAPP_HISTORY_DAYS || 14);
 
 const logger = pino({ level: process.env.LOG_LEVEL || "warn" });
 const agent = process.env.WA_PROXY_URL
@@ -96,9 +98,17 @@ async function onMessages({ messages }) {
     }
     const body = msg.key.fromMe
       ? envelope("smb_message_echoes", "message_echoes", [converted.item])
-      : envelope("messages", "messages", [converted.item]);
+      : envelope("messages", "messages", [converted.item], { contacts: contactEntry(waId, msg.pushName) });
     await postWebhook(body);
   }
+}
+
+/** History sync, sent by the phone after a fresh QR link. Only the last HISTORY_DAYS reach BizzFlow. */
+async function onHistory(set) {
+  const since = Math.floor(Date.now() / 1000) - HISTORY_DAYS * 86400;
+  const bodies = historyBatches(set, state.me, since);
+  for (const body of bodies) await postWebhook(body);
+  if (bodies.length) logger.warn({ batches: bodies.length, progress: set.progress }, "history posted");
 }
 
 async function onUpdates(updates) {
@@ -120,14 +130,18 @@ async function start() {
     logger,
     agent,
     fetchAgent: agent,
-    browser: Browsers.ubuntu("BizzFlow"),
+    // Desktop + full sync is what makes the phone send its whole history on link;
+    // onHistory keeps only the last HISTORY_DAYS.
+    browser: Browsers.macOS("Desktop"),
     markOnlineOnConnect: false,
-    syncFullHistory: false,
+    syncFullHistory: true,
+    shouldSyncHistoryMessage: () => true,
   });
   sock = s;
   s.ev.on("creds.update", saveCreds);
   s.ev.on("messages.upsert", (e) => void onMessages(e).catch((err) => logger.error(err)));
   s.ev.on("messages.update", (e) => void onUpdates(e).catch((err) => logger.error(err)));
+  s.ev.on("messaging-history.set", (e) => void onHistory(e).catch((err) => logger.error(err)));
   s.ev.on("connection.update", async (u) => {
     if (mine !== generation) return;
     if (u.qr) {
