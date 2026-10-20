@@ -15,7 +15,7 @@
 import http from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import makeWASocket, { Browsers, DisconnectReason, downloadMediaMessage, useMultiFileAuthState } from "baileys";
+import makeWASocket, { Browsers, DisconnectReason, downloadMediaMessage, fetchLatestWaWebVersion, useMultiFileAuthState } from "baileys";
 import QRCode from "qrcode";
 import pino from "pino";
 import { MEDIA_MIME, contactEntry, customerWaId, envelope, historyBatches, phoneOf, toCloudItem, toStatus } from "./convert.mjs";
@@ -125,7 +125,13 @@ async function start() {
   const mine = ++generation;
   await mkdir(MEDIA_DIR, { recursive: true });
   const { state: auth, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+  // Baileys ships a fixed WhatsApp Web version that goes stale; the phone then refuses
+  // the scan with "check your connection". Ask web.whatsapp.com for the current one
+  // (falls back to the bundled version if that fetch fails).
+  const { version, isLatest } = await fetchLatestWaWebVersion();
+  logger.warn({ version: version.join("."), isLatest }, "whatsapp web version");
   const s = makeWASocket({
+    version,
     auth,
     logger,
     agent,
