@@ -39,6 +39,7 @@ import { StopSubmitDialog } from "./StopSubmitDialog";
 import { DeleteOrderDialog } from "./DeleteOrderDialog";
 import { BatchSubmitDialog } from "./BatchSubmitDialog";
 import { Button } from "@/components/ui/button";
+import { pollWhileVisible } from "@/lib/poll";
 
 /** One poll's view of an in-flight submit, as returned by the progress route. */
 interface ProgressState {
@@ -222,10 +223,10 @@ export function OrdersList({ onEdit }: { onEdit: (id: string) => void }) {
       }
     };
     void read();
-    const timer = setInterval(read, 10000);
+    const stop = pollWhileVisible(read, 10000);
     return () => {
       active = false;
-      clearInterval(timer);
+      stop();
     };
   }, []);
 

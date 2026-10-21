@@ -30,6 +30,7 @@ import {
   shouldUseReconnectIA,
   withForceDealerExpiredQuery,
 } from "@/lib/agent-connection";
+import { pollWhileVisible } from "@/lib/poll";
 
 // "auto" = server is reading the OTP from Gmail in the background (tried for
 // every Email-channel login; only actually succeeds if it lands in the
@@ -80,8 +81,8 @@ export default function OrderEntryShell({
     const read = () =>
       unseenOutcomes().then((r) => { if (alive && r.success) setUnseenCount(r.count); }).catch(() => {});
     void read();
-    const t = setInterval(read, 30_000);
-    return () => { alive = false; clearInterval(t); };
+    const stop = pollWhileVisible(read, 30_000);
+    return () => { alive = false; stop(); };
   }, []);
   // Wide tables (drafts, catalogue) get the full width; the order FORM stays
   // narrow so its fields don't stretch into an unreadable line length.

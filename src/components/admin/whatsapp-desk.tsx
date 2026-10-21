@@ -29,6 +29,7 @@ import {
 } from "@/lib/whatsapp-inbox";
 import { formatKualaLumpur } from "@/lib/whatsapp-webhook";
 import { toast } from "@/lib/toast";
+import { pollWhileVisible } from "@/lib/poll";
 
 const POLL_MS = 8_000;
 
@@ -177,8 +178,7 @@ function WhatsappInbox({
   useEffect(() => {
     // Fresh on mount too: coming back from Settings must not show the page-load snapshot.
     void load(false);
-    const id = setInterval(() => void load(false), POLL_MS);
-    return () => clearInterval(id);
+    return pollWhileVisible(() => void load(false), POLL_MS);
   }, [load]);
 
   // Search runs on the server (it covers every message, not just the previews here).

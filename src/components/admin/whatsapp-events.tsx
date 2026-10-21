@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { formatKualaLumpur } from "@/lib/whatsapp-webhook";
 import type { WhatsappEventView } from "@/lib/whatsapp-events";
+import { pollWhileVisible } from "@/lib/poll";
 
 const POLL_MS = 8_000;
 
@@ -47,10 +48,7 @@ export function WhatsappEvents({ initial }: { initial: WhatsappEventView[] }) {
   }, []);
 
   useEffect(() => {
-    const id = setInterval(() => {
-      void load(false);
-    }, POLL_MS);
-    return () => clearInterval(id);
+    return pollWhileVisible(() => void load(false), POLL_MS);
   }, [load]);
 
   return (
