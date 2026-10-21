@@ -1,3 +1,30 @@
+# Current Feature: Let the Neon compute suspend (ClickUp z8v9xnj8rp)
+
+## Status
+
+MERGED TO MAIN 2026-10-21 (`d9e1207` crons, `c7c0df9` polling). Vercel-only, no migration. Needs a night of
+Neon numbers for AC4-AC6.
+
+## Notes
+
+What kept the compute awake: `vercel.json` ran `/api/cron/retry-sweep` and `/api/cron/whatsapp-classify` every
+5 min, so Neon's 5-min idle window never elapsed. Both crons removed. Second source: seven dashboard polls
+(WhatsApp inbox/events/connection, admin Running now, Orders busy check, unseen-outcome badge, order history)
+queried every 4-30 s for as long as a tab stayed open, hidden or not. They now use `pollWhileVisible`
+(`src/lib/poll.ts`): no ticks while hidden, one refresh on return.
+
+Consequences (accepted in the ticket): deferred retries start only from the `order_finished` webhook or an
+Orders page load; no stuck-lock alert mail (admin Orders still shows Stuck); WhatsApp chats are no longer
+auto-classified - `classifyDueChats` has no other caller.
+
+`wifibizz_users` seq scans are not a missing index: `user_id_ref` and `wifibizz_email` are already unique-indexed.
+On a 12-row table Postgres seq-scans even indexed lookups, and every new `wifibizz_cases` row runs an FK check
+against it (measured on Postgres 16: 1,000 inserts = 1,003 seq scans, 0 index scans). The count tracks crawled
+cases, only during crawls; it does not keep the compute awake. No change made; AC4 cannot be met by an index.
+
+Not done: the two cron route files still exist (deletion blocked by the session's permission check), so both
+URLs answer 401 rather than 404. They run on no schedule. Delete `src/app/api/cron/` and `inAlertWindow` together.
+
 # Current Feature: WhatsApp CRM on /admin/whatsapp (respond.io clone)
 
 ## Status
