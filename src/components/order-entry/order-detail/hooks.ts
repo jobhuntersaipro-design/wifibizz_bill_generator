@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { getOrderHistory } from "@/actions/order";
 import type { AttemptView } from "@/lib/order-history";
+import { pollWhileVisible } from "@/lib/poll";
 
 /**
  * Fetches an order's attempt history, refetching every 4s while the order is
@@ -27,8 +28,8 @@ export function useOrderAttempts(orderId: string, live: boolean) {
         .catch(() => active && setError("Couldn't load history."));
     load();
     if (!live) return () => { active = false; };
-    const t = setInterval(load, 4000);
-    return () => { active = false; clearInterval(t); };
+    const stop = pollWhileVisible(load, 4000);
+    return () => { active = false; stop(); };
   }, [orderId, live]);
 
   return { attempts, error };

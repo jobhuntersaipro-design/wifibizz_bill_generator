@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getWhatsappConnection, whatsappConnectionAction } from "@/actions/whatsapp";
 import type { GatewayState } from "@/lib/whatsapp-send";
 import { toast } from "@/lib/toast";
+import { pollWhileVisible } from "@/lib/poll";
 
 /** Fast while someone may be scanning; slow once linked. */
 const POLL_LINKING_MS = 3_000;
@@ -34,10 +35,10 @@ export function WhatsappConnection({ onConnectedChange }: { onConnectedChange: (
   const linked = state?.status === "open";
   useEffect(() => {
     const first = setTimeout(() => void load(), 0);
-    const id = setInterval(() => void load(), linked ? POLL_LINKED_MS : POLL_LINKING_MS);
+    const stop = pollWhileVisible(() => void load(), linked ? POLL_LINKED_MS : POLL_LINKING_MS);
     return () => {
       clearTimeout(first);
-      clearInterval(id);
+      stop();
     };
   }, [load, linked]);
 

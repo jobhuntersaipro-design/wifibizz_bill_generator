@@ -25,6 +25,7 @@ import type { ConnectionView } from "@/lib/agent-connection";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Segmented } from "@/components/ui/segmented";
+import { pollWhileVisible } from "@/lib/poll";
 
 const DAY = 86400_000;
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
@@ -335,8 +336,8 @@ function LivePanel({ agentId }: { agentId?: string }) {
     let alive = true;
     const tick = () => { void read().catch(() => { if (alive) setReachable(false); }); };
     tick();
-    const t = setInterval(tick, 10_000);
-    return () => { alive = false; clearInterval(t); };
+    const stop = pollWhileVisible(tick, 10_000);
+    return () => { alive = false; stop(); };
   }, [read]);
 
   // Nothing at all until the first read lands, so the panel never flashes
