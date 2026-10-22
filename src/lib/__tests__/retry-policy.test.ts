@@ -65,6 +65,13 @@ describe("retryVerdict — what stops", () => {
     }
   });
 
+  it("refuses the New Contact failures — they land after the order number is minted", () => {
+    for (const code of ["new_contact_not_found", "new_contact_fields_not_found",
+      "install_contact_not_set", "install_contact_dialog_missing"]) {
+      expect(retryVerdict(failed({ errorCode: code })).retry, code).toBe(false);
+    }
+  });
+
   it("refuses blacklisted_ic — the same IC gets the same answer every time", () => {
     // It also refuses BEFORE the Order click, so a retry cannot even leave a
     // stranded order behind to show for itself: it just spends a run.

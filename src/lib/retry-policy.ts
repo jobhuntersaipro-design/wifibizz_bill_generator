@@ -42,6 +42,13 @@ export const TERMINAL_ERROR_CODES: ReadonlySet<string> = new Set([
   "address_not_found",
   // Needs a different device chosen by a human.
   "device_out_of_stock",
+  // The Installation Contact's New Contact form did not take (z8v9xnj9m3).
+  // It fails after the order number is minted, and the form will not change
+  // between tries, so a retry only mints another order to void.
+  "new_contact_not_found",
+  "new_contact_fields_not_found",
+  "install_contact_not_set",
+  "install_contact_dialog_missing",
   // Ten refused numbers already; a retry only mints another portal order.
   "mobile_number_taken",
   // The portal disagrees with the customer's own details.
