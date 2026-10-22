@@ -211,17 +211,6 @@ async def _open_address_modal(frame):
     ).first.click(timeout=8000, force=True)
 
 
-def _contact_name(row_text: str) -> str:
-    """First non-empty cell of a contact grid row — the contact's name.
-
-    jqGrid renders a row as tab/newline separated cells; the name leads. Falls
-    back to the whole row trimmed so a layout change degrades to something
-    readable rather than to an empty label.
-    """
-    parts = [p.strip() for p in re.split(r"[\t\n]+", row_text or "") if p.strip()]
-    return parts[0] if parts else (row_text or "").strip()
-
-
 def _detail(value, outcome: str = "ok", note: str = None) -> dict:
     """A stage detail payload: what the portal resolved, for the live checklist.
 
@@ -1898,9 +1887,13 @@ async def _js_click_top_dialog_new_window(page) -> str:
     })()""")
 
 
-async def set_installation_contact(frame, page) -> dict:
-    """Installation Contact -> Add Mode dialog -> expand Select Existing -> pick
-    the first contact row -> OK (grid) -> OK (Add Mode)."""
+async def set_installation_contact(frame, page, payload: dict = None, stage=None) -> dict:
+    """Installation Contact -> Add Mode dialog -> **New Contact**, filled from the
+    order (ClickUp z8v9xnj9m3, Chris 2026-10-22): always New Contact, even when
+    an existing contact matches. Name = account name without its [number],
+    mobile = 60 + number, second mobile blank, email = the order's. Photographed
+    before OK, and the field is read back afterwards."""
+    import install_contact as ic
     r = await _js_click_new_window(page, "installationContact")
     if r == "noinput":
         # Same race as the account field: "no input" can mean the form has not
@@ -1917,46 +1910,78 @@ async def set_installation_contact(frame, page) -> dict:
     if r != "ok":
         return {"status": "error", "error": "install_contact_expand_failed",
                 "stage": "install_contact", "message": r}
-    # Wait for the Add Mode dialog to actually render before expanding Select
-    # Existing (a fixed sleep races a slow dialog).
     addmode = frame.locator(".ui-dialog:visible")
     for _ in range(20):
         if await addmode.count():
             break
         await asyncio.sleep(0.3)
     await asyncio.sleep(0.8)
-    # Expand the "Select Existing..." field, retrying until the grid appears.
-    grid_row = frame.locator(".js-contact-grid tr.jqgrow").first
-    for attempt in range(4):
-        await _js_click_top_dialog_new_window(page)
-        try:
-            await grid_row.wait_for(state="visible", timeout=5000)
-            break
-        except Exception:
-            if attempt == 3:
-                return {"status": "error", "error": "select_existing_grid_not_found",
-                        "stage": "install_contact",
-                        "message": "Select Existing Contact grid did not appear."}
-            await asyncio.sleep(1)
-    # Read the contact off the row BEFORE clicking — this is the name the
-    # installer will actually be given, so the agent needs to see it.
-    picked_contact = ""
+    if await page.evaluate(ic._TAG_DIALOG_JS) != "ok":
+        return {"status": "error", "error": "install_contact_dialog_missing",
+                "stage": "install_contact", "message": "Add Mode dialog did not appear."}
+
+    mode = await page.evaluate(ic._CHOOSE_NEW_JS)
+    print(f"  ↳ install contact: New Contact chosen via {mode}", flush=True)
+    if mode == "notfound":
+        return {"status": "error", "error": "new_contact_not_found",
+                "stage": "install_contact",
+                "message": "The Add Mode dialog has no 'New Contact' option."}
+    await asyncio.sleep(1.2)
+
+    payload = payload or {}
+    cust = payload.get("customer", {}) or {}
+    contact = cust.get("contact", {}) or {}
+    area, phone = ic.split_mobile(contact.get("mobile_prefix", "60"), contact.get("mobile", ""))
+    values = {"name": ic.contact_name(await _account_field_value(frame), cust.get("name", "")),
+              "area": area, "phone": phone, "email": contact.get("email", "") or ""}
+
+    rows = await page.evaluate(ic._SCAN_JS) or []
+    # The New Contact form has never been captured: print what it carries, so
+    # the first live run records the real fields.
+    print(f"  ↳ New Contact fields: {[(x['label'], [c['name'] for c in x['controls']]) for x in rows]}",
+          flush=True)
+    dlg = frame.locator("[data-bf-ic-dlg]")
+    filled = []
+    for cid, val in ic.plan_fill(rows, values).items():
+        el = dlg.locator(f'[data-bf-ic="{cid}"]')
+        await el.fill("")
+        await el.type(val, delay=20)
+        await el.press("Tab")
+        filled.append(val)
+    # Labels not recognised -> the names the customer contact form uses.
+    if not filled:
+        for kind, names in ic.FALLBACK_NAMES.items():
+            for nm in names:
+                el = dlg.locator(f'input[name="{nm}"]').first
+                if await el.count():
+                    await el.fill("")
+                    await el.type(values[kind], delay=20)
+                    await el.press("Tab")
+                    filled.append(values[kind])
+                    break
+    if not filled:
+        return {"status": "error", "error": "new_contact_fields_not_found",
+                "stage": "install_contact",
+                "message": f"No New Contact field could be filled. Fields seen: {rows}"}
+
+    if stage is not None:
+        await capture_and_report(page, payload, "install_contact", stage)
+    await dlg.locator('.js-ok, .js-btn-ok, button:has-text("OK")').last.click(timeout=8000)
+    await asyncio.sleep(1.5)
+
+    got = ""
     try:
-        picked_contact = _contact_name(await grid_row.inner_text())
+        got = (await frame.locator('input[name="installationContact"]').first.input_value()).strip()
     except Exception:
         pass
-    await grid_row.click()
-    await asyncio.sleep(0.5)
-    await frame.locator('.ui-dialog:visible .js-btn-ok').last.click(timeout=8000)
-    await asyncio.sleep(1.5)
-    # Add Mode dialog OK (its OK is a generic .js-ok / button OK).
-    try:
-        await frame.locator('.ui-dialog:visible .js-ok, '
-                            '.ui-dialog:visible button:has-text("OK")').last.click(timeout=6000)
-    except Exception:
-        pass
-    await asyncio.sleep(1.5)
-    return {"status": "ok", "stage": "install_contact", "selected": picked_contact}
+    if not got:
+        dialog = " | ".join(str(t) for t in await read_dialog_texts(page))
+        return {"status": "error", "error": "install_contact_not_set",
+                "stage": "install_contact",
+                "message": ("New Contact was filled and OK pressed, but Installation "
+                            "Contact is still empty." + (f" Portal: {dialog}" if dialog else ""))}
+    return {"status": "ok", "stage": "install_contact", "selected": values["name"],
+            "contact": got}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3044,7 +3069,7 @@ async def complete_new_connection(page, payload: dict = None, on_stage=None) -> 
               flush=True)
     await cancel_customer_popup(page)
     stage("installation_contact")
-    steps["install_contact"] = await set_installation_contact(frame, page)
+    steps["install_contact"] = await set_installation_contact(frame, page, payload, stage)
     stage("installation_contact", _step_detail(steps["install_contact"], "selected"))
     await cancel_customer_popup(page)
     stage("billing_account")
@@ -3928,7 +3953,7 @@ async def fill_subproduct_tabs(page, payload: dict, on_stage=None) -> dict:
         if ic_val.strip():
             ic = {"status": "ok", "stage": "install_contact", "note": "already set"}
         else:
-            ic = await set_installation_contact(frame, page)
+            ic = await set_installation_contact(frame, page, payload, stage)
         # Service number.
         if "Voice" in txt:
             sn = await _pick_voice_number(frame, page)

@@ -164,6 +164,11 @@ const CAPTURE_SLOTS: Record<string, { label: string; caption: string }> = {
     caption:
       "The Account list with the newly created account highlighted, just before OK.",
   },
+  install_contact: {
+    label: "Installation contact — New Contact",
+    caption:
+      "The Add Mode dialog on New Contact with name, mobile and email filled, before OK.",
+  },
   page1: {
     label: "New Connection page 1",
     caption:
