@@ -19,7 +19,6 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from oe_feasibility import (  # noqa: E402
-    _contact_name,
     _detail,
     _longest_title,
     _stage_emitter,
@@ -128,12 +127,6 @@ def test_longest_title_picks_the_address_column():
     assert _longest_title(titles).startswith("A-07-15")
     assert _longest_title([]) == ""
     assert _longest_title(None) == ""
-
-
-def test_contact_name_takes_the_leading_cell():
-    assert _contact_name("WOJAK LANG\t60163445434\twojaklang@gmail.com") == "WOJAK LANG"
-    assert _contact_name("  WOJAK LANG  ") == "WOJAK LANG"
-    assert _contact_name("") == ""
 
 
 # ── R2 key shape ────────────────────────────────────────────────────────────

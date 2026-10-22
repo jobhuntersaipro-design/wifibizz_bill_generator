@@ -1,3 +1,27 @@
+# Current Feature: Installation Contact via New Contact (ClickUp z8v9xnj9m3)
+
+## Status
+
+CODE COMPLETE, LIVE-UNVERIFIED (branch `claude/vibrant-allen-lvwq7u`). Scraper-only + one capture label. Needs a
+droplet deploy and an `api_server` restart.
+
+## Notes
+
+`set_installation_contact` no longer picks the first row of Select Existing. In the Add Mode dialog it picks
+**New Contact** every time, then fills Customer Name (page 1's Account value without its `[number]`, else the
+customer name), Customer Mobile (`60` + number; `split_mobile` drops a leading 60 or a leading 0, otherwise keeps
+the number whole under the order's prefix: AC6) and Customer Email. It never fills Second Customer Mobile. The step
+captures a new `install_contact` frame before OK, then reads `installationContact` back. An empty field returns
+`install_contact_not_set` instead of `ok`. The New Contact markup has never been captured, so fields are found by
+label (fallback: the customer-form names `contactManName` / `mobileAreaCode` / `mobilePhone` / `emailAddr`) and
+the run log prints every field the live dialog carries. Rules: `scraper/install_contact.py`. `_contact_name` was
+deleted (no callers left).
+
+Verified: 7 tests in `tests/test_install_contact.py` (fixture dialog: New Contact chosen and Select Existing never
+opened, the four values and a blank second mobile in the pre-OK frame, account name winning, a refused OK reported).
+Full scraper suite 560 passed + 1 skipped. 1 failure (`test_page1_ready::…late_field_not_applicable`) also fails on
+the base branch. NOT verified: the live portal (AC1–AC5 need real submits), `next build` (no node_modules here).
+
 # Current Feature: Let the Neon compute suspend (ClickUp z8v9xnj8rp)
 
 ## Status
