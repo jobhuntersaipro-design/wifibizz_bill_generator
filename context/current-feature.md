@@ -2,8 +2,9 @@
 
 ## Status
 
-CODE COMPLETE, LIVE-UNVERIFIED (branch `claude/vibrant-allen-lvwq7u`). Scraper-only + one capture label. Needs a
-droplet deploy and an `api_server` restart.
+MERGED TO MAIN 2026-10-22 (`37b12da`), LIVE-UNVERIFIED. Vercel deploys from main; **the droplet needs a new scraper
+tag** (cut on the Mac). The four new failure codes are terminal (`retry-policy.ts`): each lands after the order number
+is minted, so a retry would only mint another order to void.
 
 ## Notes
 
