@@ -15,7 +15,7 @@ import {
   type CrmField,
   type WhatsappContact,
 } from "@/actions/whatsapp";
-import { ChevronRight, Loader2 } from "lucide-react";
+import { ChevronRight, Loader2, Sparkles } from "lucide-react";
 import {
   contactName,
   isClosed,
@@ -68,7 +68,16 @@ export function WhatsappDesk({
       </div>
       <WhatsappConnection onConnectedChange={setConnected} />
       {view === "inbox" ? (
+        <>
+        <p className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+          <Sparkles className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span>
+            AI analyses each chat automatically 3 minutes after the customer&apos;s last message (lead stage, summary and sign-up chance).
+            Press <strong>AI Analysis</strong> on a chat to run it now. Stages you set by hand are kept until you choose &quot;Let AI manage&quot;.
+          </span>
+        </p>
         <WhatsappInbox initialChats={initialChats} labels={labels} onLabels={setLabels} connected={connected} />
+        </>
       ) : (
         <WhatsappLabelSettings labels={labels} onChanged={() => void reloadLabels()} />
       )}
