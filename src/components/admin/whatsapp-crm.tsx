@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "@/lib/toast";
 import { Loader2, Sparkles } from "lucide-react";
+import { Progress as ArcProgress } from "@/components/arc/components/progress/progress";
 import {
   countWhatsappLabelUse,
   deleteWhatsappLabel,
@@ -41,7 +42,6 @@ export function WhatsappCrmControls({
   chat,
   labels,
   onSet,
-  onSetInsight,
   onRelease,
   onAnalyze,
   analyzing,
@@ -49,7 +49,6 @@ export function WhatsappCrmControls({
   chat: ChatSummary;
   labels: Label[];
   onSet: (field: CrmField, value: string | string[] | null) => void;
-  onSetInsight: (intent: string, signupChance: number | null) => void;
   onRelease: (field: CrmField) => void;
   onAnalyze: () => void;
   analyzing: boolean;
@@ -86,39 +85,24 @@ export function WhatsappCrmControls({
         {analyzing ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Sparkles className="size-4" aria-hidden />}
         {analyzing ? "Analysing…" : "AI Analysis"}
       </button>
-      <Insight key={`${chat.customer}:${chat.intent}:${chat.signupChance}`} chat={chat} onSave={onSetInsight} onRelease={() => onRelease("insight")} />
+      <Insight chat={chat} />
       {select("stage", chat.stageId, chat.stageBy)}
       {chat.aiReason && chat.stageBy !== "admin" && <p className="text-xs text-ink-muted">AI: {chat.aiReason}</p>}
     </div>
   );
 }
 
-/** Intent + sign-up chance. Saving marks both admin-set; keyed on the values so an AI update refreshes the boxes. */
-function Insight({ chat, onSave, onRelease }: { chat: ChatSummary; onSave: (intent: string, chance: number | null) => void; onRelease: () => void }) {
-  const [intent, setIntent] = useState(chat.intent ?? "");
-  const [chance, setChance] = useState(chat.signupChance?.toString() ?? "");
-  const dirty = intent !== (chat.intent ?? "") || chance !== (chat.signupChance?.toString() ?? "");
-  const n = chance.trim() === "" ? null : Number(chance);
-  const valid = n === null || (Number.isInteger(n) && n >= 0 && n <= 100);
+/** Claude's summary of the chat and its sign-up guess. Read-only: AI Analysis refreshes both. */
+function Insight({ chat }: { chat: ChatSummary }) {
   return (
-    <div>
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Intent · sign-up chance</span>
-        <Setter by={chat.insightBy} onRelease={onRelease} />
+    <div className="space-y-3">
+      <div>
+        <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Summary</span>
+        <p className="mt-1 min-h-24 whitespace-pre-wrap rounded-lg border border-line bg-wash px-3 py-2 text-sm text-ink">
+          {chat.intent ?? <span className="text-ink-muted">No summary yet. Press AI Analysis.</span>}
+        </p>
       </div>
-      <div className="mt-1 flex gap-2">
-        <label htmlFor="wa-intent" className="sr-only">Intent</label>
-        <input id="wa-intent" value={intent} maxLength={120} onChange={(e) => setIntent(e.target.value)} placeholder="What the customer wants"
-          className="min-w-0 flex-1 rounded-lg border border-line bg-white px-2 py-2 text-sm text-ink" />
-        <label htmlFor="wa-chance" className="sr-only">Sign-up chance, percent</label>
-        <input id="wa-chance" value={chance} inputMode="numeric" onChange={(e) => setChance(e.target.value)} placeholder="%"
-          className={`w-14 rounded-lg border bg-white px-2 py-2 text-right text-sm text-ink ${valid ? "border-line" : "border-red-400"}`} />
-      </div>
-      {dirty && (
-        <button type="button" disabled={!valid} onClick={() => onSave(intent, n)} className="mt-1 text-xs font-medium text-brand hover:underline disabled:opacity-50">
-          Save
-        </button>
-      )}
+      {chat.signupChance !== null && <ArcProgress value={chat.signupChance} label="Sign-up chance" showValue />}
     </div>
   );
 }

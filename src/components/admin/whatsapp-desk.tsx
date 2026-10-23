@@ -10,13 +10,12 @@ import {
   getWhatsappContact,
   markWhatsappRead,
   releaseWhatsappChatLabel,
-  setWhatsappChatInsight,
   setWhatsappChatLabel,
   setWhatsappClosed,
   type CrmField,
   type WhatsappContact,
 } from "@/actions/whatsapp";
-import { Loader2 } from "lucide-react";
+import { ChevronRight, Loader2 } from "lucide-react";
 import {
   contactName,
   isClosed,
@@ -123,6 +122,8 @@ function WhatsappInbox({
   const selectedRef = useRef<string | null>(null);
   const queryRef = useRef("");
 
+  const [grouped, setGrouped] = useState(false);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const labelById = useMemo(() => new Map(labels.map((l) => [l.id, l])), [labels]);
 
   const patchChat = useCallback((waId: string, patch: Partial<ChatSummary>) => {
@@ -190,6 +191,9 @@ function WhatsappInbox({
 
   const filtered = chats.filter((chat) => matchesFilter(chat, filter));
   const visible = filtered.filter((chat) => summaryInTab(chat, tab));
+  const stageGroups = [...labels.filter((l) => l.kind === "stage"), { id: "", name: "No stage" }]
+    .map((l) => ({ id: l.id, name: l.name, chats: visible.filter((c) => (c.stageId && labelById.has(c.stageId) ? c.stageId : "") === l.id) }))
+    .filter((g) => g.chats.length > 0);
   const active = chats.find((chat) => chat.customer === selected) ?? null;
   const activeMessages = active ? threads[active.customer] : undefined;
 
@@ -231,16 +235,6 @@ function WhatsappInbox({
     }
   }
 
-  async function setInsight(chat: ChatSummary, intent: string, signupChance: number | null) {
-    const prev = { ...chat };
-    patchChat(chat.customer, { intent: intent.trim() || null, signupChance, insightBy: "admin" });
-    const res = await setWhatsappChatInsight(chat.customer, intent, signupChance);
-    if (!res.success) {
-      toast.error(res.error);
-      patchChat(chat.customer, prev);
-    }
-  }
-
   async function release(chat: ChatSummary, field: CrmField) {
     const by = field === "stage" ? "stageBy" : field === "folder" ? "folderBy" : field === "insight" ? "insightBy" : "tagsBy";
     patchChat(chat.customer, { [by]: null });
@@ -266,12 +260,53 @@ function WhatsappInbox({
     await load(false);
   }
 
+  function chatRow(chat: ChatSummary) {
+    const on = chat.customer === selected;
+    const stage = chat.stageId ? labelById.get(chat.stageId) : undefined;
+    const name = contactName(chat.name);
+    return (
+      <li key={chat.customer}>
+        <button
+          type="button"
+          onClick={() => select(chat)}
+          aria-current={on ? "true" : undefined}
+          className={`w-full border-b border-line/60 px-3 py-3 text-left hover:bg-wash ${on ? "bg-wash" : ""}`}
+        >
+          <span className="flex items-baseline justify-between gap-2">
+            <span className="truncate text-sm font-medium text-ink">{name ?? <span className="font-mono">+{chat.customer}</span>}</span>
+            <span className="shrink-0 text-[11px] text-ink-muted">{formatKualaLumpur(chat.lastAt)}</span>
+          </span>
+          {name && <span className="block truncate font-mono text-xs text-ink-muted">+{chat.customer}</span>}
+          <span className="mt-1 flex items-center justify-between gap-2">
+            <span className="truncate text-sm text-ink-muted">{chat.preview}</span>
+            {chat.unread > 0 ? (
+              <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-[#25D366] px-1.5 text-[11px] font-semibold text-white">
+                {chat.unread > 99 ? "99+" : chat.unread}<span className="sr-only"> new messages</span>
+              </span>
+            ) : isClosed(chat.lastInboundAt, chat.closedAt) ? (
+              <span className="shrink-0 rounded-full bg-wash px-1.5 py-0.5 text-[11px] font-medium text-ink-muted">Closed</span>
+            ) : null}
+          </span>
+          {(stage || chat.signupChance !== null) && (
+            <span className="mt-1.5 flex flex-wrap gap-1">
+              {chat.signupChance !== null && (
+                <span title={chat.intent ?? undefined} className="rounded-full bg-wash px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-ink">
+                  {chat.signupChance}%<span className="sr-only"> sign-up chance</span>
+                </span>
+              )}
+              {stage && <LabelChip label={stage} />}
+                                      </span>
+          )}
+        </button>
+      </li>
+    );
+  }
+
   const crm = active ? (
     <WhatsappCrmControls
       chat={active}
       labels={labels}
       onSet={(field, value) => void setLabel(active, field, value)}
-      onSetInsight={(intent, chance) => void setInsight(active, intent, chance)}
       onRelease={(field) => void release(active, field)}
       onAnalyze={() => void analyze(active)}
       analyzing={analyzing === active.customer}
@@ -299,8 +334,16 @@ function WhatsappInbox({
               );
             })}
           </div>
-          <div className="grid grid-cols-3 gap-1">
+          <div className="grid grid-cols-2 gap-1">
             <LabelFilter kind="stage" title="Stage" labels={labels} value={filter.stageId} onChange={(stageId) => setFilter({ ...filter, stageId })} />
+            <button
+              type="button"
+              aria-pressed={grouped}
+              onClick={() => setGrouped((g) => !g)}
+              className={`min-h-9 rounded-md border px-2 text-xs font-medium ${grouped ? "border-ink bg-ink text-white" : "border-line text-ink hover:bg-wash"}`}
+            >
+              Group by stage
+            </button>
           </div>
           <div className="flex items-center gap-2">
             <label htmlFor="whatsapp-search" className="sr-only">Search name, number or message</label>
@@ -330,49 +373,32 @@ function WhatsappInbox({
               {chats.length === 0 ? (query ? "No chats match" : "No WhatsApp chats yet") : `No ${tab === "all" ? "" : `${tab} `}chats${filter.folderId || filter.stageId || filter.tagId ? " with this filter" : ""}`}
             </p>
           ) : (
-            <ul>
-              {visible.map((chat) => {
-                const on = chat.customer === selected;
-                const stage = chat.stageId ? labelById.get(chat.stageId) : undefined;
-                const name = contactName(chat.name);
-                return (
-                  <li key={chat.customer}>
-                    <button
-                      type="button"
-                      onClick={() => select(chat)}
-                      aria-current={on ? "true" : undefined}
-                      className={`w-full border-b border-line/60 px-3 py-3 text-left hover:bg-wash ${on ? "bg-wash" : ""}`}
-                    >
-                      <span className="flex items-baseline justify-between gap-2">
-                        <span className="truncate text-sm font-medium text-ink">{name ?? <span className="font-mono">+{chat.customer}</span>}</span>
-                        <span className="shrink-0 text-[11px] text-ink-muted">{formatKualaLumpur(chat.lastAt)}</span>
-                      </span>
-                      {name && <span className="block truncate font-mono text-xs text-ink-muted">+{chat.customer}</span>}
-                      <span className="mt-1 flex items-center justify-between gap-2">
-                        <span className="truncate text-sm text-ink-muted">{chat.preview}</span>
-                        {isClosed(chat.lastInboundAt, chat.closedAt) ? (
-                          <span className="shrink-0 rounded-full bg-wash px-1.5 py-0.5 text-[11px] font-medium text-ink-muted">Closed</span>
-                        ) : chat.unread > 0 ? (
-                          <span className="shrink-0 rounded-full bg-ink px-1.5 py-0.5 text-[11px] font-medium text-white">
-                            {chat.unread}<span className="sr-only"> unread</span>
-                          </span>
-                        ) : null}
-                      </span>
-                      {(stage || chat.signupChance !== null) && (
-                        <span className="mt-1.5 flex flex-wrap gap-1">
-                          {chat.signupChance !== null && (
-                            <span title={chat.intent ?? undefined} className="rounded-full bg-wash px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-ink">
-                              {chat.signupChance}%<span className="sr-only"> sign-up chance</span>
-                            </span>
-                          )}
-                          {stage && <LabelChip label={stage} />}
-                                                  </span>
-                      )}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+            grouped ? (
+              <div>
+                {stageGroups.map((g) => {
+                  const open = !collapsed.has(g.id);
+                  return (
+                    <section key={g.id || "none"}>
+                      <button
+                        type="button"
+                        aria-expanded={open}
+                        onClick={() => setCollapsed((c) => { const n = new Set(c); if (open) n.add(g.id); else n.delete(g.id); return n; })}
+                        className="sticky top-0 z-10 flex w-full items-center justify-between gap-2 border-b border-line bg-wash px-3 py-2 text-left text-xs font-semibold text-ink"
+                      >
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <ChevronRight className={`size-3.5 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} aria-hidden />
+                          <span className="truncate">{g.name}</span>
+                        </span>
+                        <span className="tabular-nums text-ink-muted">{g.chats.length}</span>
+                      </button>
+                      {open && <ul>{g.chats.map(chatRow)}</ul>}
+                    </section>
+                  );
+                })}
+              </div>
+            ) : (
+              <ul>{visible.map(chatRow)}</ul>
+            )
           )}
         </div>
       </section>
@@ -381,7 +407,7 @@ function WhatsappInbox({
         {active ? (
           <>
             <details className="border-b border-line px-3 py-2 xl:hidden">
-              <summary className="cursor-pointer text-sm font-medium text-ink">AI analysis, intent & stage</summary>
+              <summary className="cursor-pointer text-sm font-medium text-ink">AI analysis, summary & stage</summary>
               <div className="pt-3">{crm}</div>
             </details>
             {activeMessages ? (

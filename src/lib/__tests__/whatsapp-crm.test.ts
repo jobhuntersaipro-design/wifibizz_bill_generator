@@ -103,7 +103,7 @@ describe("classification", () => {
       LABELS,
       { stageId: "s2", folderId: null, tagIds: ["t1"], stageBy: "admin", folderBy: null, tagsBy: "admin", insightBy: "admin" },
     );
-    expect(patch).toEqual({ aiReason: "x", folderId: "f1", folderBy: "ai" });
+    expect(patch).toEqual({ aiReason: "x", folderId: "f1", folderBy: "ai", intent: "y", signupChance: 100, insightBy: "ai" });
   });
 
   it("drops invented names and does not clear on an empty answer", () => {

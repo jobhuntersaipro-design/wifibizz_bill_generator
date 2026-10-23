@@ -274,7 +274,7 @@ export async function setWhatsappChatLabel(
   const denied = await requireAdmin();
   if (denied) return denied;
   if (!WA_ID.test(waId)) return { success: false, error: "Invalid WhatsApp number." };
-  if (field === "insight") return { success: false, error: "Use setWhatsappChatInsight." };
+  if (field === "insight") return { success: false, error: "The summary is set by AI." };
   const ids = field === "tags" ? (Array.isArray(value) ? value : []) : typeof value === "string" ? [value] : [];
   if (!whatsappFixtureEnabled() && ids.length > 0) {
     const kind = field === "tags" ? "tag" : field;
@@ -319,23 +319,6 @@ export async function analyzeWhatsappChat(waId: string): Promise<Result> {
   if (!WA_ID.test(waId)) return { success: false, error: "Invalid WhatsApp number." };
   const res = await classifyChatNow(waId).catch(() => ({ ok: false as const, error: "Could not reach Claude." }));
   return res.ok ? { success: true, data: undefined } : { success: false, error: res.error };
-}
-
-/** An admin overwrites the intent and sign-up chance; Claude leaves both alone afterwards. */
-export async function setWhatsappChatInsight(waId: string, intent: string, signupChance: number | null): Promise<Result> {
-  const denied = await requireAdmin();
-  if (denied) return denied;
-  if (!WA_ID.test(waId)) return { success: false, error: "Invalid WhatsApp number." };
-  if (signupChance !== null && !(Number.isInteger(signupChance) && signupChance >= 0 && signupChance <= 100)) {
-    return { success: false, error: "Sign-up chance is a whole number from 0 to 100." };
-  }
-  try {
-    await updateCrm(waId, { intent: intent.trim().slice(0, 120) || null, signupChance, insightBy: "admin" });
-  } catch {
-    return { success: false, error: "Could not update the chat." };
-  }
-  await recordAudit({ actor: ADMIN_ACTOR, action: "whatsapp_chat_labelled", detail: `Set the intent of WhatsApp chat ${waId}.` });
-  return { success: true, data: undefined };
 }
 
 /** The model that sorts chats. Blank = the default (Haiku 5.5 unless WHATSAPP_CRM_MODEL is set). */
