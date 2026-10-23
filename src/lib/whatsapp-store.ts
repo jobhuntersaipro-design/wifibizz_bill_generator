@@ -249,6 +249,9 @@ interface SummaryRow {
   folder_by: string | null;
   tags_by: string | null;
   ai_reason: string | null;
+  intent: string | null;
+  signup_chance: number | null;
+  insight_by: string | null;
   unread: number;
 }
 
@@ -260,7 +263,7 @@ export async function listChatSummaries(q = ""): Promise<ChatSummary[]> {
   const like = likePattern(query);
   const rows = await prisma.$queryRaw<SummaryRow[]>`
     SELECT c.wa_id, c.name, c.last_message_at, c.last_inbound_at, c.last_preview, c.closed_at, c.last_read_at,
-           c.stage_id, c.folder_id, c.tag_ids, c.stage_by, c.folder_by, c.tags_by, c.ai_reason,
+           c.stage_id, c.folder_id, c.tag_ids, c.stage_by, c.folder_by, c.tags_by, c.ai_reason, c.intent, c.signup_chance, c.insight_by,
            (SELECT count(*)::int FROM whatsapp_messages m
              WHERE m.wa_id = c.wa_id AND NOT m.from_me
                AND (c.last_read_at IS NULL OR m.sent_at > c.last_read_at)) AS unread
@@ -286,6 +289,9 @@ export async function listChatSummaries(q = ""): Promise<ChatSummary[]> {
     folderBy: setter(r.folder_by),
     tagsBy: setter(r.tags_by),
     aiReason: r.ai_reason,
+    intent: r.intent,
+    signupChance: r.signup_chance,
+    insightBy: setter(r.insight_by),
   }));
 }
 

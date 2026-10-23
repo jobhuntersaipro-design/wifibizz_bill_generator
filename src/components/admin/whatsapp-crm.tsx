@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "@/lib/toast";
 import {
   countWhatsappLabelUse,
   deleteWhatsappLabel,
+  getWhatsappCrmModel,
   moveWhatsappLabel,
+  saveWhatsappCrmModel,
   saveWhatsappLabel,
   type CrmField,
 } from "@/actions/whatsapp";
@@ -19,7 +21,7 @@ export function LabelChip({ label }: { label: Label }) {
   );
 }
 
-const FIELD_KIND: Record<CrmField, LabelKind> = { stage: "stage", folder: "folder", tags: "tag" };
+const FIELD_KIND: Record<"stage" | "folder", LabelKind> = { stage: "stage", folder: "folder" };
 
 function Setter({ by, onRelease }: { by: LabelSetter | null; onRelease: () => void }) {
   if (by === "admin") {
@@ -38,11 +40,13 @@ export function WhatsappCrmControls({
   chat,
   labels,
   onSet,
+  onSetInsight,
   onRelease,
 }: {
   chat: ChatSummary;
   labels: Label[];
   onSet: (field: CrmField, value: string | string[] | null) => void;
+  onSetInsight: (intent: string, signupChance: number | null) => void;
   onRelease: (field: CrmField) => void;
 }) {
   const of = (kind: LabelKind) => labels.filter((l) => l.kind === kind);
@@ -68,6 +72,7 @@ export function WhatsappCrmControls({
 
   return (
     <div className="space-y-3">
+      <Insight key={`${chat.customer}:${chat.intent}:${chat.signupChance}`} chat={chat} onSave={onSetInsight} onRelease={() => onRelease("insight")} />
       {select("stage", chat.stageId, chat.stageBy)}
       {chat.aiReason && chat.stageBy !== "admin" && <p className="text-xs text-ink-muted">AI: {chat.aiReason}</p>}
       {select("folder", chat.folderId, chat.folderBy)}
@@ -98,6 +103,36 @@ export function WhatsappCrmControls({
   );
 }
 
+/** Intent + sign-up chance. Saving marks both admin-set; keyed on the values so an AI update refreshes the boxes. */
+function Insight({ chat, onSave, onRelease }: { chat: ChatSummary; onSave: (intent: string, chance: number | null) => void; onRelease: () => void }) {
+  const [intent, setIntent] = useState(chat.intent ?? "");
+  const [chance, setChance] = useState(chat.signupChance?.toString() ?? "");
+  const dirty = intent !== (chat.intent ?? "") || chance !== (chat.signupChance?.toString() ?? "");
+  const n = chance.trim() === "" ? null : Number(chance);
+  const valid = n === null || (Number.isInteger(n) && n >= 0 && n <= 100);
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Intent · sign-up chance</span>
+        <Setter by={chat.insightBy} onRelease={onRelease} />
+      </div>
+      <div className="mt-1 flex gap-2">
+        <label htmlFor="wa-intent" className="sr-only">Intent</label>
+        <input id="wa-intent" value={intent} maxLength={120} onChange={(e) => setIntent(e.target.value)} placeholder="What the customer wants"
+          className="min-w-0 flex-1 rounded-lg border border-line bg-white px-2 py-2 text-sm text-ink" />
+        <label htmlFor="wa-chance" className="sr-only">Sign-up chance, percent</label>
+        <input id="wa-chance" value={chance} inputMode="numeric" onChange={(e) => setChance(e.target.value)} placeholder="%"
+          className={`w-14 rounded-lg border bg-white px-2 py-2 text-right text-sm text-ink ${valid ? "border-line" : "border-red-400"}`} />
+      </div>
+      {dirty && (
+        <button type="button" disabled={!valid} onClick={() => onSave(intent, n)} className="mt-1 text-xs font-medium text-brand hover:underline disabled:opacity-50">
+          Save
+        </button>
+      )}
+    </div>
+  );
+}
+
 const LISTS: { kind: LabelKind; title: string; help: string }[] = [
   { kind: "stage", title: "Lead stages", help: "One per chat, in pipeline order." },
   { kind: "folder", title: "Folders", help: "One per chat." },
@@ -110,6 +145,7 @@ const COLORS = Object.keys(LABEL_COLORS);
 export function WhatsappLabelSettings({ labels, onChanged }: { labels: Label[]; onChanged: () => void }) {
   return (
     <div className="space-y-4">
+      <CrmModelSetting />
       <p className="text-sm text-ink-muted">
         Claude sorts each chat with these lists, reading the description to decide when a label fits. Write it the way you would brief a new agent.
       </p>
@@ -128,6 +164,49 @@ export function WhatsappLabelSettings({ labels, onChanged }: { labels: Label[]; 
         ))}
       </div>
     </div>
+  );
+}
+
+const CRM_MODELS = [
+  { id: "claude-haiku-5-5", name: "Haiku 5.5 (fast, cheapest)" },
+  { id: "claude-sonnet-5-5", name: "Sonnet 5.5" },
+  { id: "claude-opus-5-5", name: "Opus 5.5 (best, priciest)" },
+];
+
+/** Which Claude sorts chats. Default = Haiku 5.5 (or the deployment's WHATSAPP_CRM_MODEL). */
+function CrmModelSetting() {
+  const [model, setModel] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    void getWhatsappCrmModel().then((res) => setModel(res.success ? res.data : null));
+  }, []);
+
+  async function change(next: string) {
+    const prev = model;
+    setModel(next || null);
+    const res = await saveWhatsappCrmModel(next || null);
+    if (res.success) toast.success("Sorting model saved.");
+    else {
+      toast.error(res.error);
+      setModel(prev);
+    }
+  }
+
+  return (
+    <section className="rounded-lg border border-line bg-white p-4">
+      <label htmlFor="wa-crm-model" className="text-sm font-semibold text-ink">Sorting model</label>
+      <p className="text-xs text-ink-muted">Runs 3 minutes after the customer&apos;s last message: stage, folder, tags, intent and sign-up chance.</p>
+      <select
+        id="wa-crm-model"
+        disabled={model === undefined}
+        value={model ?? ""}
+        onChange={(e) => void change(e.target.value)}
+        className="mt-2 w-full max-w-sm rounded-lg border border-line bg-white px-2 py-2 text-sm text-ink"
+      >
+        <option value="">Default (Haiku 5.5)</option>
+        {CRM_MODELS.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+        {model && !CRM_MODELS.some((m) => m.id === model) && <option value={model}>{model}</option>}
+      </select>
+    </section>
   );
 }
 

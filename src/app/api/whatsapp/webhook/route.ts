@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { authorizeWhatsappPost, extractWhatsappEvent, verifyChallenge } from "@/lib/whatsapp-webhook";
 import { ingestWebhook } from "@/lib/whatsapp-store";
+import { classifyDueChats } from "@/lib/whatsapp-crm";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,13 @@ export async function POST(req: Request) {
       parsed = null;
     }
   }
+  // The gateway's "this chat went quiet for 3 minutes" ping: sort it, store nothing.
+  const classify = (parsed as { classify?: unknown } | null)?.classify;
+  if (typeof classify === "string" && /^\d{6,20}$/.test(classify)) {
+    after(() => classifyDueChats([classify]).catch((e) => console.error("[whatsapp/webhook] classify failed:", e)));
+    return new NextResponse("CLASSIFY_QUEUED", { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+  }
+
   const extracted = parsed === null ? extractWhatsappEvent(null) : extractWhatsappEvent(parsed);
 
   try {

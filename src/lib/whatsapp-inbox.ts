@@ -327,6 +327,11 @@ export interface ChatSummary {
   folderBy: LabelSetter | null;
   tagsBy: LabelSetter | null;
   aiReason: string | null;
+  /** Claude's one-line read of what the customer wants. */
+  intent: string | null;
+  /** 0-100, Claude's guess that this chat signs up. */
+  signupChance: number | null;
+  insightBy: LabelSetter | null;
 }
 
 export type LabelSetter = "ai" | "admin";
@@ -372,4 +377,10 @@ export function matchesFilter(chat: ChatSummary, filter: ChatFilter): boolean {
   if (filter.stageId && chat.stageId !== filter.stageId) return false;
   if (filter.tagId && !chat.tagIds.includes(filter.tagId)) return false;
   return true;
+}
+
+/** A real contact name, or null. WhatsApp hands out "+60·······98" for a hidden number; that is no name. */
+export function contactName(name: string | null | undefined): string | null {
+  const clean = name?.trim();
+  return clean && /\p{L}/u.test(clean) ? clean : null;
 }

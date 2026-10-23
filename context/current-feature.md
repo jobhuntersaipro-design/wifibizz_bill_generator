@@ -1,3 +1,28 @@
+# Current Feature: WhatsApp inbox polish
+
+## Status
+
+CODE COMPLETE (branch `claude/practical-brahmagupta-tfeotp`). Vercel-only, no migration.
+
+## Notes
+
+Asked 2026-10-23 after the QR link finally worked (droplet was on `-7`, the `companion_reg_refresh` fix is in `-8`).
+Chat list shows the contact name with the full `+number` under it; WhatsApp's masked placeholder (`+60·······98`)
+is not treated as a name (`contactName`). Raw events tab, its component and `listWhatsappEvents` removed. Spinner
+on Refresh and while a thread loads. The "AI will sort this within 5 minutes" toast was false: the classify cron
+was removed on 2026-10-21, so nothing sorts chats now; the toast says "Handed back to AI."
+
+Sorting is back without a schedule, debounced on the droplet (decided same day): every live customer message restarts
+a 3-minute per-chat timer in the gateway (`scheduleClassify`, `WHATSAPP_CLASSIFY_DELAY_S`, in memory, a restart drops
+pending timers); when it fires the gateway posts `{object:"bizzflow", classify:"<waId>"}` to the same webhook URL with
+the same secret, and the route runs `classifyDueChats([waId])` in `after()` and stores nothing. The sort now also
+writes **intent** (≤12 words) and **sign-up chance** (0-100, Claude's guess, not calibrated) — migration
+`20261023120000_whatsapp_insight` (`intent`, `signup_chance`, `insight_by`, plus `whatsapp_crm_settings`). Admin can
+overwrite both in the contact panel (then AI leaves them, "Let AI manage" hands back); the % shows as a badge in the
+chat list, which stays sorted by latest message. Model picker on the Settings tab (default Haiku 5.5; stored in
+`whatsapp_crm_settings`, then `WHATSAPP_CRM_MODEL`, then Haiku). **Needs a droplet deploy (new scraper tag)** —
+until then nothing sorts. NOT verified: a real Anthropic call, the gateway timer live, the UI in a browser.
+
 # Current Feature: Installation Contact via New Contact (ClickUp z8v9xnj9m3)
 
 ## Status

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildInbox, filterInbox, openedAtAfterViewing, unreadCount, type InboxEvent } from "@/lib/whatsapp-inbox";
+import { buildInbox, contactName, filterInbox, openedAtAfterViewing, unreadCount, type InboxEvent } from "@/lib/whatsapp-inbox";
 import { WHATSAPP_FIXTURE_LONG_TEXT, whatsappFixtureEnabled, whatsappFixtureEvents } from "@/lib/whatsapp-inbox-fixture";
 
 function event(id: string, receivedAt: string, body: unknown): InboxEvent {
@@ -170,5 +170,15 @@ describe("local fixture", () => {
     expect(WHATSAPP_FIXTURE_LONG_TEXT.length).toBe(182);
     expect(chats[1].preview).toBe("Image · front page");
     expect(chats.flatMap((chat) => chat.messages.map((message) => message.text))).not.toContain("delivered");
+  });
+});
+
+describe("contactName", () => {
+  it("drops WhatsApp's masked-number placeholder and keeps real names", () => {
+    expect(contactName("+60·······98")).toBeNull();
+    expect(contactName("  ")).toBeNull();
+    expect(contactName(null)).toBeNull();
+    expect(contactName(" Kim Sim ")).toBe("Kim Sim");
+    expect(contactName("陈小明")).toBe("陈小明");
   });
 });

@@ -93,26 +93,26 @@ const EMPTY: CurrentCrm = { stageId: null, folderId: null, tagIds: [], stageBy: 
 
 describe("classification", () => {
   it("maps names to ids and marks them AI-set", () => {
-    const patch = applyClassification({ stage: "Interested", folder: "Home Fibre", tags: ["Price question", "Price question"], reason: "Asked for RM129 plan." }, LABELS, EMPTY);
-    expect(patch).toEqual({ aiReason: "Asked for RM129 plan.", stageId: "s2", stageBy: "ai", folderId: "f1", folderBy: "ai", tagIds: ["t1"], tagsBy: "ai" });
+    const patch = applyClassification({ stage: "Interested", folder: "Home Fibre", tags: ["Price question", "Price question"], reason: "Asked for RM129 plan.", intent: " Wants 300Mbps price ", signupChance: 72.4 }, LABELS, EMPTY);
+    expect(patch).toEqual({ aiReason: "Asked for RM129 plan.", stageId: "s2", stageBy: "ai", folderId: "f1", folderBy: "ai", tagIds: ["t1"], tagsBy: "ai", intent: "Wants 300Mbps price", signupChance: 72, insightBy: "ai" });
   });
 
   it("never touches a field an admin set", () => {
     const patch = applyClassification(
-      { stage: "New", folder: "Home Fibre", tags: ["Complaint"], reason: "x" },
+      { stage: "New", folder: "Home Fibre", tags: ["Complaint"], reason: "x", intent: "y", signupChance: 150 },
       LABELS,
-      { stageId: "s2", folderId: null, tagIds: ["t1"], stageBy: "admin", folderBy: null, tagsBy: "admin" },
+      { stageId: "s2", folderId: null, tagIds: ["t1"], stageBy: "admin", folderBy: null, tagsBy: "admin", insightBy: "admin" },
     );
     expect(patch).toEqual({ aiReason: "x", folderId: "f1", folderBy: "ai" });
   });
 
   it("drops invented names and does not clear on an empty answer", () => {
     const patch = applyClassification(
-      { stage: "VIP", folder: "", tags: ["Made up"], reason: "" },
+      { stage: "VIP", folder: "", tags: ["Made up"], reason: "", intent: "", signupChance: 150 },
       LABELS,
       { ...EMPTY, stageId: "s1", stageBy: "ai", tagIds: ["t2"], tagsBy: "ai" },
     );
-    expect(patch).toEqual({ aiReason: null });
+    expect(patch).toEqual({ aiReason: null, intent: null, signupChance: 100, insightBy: "ai" });
   });
 
   it("schema enums are the admin's lists", () => {
@@ -133,7 +133,9 @@ describe("classification", () => {
   });
 
   it("parses the model's JSON defensively", () => {
-    expect(parseClassification('{"stage":"New","folder":"","tags":["a",1],"reason":"r"}')).toEqual({ stage: "New", folder: "", tags: ["a"], reason: "r" });
+    expect(parseClassification('{"stage":"New","folder":"","tags":["a",1],"reason":"r","intent":"i","signup_chance":40}'))
+      .toEqual({ stage: "New", folder: "", tags: ["a"], reason: "r", intent: "i", signupChance: 40 });
+    expect(parseClassification('{"stage":"New","signup_chance":"high"}')?.signupChance).toBe(0);
     expect(parseClassification("not json")).toBeNull();
   });
 });

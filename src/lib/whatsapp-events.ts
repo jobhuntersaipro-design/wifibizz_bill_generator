@@ -4,7 +4,6 @@ import { buildInbox, unreadFor, type ChatSummary, type ConversationState, type I
 import { ingestWebhook, listChatSummaries, listThread } from "@/lib/whatsapp-store";
 import { directionLabel, extractWhatsappEvent, type WhatsappExtract } from "@/lib/whatsapp-webhook";
 
-export const WHATSAPP_EVENT_LIMIT = 200;
 
 export interface WhatsappEventView extends WhatsappExtract {
   id: string;
@@ -25,26 +24,6 @@ const fixtureMemory = globalThis as unknown as {
 };
 const fixtureSent = (fixtureMemory.whatsappFixtureSent ??= []);
 const fixtureState = (fixtureMemory.whatsappFixtureState ??= new Map());
-
-export async function listWhatsappEvents(): Promise<WhatsappEventView[]> {
-  if (whatsappFixtureEnabled()) return [...fixtureSent, ...whatsappFixtureEvents()];
-  const rows = await prisma.whatsappWebhookEvent.findMany({
-    orderBy: { receivedAt: "desc" },
-    take: WHATSAPP_EVENT_LIMIT,
-  });
-  return rows.map((row) => ({
-    id: row.id,
-    receivedAt: row.receivedAt.toISOString(),
-    field: row.field,
-    direction: directionLabel(row.field),
-    fromWaId: row.fromWaId,
-    toWaId: row.toWaId,
-    messageId: row.messageId,
-    messageType: row.messageType,
-    textPreview: row.textPreview,
-    rawBody: row.rawBody,
-  }));
-}
 
 /**
  * Store a reply sent through the API. The webhook never echoes API sends (only
@@ -87,7 +66,7 @@ export async function appendApiSend(input: {
 }
 
 /** Fixture chats: built from the fixture events like the old inbox, plus in-memory CRM state. */
-type FixtureCrm = Pick<ChatSummary, "stageId" | "folderId" | "tagIds" | "stageBy" | "folderBy" | "tagsBy" | "aiReason">;
+type FixtureCrm = Pick<ChatSummary, "stageId" | "folderId" | "tagIds" | "stageBy" | "folderBy" | "tagsBy" | "aiReason" | "intent" | "signupChance" | "insightBy">;
 const fixtureCrm = ((fixtureMemory as { whatsappFixtureCrm?: Map<string, FixtureCrm> }).whatsappFixtureCrm ??= new Map());
 
 function fixtureEvents() {
@@ -117,6 +96,9 @@ export async function listChats(q = ""): Promise<ChatSummary[]> {
         folderBy: null,
         tagsBy: null,
         aiReason: null,
+        intent: null,
+        signupChance: null,
+        insightBy: null,
         ...fixtureCrm.get(chat.customer),
       };
     });
@@ -144,7 +126,7 @@ export async function listLabels(): Promise<Label[]> {
   return rows.map(toLabel);
 }
 
-export type CrmPatch = Partial<Pick<ChatSummary, "stageId" | "folderId" | "tagIds" | "stageBy" | "folderBy" | "tagsBy" | "aiReason">> & {
+export type CrmPatch = Partial<Pick<ChatSummary, "stageId" | "folderId" | "tagIds" | "stageBy" | "folderBy" | "tagsBy" | "aiReason" | "intent" | "signupChance" | "insightBy">> & {
   classifiedAt?: Date | null;
 };
 
@@ -152,7 +134,7 @@ export async function updateCrm(waId: string, patch: CrmPatch): Promise<void> {
   if (whatsappFixtureEnabled()) {
     const { classifiedAt: _ignored, ...rest } = patch;
     void _ignored;
-    fixtureCrm.set(waId, { ...(fixtureCrm.get(waId) ?? { stageId: null, folderId: null, tagIds: [], stageBy: null, folderBy: null, tagsBy: null, aiReason: null }), ...rest });
+    fixtureCrm.set(waId, { ...(fixtureCrm.get(waId) ?? { stageId: null, folderId: null, tagIds: [], stageBy: null, folderBy: null, tagsBy: null, aiReason: null, intent: null, signupChance: null, insightBy: null }), ...rest });
     return;
   }
   await prisma.whatsappConversation.upsert({ where: { waId }, create: { waId, ...patch }, update: patch });
