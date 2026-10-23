@@ -127,8 +127,16 @@ function scheduleClassify(waId) {
 async function onMessages({ messages }) {
   const me = state.me;
   for (const msg of messages ?? []) {
-    const waId = customerWaId(msg.key);
-    if (!waId || !me) continue;
+    let waId = customerWaId(msg.key);
+    // A live LID chat without remoteJidAlt (often our own replies from the phone): ask Baileys for the number.
+    if (!waId && msg.key?.remoteJid?.endsWith("@lid")) {
+      const [m] = (await sock?.signalRepository?.lidMapping?.getPNsForLIDs([msg.key.remoteJid]).catch(() => null)) ?? [];
+      if (m?.pn) waId = customerWaId(msg.key, new Map([[m.lid, m.pn]]));
+    }
+    if (!waId || !me) {
+      if (msg.key?.remoteJid?.endsWith("@lid")) logger.warn({ jid: msg.key.remoteJid }, "dropped a message: no phone number for this LID chat");
+      continue;
+    }
     if (msg.key.fromMe && sentIds.has(msg.key.id)) continue;
     const converted = toCloudItem(msg, waId, me);
     if (!converted) continue;
