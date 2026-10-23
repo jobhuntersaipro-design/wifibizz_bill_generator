@@ -16,6 +16,7 @@ import {
   type WhatsappContact,
 } from "@/actions/whatsapp";
 import { ChevronRight, Loader2, Sparkles } from "lucide-react";
+import { Progress as ArcProgress } from "@/components/arc/components/progress/progress";
 import {
   contactName,
   isClosed,
@@ -296,15 +297,13 @@ function WhatsappInbox({
               <span className="shrink-0 rounded-full bg-wash px-1.5 py-0.5 text-[11px] font-medium text-ink-muted">Closed</span>
             ) : null}
           </span>
-          {(stage || chat.signupChance !== null) && (
+          {stage && (
             <span className="mt-1.5 flex flex-wrap gap-1">
-              {chat.signupChance !== null && (
-                <span title={chat.intent ?? undefined} className="rounded-full bg-wash px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-ink">
-                  {chat.signupChance}%<span className="sr-only"> sign-up chance</span>
-                </span>
-              )}
-              {stage && <LabelChip label={stage} />}
-                                      </span>
+              <LabelChip label={stage} />
+            </span>
+          )}
+          {chat.signupChance !== null && (
+            <ArcProgress value={chat.signupChance} label="Sign-up chance" showValue className="mt-2 text-xs" />
           )}
         </button>
       </li>
