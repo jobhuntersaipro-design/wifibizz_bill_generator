@@ -111,6 +111,19 @@ async function saveMedia(msg, field, id) {
   }
 }
 
+const CLASSIFY_DELAY_MS = Number(process.env.WHATSAPP_CLASSIFY_DELAY_S || 180) * 1000;
+const classifyTimers = new Map();
+
+/** Each customer message restarts the chat's quiet timer; when it runs out, BizzFlow sorts the chat once. */
+// ponytail: in-memory timers, a restart drops pending ones (the next message re-arms them).
+function scheduleClassify(waId) {
+  clearTimeout(classifyTimers.get(waId));
+  classifyTimers.set(waId, setTimeout(() => {
+    classifyTimers.delete(waId);
+    void postWebhook({ object: "bizzflow", classify: waId });
+  }, CLASSIFY_DELAY_MS));
+}
+
 async function onMessages({ messages }) {
   const me = state.me;
   for (const msg of messages ?? []) {
@@ -128,6 +141,7 @@ async function onMessages({ messages }) {
       ? envelope("smb_message_echoes", "message_echoes", [converted.item])
       : envelope("messages", "messages", [converted.item], { contacts: contactEntry(waId, msg.pushName) });
     await postWebhook(body);
+    if (!msg.key.fromMe) scheduleClassify(waId);
   }
 }
 

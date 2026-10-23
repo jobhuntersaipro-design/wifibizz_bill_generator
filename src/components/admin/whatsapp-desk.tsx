@@ -9,6 +9,7 @@ import {
   getWhatsappContact,
   markWhatsappRead,
   releaseWhatsappChatLabel,
+  setWhatsappChatInsight,
   setWhatsappChatLabel,
   setWhatsappClosed,
   type CrmField,
@@ -229,8 +230,18 @@ function WhatsappInbox({
     }
   }
 
+  async function setInsight(chat: ChatSummary, intent: string, signupChance: number | null) {
+    const prev = { ...chat };
+    patchChat(chat.customer, { intent: intent.trim() || null, signupChance, insightBy: "admin" });
+    const res = await setWhatsappChatInsight(chat.customer, intent, signupChance);
+    if (!res.success) {
+      toast.error(res.error);
+      patchChat(chat.customer, prev);
+    }
+  }
+
   async function release(chat: ChatSummary, field: CrmField) {
-    const by = field === "stage" ? "stageBy" : field === "folder" ? "folderBy" : "tagsBy";
+    const by = field === "stage" ? "stageBy" : field === "folder" ? "folderBy" : field === "insight" ? "insightBy" : "tagsBy";
     patchChat(chat.customer, { [by]: null });
     const res = await releaseWhatsappChatLabel(chat.customer, field);
     if (!res.success) {
@@ -238,7 +249,7 @@ function WhatsappInbox({
       patchChat(chat.customer, { [by]: "admin" });
       return;
     }
-    toast.success("Handed back to AI. It re-sorts on the customer's next message.");
+    toast.success("Handed back to AI. It re-sorts 3 minutes after the customer's next message.");
   }
 
   const crm = active ? (
@@ -246,6 +257,7 @@ function WhatsappInbox({
       chat={active}
       labels={labels}
       onSet={(field, value) => void setLabel(active, field, value)}
+      onSetInsight={(intent, chance) => void setInsight(active, intent, chance)}
       onRelease={(field) => void release(active, field)}
     />
   ) : null;
@@ -333,8 +345,13 @@ function WhatsappInbox({
                           </span>
                         ) : null}
                       </span>
-                      {(stage || tags.length > 0) && (
+                      {(stage || tags.length > 0 || chat.signupChance !== null) && (
                         <span className="mt-1.5 flex flex-wrap gap-1">
+                          {chat.signupChance !== null && (
+                            <span title={chat.intent ?? undefined} className="rounded-full bg-wash px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-ink">
+                              {chat.signupChance}%<span className="sr-only"> sign-up chance</span>
+                            </span>
+                          )}
                           {stage && <LabelChip label={stage} />}
                           {tags.map((t) => <LabelChip key={t.id} label={t} />)}
                         </span>

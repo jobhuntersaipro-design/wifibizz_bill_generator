@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 
-import { chatUpdates, liveInboundChats, parseWebhook } from "@/lib/whatsapp-store";
+import { chatUpdates, parseWebhook } from "@/lib/whatsapp-store";
 import {
   applyClassification,
   classificationSchema,
@@ -41,19 +41,6 @@ describe("parseWebhook", () => {
     expect(sent.messages[0]).toMatchObject({ source: "bizzflow", fromMe: true, waId: "60111222333" });
     const live = parseWebhook(body("messages", { messages: [{ from: "60111222333", id: "I1", timestamp: "1", type: "image", image: { id: "I1", mime_type: "image/jpeg" } }] }));
     expect(live.messages[0]).toMatchObject({ source: "live", media: { id: "I1", kind: "image", mime: "image/jpeg" } });
-  });
-
-  it("re-sorts only chats with a live customer message", () => {
-    const live = parseWebhook(body("messages", {
-      messages: [
-        { from: "60111222333", id: "L1", timestamp: "1", type: "text", text: { body: "hi" } },
-        { from: "60111222333", id: "L2", timestamp: "2", type: "text", text: { body: "price?" } },
-      ],
-      message_echoes: [{ from: "60100000000", to: "60999888777", id: "E1", timestamp: "3", type: "text", text: { body: "RM129" } }],
-    }));
-    expect(liveInboundChats(live)).toEqual(["60111222333"]);
-    const history = parseWebhook(body("history", { messages: [{ from: "60111222333", id: "H1", timestamp: "1", type: "text", text: { body: "old" } }] }));
-    expect(liveInboundChats(history)).toEqual([]);
   });
 
   it("reads statuses and ignores junk", () => {
@@ -106,26 +93,26 @@ const EMPTY: CurrentCrm = { stageId: null, folderId: null, tagIds: [], stageBy: 
 
 describe("classification", () => {
   it("maps names to ids and marks them AI-set", () => {
-    const patch = applyClassification({ stage: "Interested", folder: "Home Fibre", tags: ["Price question", "Price question"], reason: "Asked for RM129 plan." }, LABELS, EMPTY);
-    expect(patch).toEqual({ aiReason: "Asked for RM129 plan.", stageId: "s2", stageBy: "ai", folderId: "f1", folderBy: "ai", tagIds: ["t1"], tagsBy: "ai" });
+    const patch = applyClassification({ stage: "Interested", folder: "Home Fibre", tags: ["Price question", "Price question"], reason: "Asked for RM129 plan.", intent: " Wants 300Mbps price ", signupChance: 72.4 }, LABELS, EMPTY);
+    expect(patch).toEqual({ aiReason: "Asked for RM129 plan.", stageId: "s2", stageBy: "ai", folderId: "f1", folderBy: "ai", tagIds: ["t1"], tagsBy: "ai", intent: "Wants 300Mbps price", signupChance: 72, insightBy: "ai" });
   });
 
   it("never touches a field an admin set", () => {
     const patch = applyClassification(
-      { stage: "New", folder: "Home Fibre", tags: ["Complaint"], reason: "x" },
+      { stage: "New", folder: "Home Fibre", tags: ["Complaint"], reason: "x", intent: "y", signupChance: 150 },
       LABELS,
-      { stageId: "s2", folderId: null, tagIds: ["t1"], stageBy: "admin", folderBy: null, tagsBy: "admin" },
+      { stageId: "s2", folderId: null, tagIds: ["t1"], stageBy: "admin", folderBy: null, tagsBy: "admin", insightBy: "admin" },
     );
     expect(patch).toEqual({ aiReason: "x", folderId: "f1", folderBy: "ai" });
   });
 
   it("drops invented names and does not clear on an empty answer", () => {
     const patch = applyClassification(
-      { stage: "VIP", folder: "", tags: ["Made up"], reason: "" },
+      { stage: "VIP", folder: "", tags: ["Made up"], reason: "", intent: "", signupChance: 150 },
       LABELS,
       { ...EMPTY, stageId: "s1", stageBy: "ai", tagIds: ["t2"], tagsBy: "ai" },
     );
-    expect(patch).toEqual({ aiReason: null });
+    expect(patch).toEqual({ aiReason: null, intent: null, signupChance: 100, insightBy: "ai" });
   });
 
   it("schema enums are the admin's lists", () => {
@@ -146,7 +133,9 @@ describe("classification", () => {
   });
 
   it("parses the model's JSON defensively", () => {
-    expect(parseClassification('{"stage":"New","folder":"","tags":["a",1],"reason":"r"}')).toEqual({ stage: "New", folder: "", tags: ["a"], reason: "r" });
+    expect(parseClassification('{"stage":"New","folder":"","tags":["a",1],"reason":"r","intent":"i","signup_chance":40}'))
+      .toEqual({ stage: "New", folder: "", tags: ["a"], reason: "r", intent: "i", signupChance: 40 });
+    expect(parseClassification('{"stage":"New","signup_chance":"high"}')?.signupChance).toBe(0);
     expect(parseClassification("not json")).toBeNull();
   });
 });

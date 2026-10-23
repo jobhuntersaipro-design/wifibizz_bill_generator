@@ -17,6 +17,13 @@ const findMany = vi.fn();
 const verifyAdmin = vi.fn();
 const ingest = vi.fn();
 const listChatSummaries = vi.fn();
+const classify = vi.fn();
+
+vi.mock("@/lib/whatsapp-crm", () => ({ classifyDueChats: (...args: unknown[]) => classify(...args) }));
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after: (fn: () => unknown) => fn(),
+}));
 
 vi.mock("@/lib/whatsapp-store", () => ({
   ingestWebhook: (...args: unknown[]) => ingest(...args),
@@ -306,6 +313,23 @@ describe("POST", () => {
     const res = await webhookPost(JSON.stringify(INBOUND));
     expect(res.status).toBe(401);
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("sorts a chat on the gateway's quiet-timer ping and stores nothing", async () => {
+    process.env.WHATSAPP_WEBHOOK_SECRET = "whsec";
+    classify.mockResolvedValue({});
+    const res = await webhookPost(JSON.stringify({ object: "bizzflow", classify: "60123456789" }), { "x-webhook-secret": "whsec" });
+    expect(res.status).toBe(200);
+    expect(classify).toHaveBeenCalledWith(["60123456789"]);
+    expect(create).not.toHaveBeenCalled();
+    expect(ingest).not.toHaveBeenCalled();
+  });
+
+  it("refuses the quiet-timer ping without the secret", async () => {
+    process.env.WHATSAPP_WEBHOOK_SECRET = "whsec";
+    const res = await webhookPost(JSON.stringify({ object: "bizzflow", classify: "60123456789" }));
+    expect(res.status).toBe(401);
+    expect(classify).not.toHaveBeenCalled();
   });
 
   it("rejects a missing webhook secret and stores nothing", async () => {

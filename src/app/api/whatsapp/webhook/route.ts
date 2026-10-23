@@ -52,6 +52,13 @@ export async function POST(req: Request) {
       parsed = null;
     }
   }
+  // The gateway's "this chat went quiet for 3 minutes" ping: sort it, store nothing.
+  const classify = (parsed as { classify?: unknown } | null)?.classify;
+  if (typeof classify === "string" && /^\d{6,20}$/.test(classify)) {
+    after(() => classifyDueChats([classify]).catch((e) => console.error("[whatsapp/webhook] classify failed:", e)));
+    return new NextResponse("CLASSIFY_QUEUED", { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+  }
+
   const extracted = parsed === null ? extractWhatsappEvent(null) : extractWhatsappEvent(parsed);
 
   try {
@@ -60,9 +67,7 @@ export async function POST(req: Request) {
     });
     // One row per message for the inbox. A failure here is a 500, so the gateway
     // retries; the raw row may repeat, the messages do not (keyed on the WhatsApp id).
-    const fresh = parsed !== null ? await ingestWebhook(parsed) : [];
-    // Sort the chat as each customer message lands, after the reply to the gateway.
-    if (fresh?.length) after(() => classifyDueChats(fresh).catch((e) => console.error("[whatsapp/webhook] classify failed:", e)));
+    if (parsed !== null) await ingestWebhook(parsed);
   } catch (error) {
     console.error(
       "[whatsapp/webhook] store failed:",

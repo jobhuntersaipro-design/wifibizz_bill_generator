@@ -66,7 +66,7 @@ export async function appendApiSend(input: {
 }
 
 /** Fixture chats: built from the fixture events like the old inbox, plus in-memory CRM state. */
-type FixtureCrm = Pick<ChatSummary, "stageId" | "folderId" | "tagIds" | "stageBy" | "folderBy" | "tagsBy" | "aiReason">;
+type FixtureCrm = Pick<ChatSummary, "stageId" | "folderId" | "tagIds" | "stageBy" | "folderBy" | "tagsBy" | "aiReason" | "intent" | "signupChance" | "insightBy">;
 const fixtureCrm = ((fixtureMemory as { whatsappFixtureCrm?: Map<string, FixtureCrm> }).whatsappFixtureCrm ??= new Map());
 
 function fixtureEvents() {
@@ -96,6 +96,9 @@ export async function listChats(q = ""): Promise<ChatSummary[]> {
         folderBy: null,
         tagsBy: null,
         aiReason: null,
+        intent: null,
+        signupChance: null,
+        insightBy: null,
         ...fixtureCrm.get(chat.customer),
       };
     });
@@ -123,7 +126,7 @@ export async function listLabels(): Promise<Label[]> {
   return rows.map(toLabel);
 }
 
-export type CrmPatch = Partial<Pick<ChatSummary, "stageId" | "folderId" | "tagIds" | "stageBy" | "folderBy" | "tagsBy" | "aiReason">> & {
+export type CrmPatch = Partial<Pick<ChatSummary, "stageId" | "folderId" | "tagIds" | "stageBy" | "folderBy" | "tagsBy" | "aiReason" | "intent" | "signupChance" | "insightBy">> & {
   classifiedAt?: Date | null;
 };
 
@@ -131,7 +134,7 @@ export async function updateCrm(waId: string, patch: CrmPatch): Promise<void> {
   if (whatsappFixtureEnabled()) {
     const { classifiedAt: _ignored, ...rest } = patch;
     void _ignored;
-    fixtureCrm.set(waId, { ...(fixtureCrm.get(waId) ?? { stageId: null, folderId: null, tagIds: [], stageBy: null, folderBy: null, tagsBy: null, aiReason: null }), ...rest });
+    fixtureCrm.set(waId, { ...(fixtureCrm.get(waId) ?? { stageId: null, folderId: null, tagIds: [], stageBy: null, folderBy: null, tagsBy: null, aiReason: null, intent: null, signupChance: null, insightBy: null }), ...rest });
     return;
   }
   await prisma.whatsappConversation.upsert({ where: { waId }, create: { waId, ...patch }, update: patch });

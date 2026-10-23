@@ -627,10 +627,23 @@ model WhatsappConversation {
   folderBy      String?   @map("folder_by")
   tagsBy        String?   @map("tags_by")
   aiReason      String?   @map("ai_reason")
+  // Claude's read: what the customer wants, and 0-100 chance they sign up. insightBy covers both.
+  intent        String?
+  signupChance  Int?      @map("signup_chance")
+  insightBy     String?   @map("insight_by")
   classifiedAt  DateTime? @map("classified_at")
 
   @@index([lastMessageAt])
   @@map("whatsapp_conversations")
+}
+
+// One row: the model that sorts chats. Null = WHATSAPP_CRM_MODEL, else Haiku 5.5.
+model WhatsappCrmSettings {
+  id        Int      @id @default(1)
+  model     String?
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("whatsapp_crm_settings")
 }
 
 // One row per WhatsApp message (live, imported history, or sent from BizzFlow).

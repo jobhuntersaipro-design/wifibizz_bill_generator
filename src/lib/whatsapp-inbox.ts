@@ -327,6 +327,11 @@ export interface ChatSummary {
   folderBy: LabelSetter | null;
   tagsBy: LabelSetter | null;
   aiReason: string | null;
+  /** Claude's one-line read of what the customer wants. */
+  intent: string | null;
+  /** 0-100, Claude's guess that this chat signs up. */
+  signupChance: number | null;
+  insightBy: LabelSetter | null;
 }
 
 export type LabelSetter = "ai" | "admin";

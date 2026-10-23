@@ -12,11 +12,16 @@ is not treated as a name (`contactName`). Raw events tab, its component and `lis
 on Refresh and while a thread loads. The "AI will sort this within 5 minutes" toast was false: the classify cron
 was removed on 2026-10-21, so nothing sorts chats now; the toast says "Handed back to AI."
 
-Sorting is back without a schedule (asked same day): each webhook carrying a live customer message (not a history
-import) runs `classifyDueChats(<those chats>)` in `after()`, so the gateway gets its 200 first. No extra Neon wake:
-the webhook already writes. History-only chats stay unsorted until the customer writes again. A chat handed back to
-AI is re-sorted on the customer's next message. Also fixed: 4 webhook tests still drove the removed raw-events view.
-NOT verified: a real Anthropic call from the webhook (no key here).
+Sorting is back without a schedule, debounced on the droplet (decided same day): every live customer message restarts
+a 3-minute per-chat timer in the gateway (`scheduleClassify`, `WHATSAPP_CLASSIFY_DELAY_S`, in memory, a restart drops
+pending timers); when it fires the gateway posts `{object:"bizzflow", classify:"<waId>"}` to the same webhook URL with
+the same secret, and the route runs `classifyDueChats([waId])` in `after()` and stores nothing. The sort now also
+writes **intent** (≤12 words) and **sign-up chance** (0-100, Claude's guess, not calibrated) — migration
+`20261023120000_whatsapp_insight` (`intent`, `signup_chance`, `insight_by`, plus `whatsapp_crm_settings`). Admin can
+overwrite both in the contact panel (then AI leaves them, "Let AI manage" hands back); the % shows as a badge in the
+chat list, which stays sorted by latest message. Model picker on the Settings tab (default Haiku 5.5; stored in
+`whatsapp_crm_settings`, then `WHATSAPP_CRM_MODEL`, then Haiku). **Needs a droplet deploy (new scraper tag)** —
+until then nothing sorts. NOT verified: a real Anthropic call, the gateway timer live, the UI in a browser.
 
 # Current Feature: Installation Contact via New Contact (ClickUp z8v9xnj9m3)
 

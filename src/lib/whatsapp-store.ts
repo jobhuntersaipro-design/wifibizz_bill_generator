@@ -152,13 +152,7 @@ export function chatUpdates(parsed: ParsedWebhook): ChatUpdate[] {
 const PREVIEW_MAX = 300;
 
 /** Store a webhook body. Re-delivered messages are kept once; statuses only move forward. */
-/** Chats that just got a live customer message (not a history import): the ones worth re-sorting. */
-export function liveInboundChats(parsed: ParsedWebhook): string[] {
-  return [...new Set(parsed.messages.filter((m) => !m.fromMe && m.source !== "history").map((m) => m.waId))];
-}
-
-/** Stores the payload; returns the chats that just got a live customer message. */
-export async function ingestWebhook(body: unknown): Promise<string[]> {
+export async function ingestWebhook(body: unknown): Promise<void> {
   const parsed = parseWebhook(body);
   if (parsed.messages.length > 0) {
     await prisma.whatsappMessage.createMany({
@@ -197,7 +191,6 @@ export async function ingestWebhook(body: unknown): Promise<string[]> {
         last_read_at = GREATEST(whatsapp_conversations.last_read_at, EXCLUDED.last_read_at),
         updated_at = now()`;
   }
-  return liveInboundChats(parsed);
 }
 
 let backfilled = false;
@@ -256,6 +249,9 @@ interface SummaryRow {
   folder_by: string | null;
   tags_by: string | null;
   ai_reason: string | null;
+  intent: string | null;
+  signup_chance: number | null;
+  insight_by: string | null;
   unread: number;
 }
 
@@ -267,7 +263,7 @@ export async function listChatSummaries(q = ""): Promise<ChatSummary[]> {
   const like = likePattern(query);
   const rows = await prisma.$queryRaw<SummaryRow[]>`
     SELECT c.wa_id, c.name, c.last_message_at, c.last_inbound_at, c.last_preview, c.closed_at, c.last_read_at,
-           c.stage_id, c.folder_id, c.tag_ids, c.stage_by, c.folder_by, c.tags_by, c.ai_reason,
+           c.stage_id, c.folder_id, c.tag_ids, c.stage_by, c.folder_by, c.tags_by, c.ai_reason, c.intent, c.signup_chance, c.insight_by,
            (SELECT count(*)::int FROM whatsapp_messages m
              WHERE m.wa_id = c.wa_id AND NOT m.from_me
                AND (c.last_read_at IS NULL OR m.sent_at > c.last_read_at)) AS unread
@@ -293,6 +289,9 @@ export async function listChatSummaries(q = ""): Promise<ChatSummary[]> {
     folderBy: setter(r.folder_by),
     tagsBy: setter(r.tags_by),
     aiReason: r.ai_reason,
+    intent: r.intent,
+    signupChance: r.signup_chance,
+    insightBy: setter(r.insight_by),
   }));
 }
 

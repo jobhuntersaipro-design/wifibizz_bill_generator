@@ -262,7 +262,7 @@ export async function countWhatsappLabelUse(id: string): Promise<Result<number>>
   return { success: true, data: count };
 }
 
-export type CrmField = "stage" | "folder" | "tags";
+export type CrmField = "stage" | "folder" | "tags" | "insight";
 
 /** An admin sets a chat's stage, folder or tags. Claude leaves that field alone afterwards. */
 export async function setWhatsappChatLabel(
@@ -273,6 +273,7 @@ export async function setWhatsappChatLabel(
   const denied = await requireAdmin();
   if (denied) return denied;
   if (!WA_ID.test(waId)) return { success: false, error: "Invalid WhatsApp number." };
+  if (field === "insight") return { success: false, error: "Use setWhatsappChatInsight." };
   const ids = field === "tags" ? (Array.isArray(value) ? value : []) : typeof value === "string" ? [value] : [];
   if (!whatsappFixtureEnabled() && ids.length > 0) {
     const kind = field === "tags" ? "tag" : field;
@@ -298,11 +299,53 @@ export async function releaseWhatsappChatLabel(waId: string, field: CrmField): P
   if (denied) return denied;
   if (!WA_ID.test(waId)) return { success: false, error: "Invalid WhatsApp number." };
   const patch: CrmPatch =
-    field === "stage" ? { stageBy: null } : field === "folder" ? { folderBy: null } : { tagsBy: null };
+    field === "stage" ? { stageBy: null }
+    : field === "folder" ? { folderBy: null }
+    : field === "insight" ? { insightBy: null }
+    : { tagsBy: null };
   try {
     await updateCrm(waId, { ...patch, classifiedAt: null });
   } catch {
     return { success: false, error: "Could not update the chat." };
   }
+  return { success: true, data: undefined };
+}
+
+/** An admin overwrites the intent and sign-up chance; Claude leaves both alone afterwards. */
+export async function setWhatsappChatInsight(waId: string, intent: string, signupChance: number | null): Promise<Result> {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+  if (!WA_ID.test(waId)) return { success: false, error: "Invalid WhatsApp number." };
+  if (signupChance !== null && !(Number.isInteger(signupChance) && signupChance >= 0 && signupChance <= 100)) {
+    return { success: false, error: "Sign-up chance is a whole number from 0 to 100." };
+  }
+  try {
+    await updateCrm(waId, { intent: intent.trim().slice(0, 120) || null, signupChance, insightBy: "admin" });
+  } catch {
+    return { success: false, error: "Could not update the chat." };
+  }
+  await recordAudit({ actor: ADMIN_ACTOR, action: "whatsapp_chat_labelled", detail: `Set the intent of WhatsApp chat ${waId}.` });
+  return { success: true, data: undefined };
+}
+
+/** The model that sorts chats. Blank = the default (Haiku 5.5 unless WHATSAPP_CRM_MODEL is set). */
+export async function getWhatsappCrmModel(): Promise<Result<string | null>> {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+  const row = await prisma.whatsappCrmSettings.findUnique({ where: { id: 1 } }).catch(() => null);
+  return { success: true, data: row?.model ?? null };
+}
+
+export async function saveWhatsappCrmModel(model: string | null): Promise<Result> {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+  const clean = model?.trim() || null;
+  if (clean && !/^claude-[a-z0-9.-]{1,60}$/.test(clean)) return { success: false, error: "That is not a Claude model id." };
+  try {
+    await prisma.whatsappCrmSettings.upsert({ where: { id: 1 }, create: { id: 1, model: clean }, update: { model: clean } });
+  } catch {
+    return { success: false, error: "Could not save the model." };
+  }
+  await recordAudit({ actor: ADMIN_ACTOR, action: "whatsapp_crm_model", detail: `WhatsApp sorting model set to ${clean ?? "default"}.` });
   return { success: true, data: undefined };
 }
