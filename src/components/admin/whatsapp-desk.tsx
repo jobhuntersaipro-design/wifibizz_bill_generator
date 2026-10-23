@@ -6,6 +6,7 @@ import { WhatsappContactPanel } from "@/components/admin/whatsapp-contact";
 import { LabelChip, WhatsappCrmControls, WhatsappLabelSettings } from "@/components/admin/whatsapp-crm";
 import { WhatsappThread } from "@/components/admin/whatsapp-thread";
 import {
+  analyzeWhatsappChat,
   getWhatsappContact,
   markWhatsappRead,
   releaseWhatsappChatLabel,
@@ -252,6 +253,19 @@ function WhatsappInbox({
     toast.success("Handed back to AI. It re-sorts 3 minutes after the customer's next message.");
   }
 
+  const [analyzing, setAnalyzing] = useState<string | null>(null);
+  async function analyze(chat: ChatSummary) {
+    setAnalyzing(chat.customer);
+    const res = await analyzeWhatsappChat(chat.customer);
+    setAnalyzing(null);
+    if (!res.success) {
+      toast.error(res.error);
+      return;
+    }
+    toast.success("AI analysis done.");
+    await load(false);
+  }
+
   const crm = active ? (
     <WhatsappCrmControls
       chat={active}
@@ -259,6 +273,8 @@ function WhatsappInbox({
       onSet={(field, value) => void setLabel(active, field, value)}
       onSetInsight={(intent, chance) => void setInsight(active, intent, chance)}
       onRelease={(field) => void release(active, field)}
+      onAnalyze={() => void analyze(active)}
+      analyzing={analyzing === active.customer}
     />
   ) : null;
 

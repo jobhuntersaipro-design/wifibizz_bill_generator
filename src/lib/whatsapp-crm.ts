@@ -244,3 +244,22 @@ export async function classifyDueChats(only?: string[]): Promise<ClassifyRun> {
   }
   return run;
 }
+
+/** Sort one chat now, whatever its age or last sorting (the "AI Analysis" button). Admin-set fields stay. */
+export async function classifyChatNow(waId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const key = cleanApiKey(process.env.ANTHROPIC_API_KEY);
+  const problem = apiKeyProblem(key);
+  if (problem) return { ok: false, error: problem };
+  const labels = (await prisma.whatsappLabel.findMany({ orderBy: [{ sort: "asc" }, { name: "asc" }] })).map((l) => ({
+    ...l,
+    kind: l.kind as LabelKind,
+  }));
+  const [row] = await prisma.$queryRaw<DueRow[]>`
+    SELECT wa_id, stage_id, folder_id, tag_ids, stage_by, folder_by, tags_by, insight_by
+    FROM whatsapp_conversations WHERE wa_id = ${waId}`;
+  if (!row) return { ok: false, error: "Chat not found." };
+  const result = await classifyOne(new Anthropic({ apiKey: key, authToken: null }), await crmModel(), labels, row);
+  if (result === "failed") return { ok: false, error: "Claude could not sort this chat. Try again." };
+  if (result === "skipped") return { ok: false, error: "Every field is set by admin. Hand one back to AI first." };
+  return { ok: true };
+}

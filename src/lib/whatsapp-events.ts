@@ -110,8 +110,8 @@ export async function getThread(waId: string): Promise<InboxMessage[]> {
 }
 
 const FIXTURE_LABELS: Label[] = [
-  { id: "seed_stage_new", kind: "stage", name: "New", description: "First contact.", color: "gray", sort: 0 },
-  { id: "seed_stage_interested", kind: "stage", name: "Interested", description: "Asked about a plan or price.", color: "blue", sort: 1 },
+  { id: "stage_new_lead", kind: "stage", name: "🆕 New Lead", description: "First contact.", color: "gray", sort: 0 },
+  { id: "stage_plan_selected", kind: "stage", name: "⬆️ Plan Selected", description: "Picked a plan.", color: "blue", sort: 1 },
   { id: "seed_folder_home", kind: "folder", name: "Home Fibre", description: "Residential internet.", color: "blue", sort: 0 },
   { id: "seed_tag_price", kind: "tag", name: "Price question", description: "Asks how much a plan costs.", color: "blue", sort: 0 },
 ];

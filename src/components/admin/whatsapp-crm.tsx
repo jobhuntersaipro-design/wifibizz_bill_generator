@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "@/lib/toast";
+import { Loader2, Sparkles } from "lucide-react";
 import {
   countWhatsappLabelUse,
   deleteWhatsappLabel,
@@ -42,12 +43,16 @@ export function WhatsappCrmControls({
   onSet,
   onSetInsight,
   onRelease,
+  onAnalyze,
+  analyzing,
 }: {
   chat: ChatSummary;
   labels: Label[];
   onSet: (field: CrmField, value: string | string[] | null) => void;
   onSetInsight: (intent: string, signupChance: number | null) => void;
   onRelease: (field: CrmField) => void;
+  onAnalyze: () => void;
+  analyzing: boolean;
 }) {
   const of = (kind: LabelKind) => labels.filter((l) => l.kind === kind);
   const select = (field: "stage" | "folder", value: string | null, by: LabelSetter | null) => (
@@ -72,6 +77,15 @@ export function WhatsappCrmControls({
 
   return (
     <div className="space-y-3">
+      <button
+        type="button"
+        onClick={onAnalyze}
+        disabled={analyzing}
+        className="flex w-full items-center justify-center gap-2 rounded-lg border border-line px-3 py-2 text-sm font-medium text-ink hover:bg-wash disabled:opacity-60"
+      >
+        {analyzing ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Sparkles className="size-4" aria-hidden />}
+        {analyzing ? "Analysing…" : "AI Analysis"}
+      </button>
       <Insight key={`${chat.customer}:${chat.intent}:${chat.signupChance}`} chat={chat} onSave={onSetInsight} onRelease={() => onRelease("insight")} />
       {select("stage", chat.stageId, chat.stageBy)}
       {chat.aiReason && chat.stageBy !== "admin" && <p className="text-xs text-ink-muted">AI: {chat.aiReason}</p>}

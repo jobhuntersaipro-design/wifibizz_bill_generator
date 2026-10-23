@@ -7,6 +7,7 @@ import { appendApiSend, updateConversation, updateCrm, type CrmPatch } from "@/l
 import { whatsappFixtureEnabled } from "@/lib/whatsapp-inbox-fixture";
 import { LABEL_COLORS, phoneVariants, type LabelKind } from "@/lib/whatsapp-inbox";
 import { STATUS_LABELS } from "@/lib/order-types";
+import { classifyChatNow } from "@/lib/whatsapp-crm";
 import {
   gatewayAction,
   gatewayConfig,
@@ -309,6 +310,15 @@ export async function releaseWhatsappChatLabel(waId: string, field: CrmField): P
     return { success: false, error: "Could not update the chat." };
   }
   return { success: true, data: undefined };
+}
+
+/** "AI Analysis": Claude sorts this chat now. */
+export async function analyzeWhatsappChat(waId: string): Promise<Result> {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+  if (!WA_ID.test(waId)) return { success: false, error: "Invalid WhatsApp number." };
+  const res = await classifyChatNow(waId).catch(() => ({ ok: false as const, error: "Could not reach Claude." }));
+  return res.ok ? { success: true, data: undefined } : { success: false, error: res.error };
 }
 
 /** An admin overwrites the intent and sign-up chance; Claude leaves both alone afterwards. */
