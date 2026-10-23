@@ -45,7 +45,8 @@ export function WhatsappDesk({
   initialLabels: Label[];
 }) {
   const [view, setView] = useState<View>("inbox");
-  const [connected, setConnected] = useState(false);
+  // null = unknown (still loading or the gateway did not answer): keep showing the inbox.
+  const [connected, setConnected] = useState<boolean | null>(null);
   const [labels, setLabels] = useState(initialLabels);
 
   const reloadLabels = useCallback(async () => {
@@ -77,7 +78,13 @@ export function WhatsappDesk({
             Press <strong>AI Analysis</strong> on a chat to run it now. Stages you set by hand are kept until you choose &quot;Let AI manage&quot;.
           </span>
         </p>
-        <WhatsappInbox initialChats={initialChats} labels={labels} onLabels={setLabels} connected={connected} />
+        {connected === false ? (
+          <p className="rounded-lg border border-line bg-white px-4 py-10 text-center text-sm text-ink-muted">
+            No WhatsApp number linked. Scan the QR above; the linked number&apos;s chats load here.
+          </p>
+        ) : (
+          <WhatsappInbox initialChats={initialChats} labels={labels} onLabels={setLabels} connected={connected === true} />
+        )}
         </>
       ) : (
         <WhatsappLabelSettings labels={labels} onChanged={() => void reloadLabels()} />

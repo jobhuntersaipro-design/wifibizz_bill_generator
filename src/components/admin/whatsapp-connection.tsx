@@ -14,7 +14,7 @@ const POLL_LINKED_MS = 30_000;
  * The linked WhatsApp number: a QR to scan from the phone's Linked devices, or
  * the connected number with a way to unlink it.
  */
-export function WhatsappConnection({ onConnectedChange }: { onConnectedChange: (connected: boolean) => void }) {
+export function WhatsappConnection({ onConnectedChange }: { onConnectedChange: (connected: boolean | null) => void }) {
   const [state, setState] = useState<GatewayState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -28,7 +28,7 @@ export function WhatsappConnection({ onConnectedChange }: { onConnectedChange: (
       onConnectedChange(res.data.status === "open");
     } else {
       setError(res.error);
-      onConnectedChange(false);
+      onConnectedChange(null);
     }
   }, [onConnectedChange]);
 
@@ -73,7 +73,7 @@ export function WhatsappConnection({ onConnectedChange }: { onConnectedChange: (
         <span className="ml-auto flex items-center gap-2">
           {confirming ? (
             <>
-              <span className="text-sm text-ink-muted">Unlink this number?</span>
+              <span className="text-sm text-ink-muted">Unlink and clear all chats?</span>
               <button
                 type="button"
                 disabled={busy}

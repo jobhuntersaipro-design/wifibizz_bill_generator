@@ -8,10 +8,13 @@ const admin = vi.fn();
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     whatsappWebhookEvent: { create: (...a: unknown[]) => create(...a), findMany: async () => [] },
-    whatsappConversation: { upsert: (...a: unknown[]) => upsert(...a), findMany: async () => [] },
+    whatsappConversation: { upsert: (...a: unknown[]) => upsert(...a), findMany: async () => [], deleteMany: (...a: unknown[]) => wipe("conversations", ...a) },
+    whatsappMessage: { deleteMany: (...a: unknown[]) => wipe("messages", ...a) },
+    $transaction: async (ops: unknown[]) => ops,
   },
 }));
 const ingest = vi.fn();
+const wipe = vi.fn();
 vi.mock("@/lib/whatsapp-store", () => ({
   ingestWebhook: (...a: unknown[]) => ingest(...a),
   listChatSummaries: async () => [],
@@ -250,6 +253,8 @@ describe("send actions", () => {
     expect(res.success && res.data.status).toBe("open");
     expect(await whatsappConnectionAction("logout")).toEqual({ success: true, data: undefined });
     expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: "whatsapp_unlinked" }));
+    expect(wipe).toHaveBeenCalledWith("messages");
+    expect(wipe).toHaveBeenCalledWith("conversations");
   });
 
   it("does not let a non-admin read the QR", async () => {

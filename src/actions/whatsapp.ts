@@ -80,7 +80,9 @@ export async function whatsappConnectionAction(action: "connect" | "logout"): Pr
   const res = await gatewayAction(config, action);
   if (!res.ok) return { success: false, error: res.error };
   if (action === "logout") {
-    await recordAudit({ actor: ADMIN_ACTOR, action: "whatsapp_unlinked", detail: "Unlinked the WhatsApp number from BizzFlow." });
+    // The inbox belongs to the linked number: unlinking clears it, and the next link syncs its own history.
+    await prisma.$transaction([prisma.whatsappMessage.deleteMany(), prisma.whatsappConversation.deleteMany()]);
+    await recordAudit({ actor: ADMIN_ACTOR, action: "whatsapp_unlinked", detail: "Unlinked the WhatsApp number from BizzFlow and cleared its chats." });
   }
   return { success: true, data: undefined };
 }
