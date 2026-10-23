@@ -2,7 +2,7 @@
 
 ## Status
 
-CODE COMPLETE (branch `claude/practical-brahmagupta-tfeotp`). Vercel-only, no migration.
+MERGED TO MAIN 2026-10-23 (`1e5ca8b`). Vercel applies migration `20261023120000_whatsapp_insight` on build; **the droplet needs a new scraper tag** for the 3-minute timer.
 
 ## Notes
 
