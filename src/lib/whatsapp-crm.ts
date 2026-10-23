@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { apiKeyProblem, cleanApiKey } from "@/lib/admin-chat/config";
 import type { CrmPatch } from "@/lib/whatsapp-events";
@@ -195,8 +196,8 @@ export interface ClassifyRun {
   error?: string;
 }
 
-/** Chats with a customer message newer than their last sorting, inside the window. */
-export async function classifyDueChats(): Promise<ClassifyRun> {
+/** Chats with a customer message newer than their last sorting, inside the window; `only` narrows to those chats. */
+export async function classifyDueChats(only?: string[]): Promise<ClassifyRun> {
   const key = cleanApiKey(process.env.ANTHROPIC_API_KEY);
   const problem = apiKeyProblem(key);
   if (problem) return { due: 0, done: 0, skipped: 0, failed: 0, error: problem };
@@ -209,6 +210,7 @@ export async function classifyDueChats(): Promise<ClassifyRun> {
     FROM whatsapp_conversations
     WHERE last_inbound_at > now() - make_interval(days => ${CLASSIFY_WINDOW_DAYS})
       AND (classified_at IS NULL OR last_inbound_at > classified_at)
+      ${only ? Prisma.sql`AND wa_id = ANY(${only})` : Prisma.empty}
     ORDER BY last_inbound_at DESC
     LIMIT ${CLASSIFY_PER_RUN}`;
   const client = new Anthropic({ apiKey: key, authToken: null });

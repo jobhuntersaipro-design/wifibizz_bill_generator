@@ -238,7 +238,7 @@ function WhatsappInbox({
       patchChat(chat.customer, { [by]: "admin" });
       return;
     }
-    toast.success("Handed back to AI.");
+    toast.success("Handed back to AI. It re-sorts on the customer's next message.");
   }
 
   const crm = active ? (

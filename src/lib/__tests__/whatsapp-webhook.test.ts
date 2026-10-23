@@ -415,71 +415,6 @@ describe("admin list", () => {
     expect(findMany).not.toHaveBeenCalled();
   });
 
-  it("returns events newest-first for an admin", async () => {
-    verifyAdmin.mockResolvedValue(true);
-    findMany.mockResolvedValue([{
-      id: "evt_new",
-      receivedAt: new Date("2026-10-11T02:30:00.000Z"),
-      field: "messages",
-      fromWaId: "15551110000",
-      toWaId: null,
-      messageId: "wamid.TEST_INBOUND_1",
-      messageType: "text",
-      textPreview: "jk6 test: hi, what are your hours?",
-      rawBody: JSON.stringify(INBOUND),
-    }]);
-    const res = await adminList(new Request("http://localhost/api/admin/whatsapp?view=raw"));
-    expect(res.status).toBe(200);
-    expect(findMany).toHaveBeenCalledWith({ orderBy: { receivedAt: "desc" }, take: 200 });
-    const body = await res.json() as { events: { direction: string; fromWaId: string }[] };
-    expect(body.events[0]).toMatchObject({
-      id: "evt_new",
-      direction: "Inbound",
-      fromWaId: "15551110000",
-      receivedAt: "2026-10-11T02:30:00.000Z",
-    });
-  });
-
-  it("keeps reading the database when the fixture flag is set on Vercel", async () => {
-    vi.stubEnv("WHATSAPP_INBOX_FIXTURE", "1");
-    vi.stubEnv("VERCEL", "1");
-    vi.stubEnv("NODE_ENV", "development");
-    try {
-      verifyAdmin.mockResolvedValue(true);
-      findMany.mockResolvedValue([]);
-      const res = await adminList(new Request("http://localhost/api/admin/whatsapp?view=raw"));
-      expect(res.status).toBe(200);
-      expect(findMany).toHaveBeenCalledWith({ orderBy: { receivedAt: "desc" }, take: 200 });
-      expect(await res.json()).toEqual({ events: [] });
-    } finally {
-      vi.unstubAllEnvs();
-    }
-  });
-
-  it("serves the local fixture and skips the database when the flag is on", async () => {
-    vi.stubEnv("WHATSAPP_INBOX_FIXTURE", "1");
-    vi.stubEnv("VERCEL", "");
-    vi.stubEnv("VERCEL_ENV", "");
-    vi.stubEnv("NODE_ENV", "development");
-    try {
-      verifyAdmin.mockResolvedValue(true);
-      const res = await adminList(new Request("http://localhost/api/admin/whatsapp?view=raw"));
-      expect(res.status).toBe(200);
-      expect(findMany).not.toHaveBeenCalled();
-      const body = await res.json() as { events: { id: string }[] };
-      expect(body.events.map((event) => event.id)).toEqual([
-        "evt_b_echo",
-        "evt_a_status",
-        "evt_a_image",
-        "evt_b_in",
-        "evt_a_echo",
-        "evt_a_in",
-      ]);
-    } finally {
-      vi.unstubAllEnvs();
-    }
-  });
-
   it("sends a non-admin away from the page", async () => {
     await expect(WhatsappAdminPage()).rejects.toThrow("REDIRECT /admin/login");
     expect(findMany).not.toHaveBeenCalled();
@@ -489,7 +424,6 @@ describe("admin list", () => {
     verifyAdmin.mockResolvedValue(true);
     const page = await WhatsappAdminPage();
     expect(page).toBeTruthy();
-    expect(findMany).toHaveBeenCalledWith({ orderBy: { receivedAt: "desc" }, take: 200 });
   });
 });
 

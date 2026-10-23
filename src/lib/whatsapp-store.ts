@@ -152,7 +152,13 @@ export function chatUpdates(parsed: ParsedWebhook): ChatUpdate[] {
 const PREVIEW_MAX = 300;
 
 /** Store a webhook body. Re-delivered messages are kept once; statuses only move forward. */
-export async function ingestWebhook(body: unknown): Promise<void> {
+/** Chats that just got a live customer message (not a history import): the ones worth re-sorting. */
+export function liveInboundChats(parsed: ParsedWebhook): string[] {
+  return [...new Set(parsed.messages.filter((m) => !m.fromMe && m.source !== "history").map((m) => m.waId))];
+}
+
+/** Stores the payload; returns the chats that just got a live customer message. */
+export async function ingestWebhook(body: unknown): Promise<string[]> {
   const parsed = parseWebhook(body);
   if (parsed.messages.length > 0) {
     await prisma.whatsappMessage.createMany({
@@ -191,6 +197,7 @@ export async function ingestWebhook(body: unknown): Promise<void> {
         last_read_at = GREATEST(whatsapp_conversations.last_read_at, EXCLUDED.last_read_at),
         updated_at = now()`;
   }
+  return liveInboundChats(parsed);
 }
 
 let backfilled = false;

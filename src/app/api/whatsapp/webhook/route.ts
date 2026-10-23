@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { authorizeWhatsappPost, extractWhatsappEvent, verifyChallenge } from "@/lib/whatsapp-webhook";
 import { ingestWebhook } from "@/lib/whatsapp-store";
+import { classifyDueChats } from "@/lib/whatsapp-crm";
 
 export const dynamic = "force-dynamic";
 
@@ -59,7 +60,9 @@ export async function POST(req: Request) {
     });
     // One row per message for the inbox. A failure here is a 500, so the gateway
     // retries; the raw row may repeat, the messages do not (keyed on the WhatsApp id).
-    if (parsed !== null) await ingestWebhook(parsed);
+    const fresh = parsed !== null ? await ingestWebhook(parsed) : [];
+    // Sort the chat as each customer message lands, after the reply to the gateway.
+    if (fresh?.length) after(() => classifyDueChats(fresh).catch((e) => console.error("[whatsapp/webhook] classify failed:", e)));
   } catch (error) {
     console.error(
       "[whatsapp/webhook] store failed:",

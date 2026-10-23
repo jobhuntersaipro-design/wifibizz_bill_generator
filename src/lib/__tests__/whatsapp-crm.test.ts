@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 
-import { chatUpdates, parseWebhook } from "@/lib/whatsapp-store";
+import { chatUpdates, liveInboundChats, parseWebhook } from "@/lib/whatsapp-store";
 import {
   applyClassification,
   classificationSchema,
@@ -41,6 +41,19 @@ describe("parseWebhook", () => {
     expect(sent.messages[0]).toMatchObject({ source: "bizzflow", fromMe: true, waId: "60111222333" });
     const live = parseWebhook(body("messages", { messages: [{ from: "60111222333", id: "I1", timestamp: "1", type: "image", image: { id: "I1", mime_type: "image/jpeg" } }] }));
     expect(live.messages[0]).toMatchObject({ source: "live", media: { id: "I1", kind: "image", mime: "image/jpeg" } });
+  });
+
+  it("re-sorts only chats with a live customer message", () => {
+    const live = parseWebhook(body("messages", {
+      messages: [
+        { from: "60111222333", id: "L1", timestamp: "1", type: "text", text: { body: "hi" } },
+        { from: "60111222333", id: "L2", timestamp: "2", type: "text", text: { body: "price?" } },
+      ],
+      message_echoes: [{ from: "60100000000", to: "60999888777", id: "E1", timestamp: "3", type: "text", text: { body: "RM129" } }],
+    }));
+    expect(liveInboundChats(live)).toEqual(["60111222333"]);
+    const history = parseWebhook(body("history", { messages: [{ from: "60111222333", id: "H1", timestamp: "1", type: "text", text: { body: "old" } }] }));
+    expect(liveInboundChats(history)).toEqual([]);
   });
 
   it("reads statuses and ignores junk", () => {
