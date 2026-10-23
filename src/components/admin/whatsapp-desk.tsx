@@ -59,7 +59,7 @@ export function WhatsappDesk({
         <div>
           <h1 className="text-2xl font-semibold text-ink">WhatsApp</h1>
           <p className="mt-1 hidden text-sm text-ink-muted sm:block">
-            Chats from the linked number, sorted into stages, folders and tags by AI. Replies send from the business number.
+            Chats from the linked number, sorted into lead stages by AI. Replies send from the business number.
           </p>
         </div>
         <div className="flex rounded-lg border border-line bg-white p-0.5">
@@ -300,9 +300,7 @@ function WhatsappInbox({
             })}
           </div>
           <div className="grid grid-cols-3 gap-1">
-            <LabelFilter kind="folder" title="Folder" labels={labels} value={filter.folderId} onChange={(folderId) => setFilter({ ...filter, folderId })} />
             <LabelFilter kind="stage" title="Stage" labels={labels} value={filter.stageId} onChange={(stageId) => setFilter({ ...filter, stageId })} />
-            <LabelFilter kind="tag" title="Tag" labels={labels} value={filter.tagId} onChange={(tagId) => setFilter({ ...filter, tagId })} />
           </div>
           <div className="flex items-center gap-2">
             <label htmlFor="whatsapp-search" className="sr-only">Search name, number or message</label>
@@ -337,7 +335,6 @@ function WhatsappInbox({
                 const on = chat.customer === selected;
                 const stage = chat.stageId ? labelById.get(chat.stageId) : undefined;
                 const name = contactName(chat.name);
-                const tags = chat.tagIds.map((id) => labelById.get(id)).filter((l): l is Label => !!l);
                 return (
                   <li key={chat.customer}>
                     <button
@@ -361,7 +358,7 @@ function WhatsappInbox({
                           </span>
                         ) : null}
                       </span>
-                      {(stage || tags.length > 0 || chat.signupChance !== null) && (
+                      {(stage || chat.signupChance !== null) && (
                         <span className="mt-1.5 flex flex-wrap gap-1">
                           {chat.signupChance !== null && (
                             <span title={chat.intent ?? undefined} className="rounded-full bg-wash px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-ink">
@@ -369,8 +366,7 @@ function WhatsappInbox({
                             </span>
                           )}
                           {stage && <LabelChip label={stage} />}
-                          {tags.map((t) => <LabelChip key={t.id} label={t} />)}
-                        </span>
+                                                  </span>
                       )}
                     </button>
                   </li>
@@ -385,7 +381,7 @@ function WhatsappInbox({
         {active ? (
           <>
             <details className="border-b border-line px-3 py-2 xl:hidden">
-              <summary className="cursor-pointer text-sm font-medium text-ink">Stage, folder & tags</summary>
+              <summary className="cursor-pointer text-sm font-medium text-ink">AI analysis, intent & stage</summary>
               <div className="pt-3">{crm}</div>
             </details>
             {activeMessages ? (

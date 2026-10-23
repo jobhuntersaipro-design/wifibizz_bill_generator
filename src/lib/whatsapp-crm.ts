@@ -223,7 +223,7 @@ export async function classifyDueChats(only?: string[]): Promise<ClassifyRun> {
   const key = cleanApiKey(process.env.ANTHROPIC_API_KEY);
   const problem = apiKeyProblem(key);
   if (problem) return { due: 0, done: 0, skipped: 0, failed: 0, error: problem };
-  const labels = (await prisma.whatsappLabel.findMany({ orderBy: [{ sort: "asc" }, { name: "asc" }] })).map((l) => ({
+  const labels = (await prisma.whatsappLabel.findMany({ where: { kind: "stage" }, orderBy: [{ sort: "asc" }, { name: "asc" }] })).map((l) => ({
     ...l,
     kind: l.kind as LabelKind,
   }));
@@ -250,7 +250,7 @@ export async function classifyChatNow(waId: string): Promise<{ ok: true } | { ok
   const key = cleanApiKey(process.env.ANTHROPIC_API_KEY);
   const problem = apiKeyProblem(key);
   if (problem) return { ok: false, error: problem };
-  const labels = (await prisma.whatsappLabel.findMany({ orderBy: [{ sort: "asc" }, { name: "asc" }] })).map((l) => ({
+  const labels = (await prisma.whatsappLabel.findMany({ where: { kind: "stage" }, orderBy: [{ sort: "asc" }, { name: "asc" }] })).map((l) => ({
     ...l,
     kind: l.kind as LabelKind,
   }));

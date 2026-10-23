@@ -89,30 +89,6 @@ export function WhatsappCrmControls({
       <Insight key={`${chat.customer}:${chat.intent}:${chat.signupChance}`} chat={chat} onSave={onSetInsight} onRelease={() => onRelease("insight")} />
       {select("stage", chat.stageId, chat.stageBy)}
       {chat.aiReason && chat.stageBy !== "admin" && <p className="text-xs text-ink-muted">AI: {chat.aiReason}</p>}
-      {select("folder", chat.folderId, chat.folderBy)}
-      <div>
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Tags</span>
-          <Setter by={chat.tagsBy} onRelease={() => onRelease("tags")} />
-        </div>
-        <div className="mt-1 flex flex-wrap gap-1.5" role="group" aria-label="Tags">
-          {of("tag").length === 0 && <span className="text-sm text-ink-muted">No tags. Add some in Settings.</span>}
-          {of("tag").map((l) => {
-            const on = chat.tagIds.includes(l.id);
-            return (
-              <button
-                key={l.id}
-                type="button"
-                aria-pressed={on}
-                onClick={() => onSet("tags", on ? chat.tagIds.filter((id) => id !== l.id) : [...chat.tagIds, l.id])}
-                className={`min-h-8 rounded-full border px-2.5 text-xs font-medium ${on ? `border-transparent ${LABEL_COLORS[l.color] ?? LABEL_COLORS.gray}` : "border-line text-ink-muted hover:bg-wash"}`}
-              >
-                {l.name}
-              </button>
-            );
-          })}
-        </div>
-      </div>
     </div>
   );
 }
@@ -149,8 +125,6 @@ function Insight({ chat, onSave, onRelease }: { chat: ChatSummary; onSave: (inte
 
 const LISTS: { kind: LabelKind; title: string; help: string }[] = [
   { kind: "stage", title: "Lead stages", help: "One per chat, in pipeline order." },
-  { kind: "folder", title: "Folders", help: "One per chat." },
-  { kind: "tag", title: "Tags", help: "Any number per chat." },
 ];
 
 const COLORS = Object.keys(LABEL_COLORS);
