@@ -281,6 +281,22 @@ async function readJson(req) {
   return JSON.parse(raw || "{}");
 }
 
+// ponytail: in-memory, 6h per number (misses too: hidden pictures and privacy settings return nothing).
+const AVATAR_TTL_MS = 6 * 3600 * 1000;
+const avatars = new Map();
+async function avatarFor(waId) {
+  const hit = avatars.get(waId);
+  if (hit && Date.now() - hit.at < AVATAR_TTL_MS) return hit.bytes;
+  let bytes = null;
+  if (state.status === "open") {
+    const link = await sock.profilePictureUrl(`${waId}@s.whatsapp.net`, "preview").catch(() => null);
+    const res = link ? await fetch(link).catch(() => null) : null;
+    if (res?.ok) bytes = Buffer.from(await res.arrayBuffer());
+  }
+  avatars.set(waId, { bytes, at: Date.now() });
+  return bytes;
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://gateway");
   try {
@@ -314,6 +330,14 @@ const server = http.createServer(async (req, res) => {
       if (state.status !== "open") return json(res, 409, { error: "Not connected." });
       await sock.logout();
       return json(res, 200, { ok: true });
+    }
+
+    const avatar = url.pathname.match(/^\/avatar\/(\d{6,15})$/);
+    if (req.method === "GET" && avatar) {
+      const bytes = await avatarFor(avatar[1]);
+      if (!bytes) return json(res, 404, { error: "no picture" });
+      res.writeHead(200, { "Content-Type": "image/jpeg", "X-Content-Type-Options": "nosniff" });
+      return res.end(bytes);
     }
 
     const media = url.pathname.match(/^\/media\/([A-Za-z0-9]{1,64})$/);

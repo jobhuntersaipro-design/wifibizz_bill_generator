@@ -122,3 +122,13 @@ export async function fetchMedia(config: GatewayConfig, mediaId: string): Promis
     return { ok: false, status: 502 };
   }
 }
+
+/** The contact's WhatsApp profile picture (JPEG preview), if they share one. */
+export async function fetchAvatar(config: GatewayConfig, waId: string): Promise<ArrayBuffer | null> {
+  try {
+    const res = await call(config, `/avatar/${encodeURIComponent(waId)}`);
+    return res.ok && res.headers.get("content-type")?.startsWith("image/jpeg") ? await res.arrayBuffer() : null;
+  } catch {
+    return null;
+  }
+}

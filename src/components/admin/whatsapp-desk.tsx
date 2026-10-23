@@ -280,8 +280,10 @@ function WhatsappInbox({
           type="button"
           onClick={() => select(chat)}
           aria-current={on ? "true" : undefined}
-          className={`w-full border-b border-line/60 px-3 py-3 text-left hover:bg-wash ${on ? "bg-wash" : ""}`}
+          className={`flex w-full gap-3 border-b border-line/60 px-3 py-3 text-left hover:bg-wash ${on ? "bg-wash" : ""}`}
         >
+          <Avatar waId={chat.customer} name={name} />
+          <span className="block min-w-0 flex-1">
           <span className="flex items-baseline justify-between gap-2">
             <span className="truncate text-sm font-medium text-ink">{name ?? <span className="font-mono">+{chat.customer}</span>}</span>
             <span className="shrink-0 text-[11px] text-ink-muted">{formatKualaLumpur(chat.lastAt)}</span>
@@ -305,6 +307,7 @@ function WhatsappInbox({
           {chat.signupChance !== null && (
             <ArcProgress value={chat.signupChance} label="Sign-up chance" showValue className="mt-2 text-xs" />
           )}
+          </span>
         </button>
       </li>
     );
@@ -478,5 +481,20 @@ function LabelFilter({
         {labels.filter((l) => l.kind === kind).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
       </select>
     </>
+  );
+}
+
+/** The contact's WhatsApp picture, or their initials when they have none or hide it. */
+function Avatar({ waId, name }: { waId: string; name: string | null }) {
+  const [failed, setFailed] = useState(false);
+  const initials = name ? name.split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase() : waId.slice(-2);
+  return (
+    <span className="relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-wash text-xs font-semibold text-ink-muted">
+      {initials}
+      {!failed && (
+        // eslint-disable-next-line @next/next/no-img-element -- admin-only proxied image, no optimiser
+        <img src={`/api/admin/whatsapp/avatar?wa=${waId}`} alt="" loading="lazy" onError={() => setFailed(true)} className="absolute inset-0 size-full object-cover" />
+      )}
+    </span>
   );
 }
