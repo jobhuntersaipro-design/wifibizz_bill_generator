@@ -373,3 +373,9 @@ export function matchesFilter(chat: ChatSummary, filter: ChatFilter): boolean {
   if (filter.tagId && !chat.tagIds.includes(filter.tagId)) return false;
   return true;
 }
+
+/** A real contact name, or null. WhatsApp hands out "+60·······98" for a hidden number; that is no name. */
+export function contactName(name: string | null | undefined): string | null {
+  const clean = name?.trim();
+  return clean && /\p{L}/u.test(clean) ? clean : null;
+}

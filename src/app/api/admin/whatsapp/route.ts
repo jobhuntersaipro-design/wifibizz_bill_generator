@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { verifyAdminSession } from "@/lib/admin-auth";
-import { getThread, listChats, listLabels, listWhatsappEvents } from "@/lib/whatsapp-events";
+import { getThread, listChats, listLabels } from "@/lib/whatsapp-events";
 import { whatsappFixtureEnabled } from "@/lib/whatsapp-inbox-fixture";
 import { backfillFromEvents } from "@/lib/whatsapp-store";
 
@@ -16,7 +16,6 @@ export async function GET(req: Request) {
   }
   const url = new URL(req.url);
   const view = url.searchParams.get("view");
-  if (view === "raw") return NextResponse.json({ events: await listWhatsappEvents() });
   if (view === "labels") return NextResponse.json({ labels: await listLabels() });
   const chat = url.searchParams.get("chat");
   if (chat !== null) {

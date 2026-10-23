@@ -4,7 +4,6 @@ import { buildInbox, unreadFor, type ChatSummary, type ConversationState, type I
 import { ingestWebhook, listChatSummaries, listThread } from "@/lib/whatsapp-store";
 import { directionLabel, extractWhatsappEvent, type WhatsappExtract } from "@/lib/whatsapp-webhook";
 
-export const WHATSAPP_EVENT_LIMIT = 200;
 
 export interface WhatsappEventView extends WhatsappExtract {
   id: string;
@@ -25,26 +24,6 @@ const fixtureMemory = globalThis as unknown as {
 };
 const fixtureSent = (fixtureMemory.whatsappFixtureSent ??= []);
 const fixtureState = (fixtureMemory.whatsappFixtureState ??= new Map());
-
-export async function listWhatsappEvents(): Promise<WhatsappEventView[]> {
-  if (whatsappFixtureEnabled()) return [...fixtureSent, ...whatsappFixtureEvents()];
-  const rows = await prisma.whatsappWebhookEvent.findMany({
-    orderBy: { receivedAt: "desc" },
-    take: WHATSAPP_EVENT_LIMIT,
-  });
-  return rows.map((row) => ({
-    id: row.id,
-    receivedAt: row.receivedAt.toISOString(),
-    field: row.field,
-    direction: directionLabel(row.field),
-    fromWaId: row.fromWaId,
-    toWaId: row.toWaId,
-    messageId: row.messageId,
-    messageType: row.messageType,
-    textPreview: row.textPreview,
-    rawBody: row.rawBody,
-  }));
-}
 
 /**
  * Store a reply sent through the API. The webhook never echoes API sends (only

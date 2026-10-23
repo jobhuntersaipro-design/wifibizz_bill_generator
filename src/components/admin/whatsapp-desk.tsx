@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WhatsappConnection } from "@/components/admin/whatsapp-connection";
 import { WhatsappContactPanel } from "@/components/admin/whatsapp-contact";
 import { LabelChip, WhatsappCrmControls, WhatsappLabelSettings } from "@/components/admin/whatsapp-crm";
-import { WhatsappEvents } from "@/components/admin/whatsapp-events";
 import { WhatsappThread } from "@/components/admin/whatsapp-thread";
 import {
   getWhatsappContact,
@@ -15,8 +14,9 @@ import {
   type CrmField,
   type WhatsappContact,
 } from "@/actions/whatsapp";
-import type { WhatsappEventView } from "@/lib/whatsapp-events";
+import { Loader2 } from "lucide-react";
 import {
+  contactName,
   isClosed,
   matchesFilter,
   summaryInTab,
@@ -33,14 +33,12 @@ import { pollWhileVisible } from "@/lib/poll";
 
 const POLL_MS = 8_000;
 
-type View = "inbox" | "raw" | "settings";
+type View = "inbox" | "settings";
 
 export function WhatsappDesk({
-  initialEvents,
   initialChats,
   initialLabels,
 }: {
-  initialEvents: WhatsappEventView[];
   initialChats: ChatSummary[];
   initialLabels: Label[];
 }) {
@@ -65,16 +63,13 @@ export function WhatsappDesk({
         <div className="flex rounded-lg border border-line bg-white p-0.5">
           <ViewButton current={view} id="inbox" onSelect={setView}>Inbox</ViewButton>
           <ViewButton current={view} id="settings" onSelect={setView}>Settings</ViewButton>
-          <ViewButton current={view} id="raw" onSelect={setView}>Raw events</ViewButton>
         </div>
       </div>
       <WhatsappConnection onConnectedChange={setConnected} />
       {view === "inbox" ? (
         <WhatsappInbox initialChats={initialChats} labels={labels} onLabels={setLabels} connected={connected} />
-      ) : view === "settings" ? (
-        <WhatsappLabelSettings labels={labels} onChanged={() => void reloadLabels()} />
       ) : (
-        <WhatsappEvents initial={initialEvents} />
+        <WhatsappLabelSettings labels={labels} onChanged={() => void reloadLabels()} />
       )}
     </div>
   );
@@ -243,7 +238,7 @@ function WhatsappInbox({
       patchChat(chat.customer, { [by]: "admin" });
       return;
     }
-    toast.success("AI will sort this on its next run (within 5 minutes).");
+    toast.success("Handed back to AI.");
   }
 
   const crm = active ? (
@@ -295,8 +290,9 @@ function WhatsappInbox({
               type="button"
               onClick={() => void load(true)}
               disabled={refreshing}
-              className="text-xs font-medium text-brand hover:underline disabled:opacity-60"
+              className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline disabled:opacity-60"
             >
+              {refreshing && <Loader2 className="size-3 animate-spin" aria-hidden />}
               {refreshing ? "Refreshing…" : "Refresh"}
             </button>
           </div>
@@ -312,6 +308,7 @@ function WhatsappInbox({
               {visible.map((chat) => {
                 const on = chat.customer === selected;
                 const stage = chat.stageId ? labelById.get(chat.stageId) : undefined;
+                const name = contactName(chat.name);
                 const tags = chat.tagIds.map((id) => labelById.get(id)).filter((l): l is Label => !!l);
                 return (
                   <li key={chat.customer}>
@@ -322,9 +319,10 @@ function WhatsappInbox({
                       className={`w-full border-b border-line/60 px-3 py-3 text-left hover:bg-wash ${on ? "bg-wash" : ""}`}
                     >
                       <span className="flex items-baseline justify-between gap-2">
-                        <span className={`truncate text-sm font-medium text-ink ${chat.name ? "" : "font-mono"}`}>{chat.name ?? chat.customer}</span>
+                        <span className="truncate text-sm font-medium text-ink">{name ?? <span className="font-mono">+{chat.customer}</span>}</span>
                         <span className="shrink-0 text-[11px] text-ink-muted">{formatKualaLumpur(chat.lastAt)}</span>
                       </span>
+                      {name && <span className="block truncate font-mono text-xs text-ink-muted">+{chat.customer}</span>}
                       <span className="mt-1 flex items-center justify-between gap-2">
                         <span className="truncate text-sm text-ink-muted">{chat.preview}</span>
                         {isClosed(chat.lastInboundAt, chat.closedAt) ? (
@@ -360,7 +358,7 @@ function WhatsappInbox({
             {activeMessages ? (
               <WhatsappThread
                 chat={{ customer: active.customer, messages: activeMessages, lastAt: active.lastAt, preview: active.preview, lastInboundAt: active.lastInboundAt }}
-                name={active.name}
+                name={contactName(active.name)}
                 closedAt={active.closedAt}
                 connected={connected}
                 onBack={() => select(null)}
@@ -368,7 +366,9 @@ function WhatsappInbox({
                 onSent={() => void loadThread(active.customer)}
               />
             ) : (
-              <div className="flex flex-1 items-center justify-center p-8 text-sm text-ink-muted">Loading messages…</div>
+              <div className="flex flex-1 items-center justify-center gap-2 p-8 text-sm text-ink-muted">
+                <Loader2 className="size-4 animate-spin" aria-hidden /> Loading messages…
+              </div>
             )}
           </>
         ) : (
@@ -380,7 +380,7 @@ function WhatsappInbox({
 
       <WhatsappContactPanel
         waId={active?.customer ?? null}
-        name={active?.name}
+        name={contactName(active?.name)}
         contact={active ? contacts[active.customer] : undefined}
         crm={crm}
       />

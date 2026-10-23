@@ -1,3 +1,18 @@
+# Current Feature: WhatsApp inbox polish
+
+## Status
+
+CODE COMPLETE (branch `claude/practical-brahmagupta-tfeotp`). Vercel-only, no migration.
+
+## Notes
+
+Asked 2026-10-23 after the QR link finally worked (droplet was on `-7`, the `companion_reg_refresh` fix is in `-8`).
+Chat list shows the contact name with the full `+number` under it; WhatsApp's masked placeholder (`+60·······98`)
+is not treated as a name (`contactName`). Raw events tab, its component and `listWhatsappEvents` removed. Spinner
+on Refresh and while a thread loads. The "AI will sort this within 5 minutes" toast was false: the classify cron
+was removed on 2026-10-21, so nothing sorts chats now; the toast says "Handed back to AI." Open: whether to bring
+sorting back. Droplet `.env` still lacks `WHATSAPP_WEBHOOK_URL` (`/wa/health` shows `webhook.configured: false`).
+
 # Current Feature: Installation Contact via New Contact (ClickUp z8v9xnj9m3)
 
 ## Status
