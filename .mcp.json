@@ -22,6 +22,10 @@
         "@playwright/mcp@latest"
       ],
       "env": {}
+    },
+    "arc": {
+      "type": "http",
+      "url": "https://uiarc.dev/api/mcp"
     }
   }
 }
