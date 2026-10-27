@@ -25,7 +25,10 @@
     },
     "arc": {
       "type": "http",
-      "url": "https://uiarc.dev/api/mcp"
+      "url": "https://uiarc.dev/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${ARC_PRO_TOKEN}"
+      }
     }
   }
 }
