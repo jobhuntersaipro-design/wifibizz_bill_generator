@@ -21,7 +21,8 @@ export type GeneratedDocType =
   | "tenancy_agreement"
   | "authorization_letter"
   | "biz_authorization_letter"
-  | "time_invoice";
+  | "time_invoice"
+  | "maxis_bill";
 
 export const SERVER_DOC_TYPES = [
   "internet_bill",
@@ -30,6 +31,7 @@ export const SERVER_DOC_TYPES = [
   "authorization_letter",
   "biz_authorization_letter",
   "time_invoice",
+  "maxis_bill",
 ] as const;
 
 export type ServerDocType = (typeof SERVER_DOC_TYPES)[number];
@@ -173,6 +175,15 @@ export const GENERATED_DOCS: GeneratedDocSpec[] = [
     attachAs: "other",
     attachLabel: "timeinvoice",
     slug: "timeinvoice",
+    ext: "pdf",
+  },
+  {
+    type: "maxis_bill",
+    label: "Maxis Bill",
+    requires: [NAME, ID, ADDR],
+    attachAs: "other",
+    attachLabel: "maxisbill",
+    slug: "maxisbill",
     ext: "pdf",
   },
 ];

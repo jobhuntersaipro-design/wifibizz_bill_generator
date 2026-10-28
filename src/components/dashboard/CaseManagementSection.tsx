@@ -308,6 +308,7 @@ export default function CaseManagementSection() {
   // Case whose authorization letter is being generated.
   const [letterCase, setLetterCase] = useState<string | null>(null);
   const [timeCase, setTimeCase] = useState<string | null>(null);
+  const [maxisCase, setMaxisCase] = useState<string | null>(null);
   const [taCase, setTaCase] = useState<string | null>(null);
   const taAuthSeeds = useRef<Record<string, number>>({});
   const [syncing, setSyncing] = useState(false);
@@ -743,6 +744,17 @@ export default function CaseManagementSection() {
     });
   }
 
+  function handleMaxisBill(caseNo: string) {
+    return downloadDocument({
+      caseNo,
+      endpoint: "/api/bills/maxis-bill",
+      filePrefix: "maxis_bill",
+      failureMessage: "Couldn't generate the Maxis bill.",
+      setBusy: setMaxisCase,
+      busy: maxisCase,
+    });
+  }
+
   function handleTenancyAgreement(caseNo: string) {
     return downloadDocument({
       caseNo,
@@ -1093,6 +1105,18 @@ export default function CaseManagementSection() {
                               ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#EC008C] border-t-transparent animate-spin" />
                               : <TimeBillIcon className="w-4 h-4" />}
                             <span className="text-[10px] leading-none font-medium text-ink-muted">TIME</span>
+                          </button>
+                          <button
+                            title="Generate Maxis Bill"
+                            aria-label={`Generate Maxis bill for ${c.case_no}`}
+                            disabled={maxisCase === c.case_no}
+                            onClick={() => handleMaxisBill(c.case_no)}
+                            className="w-14 flex flex-col items-center gap-0.5 rounded-md py-1 transition-colors text-[#00A651] hover:bg-[#E6F6EC] disabled:cursor-not-allowed"
+                          >
+                            {maxisCase === c.case_no
+                              ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#00A651] border-t-transparent animate-spin" />
+                              : <TimeBillIcon className="w-4 h-4" />}
+                            <span className="text-[10px] leading-none font-medium text-ink-muted">Maxis</span>
                           </button>
                           <button
                             title="Combine this case's documents into one PDF"

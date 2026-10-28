@@ -1,3 +1,28 @@
+# Current Feature: Maxis bill (ClickUp z8v9xnj9ck)
+
+## Status
+
+CODE COMPLETE (branch `claude/gifted-noether-m0d9vo`, not committed). Vercel-only, no migration, no droplet deploy.
+
+## Notes
+
+The ticket holds only a sample: a real 9-page Maxis statement (2 mobile lines + Home Fibre 500Mbps, 6 pages of call
+records). Decided with the user 2026-10-28: a new document type on both the Case List (Bills column "Maxis") and Order
+Entry ("Maxis Bill" generator card), included in Combine; all 9 pages kept; plan stays Home Fibre 500Mbps RM139.
+
+`maxis-bill.ts` swaps the template's `(literal) Tj` runs in place (template `bill_generator/template/maxis_bill.pdf`;
+fonts embedded whole, so any WinAnsi character draws). Per bill: name, address (6 lines; a long street first takes
+the state onto the postcode line, then the country line), account and bill-reference numbers, the 4 service numbers
+(line 1 is the customer's own mobile when it is one), every number called (prefix kept, repeated contacts stay
+repeated) and every date (whole months, so the statement falls in the month before today, Malaysia time). Amounts
+stay as printed, so totals still add up. A name or address line too wide for its column is drawn smaller. The TIME
+route body became `serveCaseDocument` (`src/lib/case-document-response.ts`), shared by both routes.
+
+Verified: rendered a normal and a 52-character-name bill and looked at pages 1, 2 and 7; no sample identifier left in
+the text; 3 new vitest, order-documents tests updated, full suite 1370 passed (the 4 failing files are the
+pre-existing Playwright specs); `next build` clean; lint clean on touched files. NOT verified: the buttons in a
+browser, and the QR code (generic Maxis help link, kept as printed).
+
 # Current Feature: WhatsApp inbox polish
 
 ## Status

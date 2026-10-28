@@ -201,8 +201,8 @@ describe("attach mapping", () => {
 });
 
 describe("server vs client documents", () => {
-  it("routes the six PDFs to the server and the chats to the client", () => {
-    expect(SERVER_DOC_TYPES).toHaveLength(6);
+  it("routes the seven PDFs to the server and the chats to the client", () => {
+    expect(SERVER_DOC_TYPES).toHaveLength(7);
     expect(isServerDocType("chat")).toBe(false);
     expect(isServerDocType("bizz_chat")).toBe(false);
     for (const t of SERVER_DOC_TYPES) expect(isServerDocType(t)).toBe(true);
@@ -371,7 +371,7 @@ describe("spec slugs match what the uploader stores", () => {
 describe("generatableDocTypes", () => {
   const attached = (...names: string[]) => names.map((filename) => ({ filename }));
 
-  it("returns the six residential kinds for a Home offer, hiding Bizz Chat", () => {
+  it("returns the seven residential kinds for a Home offer, hiding Bizz Chat", () => {
     expect(generatableDocTypes(FULL, [], 10)).toEqual([
       "chat",
       "internet_bill",
@@ -379,6 +379,7 @@ describe("generatableDocTypes", () => {
       "tenancy_agreement",
       "authorization_letter",
       "time_invoice",
+      "maxis_bill",
     ]);
   });
 
@@ -393,6 +394,7 @@ describe("generatableDocTypes", () => {
       "tenancy_agreement",
       "biz_authorization_letter",
       "time_invoice",
+      "maxis_bill",
     ]);
   });
 
@@ -406,6 +408,7 @@ describe("generatableDocTypes", () => {
       "utility_bill",
       "tenancy_agreement",
       "authorization_letter",
+      "maxis_bill",
     ]);
   });
 
@@ -417,6 +420,7 @@ describe("generatableDocTypes", () => {
       "tenancy_agreement",
       "authorization_letter",
       "time_invoice",
+      "maxis_bill",
     ]);
   });
 
