@@ -97,6 +97,25 @@ export function parseWebhook(body: unknown, receivedAt = new Date()): ParsedWebh
       const source = sourceOf(asString(c?.field));
       pushItems(out.messages, value.messages, false, source, receivedAt);
       pushItems(out.messages, value.message_echoes, true, source, receivedAt);
+      // Meta Coexistence history: value.history[].threads[], thread id = the customer's wa_id.
+      for (const chunk of Array.isArray(value.history) ? value.history : []) {
+        const threads = asRecord(chunk)?.threads;
+        for (const rawThread of Array.isArray(threads) ? threads : []) {
+          const thread = asRecord(rawThread);
+          const waId = asString(thread?.id);
+          if (!thread || !waId || !Array.isArray(thread.messages)) continue;
+          const items = thread.messages.map((m) => asRecord(m)).filter((m): m is Record<string, unknown> => !!m);
+          pushItems(out.messages, items.filter((m) => m.from === waId), false, "history", receivedAt);
+          pushItems(out.messages, items.filter((m) => m.from !== waId).map((m) => ({ ...m, to: waId })), true, "history", receivedAt);
+        }
+      }
+      // Meta Coexistence contact sync: value.state_sync[] of type "contact".
+      for (const raw of Array.isArray(value.state_sync) ? value.state_sync : []) {
+        const contact = asRecord(asRecord(raw)?.contact);
+        const waId = asString(contact?.phone_number)?.replace(/\D/g, "");
+        const name = asString(contact?.full_name)?.trim();
+        if (waId && name) out.names.set(waId, name.slice(0, 120));
+      }
       if (Array.isArray(value.contacts)) {
         for (const raw of value.contacts) {
           const contact = asRecord(raw);
@@ -177,7 +196,16 @@ export async function ingestWebhook(body: unknown): Promise<void> {
         AND COALESCE(array_position(ARRAY['sent','delivered','read','failed'], status), 0)
           < array_position(ARRAY['sent','delivered','read','failed'], ${s.status}::text)`;
   }
-  for (const c of chatUpdates(parsed)) {
+  const updates = chatUpdates(parsed);
+  // A name with no message in this body (contact sync). The chat list hides it until a message lands.
+  const withMessages = new Set(updates.map((c) => c.waId));
+  for (const [waId, name] of parsed.names) {
+    if (withMessages.has(waId)) continue;
+    await prisma.$executeRaw`
+      INSERT INTO whatsapp_conversations (wa_id, name, updated_at) VALUES (${waId}, ${name}, now())
+      ON CONFLICT (wa_id) DO UPDATE SET name = EXCLUDED.name, updated_at = now()`;
+  }
+  for (const c of updates) {
     await prisma.$executeRaw`
       INSERT INTO whatsapp_conversations (wa_id, name, last_message_at, last_inbound_at, last_preview, last_read_at, updated_at)
       VALUES (${c.waId}, ${c.name}, ${c.lastMessageAt}, ${c.lastInboundAt}, ${c.preview.slice(0, PREVIEW_MAX)}, ${c.readUpTo}, now())

@@ -1,3 +1,35 @@
+# Current Feature: Bizzflow AI WhatsApp via Dualhook, Cut 1: webhook (ClickUp z8v9xnjnt8)
+
+## Status
+
+CODE COMPLETE (branch `claude/eager-sagan-afq82v`). Vercel-only, no migration. Cut 1 of 5; cuts 2-5 not started.
+NOT deployed. Needs 4 env vars on Vercel production before Chris runs Dualhook Embedded Signup.
+
+## Notes
+
+New route `POST|GET /api/whatsapp/dualhook/<WHATSAPP_WEBHOOK_PATH_KEY>`. A wrong path key returns 404. GET echoes
+`hub.challenge` when `hub.verify_token` equals `WHATSAPP_VERIFY_TOKEN`, else 403. No HMAC: Meta signs with
+Dualhook's app secret. Instead `screenDualhookBody` (`src/lib/dualhook-webhook.ts`) requires
+`object == whatsapp_business_account`, every `entry.id == WHATSAPP_WABA_ID`, and `phone_number_id ==
+WHATSAPP_PHONE_NUMBER_ID` on `messages` (and on any other change that carries it). One bad id rejects the whole body
+(403, nothing stored). Allowed fields: messages, history, smb_app_state_sync, smb_message_echoes; any other field is
+logged and dropped (200). Missing env fails closed. Other methods get 405.
+
+The route answers 200 at once and stores in `after()`: the raw body in `whatsapp_webhook_events` and the rows through
+the existing `ingestWebhook` (messages keyed on the WhatsApp id with `skipDuplicates`, so a replay adds no row).
+`parseWebhook` now also reads Meta's Coexistence shapes: `value.history[].threads[]` (thread id = customer wa_id;
+`from` = customer means inbound) and `value.state_sync[]` contact names (stored on the chat, hidden from the list
+until a message lands). The old `/api/whatsapp/webhook` (Baileys gateway) is unchanged.
+
+Media by Dualhook media id (`GET /v25.0/<id>/content`) is not built here: it needs `DUALHOOK_API_KEY` and belongs to
+the inbox (Cut 2). Messages store the media id as today.
+
+Verified: 10 new vitest (gate rules, history both directions, echo, contact sync), full suite 1381 passed (the 4
+failing files are the pre-existing Playwright specs); `next build` clean; lint clean on touched files; `next start`
+smoke test with curl: good token 200 + challenge, bad token 403, bad path 404, wrong WABA 403, wrong phone id 403,
+unknown field 200 + logged, PUT 405. NOT verified: AC1-AC4 on production, a real Dualhook body, the history and
+contact sync shapes (taken from Meta's Coexistence docs, not a captured body), AC3 against a database.
+
 # Current Feature: Allo bill (ClickUp z8v9xnjav6)
 
 ## Status
