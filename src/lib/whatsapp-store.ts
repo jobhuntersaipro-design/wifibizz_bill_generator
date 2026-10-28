@@ -196,6 +196,14 @@ export async function ingestWebhook(body: unknown): Promise<void> {
         AND COALESCE(array_position(ARRAY['sent','delivered','read','failed'], status), 0)
           < array_position(ARRAY['sent','delivered','read','failed'], ${s.status}::text)`;
   }
+  // A live reply typed on the phone (an echo) means a human took over: pause the AI for that chat.
+  const humanEchoes = parsed.messages.filter((m) => m.fromMe && m.source === "live");
+  for (const m of humanEchoes) {
+    await prisma.$executeRaw`
+      UPDATE whatsapp_conversations SET ai_enabled = false, ai_paused_reason = 'human', ai_paused_at = now()
+      WHERE wa_id = ${m.waId} AND ai_enabled
+        AND NOT EXISTS (SELECT 1 FROM whatsapp_messages WHERE message_id = ${m.messageId} AND by_ai)`;
+  }
   const updates = chatUpdates(parsed);
   // A name with no message in this body (contact sync). The chat list hides it until a message lands.
   const withMessages = new Set(updates.map((c) => c.waId));
@@ -280,6 +288,8 @@ interface SummaryRow {
   intent: string | null;
   signup_chance: number | null;
   insight_by: string | null;
+  ai_enabled: boolean | null;
+  ai_paused_reason: string | null;
   unread: number;
 }
 
@@ -291,7 +301,7 @@ export async function listChatSummaries(q = ""): Promise<ChatSummary[]> {
   const like = likePattern(query);
   const rows = await prisma.$queryRaw<SummaryRow[]>`
     SELECT c.wa_id, c.name, c.last_message_at, c.last_inbound_at, c.last_preview, c.closed_at, c.last_read_at,
-           c.stage_id, c.folder_id, c.tag_ids, c.stage_by, c.folder_by, c.tags_by, c.ai_reason, c.intent, c.signup_chance, c.insight_by,
+           c.stage_id, c.folder_id, c.tag_ids, c.stage_by, c.folder_by, c.tags_by, c.ai_reason, c.intent, c.signup_chance, c.insight_by, c.ai_enabled, c.ai_paused_reason,
            (SELECT count(*)::int FROM whatsapp_messages m
              WHERE m.wa_id = c.wa_id AND NOT m.from_me
                AND (c.last_read_at IS NULL OR m.sent_at > c.last_read_at)) AS unread
@@ -320,6 +330,8 @@ export async function listChatSummaries(q = ""): Promise<ChatSummary[]> {
     intent: r.intent,
     signupChance: r.signup_chance,
     insightBy: setter(r.insight_by),
+    aiEnabled: r.ai_enabled ?? true,
+    aiPausedReason: r.ai_paused_reason,
   }));
 }
 
@@ -341,6 +353,7 @@ export async function listThread(waId: string, limit = THREAD_LIMIT): Promise<In
       at: r.sentAt.toISOString(),
       text: r.text,
       ...(r.source === "bizzflow" ? { fromBizzflow: true } : {}),
+      ...(r.byAi ? { byAi: true } : {}),
       ...(media ? { media } : {}),
       ...(status ? { status } : {}),
       ...(r.error ? { error: r.error } : {}),

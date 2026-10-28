@@ -35,6 +35,8 @@ export async function appendApiSend(input: {
   to: string;
   wamid: string;
   text: string;
+  /** Written by the Claude auto-reply, so the timeline labels it "AI". */
+  byAi?: boolean;
 }): Promise<void> {
   const nowMs = Date.now();
   const item: Record<string, unknown> = {
@@ -63,6 +65,7 @@ export async function appendApiSend(input: {
   }
   await prisma.whatsappWebhookEvent.create({ data: { ...extracted, rawBody } });
   await ingestWebhook(body);
+  if (input.byAi) await prisma.whatsappMessage.update({ where: { messageId: input.wamid }, data: { byAi: true } });
 }
 
 /** Fixture chats: built from the fixture events like the old inbox, plus in-memory CRM state. */

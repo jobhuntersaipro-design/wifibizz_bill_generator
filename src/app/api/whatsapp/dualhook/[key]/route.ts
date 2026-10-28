@@ -2,9 +2,12 @@ import { after, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { screenDualhookBody, secretMatches } from "@/lib/dualhook-webhook";
 import { extractWhatsappEvent, verifyChallenge } from "@/lib/whatsapp-webhook";
-import { ingestWebhook } from "@/lib/whatsapp-store";
+import { ingestWebhook, parseWebhook } from "@/lib/whatsapp-store";
+import { autoReply } from "@/lib/whatsapp-ai";
 
 export const dynamic = "force-dynamic";
+// after() covers the Claude reply, which can take a while.
+export const maxDuration = 60;
 
 type Ctx = { params: Promise<{ key: string }> };
 
@@ -60,7 +63,21 @@ export async function POST(req: Request, ctx: Ctx) {
       await ingestWebhook(screen.body);
     } catch (error) {
       console.error("[whatsapp/dualhook] store failed:", error instanceof Error ? error.message : "unknown");
+      return;
     }
+    // The AI answers the newest live customer message in each chat.
+    for (const [waId, messageId] of newestInbound(screen.body)) await autoReply(waId, messageId);
   });
   return reply("EVENT_RECEIVED", 200);
+}
+
+/** wa_id → id of the newest live customer message in this body. */
+function newestInbound(body: unknown): Map<string, string> {
+  const newest = new Map<string, { id: string; at: number }>();
+  for (const m of parseWebhook(body).messages) {
+    if (m.fromMe || m.source !== "live") continue;
+    const prev = newest.get(m.waId);
+    if (!prev || m.sentAt.getTime() >= prev.at) newest.set(m.waId, { id: m.messageId, at: m.sentAt.getTime() });
+  }
+  return new Map([...newest].map(([waId, v]) => [waId, v.id]));
 }

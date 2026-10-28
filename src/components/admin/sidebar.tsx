@@ -1,11 +1,15 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { adminLogout } from "@/actions/admin-auth";
 import { Button } from "@/components/ui/button";
+import { listWhatsappAlerts } from "@/actions/whatsapp";
+import { pollWhileVisible } from "@/lib/poll";
+
+const ALERT_POLL_MS = 60_000;
 
 const navItems = [
   { label: "Users", href: "/admin", icon: UsersIcon },
@@ -19,6 +23,20 @@ const navItems = [
 
 export function AdminSidebar({ open, onClose }: { open?: boolean; onClose?: () => void }) {
   const pathname = usePathname();
+  // Chats where the customer sent documents and the AI handed off: shown on every admin page.
+  const [alerts, setAlerts] = useState(0);
+  useEffect(() => {
+    const load = () =>
+      void listWhatsappAlerts().then((res) => {
+        if (res.success) setAlerts(res.data.length);
+      });
+    const first = setTimeout(load, 0);
+    const stop = pollWhileVisible(load, ALERT_POLL_MS);
+    return () => {
+      clearTimeout(first);
+      stop();
+    };
+  }, []);
 
   useEffect(() => {
     onClose?.();
@@ -88,6 +106,12 @@ export function AdminSidebar({ open, onClose }: { open?: boolean; onClose?: () =
                 )}
               />
               {item.label}
+              {item.href === "/admin/whatsapp" && alerts > 0 && (
+                <span className="ml-auto rounded-full bg-danger px-1.5 text-[11px] font-semibold tabular-nums text-white">
+                  {alerts}
+                  <span className="sr-only"> new WhatsApp alerts</span>
+                </span>
+              )}
             </Link>
           );
         })}

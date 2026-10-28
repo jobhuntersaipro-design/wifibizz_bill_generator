@@ -13,7 +13,7 @@ export type TickStatus = "sent" | "delivered" | "read" | "failed";
 /** An inbound attachment the admin media proxy can fetch. */
 export interface InboxMedia {
   id: string;
-  kind: "image" | "document";
+  kind: "image" | "document" | "audio";
   mime: string | null;
 }
 
@@ -22,6 +22,8 @@ export interface InboxMessage {
   side: InboxSide;
   /** Business messages typed in BizzFlow (vs the phone or Meta AI). */
   fromBizzflow?: boolean;
+  /** Written and sent by the Claude auto-reply. */
+  byAi?: boolean;
   at: string;
   text: string;
   /** Business messages only, once a status webhook names them. */
@@ -88,10 +90,11 @@ export function messageText(item: Record<string, unknown>): string | null {
   return parts.length > 0 ? `${label} · ${parts.join(" · ")}` : label;
 }
 
-/** Images (and stickers) render inline; documents open in a new tab. */
+/** Images (and stickers) render inline, audio plays inline; documents open in a new tab. */
 export function mediaOf(item: Record<string, unknown>): InboxMedia | undefined {
   const type = asString(item.type);
-  const kind = type === "image" || type === "sticker" ? "image" : type === "document" ? "document" : null;
+  const kind =
+    type === "image" || type === "sticker" ? "image" : type === "document" ? "document" : type === "audio" ? "audio" : null;
   if (!kind || !type) return undefined;
   const block = asRecord(item[type]);
   const id = asString(block?.id);
@@ -332,6 +335,10 @@ export interface ChatSummary {
   /** 0-100, Claude's guess that this chat signs up. */
   signupChance: number | null;
   insightBy: LabelSetter | null;
+  /** Claude auto-reply for this chat (Dualhook). Missing = on. */
+  aiEnabled?: boolean;
+  /** Why it is off: "human" (a person replied), "documents" (handed off), "admin". */
+  aiPausedReason?: string | null;
 }
 
 export type LabelSetter = "ai" | "admin";

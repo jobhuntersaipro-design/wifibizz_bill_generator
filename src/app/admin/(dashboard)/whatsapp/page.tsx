@@ -4,6 +4,7 @@ import { verifyAdminSession } from "@/lib/admin-auth";
 import { listChats, listLabels } from "@/lib/whatsapp-events";
 import { whatsappFixtureEnabled } from "@/lib/whatsapp-inbox-fixture";
 import { backfillFromEvents } from "@/lib/whatsapp-store";
+import { dualhookConfig } from "@/lib/dualhook";
 
 export const dynamic = "force-dynamic";
 
@@ -13,5 +14,5 @@ export default async function WhatsappAdminPage() {
 
   if (!whatsappFixtureEnabled()) await backfillFromEvents();
   const [chats, labels] = await Promise.all([listChats(), listLabels()]);
-  return <WhatsappDesk initialChats={chats} initialLabels={labels} />;
+  return <WhatsappDesk initialChats={chats} initialLabels={labels} transport={dualhookConfig() ? "dualhook" : "gateway"} />;
 }

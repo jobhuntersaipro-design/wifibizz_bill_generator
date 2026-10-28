@@ -632,6 +632,10 @@ model WhatsappConversation {
   signupChance  Int?      @map("signup_chance")
   insightBy     String?   @map("insight_by")
   classifiedAt  DateTime? @map("classified_at")
+  // Claude auto-reply (Dualhook). Off once a human replies or the customer sends documents.
+  aiEnabled      Boolean   @default(true) @map("ai_enabled")
+  aiPausedReason String?   @map("ai_paused_reason")
+  aiPausedAt     DateTime? @map("ai_paused_at")
 
   @@index([lastMessageAt])
   @@map("whatsapp_conversations")
@@ -641,6 +645,11 @@ model WhatsappConversation {
 model WhatsappCrmSettings {
   id        Int      @id @default(1)
   model     String?
+  // The AI's knowledge document: text, or a PDF as base64 (knowledgeMime says which).
+  knowledgeName      String?   @map("knowledge_name")
+  knowledgeMime      String?   @map("knowledge_mime")
+  knowledgeDoc       String?   @map("knowledge_doc")
+  knowledgeUpdatedAt DateTime? @map("knowledge_updated_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("whatsapp_crm_settings")
@@ -659,11 +668,25 @@ model WhatsappMessage {
   error     String?
   // live | history | bizzflow
   source    String
+  byAi      Boolean  @default(false) @map("by_ai")
   sentAt    DateTime @map("sent_at")
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([waId, sentAt])
   @@map("whatsapp_messages")
+}
+
+// In-app alerts for the WhatsApp team. kind: documents.
+model WhatsappAlert {
+  id        String    @id @default(cuid())
+  waId      String    @map("wa_id")
+  kind      String
+  message   String
+  createdAt DateTime  @default(now()) @map("created_at")
+  seenAt    DateTime? @map("seen_at")
+
+  @@index([createdAt])
+  @@map("whatsapp_alerts")
 }
 
 // Admin-edited CRM lists. kind: stage | folder | tag. `description` is what

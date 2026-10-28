@@ -109,7 +109,7 @@ export async function gatewayAction(config: GatewayConfig, action: "connect" | "
 }
 
 /** Only what the inbox renders. The type decides the response header, never the upstream one. */
-export const MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
+export const MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf", "audio/ogg", "audio/mpeg", "audio/mp4", "audio/aac", "audio/amr"]);
 
 export async function fetchMedia(config: GatewayConfig, mediaId: string): Promise<{ ok: true; bytes: ArrayBuffer; mime: string } | { ok: false; status: number }> {
   try {
