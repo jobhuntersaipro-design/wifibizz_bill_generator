@@ -2,7 +2,7 @@
 
 ## Status
 
-CODE COMPLETE (branch `claude/gifted-noether-m0d9vo`). Vercel-only, no migration, no droplet deploy.
+MERGED TO MAIN 2026-10-28 (branch `claude/gifted-noether-m0d9vo`). Vercel-only, no migration, no droplet deploy.
 
 ## Notes
 
