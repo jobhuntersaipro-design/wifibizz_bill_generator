@@ -13,7 +13,7 @@ import { fillMissingAddresses } from "@/lib/crawler/lazy-address";
 export async function serveCaseDocument(
   request: Request,
   doc: {
-    generate: (c: CaseData) => Promise<Uint8Array | Buffer>;
+    generate: (c: CaseData & { email?: string }) => Promise<Uint8Array | Buffer>;
     filePrefix: string;
     /** "invoice" / "bill", for the error messages. */
     noun: string;
@@ -51,7 +51,7 @@ export async function serveCaseDocument(
     // belonging to someone else is indistinguishable from one that is not there.
     const sql = neon(process.env.DATABASE_URL!);
     const rows = await sql`
-      SELECT case_no, full_name, full_address, mobile, case_url
+      SELECT case_no, full_name, full_address, mobile, email, case_url
       FROM wifibizz_cases
       WHERE case_no = ${caseNo} AND user_id = ${wifibizzUser.id}
       LIMIT 1
@@ -97,7 +97,7 @@ export async function serveCaseDocument(
       );
     }
 
-    const pdf = await doc.generate({ ...caseData, full_address: fullAddress });
+    const pdf = await doc.generate({ ...caseData, full_address: fullAddress, email: (row.email as string) || "" });
 
     return new NextResponse(Buffer.from(pdf), {
       status: 200,

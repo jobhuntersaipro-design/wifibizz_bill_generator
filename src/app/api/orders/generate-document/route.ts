@@ -8,6 +8,7 @@ import { loadRandomLandlordSignature } from "@/lib/bill-generator/landlord-signa
 import { bizSignatureRng } from "@/lib/biz-director";
 import { generateTimeInvoice } from "@/lib/bill-generator/time-invoice";
 import { generateMaxisBill } from "@/lib/bill-generator/maxis-bill";
+import { generateAlloBill } from "@/lib/bill-generator/allo-bill";
 import { generateTenancyAgreement } from "@/lib/bill-generator/tenancy-agreement";
 import { createTaAuthContext } from "@/lib/bill-generator/landlord-signature";
 import { parsePartiesSeed } from "@/lib/bill-generator/document-parties";
@@ -154,6 +155,9 @@ export async function POST(request: Request) {
         break;
       case "maxis_bill":
         pdf = await generateMaxisBill(caseData);
+        break;
+      case "allo_bill":
+        pdf = await generateAlloBill(caseData);
         break;
     }
 

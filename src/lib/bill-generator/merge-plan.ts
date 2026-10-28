@@ -8,10 +8,10 @@ import { AUTH_LETTER_LABEL, UMOBILE_BILL_LABEL, authLetterVariant, type Business
  * unavailable and in which order are the decisions worth pinning down in tests.
  */
 
-export type MergeDocType = "internet" | "utility" | "letter" | "time" | "maxis" | "chat";
+export type MergeDocType = "internet" | "utility" | "letter" | "time" | "maxis" | "allo" | "chat";
 
 /** The document types, in the order they appear for a case by default. */
-export const MERGE_DOC_TYPES: MergeDocType[] = ["internet", "utility", "letter", "time", "maxis", "chat"];
+export const MERGE_DOC_TYPES: MergeDocType[] = ["internet", "utility", "letter", "time", "maxis", "allo", "chat"];
 
 export const MERGE_DOC_LABELS: Record<MergeDocType, string> = {
   internet: UMOBILE_BILL_LABEL,
@@ -19,6 +19,7 @@ export const MERGE_DOC_LABELS: Record<MergeDocType, string> = {
   letter: "Authorization Letter",
   time: "TIME Invoice",
   maxis: "Maxis Bill",
+  allo: "Allo Bill",
   chat: "Closing Script (Chat)",
 };
 
@@ -86,6 +87,8 @@ export function mergeItemUrl(item: MergeItem): string | null {
       return `/api/bills/time-invoice?${q}`;
     case "maxis":
       return `/api/bills/maxis-bill?${q}`;
+    case "allo":
+      return `/api/bills/allo-bill?${q}`;
     case "chat":
       return null;
   }

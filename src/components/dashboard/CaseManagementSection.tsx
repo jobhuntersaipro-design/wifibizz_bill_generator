@@ -309,6 +309,7 @@ export default function CaseManagementSection() {
   const [letterCase, setLetterCase] = useState<string | null>(null);
   const [timeCase, setTimeCase] = useState<string | null>(null);
   const [maxisCase, setMaxisCase] = useState<string | null>(null);
+  const [alloCase, setAlloCase] = useState<string | null>(null);
   const [taCase, setTaCase] = useState<string | null>(null);
   const taAuthSeeds = useRef<Record<string, number>>({});
   const [syncing, setSyncing] = useState(false);
@@ -755,6 +756,17 @@ export default function CaseManagementSection() {
     });
   }
 
+  function handleAlloBill(caseNo: string) {
+    return downloadDocument({
+      caseNo,
+      endpoint: "/api/bills/allo-bill",
+      filePrefix: "allo_bill",
+      failureMessage: "Couldn't generate the Allo bill.",
+      setBusy: setAlloCase,
+      busy: alloCase,
+    });
+  }
+
   function handleTenancyAgreement(caseNo: string) {
     return downloadDocument({
       caseNo,
@@ -1117,6 +1129,18 @@ export default function CaseManagementSection() {
                               ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#00A651] border-t-transparent animate-spin" />
                               : <TimeBillIcon className="w-4 h-4" />}
                             <span className="text-[10px] leading-none font-medium text-ink-muted">Maxis</span>
+                          </button>
+                          <button
+                            title="Generate Allo Bill"
+                            aria-label={`Generate Allo bill for ${c.case_no}`}
+                            disabled={alloCase === c.case_no}
+                            onClick={() => handleAlloBill(c.case_no)}
+                            className="w-14 flex flex-col items-center gap-0.5 rounded-md py-1 transition-colors text-[#5B2D90] hover:bg-[#F1EAFA] disabled:cursor-not-allowed"
+                          >
+                            {alloCase === c.case_no
+                              ? <span className="w-3.5 h-3.5 my-[1px] rounded-full border-2 border-[#5B2D90] border-t-transparent animate-spin" />
+                              : <TimeBillIcon className="w-4 h-4" />}
+                            <span className="text-[10px] leading-none font-medium text-ink-muted">Allo</span>
                           </button>
                           <button
                             title="Combine this case's documents into one PDF"

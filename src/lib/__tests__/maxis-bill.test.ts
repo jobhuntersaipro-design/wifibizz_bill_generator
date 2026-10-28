@@ -21,3 +21,17 @@ describe('maxis bill', () => {
     expect(maxisLineNumber('0387654321')).toBeNull();
   });
 });
+
+describe('allo bill dates', () => {
+  it('invoices on the 1st of the current Malaysia month and bills the whole month', async () => {
+    const { alloDates } = await import('../bill-generator/allo-bill');
+    expect(alloDates(new Date('2026-10-28T03:00:00Z'))).toEqual({
+      invoice: '1 October 2026',
+      due: '1 November 2026',
+      period: '01/10/2026 - 31/10/2026',
+    });
+    // 31 Dec 17:00 UTC is already 1 Jan in Malaysia; February 2027 has 28 days.
+    expect(alloDates(new Date('2026-12-31T17:00:00Z')).due).toBe('1 February 2027');
+    expect(alloDates(new Date('2027-02-10T00:00:00Z')).period).toBe('01/02/2027 - 28/02/2027');
+  });
+});

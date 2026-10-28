@@ -1,3 +1,5 @@
+Crimson Pro: Copyright 2018 The Crimson Pro Project Authors (https://github.com/Fonthausen/CrimsonPro)
+Work Sans:
 Copyright 2019 The Work Sans Project Authors (https://github.com/weiweihuanghuang/Work-Sans)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.

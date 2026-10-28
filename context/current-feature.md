@@ -1,3 +1,29 @@
+# Current Feature: Allo bill (ClickUp z8v9xnjav6)
+
+## Status
+
+CODE COMPLETE (branch `claude/gifted-noether-m0d9vo`). Vercel-only, no migration, no droplet deploy.
+
+## Notes
+
+Same shape as the Maxis bill: the ticket holds only a 2-page Allo invoice (BIRT/iText). A new document type on the
+Case List (Bills column "Allo"), Order Entry ("Allo Bill" card) and Combine. Plan stays Allo Fibre Residential
+500Mbps, RM147.35. Decided with the user 2026-10-28: the account is paid up (previous RM147.35 paid, overdue 0.00,
+total due RM147.35); the sample's RM589.40 arrears are gone.
+
+`allo-bill.ts`: every run sits at an absolute `cm` position, so a run is found by page + position. The template's
+Crimson Pro fonts are subsets, so a changed run is blanked and redrawn on top in a full Crimson Pro
+(`bill_generator/fonts/CrimsonPro-{Regular,Bold,Italic}.ttf`, from the Fonthausen repo: the Google Fonts static
+instances fail pdf-lib's full embed on save). A position that is missing from the template throws. Changes: name,
+address (street wraps to a second line at 360pt; locality line "City , Postcode , State , Malaysia"), invoice no.,
+account no., customer code, Ref-2 (the case email from the Case List; Order Entry sends none, so it uses the mobile),
+dates (invoice 1st of the current month in Malaysia time, due the 1st of the next, period = the whole month), and
+the balances. The template's broken "The resource of this report item is not reachable." line is removed.
+
+Verified: rendered a normal and a 52-character-name / 3-line-address bill and looked at both pages; no sample
+identifier left in the text; 1 new vitest (dates), order-documents tests updated, full suite 1371 passed; `next
+build` clean; lint clean on touched files. NOT verified: the buttons in a browser.
+
 # Current Feature: Maxis bill (ClickUp z8v9xnj9ck)
 
 ## Status
