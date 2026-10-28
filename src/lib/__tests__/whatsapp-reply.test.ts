@@ -4,11 +4,12 @@ const create = vi.fn();
 const upsert = vi.fn();
 const audit = vi.fn();
 const admin = vi.fn();
+const pauseAi = vi.fn(async (..._a: unknown[]) => ({ count: 1 }));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     whatsappWebhookEvent: { create: (...a: unknown[]) => create(...a), findMany: async () => [] },
-    whatsappConversation: { upsert: (...a: unknown[]) => upsert(...a), findMany: async () => [], deleteMany: (...a: unknown[]) => wipe("conversations", ...a) },
+    whatsappConversation: { upsert: (...a: unknown[]) => upsert(...a), updateMany: (...a: unknown[]) => pauseAi(...a), findMany: async () => [], deleteMany: (...a: unknown[]) => wipe("conversations", ...a) },
     whatsappMessage: { deleteMany: (...a: unknown[]) => wipe("messages", ...a) },
     $transaction: async (ops: unknown[]) => ops,
   },
@@ -79,7 +80,7 @@ describe("buildInbox ticks and media", () => {
     expect(chat.messages[0]).toMatchObject({ status: "failed", error: "More than 24 hours have passed." });
   });
 
-  it("gives an inbound image or document a media id, and nothing for a business echo", () => {
+  it("gives an inbound image, document or audio a media id, and nothing for a business echo", () => {
     const [chat] = buildInbox([
       event("m", "2026-01-01T00:00:00.000Z", "messages", {
         messages: [
@@ -92,7 +93,7 @@ describe("buildInbox ticks and media", () => {
     expect(chat.messages.map((m) => m.media)).toEqual([
       { id: "111", kind: "image", mime: "image/jpeg" },
       { id: "222", kind: "document", mime: "application/pdf" },
-      undefined,
+      { id: "333", kind: "audio", mime: null },
     ]);
     expect(chat.lastInboundAt).toBe(new Date(1760000002 * 1000).toISOString());
   });
@@ -230,6 +231,8 @@ describe("send actions", () => {
     expect(chat.messages[0]).toMatchObject({ side: "echo", text: "your appointment is 10am" });
     expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: "whatsapp_message_sent" }));
     expect(JSON.stringify(audit.mock.calls[0])).not.toContain("appointment");
+    // A human reply pauses the AI for that chat (AC9).
+    expect(pauseAi).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ aiEnabled: false, aiPausedReason: "human" }) }));
   });
 
   it("does not store anything when WhatsApp refuses", async () => {

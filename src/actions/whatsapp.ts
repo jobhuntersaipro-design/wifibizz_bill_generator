@@ -5,9 +5,14 @@ import { requireAdmin } from "@/lib/admin-gate";
 import { ADMIN_ACTOR, recordAudit } from "@/lib/audit";
 import { appendApiSend, updateConversation, updateCrm, type CrmPatch } from "@/lib/whatsapp-events";
 import { whatsappFixtureEnabled } from "@/lib/whatsapp-inbox-fixture";
-import { LABEL_COLORS, phoneVariants, type LabelKind } from "@/lib/whatsapp-inbox";
+import { contactName, LABEL_COLORS, phoneVariants, type LabelKind } from "@/lib/whatsapp-inbox";
 import { STATUS_LABELS } from "@/lib/order-types";
 import { classifyChatNow } from "@/lib/whatsapp-crm";
+import { dualhookConfig, dualhookSendText, fetchWhatsappMedia, windowOpen, WINDOW_CLOSED_MESSAGE } from "@/lib/dualhook";
+import { MAX_DOCS, type OrderDocument } from "@/lib/order-types";
+import { nextOrderReference } from "@/lib/order-history";
+import { uploadToR2 } from "@/lib/r2";
+import { randomBytes } from "node:crypto";
 import {
   gatewayAction,
   gatewayConfig,
@@ -47,7 +52,16 @@ export async function sendWhatsappText(to: string, text: string): Promise<Result
   if (!body) return { success: false, error: "Type a message first." };
   if (body.length > MAX_TEXT) return { success: false, error: `Messages are limited to ${MAX_TEXT} characters.` };
 
-  const sent = await deliver((config) => sendText(config, to, body));
+  const dualhook = dualhookConfig();
+  let sent: SendResult;
+  if (dualhook) {
+    if (process.env.VERCEL_ENV === "preview") return { success: false, error: "Sending is disabled on preview deployments." };
+    const conv = await prisma.whatsappConversation.findUnique({ where: { waId: to }, select: { lastInboundAt: true } });
+    if (!windowOpen(conv?.lastInboundAt)) return { success: false, error: WINDOW_CLOSED_MESSAGE };
+    sent = await dualhookSendText(dualhook, to, body);
+  } else {
+    sent = await deliver((config) => sendText(config, to, body));
+  }
   if (!sent.ok) return { success: false, error: sent.error };
   try {
     await appendApiSend({ to, wamid: sent.wamid, text: body });
@@ -55,6 +69,10 @@ export async function sendWhatsappText(to: string, text: string): Promise<Result
     console.error("[whatsapp] sent but not stored:", sent.wamid, e);
     return { success: false, error: "Sent, but it could not be saved to the inbox. Do not send it again." };
   }
+  // A human replied: the AI stops answering this chat until someone turns it back on.
+  await prisma.whatsappConversation
+    .updateMany({ where: { waId: to, aiEnabled: true }, data: { aiEnabled: false, aiPausedReason: "human", aiPausedAt: new Date() } })
+    .catch((e: unknown) => console.error("[whatsapp] could not pause the AI:", e));
   await recordAudit({ actor: ADMIN_ACTOR, action: "whatsapp_message_sent", detail: `Replied to ${to} on WhatsApp.` });
   return { success: true, data: undefined };
 }
@@ -63,6 +81,8 @@ export async function sendWhatsappText(to: string, text: string): Promise<Result
 export async function getWhatsappConnection(): Promise<Result<GatewayState>> {
   const denied = await requireAdmin();
   if (denied) return denied;
+  const dualhook = dualhookConfig();
+  if (dualhook) return { success: true, data: { status: "open", qr: null, me: null, error: null } };
   const { config, fixture } = sender();
   if (fixture && !config) return { success: true, data: { status: "open", qr: null, me: "15550000000", error: null } };
   if (!config) return { success: false, error: "WhatsApp is not set up (WHATSAPP_GATEWAY_URL / WHATSAPP_GATEWAY_TOKEN are missing)." };
@@ -75,6 +95,7 @@ export async function whatsappConnectionAction(action: "connect" | "logout"): Pr
   const denied = await requireAdmin();
   if (denied) return denied;
   if (action !== "connect" && action !== "logout") return { success: false, error: "Invalid action." };
+  if (dualhookConfig()) return { success: false, error: "The number is connected through Dualhook. Manage it in Dualhook, not here." };
   const config = gatewayConfig();
   if (!config) return { success: false, error: "WhatsApp is not set up." };
   const res = await gatewayAction(config, action);
@@ -343,4 +364,171 @@ export async function saveWhatsappCrmModel(model: string | null): Promise<Result
   }
   await recordAudit({ actor: ADMIN_ACTOR, action: "whatsapp_crm_model", detail: `WhatsApp sorting model set to ${clean ?? "default"}.` });
   return { success: true, data: undefined };
+}
+
+/** Turn the Claude auto-reply on or off for one chat. */
+export async function setWhatsappAi(waId: string, enabled: boolean): Promise<Result> {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+  if (!WA_ID.test(waId)) return { success: false, error: "Invalid WhatsApp number." };
+  try {
+    await prisma.whatsappConversation.update({
+      where: { waId },
+      data: enabled
+        ? { aiEnabled: true, aiPausedReason: null, aiPausedAt: null }
+        : { aiEnabled: false, aiPausedReason: "admin", aiPausedAt: new Date() },
+    });
+  } catch {
+    return { success: false, error: "Could not update the chat." };
+  }
+  await recordAudit({ actor: ADMIN_ACTOR, action: "whatsapp_ai_toggled", detail: `AI replies ${enabled ? "on" : "off"} for ${waId}.` });
+  return { success: true, data: undefined };
+}
+
+export interface WhatsappAlertView {
+  id: string;
+  waId: string;
+  message: string;
+  createdAt: string;
+}
+
+/** Alerts nobody has dismissed yet, newest first. */
+export async function listWhatsappAlerts(): Promise<Result<WhatsappAlertView[]>> {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+  const rows = await prisma.whatsappAlert
+    .findMany({ where: { seenAt: null }, orderBy: { createdAt: "desc" }, take: 50 })
+    .catch(() => []);
+  return { success: true, data: rows.map((r) => ({ id: r.id, waId: r.waId, message: r.message, createdAt: r.createdAt.toISOString() })) };
+}
+
+export async function dismissWhatsappAlert(id: string): Promise<Result> {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+  await prisma.whatsappAlert.updateMany({ where: { id, seenAt: null }, data: { seenAt: new Date() } }).catch(() => null);
+  return { success: true, data: undefined };
+}
+
+export interface WhatsappKnowledge {
+  name: string | null;
+  mime: string | null;
+  updatedAt: string | null;
+  /** Text documents only; a PDF is not echoed back. */
+  text: string | null;
+}
+
+const KNOWLEDGE_TEXT_MAX = 200_000;
+const KNOWLEDGE_PDF_MAX = 4 * 1024 * 1024;
+
+/** The document the AI answers from. */
+export async function getWhatsappKnowledge(): Promise<Result<WhatsappKnowledge>> {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+  const row = await prisma.whatsappCrmSettings.findUnique({ where: { id: 1 } }).catch(() => null);
+  return {
+    success: true,
+    data: {
+      name: row?.knowledgeName ?? null,
+      mime: row?.knowledgeMime ?? null,
+      updatedAt: row?.knowledgeUpdatedAt?.toISOString() ?? null,
+      text: row?.knowledgeMime === "application/pdf" ? null : row?.knowledgeDoc ?? null,
+    },
+  };
+}
+
+/** Upload or replace the knowledge document: plain text, or a PDF sent as base64. */
+export async function saveWhatsappKnowledge(input: { name: string; mime: string; data: string }): Promise<Result> {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+  const name = input.name.trim().slice(0, 200) || "Knowledge document";
+  const pdf = input.mime === "application/pdf";
+  if (!pdf && input.mime !== "text/plain") return { success: false, error: "Upload a PDF or a text file." };
+  const data = input.data.trim();
+  if (!data) return { success: false, error: "The document is empty." };
+  if (pdf) {
+    if (!/^[A-Za-z0-9+/=]+$/.test(data)) return { success: false, error: "That PDF could not be read." };
+    if ((data.length * 3) / 4 > KNOWLEDGE_PDF_MAX) return { success: false, error: "PDFs are limited to 4 MB." };
+  } else if (data.length > KNOWLEDGE_TEXT_MAX) {
+    return { success: false, error: "Text is limited to 200,000 characters." };
+  }
+  const fields = { knowledgeName: name, knowledgeMime: input.mime, knowledgeDoc: data, knowledgeUpdatedAt: new Date() };
+  try {
+    await prisma.whatsappCrmSettings.upsert({ where: { id: 1 }, create: { id: 1, ...fields }, update: fields });
+  } catch {
+    return { success: false, error: "Could not save the document." };
+  }
+  await recordAudit({ actor: ADMIN_ACTOR, action: "whatsapp_knowledge", detail: `AI knowledge document set to "${name}".` });
+  return { success: true, data: undefined };
+}
+
+const EXT: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "application/pdf": "pdf" };
+
+/**
+ * A draft in the chosen Order Entry account, prefilled from this chat: the
+ * customer's name and number, and the images and PDFs they sent as documents.
+ * The agent completes the rest in Order Entry.
+ */
+export async function pushWhatsappToOrderEntry(
+  waId: string,
+  targetUserId: string,
+): Promise<Result<{ id: string; reference: string | null; documents: number; email: string }>> {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+  if (!WA_ID.test(waId)) return { success: false, error: "Invalid WhatsApp number." };
+  try {
+    const [conv, target] = await Promise.all([
+      prisma.whatsappConversation.findUnique({ where: { waId }, select: { name: true } }),
+      prisma.user.findUnique({ where: { id: targetUserId }, select: { id: true, email: true, orderEntryEnabled: true } }),
+    ]);
+    if (!conv) return { success: false, error: "Chat not found." };
+    if (!target?.orderEntryEnabled) return { success: false, error: "That account does not have Order Entry." };
+
+    const media = await prisma.whatsappMessage.findMany({
+      where: { waId, fromMe: false, type: { in: ["image", "document"] } },
+      orderBy: { sentAt: "asc" },
+      take: MAX_DOCS,
+    });
+    const tag = randomBytes(3).toString("hex");
+    const documents: OrderDocument[] = [];
+    for (const m of media) {
+      const id = (m.media as { id?: string } | null)?.id;
+      if (!id) continue;
+      const file = await fetchWhatsappMedia(id);
+      const ext = file.ok ? EXT[file.mime] : undefined;
+      if (!file.ok || !ext) continue;
+      const n = documents.length + 1;
+      const filename = `whatsapp_${n}.${ext}`;
+      const key = `orders/${target.id}/${waId}_whatsapp_${n}-${tag}/${filename}`;
+      await uploadToR2(key, Buffer.from(file.bytes), file.mime);
+      documents.push({ type: "other", key, filename, url: `/api/orders/document?key=${encodeURIComponent(key)}` });
+    }
+
+    const mobile = waId.startsWith("60") ? waId.slice(2) : waId;
+    const order = await prisma.order.create({
+      data: {
+        userId: target.id,
+        status: "draft",
+        reference: await nextOrderReference(),
+        idType: "MyKad",
+        idNumber: "",
+        fullName: (contactName(conv.name) ?? "").toUpperCase(),
+        mobilePrefix: waId.startsWith("60") ? "60" : "",
+        mobile,
+        remarks: `From WhatsApp +${waId}`,
+        documents: documents as unknown as object,
+      },
+      select: { id: true, reference: true },
+    });
+    await recordAudit({
+      actor: ADMIN_ACTOR,
+      action: "whatsapp_pushed_to_order_entry",
+      targetUser: target.id,
+      targetOrder: order.id,
+      detail: `Draft ${order.reference} for ${target.email} from WhatsApp +${waId} (${documents.length} document${documents.length === 1 ? "" : "s"}).`,
+    });
+    return { success: true, data: { id: order.id, reference: order.reference, documents: documents.length, email: target.email ?? "" } };
+  } catch (e) {
+    console.error("[pushWhatsappToOrderEntry]", e);
+    return { success: false, error: "Could not create the draft." };
+  }
 }

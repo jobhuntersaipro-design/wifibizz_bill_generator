@@ -34,7 +34,10 @@ export type AuditAction =
   | "whatsapp_label_saved"
   | "whatsapp_label_deleted"
   | "whatsapp_chat_labelled"
-  | "whatsapp_crm_model";
+  | "whatsapp_crm_model"
+  | "whatsapp_ai_toggled"
+  | "whatsapp_knowledge"
+  | "whatsapp_pushed_to_order_entry";
 
 /**
  * Record one event. NEVER throws.

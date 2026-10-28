@@ -19,6 +19,7 @@ const ingest = vi.fn();
 const listChatSummaries = vi.fn();
 const classify = vi.fn();
 
+vi.mock("@/actions/admin-orders", () => ({ adminCloneTargets: vi.fn() }));
 vi.mock("@/lib/whatsapp-crm", () => ({ classifyDueChats: (...args: unknown[]) => classify(...args) }));
 vi.mock("next/server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("next/server")>()),

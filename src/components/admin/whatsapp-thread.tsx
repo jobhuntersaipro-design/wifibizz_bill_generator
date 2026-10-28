@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Check, CheckCheck, FileText } from "lucide-react";
 import { toast } from "@/lib/toast";
-import { sendWhatsappText } from "@/actions/whatsapp";
+import { sendWhatsappText, setWhatsappAi } from "@/actions/whatsapp";
+import { windowOpen } from "@/lib/dualhook-window";
 import { isClosed, type InboxChat, type InboxMessage } from "@/lib/whatsapp-inbox";
 import { formatKualaLumpur } from "@/lib/whatsapp-webhook";
 
@@ -12,6 +13,10 @@ export function WhatsappThread({
   name,
   closedAt,
   connected,
+  ai,
+  windowRule,
+  onAiChanged,
+  actions,
   onBack,
   onToggleClosed,
   onSent,
@@ -21,6 +26,12 @@ export function WhatsappThread({
   closedAt: string | null;
   /** The linked WhatsApp number is online; sending needs it. */
   connected: boolean;
+  /** Claude auto-reply state for this chat; null when the number is not on Dualhook. */
+  ai?: { enabled: boolean; pausedReason: string | null } | null;
+  /** Meta's 24-hour rule applies (Dualhook): no free-form send after 24h. */
+  windowRule?: boolean;
+  onAiChanged?: () => void;
+  actions?: React.ReactNode;
   onBack: () => void;
   onToggleClosed: (closed: boolean) => void;
   onSent: () => void;
@@ -46,10 +57,13 @@ export function WhatsappThread({
         <h2 className="min-w-0 truncate text-sm font-medium text-ink">
           {name ? <>{name} <span className="font-mono font-normal text-ink-muted">+{chat.customer}</span></> : <span className="font-mono">{chat.customer}</span>}
         </h2>
+        <span className="ml-auto" />
+        {ai && <AiToggle waId={chat.customer} ai={ai} onChanged={onAiChanged} />}
+        {actions}
         <button
           type="button"
           onClick={() => onToggleClosed(!closed)}
-          className="ml-auto min-h-11 rounded-lg border border-line px-3 text-sm font-medium text-ink hover:bg-wash"
+          className="min-h-11 rounded-lg border border-line px-3 text-sm font-medium text-ink hover:bg-wash"
         >
           {closed ? "Reopen" : "Close chat"}
         </button>
@@ -59,7 +73,13 @@ export function WhatsappThread({
         {chat.messages.map((message) => <Bubble key={message.id} message={message} />)}
       </div>
 
-      <Composer key={chat.customer} to={chat.customer} connected={connected} onSent={onSent} />
+      <Composer
+        key={chat.customer}
+        to={chat.customer}
+        connected={connected}
+        windowClosed={windowRule === true && !windowOpen(chat.lastInboundAt)}
+        onSent={onSent}
+      />
     </>
   );
 }
@@ -73,7 +93,7 @@ function Bubble({ message }: { message: InboxMessage }) {
         {message.media && <Media media={message.media} />}
         <p className="whitespace-pre-wrap break-words text-sm">{message.text}</p>
         <p className={`mt-1 flex items-center justify-end gap-1 text-[11px] ${business ? "text-white/70" : "text-ink-muted"}`}>
-          {message.fromBizzflow && <span>BizzFlow ·</span>}
+          {message.byAi ? <span className="font-semibold">AI ·</span> : message.fromBizzflow && <span>BizzFlow ·</span>}
           {formatKualaLumpur(message.at)}
           {business && <Tick status={message.status} />}
         </p>
@@ -97,6 +117,9 @@ function Tick({ status }: { status: InboxMessage["status"] }) {
 
 function Media({ media }: { media: NonNullable<InboxMessage["media"]> }) {
   const src = `/api/admin/whatsapp/media?id=${encodeURIComponent(media.id)}`;
+  if (media.kind === "audio") {
+    return <audio controls preload="none" src={src} className="mb-1 max-w-full" aria-label="Voice message from the customer" />;
+  }
   if (media.kind === "image") {
     return (
       <a href={src} target="_blank" rel="noopener noreferrer" className="mb-1 block">
@@ -118,12 +141,42 @@ function Media({ media }: { media: NonNullable<InboxMessage["media"]> }) {
   );
 }
 
-function Composer({ to, connected, onSent }: { to: string; connected: boolean; onSent: () => void }) {
+const PAUSED: Record<string, string> = {
+  human: "paused: a person replied",
+  documents: "paused: documents received",
+  admin: "off",
+};
+
+function AiToggle({ waId, ai, onChanged }: { waId: string; ai: { enabled: boolean; pausedReason: string | null }; onChanged?: () => void }) {
+  const [busy, setBusy] = useState(false);
+  async function toggle() {
+    setBusy(true);
+    const res = await setWhatsappAi(waId, !ai.enabled);
+    setBusy(false);
+    if (!res.success) toast.error(res.error);
+    else toast.success(ai.enabled ? "AI replies turned off for this chat." : "AI replies turned on for this chat.");
+    onChanged?.();
+  }
+  return (
+    <button
+      type="button"
+      aria-pressed={ai.enabled}
+      disabled={busy}
+      onClick={() => void toggle()}
+      title={ai.enabled ? "Claude answers this chat. Press to turn it off." : "Press to let Claude answer this chat again."}
+      className={`min-h-11 rounded-lg border px-3 text-sm font-medium disabled:opacity-50 ${ai.enabled ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-line text-ink hover:bg-wash"}`}
+    >
+      {ai.enabled ? "AI on" : `AI ${PAUSED[ai.pausedReason ?? "admin"] ?? "off"}`}
+    </button>
+  );
+}
+
+function Composer({ to, connected, windowClosed, onSent }: { to: string; connected: boolean; windowClosed: boolean; onSent: () => void }) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
 
   async function send() {
-    if (!text.trim() || sending || !connected) return;
+    if (!text.trim() || sending || !connected || windowClosed) return;
     setSending(true);
     const res = await sendWhatsappText(to, text);
     setSending(false);
@@ -139,6 +192,11 @@ function Composer({ to, connected, onSent }: { to: string; connected: boolean; o
     <div className="border-t border-line p-3">
       {!connected && (
         <p className="mb-2 text-xs text-amber-700">WhatsApp is not connected. Scan the QR above to reply.</p>
+      )}
+      {windowClosed && (
+        <p role="status" className="mb-2 text-xs text-amber-700">
+          The customer&apos;s last message is more than 24 hours old. WhatsApp only allows a reply from the phone app until they write again.
+        </p>
       )}
       <form
         className="flex items-end gap-2"
@@ -165,7 +223,7 @@ function Composer({ to, connected, onSent }: { to: string; connected: boolean; o
         />
         <button
           type="submit"
-          disabled={sending || !text.trim() || !connected}
+          disabled={sending || !text.trim() || !connected || windowClosed}
           className="min-h-11 rounded-lg bg-brand px-4 text-sm font-medium text-white disabled:opacity-50"
         >
           {sending ? "Sending…" : "Send"}

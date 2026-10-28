@@ -5,6 +5,7 @@ import { WhatsappConnection } from "@/components/admin/whatsapp-connection";
 import { WhatsappContactPanel } from "@/components/admin/whatsapp-contact";
 import { LabelChip, WhatsappCrmControls, WhatsappLabelSettings } from "@/components/admin/whatsapp-crm";
 import { WhatsappThread } from "@/components/admin/whatsapp-thread";
+import { WhatsappAlerts, WhatsappKnowledgeSettings, WhatsappPushToOrderEntry } from "@/components/admin/whatsapp-ai";
 import {
   analyzeWhatsappChat,
   getWhatsappContact,
@@ -36,17 +37,22 @@ import { pollWhileVisible } from "@/lib/poll";
 const POLL_MS = 8_000;
 
 type View = "inbox" | "settings";
+type Transport = "dualhook" | "gateway";
 
 export function WhatsappDesk({
   initialChats,
   initialLabels,
+  transport,
 }: {
   initialChats: ChatSummary[];
   initialLabels: Label[];
+  /** dualhook: Meta Coexistence through Dualhook (Claude replies, 24h window). gateway: the QR-linked device. */
+  transport: Transport;
 }) {
   const [view, setView] = useState<View>("inbox");
   // null = unknown (still loading or the gateway did not answer): keep showing the inbox.
-  const [connected, setConnected] = useState<boolean | null>(null);
+  const [gatewayConnected, setConnected] = useState<boolean | null>(null);
+  const connected = transport === "dualhook" ? true : gatewayConnected;
   const [labels, setLabels] = useState(initialLabels);
 
   const reloadLabels = useCallback(async () => {
@@ -68,9 +74,16 @@ export function WhatsappDesk({
           <ViewButton current={view} id="settings" onSelect={setView}>Settings</ViewButton>
         </div>
       </div>
-      <WhatsappConnection onConnectedChange={setConnected} />
+      {transport === "dualhook" ? (
+        <p className="rounded-lg border border-line bg-white px-4 py-3 text-sm text-ink">
+          Connected through Dualhook (WhatsApp Coexistence). Messages from the phone app show here too.
+        </p>
+      ) : (
+        <WhatsappConnection onConnectedChange={setConnected} />
+      )}
       {view === "inbox" ? (
         <>
+        {transport === "dualhook" && <WhatsappAlerts />}
         <p className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
           <Sparkles className="mt-0.5 size-4 shrink-0" aria-hidden />
           <span>
@@ -83,11 +96,14 @@ export function WhatsappDesk({
             No WhatsApp number linked. Scan the QR above; the linked number&apos;s chats load here.
           </p>
         ) : (
-          <WhatsappInbox initialChats={initialChats} labels={labels} onLabels={setLabels} connected={connected === true} />
+          <WhatsappInbox initialChats={initialChats} labels={labels} onLabels={setLabels} connected={connected === true} transport={transport} />
         )}
         </>
       ) : (
-        <WhatsappLabelSettings labels={labels} onChanged={() => void reloadLabels()} />
+        <>
+          {transport === "dualhook" && <WhatsappKnowledgeSettings />}
+          <WhatsappLabelSettings labels={labels} onChanged={() => void reloadLabels()} />
+        </>
       )}
     </div>
   );
@@ -121,11 +137,13 @@ function WhatsappInbox({
   labels,
   onLabels,
   connected,
+  transport,
 }: {
   initialChats: ChatSummary[];
   labels: Label[];
   onLabels: (labels: Label[]) => void;
   connected: boolean;
+  transport: Transport;
 }) {
   const [chats, setChats] = useState(initialChats);
   const [threads, setThreads] = useState<Record<string, InboxMessage[]>>({});
@@ -434,6 +452,10 @@ function WhatsappInbox({
                 name={contactName(active.name)}
                 closedAt={active.closedAt}
                 connected={connected}
+                ai={transport === "dualhook" ? { enabled: active.aiEnabled ?? true, pausedReason: active.aiPausedReason ?? null } : null}
+                windowRule={transport === "dualhook"}
+                onAiChanged={() => void load(false)}
+                actions={<WhatsappPushToOrderEntry waId={active.customer} />}
                 onBack={() => select(null)}
                 onToggleClosed={(closed) => void toggleClosed(active, closed)}
                 onSent={() => void loadThread(active.customer)}

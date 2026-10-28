@@ -1,3 +1,58 @@
+# Current Feature: Bizzflow AI WhatsApp via Dualhook, Cuts 1-5 (ClickUp z8v9xnjnt8)
+
+## Status
+
+CODE COMPLETE, merged to main for Vercel. Migration `20261028140000_whatsapp_ai_reply` applies on the Vercel build.
+**Inert until env is set on Vercel production**: `WHATSAPP_WEBHOOK_PATH_KEY`, `WHATSAPP_WABA_ID`,
+`WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN`, `DUALHOOK_API_KEY` (and `ANTHROPIC_API_KEY`, `CRON_SECRET`).
+Without `DUALHOOK_API_KEY` the inbox keeps the QR gateway exactly as before.
+
+## Notes
+
+**Cut 1, webhook.** `GET|POST /api/whatsapp/dualhook/<WHATSAPP_WEBHOOK_PATH_KEY>`. A wrong key is 404. GET echoes
+`hub.challenge` when `hub.verify_token` matches, else 403. No HMAC (Meta signs with Dualhook's secret).
+`screenDualhookBody` requires `object`, every `entry.id == WHATSAPP_WABA_ID`, and `phone_number_id` on `messages`;
+one bad id rejects the whole body (403, nothing stored). Allowed fields: messages, history, smb_app_state_sync,
+smb_message_echoes; others are logged and dropped (200). Answers 200 at once and stores in `after()` through
+`ingestWebhook` (keyed on the message id, so a replay adds no row). `parseWebhook` reads Coexistence history threads
+and contact-sync names.
+
+**Cut 2, inbox on Dualhook** (`src/lib/dualhook.ts`). With `DUALHOOK_API_KEY` + `WHATSAPP_PHONE_NUMBER_ID`: replies
+go to `POST {base}/{PHONE_NUMBER_ID}/messages`, media through `GET {base}/{MEDIA_ID}/content`, the QR card is
+replaced by a "Connected through Dualhook" strip, and unlinking is refused (it would wipe the inbox). Audio now plays
+inline. Ticks come from webhook statuses as before.
+
+**Cut 3, Claude auto-reply** (`src/lib/whatsapp-ai.ts`). Runs only from the Dualhook webhook, for the newest live
+customer message per chat, never on preview. Answers only from the knowledge document (Settings tab: PDF up to 4 MB or
+text, sent to Claude as a cached document block); no document means no reply. Model `WHATSAPP_AI_MODEL`, default
+`claude-sonnet-5-5`. IC numbers masked. An image or document from the customer: one bilingual acknowledgement, AI
+paused ("documents"), and a `whatsapp_alerts` row; alerts show on the WhatsApp page and as a count on the admin
+sidebar (in-app only). A human reply pauses the AI ("human"): a BizzFlow send, or a phone-app echo. Per-chat toggle
+in the thread header (AI on / AI paused …). AI replies carry `by_ai` and read "AI ·" in the timeline.
+
+**Cut 4, leads + Order Entry.** The lead stage is the existing CRM stage (the lifecycle list from 2026-10-23, not six
+stages). "Push to Order Entry" in the thread header: pick an Order Entry account, get a draft with the customer's
+name, number (+60 split), remark "From WhatsApp +…", and the chat's images/PDFs copied to R2 as documents (max 10).
+ID number, address and package are left for the agent.
+
+**Cut 5, 24h window** (`src/lib/dualhook-window.ts`). On Dualhook, BizzFlow sends and AI replies are refused once
+the customer's last message is 24h old; the composer shows why and disables Send.
+
+**Retention (AC11b).** `/api/cron/whatsapp-retention`, Vercel Cron daily 19:17 UTC (03:17 MYT), `CRON_SECRET`
+bearer. Deletes messages, raw events and alerts older than 3 months, then chats with no message left. Media is not
+stored by BizzFlow (fetched by id), except documents already pushed to an order.
+
+**Not built (stated, not guessed):** an Agent role for Sofie and Hana (the admin login is one shared identity; they
+use it), "assigned agent" in the chat list (no agent identities exist).
+
+Verified: 21 new vitest (gate, Coexistence shapes, window, retention cutoff, transcript masking, document blocks,
+audio, autoReply handoff/pause/window/staleness/no-document), AC9 asserted on the send path; full suite 1392 passed
+(4 failing files = pre-existing Playwright specs); `next build` clean; lint clean on touched files; `next start`
+curl smoke test of the webhook; inbox driven in Chromium in fixture mode with Dualhook configured at 1440 and 390
+(strip instead of QR, AI toggle, Push dialog, 24h notice disables Send, knowledge card, no overflow). NOT verified:
+anything against Dualhook, Meta or a real phone (AC2, AC5-AC10), a real Claude reply, the retention job on
+production data, the migration on production until the deploy runs it.
+
 # Current Feature: Allo bill (ClickUp z8v9xnjav6)
 
 ## Status
