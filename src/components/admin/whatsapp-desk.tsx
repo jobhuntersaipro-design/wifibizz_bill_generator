@@ -502,6 +502,7 @@ function WhatsappInbox({
                 connected={connected}
                 ai={transport === "dualhook" ? { enabled: active.aiEnabled ?? true, pausedReason: active.aiPausedReason ?? null } : null}
                 windowRule={transport === "dualhook"}
+                windowFrom={active.liveInboundAt === undefined ? active.lastInboundAt : active.liveInboundAt}
                 onAiChanged={() => void load(false)}
                 actions={<WhatsappPushToOrderEntry waId={active.customer} />}
                 details={<div className="max-h-[60dvh] overflow-y-auto">{contactPanel}</div>}

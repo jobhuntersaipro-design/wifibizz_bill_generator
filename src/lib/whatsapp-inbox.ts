@@ -321,6 +321,8 @@ export interface ChatSummary {
   lastAt: string;
   preview: string;
   lastInboundAt: string | null;
+  /** Newest customer message that arrived live (not history): what Meta's 24h window counts. */
+  liveInboundAt?: string | null;
   /** Customer messages newer than the shared last read. */
   unread: number;
   closedAt: string | null;

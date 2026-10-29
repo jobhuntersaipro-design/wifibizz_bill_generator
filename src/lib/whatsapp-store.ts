@@ -243,6 +243,16 @@ export async function ingestWebhook(body: unknown): Promise<void> {
   }
 }
 
+/**
+ * The customer's newest message that reached the Cloud API. Meta's 24h window opens only
+ * from those: a message imported from the phone's history did not, so it never counts.
+ */
+export async function lastLiveInboundAt(waId: string): Promise<Date | null> {
+  const rows = await prisma.$queryRaw<{ at: Date | null }[]>`
+    SELECT max(sent_at) AS at FROM whatsapp_messages WHERE wa_id = ${waId} AND NOT from_me AND source = 'live'`;
+  return rows[0]?.at ?? null;
+}
+
 let backfilled = false;
 
 /**
@@ -290,6 +300,7 @@ interface SummaryRow {
   named_by_admin: boolean;
   last_message_at: Date;
   last_inbound_at: Date | null;
+  live_inbound_at: Date | null;
   last_preview: string | null;
   closed_at: Date | null;
   last_read_at: Date | null;
@@ -317,6 +328,8 @@ export async function listChatSummaries(q = ""): Promise<ChatSummary[]> {
   const rows = await prisma.$queryRaw<SummaryRow[]>`
     SELECT c.wa_id, COALESCE(c.display_name, c.name) AS name, c.display_name IS NOT NULL AS named_by_admin, c.last_message_at, c.last_inbound_at, c.last_preview, c.closed_at, c.last_read_at,
            c.stage_id, c.folder_id, c.tag_ids, c.stage_by, c.folder_by, c.tags_by, c.ai_reason, c.intent, c.signup_chance, c.insight_by, c.ai_enabled, c.ai_paused_reason,
+           (SELECT max(m.sent_at) FROM whatsapp_messages m
+             WHERE m.wa_id = c.wa_id AND NOT m.from_me AND m.source = 'live') AS live_inbound_at,
            (SELECT count(*)::int FROM whatsapp_messages m
              WHERE m.wa_id = c.wa_id AND NOT m.from_me
                AND (c.last_read_at IS NULL OR m.sent_at > c.last_read_at)) AS unread
@@ -333,6 +346,7 @@ export async function listChatSummaries(q = ""): Promise<ChatSummary[]> {
     lastAt: r.last_message_at.toISOString(),
     preview: r.last_preview ?? "",
     lastInboundAt: r.last_inbound_at?.toISOString() ?? null,
+    liveInboundAt: r.live_inbound_at?.toISOString() ?? null,
     unread: r.unread,
     closedAt: r.closed_at?.toISOString() ?? null,
     lastReadAt: r.last_read_at?.toISOString() ?? null,

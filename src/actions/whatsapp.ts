@@ -8,6 +8,7 @@ import { whatsappFixtureEnabled } from "@/lib/whatsapp-inbox-fixture";
 import { contactName, LABEL_COLORS, phoneVariants, type LabelKind } from "@/lib/whatsapp-inbox";
 import { STATUS_LABELS } from "@/lib/order-types";
 import { classifyChatNow } from "@/lib/whatsapp-crm";
+import { lastLiveInboundAt } from "@/lib/whatsapp-store";
 import { dualhookConfig, dualhookSendText, fetchWhatsappMedia, windowOpen, WINDOW_CLOSED_MESSAGE } from "@/lib/dualhook";
 import { MAX_DOCS, type OrderDocument } from "@/lib/order-types";
 import { nextOrderReference } from "@/lib/order-history";
@@ -56,8 +57,7 @@ export async function sendWhatsappText(to: string, text: string): Promise<Result
   let sent: SendResult;
   if (dualhook) {
     if (process.env.VERCEL_ENV === "preview") return { success: false, error: "Sending is disabled on preview deployments." };
-    const conv = await prisma.whatsappConversation.findUnique({ where: { waId: to }, select: { lastInboundAt: true } });
-    if (!windowOpen(conv?.lastInboundAt)) return { success: false, error: WINDOW_CLOSED_MESSAGE };
+    if (!windowOpen(await lastLiveInboundAt(to))) return { success: false, error: WINDOW_CLOSED_MESSAGE };
     sent = await dualhookSendText(dualhook, to, body);
   } else {
     sent = await deliver((config) => sendText(config, to, body));

@@ -16,10 +16,12 @@ vi.mock("@/lib/prisma", () => ({
 }));
 const ingest = vi.fn();
 const wipe = vi.fn();
+const liveAt = vi.fn(async (): Promise<Date | null> => null);
 vi.mock("@/lib/whatsapp-store", () => ({
   ingestWebhook: (...a: unknown[]) => ingest(...a),
   listChatSummaries: async () => [],
   listThread: async () => [],
+  lastLiveInboundAt: () => liveAt(),
 }));
 vi.mock("@/lib/admin-gate", () => ({ requireAdmin: () => admin() }));
 vi.mock("@/lib/audit", () => ({ ADMIN_ACTOR: "admin", recordAudit: (...a: unknown[]) => audit(...a) }));
@@ -208,6 +210,20 @@ describe("send actions", () => {
     vi.stubGlobal("fetch", fetchMock);
     expect(await sendWhatsappText(CUSTOMER, "hi")).toEqual({ success: false, error: "Unauthorized" });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("on Dualhook, a customer message imported from history does not open the 24h window", async () => {
+    vi.stubEnv("DUALHOOK_API_KEY", "k");
+    vi.stubEnv("WHATSAPP_PHONE_NUMBER_ID", "PN1");
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ messages: [{ id: "wamid.D" }] })));
+    vi.stubGlobal("fetch", fetchMock);
+    liveAt.mockResolvedValueOnce(null); // only history messages from the customer
+    expect(await sendWhatsappText(CUSTOMER, "hi")).toMatchObject({ success: false, error: expect.stringContaining("24 hours") });
+    expect(fetchMock).not.toHaveBeenCalled();
+    liveAt.mockResolvedValueOnce(new Date(Date.now() - 60_000)); // a live message a minute ago
+    expect((await sendWhatsappText(CUSTOMER, "hi")).success).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    for (const m of [ingest, create, audit, pauseAi]) m.mockClear();
   });
 
   it("never sends from a preview deployment", async () => {

@@ -19,6 +19,7 @@ export function WhatsappThread({
   connected,
   ai,
   windowRule,
+  windowFrom,
   onAiChanged,
   actions,
   details,
@@ -37,6 +38,8 @@ export function WhatsappThread({
   ai?: { enabled: boolean; pausedReason: string | null } | null;
   /** Meta's 24-hour rule applies (Dualhook): no free-form send after 24h. */
   windowRule?: boolean;
+  /** The customer's last live message, which starts the 24h window (history does not). */
+  windowFrom?: string | null;
   onAiChanged?: () => void;
   actions?: React.ReactNode;
   /** Contact details, shown behind an Info button where the side panel does not fit. */
@@ -105,7 +108,7 @@ export function WhatsappThread({
         key={chat.customer}
         to={chat.customer}
         connected={connected}
-        windowClosed={windowRule === true && !windowOpen(chat.lastInboundAt)}
+        windowClosed={windowRule === true && !windowOpen(windowFrom ?? null)}
         onSent={onSent}
       />
     </>
