@@ -1,3 +1,29 @@
+# Current Feature: WhatsApp page revamp on Arc (contact names, history loading)
+
+## Status
+
+CODE COMPLETE (branch `claude/vigilant-pasteur-xn5l3l`). Vercel-only. **Migration
+`20261029120000_whatsapp_display_name_history`** applies on the Vercel build.
+
+## Notes
+
+Decided with the user 2026-10-29: Arc components on this page in both designs; coloured initials for the avatar;
+an admin-typed name; a progress bar for the history import.
+
+- **Arc always.** The desk sets `data-design="arc"` on its own root in Classic, so Arc tokens apply to this page only.
+  Stage pickers stay native selects (Arc's Select portals to `<body>`, outside the Arc root in Classic).
+- **Avatar.** Meta's Cloud API (Dualhook) has no profile-picture endpoint. Dualhook shows initials on a stable
+  colour per contact (`avatarTone`). The QR gateway still overlays the real photo.
+- **Name.** `whatsapp_conversations.display_name`, set by `setWhatsappChatName` from the contact panel. It wins over
+  the WhatsApp profile name; blank goes back to it. Search covers it.
+- **History loading.** `parseWebhook` reads Meta's `history[].metadata.progress` (a declined share counts as 100);
+  `ingestWebhook` stores it on `whatsapp_crm_settings`. Under 100 and newer than 30 minutes: a progress bar and
+  skeleton rows under the chat list.
+
+Verified: 5 new vitest, full suite 1338 passed; `next build` clean; lint clean on touched files; fixture mode in
+Chromium at 1440 (Arc and Classic) and 390, no overflow, no console errors; renaming a contact updated the list.
+NOT verified: a real Meta history chunk (shape from Meta's docs), the migration on production.
+
 # Current Feature: Bizzflow AI WhatsApp via Dualhook, Cuts 1-5 (ClickUp z8v9xnjnt8)
 
 ## Status

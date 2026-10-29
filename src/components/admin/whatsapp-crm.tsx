@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "@/lib/toast";
-import { Loader2, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
+import { Button as ArcButton } from "@/components/arc/components/button/button";
 import { Progress as ArcProgress } from "@/components/arc/components/progress/progress";
 import {
   countWhatsappLabelUse,
@@ -57,7 +58,7 @@ export function WhatsappCrmControls({
   const select = (field: "stage" | "folder", value: string | null, by: LabelSetter | null) => (
     <div>
       <div className="flex items-baseline justify-between gap-2">
-        <label htmlFor={`wa-${field}`} className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+        <label htmlFor={`wa-${field}`} className="text-xs font-medium text-ink-muted">
           {field === "stage" ? "Lead stage" : "Folder"}
         </label>
         <Setter by={by} onRelease={() => onRelease(field)} />
@@ -66,7 +67,7 @@ export function WhatsappCrmControls({
         id={`wa-${field}`}
         value={value ?? ""}
         onChange={(event) => onSet(field, event.target.value || null)}
-        className="mt-1 w-full rounded-lg border border-line bg-white px-2 py-2 text-sm text-ink"
+        className="mt-1 h-10 w-full rounded-lg border border-line bg-card px-2.5 text-sm text-ink"
       >
         <option value="">None</option>
         {of(FIELD_KIND[field]).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
@@ -76,15 +77,9 @@ export function WhatsappCrmControls({
 
   return (
     <div className="space-y-3">
-      <button
-        type="button"
-        onClick={onAnalyze}
-        disabled={analyzing}
-        className="flex w-full items-center justify-center gap-2 rounded-lg border border-line px-3 py-2 text-sm font-medium text-ink hover:bg-wash disabled:opacity-60"
-      >
-        {analyzing ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Sparkles className="size-4" aria-hidden />}
-        {analyzing ? "Analysing…" : "AI Analysis"}
-      </button>
+      <ArcButton variant="secondary" onClick={onAnalyze} loading={analyzing} className="w-full">
+        <Sparkles className="size-4" aria-hidden /> {analyzing ? "Analysing…" : "Run AI analysis"}
+      </ArcButton>
       <Insight chat={chat} />
       {select("stage", chat.stageId, chat.stageBy)}
       {chat.aiReason && chat.stageBy !== "admin" && <p className="text-xs text-ink-muted">AI: {chat.aiReason}</p>}
@@ -97,9 +92,9 @@ function Insight({ chat }: { chat: ChatSummary }) {
   return (
     <div className="space-y-3">
       <div>
-        <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Summary</span>
-        <p className="mt-1 min-h-24 whitespace-pre-wrap rounded-lg border border-line bg-wash px-3 py-2 text-sm text-ink">
-          {chat.intent ?? <span className="text-ink-muted">No summary yet. Press AI Analysis.</span>}
+        <span className="text-xs font-medium text-ink-muted">Summary</span>
+        <p className="mt-1 whitespace-pre-wrap rounded-lg bg-wash px-3 py-2 text-sm text-ink">
+          {chat.intent ?? <span className="text-ink-muted">No summary yet. Run AI analysis.</span>}
         </p>
       </div>
       {chat.signupChance !== null && <ArcProgress value={chat.signupChance} label="Sign-up chance" showValue />}

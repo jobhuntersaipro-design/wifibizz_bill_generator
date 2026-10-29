@@ -24,6 +24,7 @@ const fixtureMemory = globalThis as unknown as {
 };
 const fixtureSent = (fixtureMemory.whatsappFixtureSent ??= []);
 const fixtureState = (fixtureMemory.whatsappFixtureState ??= new Map());
+const fixtureNames = ((fixtureMemory as { whatsappFixtureNames?: Map<string, string> }).whatsappFixtureNames ??= new Map());
 
 /**
  * Store a reply sent through the API. The webhook never echoes API sends (only
@@ -85,7 +86,8 @@ export async function listChats(q = ""): Promise<ChatSummary[]> {
       const state = fixtureState.get(chat.customer);
       return {
         customer: chat.customer,
-        name: chat.customer === "15551110001" ? "Fixture Customer" : null,
+        name: fixtureNames.get(chat.customer) ?? (chat.customer === "15551110001" ? "Fixture Customer" : null),
+        namedByAdmin: fixtureNames.has(chat.customer),
         lastAt: chat.lastAt,
         preview: chat.preview,
         lastInboundAt: chat.lastInboundAt,
@@ -152,6 +154,31 @@ export async function listConversations(): Promise<Record<string, ConversationSt
       { closedAt: row.closedAt?.toISOString() ?? null, lastReadAt: row.lastReadAt?.toISOString() ?? null },
     ]),
   );
+}
+
+/** The admin's name for a contact; null or blank goes back to the WhatsApp profile name. */
+export async function setDisplayName(waId: string, name: string | null): Promise<void> {
+  if (whatsappFixtureEnabled()) {
+    if (name) fixtureNames.set(waId, name);
+    else fixtureNames.delete(waId);
+    return;
+  }
+  await prisma.whatsappConversation.update({ where: { waId }, data: { displayName: name } });
+}
+
+export interface HistorySync {
+  progress: number;
+  at: string;
+}
+
+/** Meta's latest Coexistence history-import progress, or null when none has arrived. */
+export async function getHistorySync(): Promise<HistorySync | null> {
+  if (whatsappFixtureEnabled()) {
+    const pct = Number(process.env.WHATSAPP_FIXTURE_HISTORY);
+    return Number.isFinite(pct) && process.env.WHATSAPP_FIXTURE_HISTORY ? { progress: pct, at: new Date().toISOString() } : null;
+  }
+  const row = await prisma.whatsappCrmSettings.findUnique({ where: { id: 1 }, select: { historyProgress: true, historyAt: true } });
+  return row?.historyProgress != null && row.historyAt ? { progress: row.historyProgress, at: row.historyAt.toISOString() } : null;
 }
 
 export async function updateConversation(

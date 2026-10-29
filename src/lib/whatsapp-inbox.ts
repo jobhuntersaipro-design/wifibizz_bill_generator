@@ -316,6 +316,8 @@ export function phoneVariants(waId: string): string[] {
 export interface ChatSummary {
   customer: string;
   name: string | null;
+  /** The name was typed by an admin (it wins over the WhatsApp profile name). */
+  namedByAdmin?: boolean;
   lastAt: string;
   preview: string;
   lastInboundAt: string | null;
@@ -390,4 +392,19 @@ export function matchesFilter(chat: ChatSummary, filter: ChatFilter): boolean {
 export function contactName(name: string | null | undefined): string | null {
   const clean = name?.trim();
   return clean && /\p{L}/u.test(clean) ? clean : null;
+}
+
+/** Meta stops sending chunks once done; a sync silent this long has stalled or finished without a 100. */
+export const HISTORY_STALE_MS = 30 * 60_000;
+
+/** The Coexistence history import is still running: under 100% and a chunk arrived recently. */
+export function historyLoading(history: { progress: number; at: string } | null, now = Date.now()): boolean {
+  return !!history && history.progress < 100 && now - Date.parse(history.at) < HISTORY_STALE_MS;
+}
+
+/** A stable colour slot (0-5) per contact, so the same customer keeps the same avatar colour. */
+export function avatarTone(waId: string): number {
+  let hash = 0;
+  for (const ch of waId) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  return hash % 6;
 }

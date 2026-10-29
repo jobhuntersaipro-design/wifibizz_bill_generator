@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/admin-gate";
 import { ADMIN_ACTOR, recordAudit } from "@/lib/audit";
-import { appendApiSend, updateConversation, updateCrm, type CrmPatch } from "@/lib/whatsapp-events";
+import { appendApiSend, setDisplayName, updateConversation, updateCrm, type CrmPatch } from "@/lib/whatsapp-events";
 import { whatsappFixtureEnabled } from "@/lib/whatsapp-inbox-fixture";
 import { contactName, LABEL_COLORS, phoneVariants, type LabelKind } from "@/lib/whatsapp-inbox";
 import { STATUS_LABELS } from "@/lib/order-types";
@@ -117,6 +117,20 @@ export async function setWhatsappClosed(waId: string, closed: boolean): Promise<
     return { success: true, data: undefined };
   } catch {
     return { success: false, error: "Could not update the chat." };
+  }
+}
+
+export async function setWhatsappChatName(waId: string, name: string): Promise<Result> {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+  if (!WA_ID.test(waId)) return { success: false, error: "Invalid WhatsApp number." };
+  const clean = name.trim().replace(/\s+/g, " ");
+  if (clean.length > 120) return { success: false, error: "Names are limited to 120 characters." };
+  try {
+    await setDisplayName(waId, clean || null);
+    return { success: true, data: undefined };
+  } catch {
+    return { success: false, error: "Could not save the name." };
   }
 }
 

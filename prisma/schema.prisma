@@ -615,6 +615,8 @@ model WhatsappConversation {
   updatedAt     DateTime  @updatedAt @map("updated_at")
   // Chat summary, kept current by every webhook write (src/lib/whatsapp-store.ts).
   name          String?
+  // Typed by an admin; shown instead of the WhatsApp profile name.
+  displayName   String?   @map("display_name")
   lastMessageAt DateTime? @map("last_message_at")
   lastInboundAt DateTime? @map("last_inbound_at")
   lastPreview   String?   @map("last_preview")
@@ -650,6 +652,9 @@ model WhatsappCrmSettings {
   knowledgeMime      String?   @map("knowledge_mime")
   knowledgeDoc       String?   @map("knowledge_doc")
   knowledgeUpdatedAt DateTime? @map("knowledge_updated_at")
+  // Coexistence history import: Meta's latest progress (0-100) and when it arrived.
+  historyProgress    Int?      @map("history_progress")
+  historyAt          DateTime? @map("history_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("whatsapp_crm_settings")

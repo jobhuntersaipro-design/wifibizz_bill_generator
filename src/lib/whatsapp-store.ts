@@ -32,6 +32,8 @@ export interface ParsedWebhook {
   statuses: ParsedStatus[];
   /** wa_id → display name, from the Cloud API `contacts` block. */
   names: Map<string, string>;
+  /** Meta's history-import progress (0-100) carried by this body, or null. */
+  historyProgress: number | null;
 }
 
 export interface ChatUpdate {
@@ -85,7 +87,7 @@ function pushItems(out: ParsedMessage[], list: unknown, fromMe: boolean, source:
 
 /** Every message, status and contact name in a Cloud-API-shaped body. Pure. */
 export function parseWebhook(body: unknown, receivedAt = new Date()): ParsedWebhook {
-  const out: ParsedWebhook = { messages: [], statuses: [], names: new Map() };
+  const out: ParsedWebhook = { messages: [], statuses: [], names: new Map(), historyProgress: null };
   const root = asRecord(body);
   if (!root || !Array.isArray(root.entry)) return out;
   for (const entry of root.entry) {
@@ -99,6 +101,13 @@ export function parseWebhook(body: unknown, receivedAt = new Date()): ParsedWebh
       pushItems(out.messages, value.message_echoes, true, source, receivedAt);
       // Meta Coexistence history: value.history[].threads[], thread id = the customer's wa_id.
       for (const chunk of Array.isArray(value.history) ? value.history : []) {
+        const meta = asRecord(asRecord(chunk)?.metadata);
+        const progress = Number(meta?.progress);
+        // The business declined sharing (errors, no threads): nothing more will come.
+        const declined = Array.isArray(asRecord(chunk)?.errors);
+        if (Number.isFinite(progress) || declined) {
+          out.historyProgress = Math.max(out.historyProgress ?? 0, declined ? 100 : Math.min(100, Math.max(0, Math.round(progress))));
+        }
         const threads = asRecord(chunk)?.threads;
         for (const rawThread of Array.isArray(threads) ? threads : []) {
           const thread = asRecord(rawThread);
@@ -204,6 +213,11 @@ export async function ingestWebhook(body: unknown): Promise<void> {
       WHERE wa_id = ${m.waId} AND ai_enabled
         AND NOT EXISTS (SELECT 1 FROM whatsapp_messages WHERE message_id = ${m.messageId} AND by_ai)`;
   }
+  if (parsed.historyProgress !== null) {
+    await prisma.$executeRaw`
+      INSERT INTO whatsapp_crm_settings (id, history_progress, history_at, updated_at) VALUES (1, ${parsed.historyProgress}, now(), now())
+      ON CONFLICT (id) DO UPDATE SET history_progress = EXCLUDED.history_progress, history_at = now(), updated_at = now()`;
+  }
   const updates = chatUpdates(parsed);
   // A name with no message in this body (contact sync). The chat list hides it until a message lands.
   const withMessages = new Set(updates.map((c) => c.waId));
@@ -273,6 +287,7 @@ function setter(value: string | null): LabelSetter | null {
 interface SummaryRow {
   wa_id: string;
   name: string | null;
+  named_by_admin: boolean;
   last_message_at: Date;
   last_inbound_at: Date | null;
   last_preview: string | null;
@@ -300,20 +315,21 @@ export async function listChatSummaries(q = ""): Promise<ChatSummary[]> {
   const query = q.trim();
   const like = likePattern(query);
   const rows = await prisma.$queryRaw<SummaryRow[]>`
-    SELECT c.wa_id, c.name, c.last_message_at, c.last_inbound_at, c.last_preview, c.closed_at, c.last_read_at,
+    SELECT c.wa_id, COALESCE(c.display_name, c.name) AS name, c.display_name IS NOT NULL AS named_by_admin, c.last_message_at, c.last_inbound_at, c.last_preview, c.closed_at, c.last_read_at,
            c.stage_id, c.folder_id, c.tag_ids, c.stage_by, c.folder_by, c.tags_by, c.ai_reason, c.intent, c.signup_chance, c.insight_by, c.ai_enabled, c.ai_paused_reason,
            (SELECT count(*)::int FROM whatsapp_messages m
              WHERE m.wa_id = c.wa_id AND NOT m.from_me
                AND (c.last_read_at IS NULL OR m.sent_at > c.last_read_at)) AS unread
     FROM whatsapp_conversations c
     WHERE c.last_message_at IS NOT NULL
-      AND (${query} = '' OR c.wa_id ILIKE ${like} OR c.name ILIKE ${like}
+      AND (${query} = '' OR c.wa_id ILIKE ${like} OR c.name ILIKE ${like} OR c.display_name ILIKE ${like}
            OR EXISTS (SELECT 1 FROM whatsapp_messages m WHERE m.wa_id = c.wa_id AND m.text ILIKE ${like}))
     ORDER BY c.last_message_at DESC
     LIMIT ${CHAT_LIST_LIMIT}`;
   return rows.map((r) => ({
     customer: r.wa_id,
     name: r.name,
+    namedByAdmin: r.named_by_admin,
     lastAt: r.last_message_at.toISOString(),
     preview: r.last_preview ?? "",
     lastInboundAt: r.last_inbound_at?.toISOString() ?? null,
