@@ -5,6 +5,7 @@ import { toPng } from "html-to-image";
 import { WhatsAppChat, makeRandomization } from "@/components/dashboard/ChatImageGenerator";
 import type { CaseRow } from "@/components/dashboard/shared";
 import { uploadOrderDocument } from "@/actions/order";
+import { FEE_CANCELLED, resolveMonthlyFee } from "@/lib/monthly-fee-prompt";
 import type { OrderDocument } from "@/lib/order-types";
 import {
   docSpec,
@@ -18,6 +19,8 @@ export interface GenerateDocSource extends GeneratorSource {
   idType: string;
   email: string;
   serviceCategory: string;
+  /** "YYYY-MM-DD" or "". The consent chat prints it as the install date. */
+  preferredInstallDate?: string;
 }
 
 interface Props {
@@ -49,12 +52,21 @@ export default function GenerateDocRunner({ type, source, existingOfType, onDone
   const chatRef = useRef<HTMLDivElement>(null);
   const [rand] = useState(makeRandomization);
   const chatVariant = spec.chatVariant;
+  // The chat prints the monthly fee, which must never be blank: the plan's
+  // price, else the agent types it. The chat mounts once it is known.
+  const [monthlyFee, setMonthlyFee] = useState<string | null>(null);
 
   const run = useCallback(async () => {
     try {
       let bytes: Blob;
 
       if (chatVariant) {
+        if (!chatRef.current) {
+          const fee = await resolveMonthlyFee(source.offerName);
+          if (!fee) throw new Error(FEE_CANCELLED);
+          setMonthlyFee(fee);
+          await new Promise((r) => setTimeout(r, 150));
+        }
         const node = chatRef.current;
         if (!node) throw new Error("The chat could not be rendered.");
         const dataUrl = await toPng(node, { pixelRatio: 2, backgroundColor: rand.wallpaper });
@@ -141,9 +153,9 @@ export default function GenerateDocRunner({ type, source, existingOfType, onDone
     return () => clearTimeout(timer);
   }, [type, chatVariant]);
 
-  if (!chatVariant) return null;
+  if (!chatVariant || !monthlyFee) return null;
 
-  const chatCase: CaseRow = {
+  const chatCase: CaseRow & { preferred_install_date: string | null } = {
     case_no: seed,
     case_url: null,
     full_name: source.fullName,
@@ -163,6 +175,7 @@ export default function GenerateDocRunner({ type, source, existingOfType, onDone
     utility_bill_url: null,
     case_created_at: null,
     updated_at: null,
+    preferred_install_date: source.preferredInstallDate || null,
   };
 
   return (
@@ -173,7 +186,7 @@ export default function GenerateDocRunner({ type, source, existingOfType, onDone
           wallpaper={rand.wallpaper}
           time={rand.time}
           unreadCount={rand.unreadCount}
-          installOffsetDays={rand.installOffsetDays}
+          monthlyFee={monthlyFee}
           variant={chatVariant}
         />
       </div>

@@ -1,3 +1,30 @@
+# Current Feature: TM consent template replaces both closing-script chats (ClickUp z8v9xnjzb8)
+
+## Status
+
+MERGED TO MAIN 2026-11-03 (branch `claude/exciting-hamilton-tup3zk`). Vercel-only. **Migration
+`20261103120000_plan_monthly_fee`** (`plans.monthly_fee`, nullable) applies on the Vercel build. NOT verified on
+production (AC7: 3 real orders).
+
+## Notes
+
+Old templates lived in `src/lib/chat-script.ts` (`buildConversationChatScript`, residential) and
+`src/lib/bizz-chat-script.ts` (`buildBizzChatScript`, deleted). Both are replaced by `buildConsentChatScript`
+(template text verbatim in `CONSENT_TEMPLATE`, pinned by a test against the ticket copy). Generated in 4 places,
+all now the new template: Case List row Chat + Bizz Chat buttons and detail panel (`ChatImageGenerator`), Combine
+(`MergePdfDialog`), Order Entry Chat + Bizz Chat cards (`GenerateDocRunner`). Both buttons stay; the variant only
+picks field 3 (business = BRN, else IC) and the PNG filename.
+
+Decided with the user 2026-11-03: field 6 "SAME AS ABOVE", field 7 "New Install", 12 and 13 blank, contract =
+"(NNM)" in the plan name (blank if none), install date = the order's preferred date, else case/order date + 3 days.
+Monthly fee: new admin field per plan (Plan Settings, "Monthly fee (RM)"), matched to the package by name (case and
+spacing ignored). No match or no price → the agent is prompted (`window.prompt`); cancel = no chat. Fee prints
+"RM139.00". The "UNIFI" heading and "By replying" line are gone; the "YES I AGREED" reply bubble stays.
+
+Verified: 8 new vitest (AC1 diff vs ticket, AC2-AC5), full suite passing (4 failing files = pre-existing Playwright
+specs), `next build` clean, lint clean on touched files, chat rendered in Chromium and inspected. NOT verified: the
+fee prompt and the admin fee field in a browser (no database here), production (AC7).
+
 # Current Feature: Bizzflow AI WhatsApp via Dualhook, Cuts 1-5 (ClickUp z8v9xnjnt8)
 
 ## Status

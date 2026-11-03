@@ -19,6 +19,7 @@ import {
   MessageSquareIcon, AuthLetterIcon, SyncSheetIcon, TimeBillIcon, TenancyAgreementIcon, MergeIcon,
 } from "./icons";
 import ChatImageGenerator from "./ChatImageGenerator";
+import { FEE_CANCELLED, resolveMonthlyFee } from "@/lib/monthly-fee-prompt";
 import type { ChatScriptVariant } from "@/lib/chat-script";
 import { AUTH_LETTER_LABEL, UMOBILE_BILL_LABEL, UMOBILE_BILL_SHORT, authLetterVariant, closingScriptVariant } from "@/lib/case-kind";
 import MergePdfDialog from "./MergePdfDialog";
@@ -299,7 +300,7 @@ export default function CaseManagementSection() {
   const [generatingCell, setGeneratingCell] = useState<string | null>(null);
   const [statuses, setStatuses] = useState<string[]>([]);
   // The chat open in the modal, and which template it prints.
-  const [chatCase, setChatCase] = useState<{ caseData: CaseRow; variant: ChatScriptVariant } | null>(null);
+  const [chatCase, setChatCase] = useState<{ caseData: CaseRow; variant: ChatScriptVariant; monthlyFee: string } | null>(null);
   // Case whose installation address is being fetched before the chat opens,
   // keyed with the variant so only the button that was clicked spins.
   const [chatLoadingCase, setChatLoadingCase] = useState<{ caseNo: string; variant: ChatScriptVariant } | null>(null);
@@ -603,7 +604,14 @@ export default function CaseManagementSection() {
   async function handleGenerateChat(c: CaseRow, variant: ChatScriptVariant) {
     if (chatLoadingCase) return;
     if (variant !== closingScriptVariant(c)) return;
-    const open = (caseData: CaseRow) => setChatCase({ caseData, variant });
+    const open = async (caseData: CaseRow) => {
+      const monthlyFee = await resolveMonthlyFee(caseData.package);
+      if (!monthlyFee) {
+        toast.error(FEE_CANCELLED);
+        return;
+      }
+      setChatCase({ caseData, variant, monthlyFee });
+    };
     const needsAddress = !hasAddress(c.full_address);
     // No address and no WifiBizz page to scrape it from: nothing to generate.
     if (needsAddress && !c.case_url) {
@@ -614,7 +622,7 @@ export default function CaseManagementSection() {
     // has no name there — asking again would only fetch the same dash.
     const needsBizzFields = variant === "bizz" && !!c.case_url && c.director_name == null;
     if (!needsAddress && !needsBizzFields) {
-      open(c);
+      await open(c);
       return;
     }
     setChatLoadingCase({ caseNo: c.case_no, variant });
@@ -644,14 +652,14 @@ export default function CaseManagementSection() {
         toast.error(NO_ADDRESS_ERROR, { duration: 8000 });
         return;
       }
-      open(merged);
+      await open(merged);
     } catch (err) {
       console.error("Address fetch failed:", err);
       if (needsAddress) {
         toast.error("Couldn't check the installation address, so the chat was not generated. Try again.");
         return;
       }
-      open(c);
+      await open(c);
     } finally {
       setChatLoadingCase(null);
     }
@@ -1195,6 +1203,7 @@ export default function CaseManagementSection() {
           key={`${chatCase.caseData.case_no}-${chatCase.variant}`}
           caseData={chatCase.caseData}
           variant={chatCase.variant}
+          monthlyFee={chatCase.monthlyFee}
           onClose={() => setChatCase(null)}
         />
       )}

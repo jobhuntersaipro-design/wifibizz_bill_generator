@@ -1,8 +1,8 @@
 // Business vs normal for Closing Script.
 //
 // Two generate paths only: Conversation Chat (residential) and Bizz Chat.
-// This module decides which cases may open Bizz Chat, and which values the
-// Bizz template prints for Customer ID (BRN) and Business Owner Name.
+// This module decides which cases may open Bizz Chat, and the BRN the consent
+// chat prints in field 3 for a business case.
 
 export interface BusinessSignals {
   provider?: string | null;

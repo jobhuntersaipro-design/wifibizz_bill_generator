@@ -1,79 +1,59 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import GenerateDocRunner, { type GenerateDocSource } from "../GenerateDocRunner";
-import { SERVER_DOC_TYPES, type GeneratedDocType } from "@/lib/order-documents";
+import { WhatsAppChat } from "@/components/dashboard/ChatImageGenerator";
+import { GENERATED_DOCS } from "@/lib/order-documents";
+import type { CaseRow } from "@/components/dashboard/shared";
 
-// The upload action drags in auth, Prisma and R2. Static rendering never reaches it.
+// The actions drag in auth, Prisma and R2. Static rendering never reaches them.
 vi.mock("@/actions/order", () => ({ uploadOrderDocument: vi.fn() }));
+vi.mock("@/lib/monthly-fee-prompt", () => ({ resolveMonthlyFee: vi.fn(), FEE_CANCELLED: "" }));
 
 const SOURCE: GenerateDocSource = {
   fullName: "PHONG KONE LEE",
   idNumber: "920505034434",
   fullAddress: "C-30-11 JALAN ECO MAJESTIC 3A/5, 43500 SEMENYIH, SELANGOR",
   mobile: "+60148893212",
-  offerName: "Unifi Biz 100Mbps + Router",
+  offerName: "Unifi Biz 100Mbps (24M)",
   idType: "mykad",
   email: "phong@example.com",
   serviceCategory: "Unifi Business Premium",
 };
 
-function markup(type: GeneratedDocType): string {
-  return renderToStaticMarkup(
-    <GenerateDocRunner type={type} source={SOURCE} existingOfType={0} onDone={() => {}} />,
-  );
-}
-
-// A script line renders as adjacent spans, so compare the text the chat shows.
-function textOf(html: string): string {
-  return html.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&");
-}
+const textOf = (html: string) =>
+  html.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&#x27;/g, "'");
 
 describe("GenerateDocRunner", () => {
-  it("mounts the off-screen chat for the chat types and nothing for the PDFs", () => {
-    for (const type of SERVER_DOC_TYPES) expect(markup(type)).toBe("");
-    expect(textOf(markup("chat"))).toContain("Terms & Conditions:");
-    expect(textOf(markup("bizz_chat"))).toContain("Terms & Conditions:");
+  it("renders nothing until the chat's monthly fee is known", () => {
+    for (const { type } of GENERATED_DOCS) {
+      expect(
+        renderToStaticMarkup(<GenerateDocRunner type={type} source={SOURCE} existingOfType={0} onDone={() => {}} />),
+      ).toBe("");
+    }
   });
+});
 
-  it("photographs the Conversation Chat closing script for `chat`", () => {
-    const text = textOf(markup("chat"));
-    expect(text).toContain(
-      "By replying \u201CYES\u201D , I hereby acknowledge, confirm and agree to the following.",
+describe("WhatsAppChat", () => {
+  it("prints the TM consent template and the customer's reply", () => {
+    const caseData = {
+      case_no: "1", case_url: null, full_name: SOURCE.fullName, full_address: SOURCE.fullAddress,
+      mobile: SOURCE.mobile, email: SOURCE.email, id_no: SOURCE.idNumber, provider: null,
+      package: SOURCE.offerName, order_no: null, agent: null, agent_remark: null, status: null,
+      internet_bill_url: null, utility_bill_url: null, case_created_at: null, updated_at: null,
+      preferred_install_date: "2026-12-01",
+    } as CaseRow & { preferred_install_date: string };
+    const text = textOf(
+      renderToStaticMarkup(
+        <WhatsAppChat caseData={caseData} wallpaper="#000" time="10:00 AM" unreadCount={1} monthlyFee="139.00" />,
+      ),
     );
+    expect(text).toContain("1.\tCustomer Name (as per NRIC/Passport/BRN) : PHONG KONE LEE");
+    expect(text).toContain("9.\tMonthly Subscription Fee : RM139.00");
+    expect(text).toContain("11.\tPreferred Installation Date (if applicable) : 01/12/2026");
+    expect(text).toContain("contract period of 24 months");
+    expect(text).toContain("As a Business Customer representative");
     expect(text).toContain("YES I AGREED");
-    expect(text).not.toContain("SAME AS ABOVE");
-    expect(text).not.toContain("i agreed");
-  });
-
-  it("photographs the Bizz Chat closing script for `bizz_chat`", () => {
-    const text = textOf(markup("bizz_chat"));
-    expect(text).toContain("Customer Name (as per NRIC/Passport) : PHONG KONE LEE");
-    // Canonical `+60 1X-XXXX XXXX`, the same in the header and in line 2, and
-    // the same whether the caller passed the portal's `+60…` or Order Entry's
-    // concatenated prefix+number.
-    expect(text).toContain("Contact Number : +60 14-889 3212");
-    expect(text).not.toContain("Customer ID ( i.e BRN): 920505034434");
-    // An order has no crawled director, so the Business Owner is the chat's
-    // usual dash — never the customer's own name, and never an invented person.
-    expect(text).toContain("Business Owner Name: —");
-    expect(text).not.toContain("Business Owner Name: PHONG KONE LEE");
-    expect(text).toContain("Billing Address : SAME AS ABOVE");
-    expect(text).toContain("Package to be subscribed : Unifi Biz 100Mbps");
-    expect(text).toContain("Representative Name ( if any) : -");
-    expect(text).toContain("i agreed");
+    expect(text).not.toContain("UNIFI\n");
     expect(text).not.toContain("By replying");
-    expect(text).not.toContain("YES I AGREED");
-    expect(text).not.toContain(
-      "I hereby agree all the information provided to TM is correct and genuine.",
-    );
-  });
-
-  it("keeps Conversation Chat on the residential path even when the offer is Business", () => {
-    const text = textOf(markup("chat"));
-    expect(text).toContain("UNIFI");
-    expect(text).toContain("Customer IC/Passport No.");
-    expect(text).not.toContain("Customer ID ( i.e BRN)");
-    expect(text).not.toContain("Business Owner Name");
-    expect(text).not.toContain("biz.unifi.com.my");
   });
 });

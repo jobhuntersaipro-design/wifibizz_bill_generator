@@ -296,6 +296,9 @@ model Plan {
   // the page re-seeds DEALER_OFFERS on read, so a deleted row would reappear.
   hidden      Boolean          @default(false)
   notes       String?
+  // Monthly subscription fee in RM, set by admin. Printed on the TM consent chat
+  // (field 9 and the "RM[XX]" clause). Null = not set yet; the chat then asks the agent.
+  monthlyFee  Decimal?         @map("monthly_fee") @db.Decimal(10, 2)
   offerGroups PlanOfferGroup[]
   createdAt   DateTime         @default(now()) @map("created_at")
   updatedAt   DateTime         @updatedAt @map("updated_at")
