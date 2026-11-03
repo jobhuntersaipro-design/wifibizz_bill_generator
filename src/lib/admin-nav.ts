@@ -31,6 +31,7 @@ export interface AdminNavContext {
 const SECTIONS: { prefix: string; title: string }[] = [
   { prefix: "/admin/orders", title: "Orders" },
   { prefix: "/admin/plans", title: "Plan Settings" },
+  { prefix: "/admin/plan-details", title: "Plan Details" },
   { prefix: "/admin/agents", title: "Agents" },
   { prefix: "/admin/umobile-image", title: "Umobile Image" },
   { prefix: "/admin/landlord-signature", title: "Landlord Signature" },
@@ -43,6 +44,7 @@ export function adminNavContext(pathname: string): AdminNavContext {
 
   if (path === "/admin/orders") return { title: "Orders", back: null };
   if (path === "/admin/plans") return { title: "Plan Settings", back: null };
+  if (path === "/admin/plan-details") return { title: "Plan Details", back: null };
   if (path === "/admin/umobile-image") return { title: "Umobile Image", back: null };
   if (path === "/admin/landlord-signature") return { title: "Landlord Signature", back: null };
   if (path === "/admin/assistant") return { title: "Assistant", back: null };

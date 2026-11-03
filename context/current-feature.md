@@ -1,3 +1,23 @@
+# Current Feature: Plan Details tab on /admin
+
+## Status
+
+MERGED TO MAIN 2026-11-03 (branch `claude/exciting-hamilton-tup3zk`). Vercel-only. **Migration
+`20261104120000_plan_details`** (new table `plan_details`) applies on the Vercel build.
+
+## Notes
+
+Asked 2026-11-03. Decided with the user: a separate list (not the dealer plans in Plan Settings); admin can add,
+edit and delete; the consent chat reads it. `/admin/plan-details` (sidebar: Plan Details) lists name, price
+(RM/month) and contract (months); Add/Edit in an Arc dialog, Delete behind a confirm. Name is whitespace-collapsed
+and unique ignoring case. Rules: `src/lib/plan-detail.ts`; actions: `src/actions/plan-details.ts`.
+Chat order now, per term: plan name ("RM189", "(24M)") → Plan Details (matched by name, case and spacing
+ignored) → (fee only) Plan Settings fee → agent dialog.
+
+Verified: 2 new vitest, full suite 1384 passed, `next build` clean, lint clean on touched files; the page and
+dialog driven in Chromium (validation errors, save reaches the server). NOT verified: a real save/delete (no
+database or admin session here), production.
+
 # Current Feature: TM consent template replaces both closing-script chats (ClickUp z8v9xnjzb8)
 
 ## Status

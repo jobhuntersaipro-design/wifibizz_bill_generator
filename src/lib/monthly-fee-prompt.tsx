@@ -1,12 +1,13 @@
 "use client";
 // The two consent-chat terms that must never be blank: the monthly fee and the contract period.
-// Fee, in order: the price in the plan name ("… RM189"), the plan's admin-set fee
-// (Plan Settings), else the agent types it. Months: the "(NNM)" in the plan name, else
-// the agent types it. One Arc dialog asks for whatever is missing. Cancel = null.
+// Each, in order: what the plan name says ("… RM189", "(24M)"), then Plan Details
+// (/admin/plan-details), then (fee only) the plan's fee in Plan Settings, else the agent
+// types it. One Arc dialog asks for whatever is still missing. Cancel = null.
 
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { getMonthlyFee } from "@/actions/plans";
+import { getPlanDetailTerms } from "@/actions/plan-details";
 import { feeFromPackageName, formatFee, parseMonthlyFee } from "./plan-offer";
 import { contractMonths } from "./chat-script";
 import { Button } from "@/components/ui/button";
@@ -32,11 +33,16 @@ export interface ConsentTerms {
 export async function resolveConsentTerms(pkg: string | null): Promise<ConsentTerms | null> {
   const fromName = feeFromPackageName(pkg);
   let fee = fromName ? formatFee(fromName) : "";
+  let months = contractMonths(pkg);
+  if (!fee || !months) {
+    const detail = await getPlanDetailTerms(pkg).catch(() => null);
+    if (!fee && detail) fee = formatFee(Number(detail.fee));
+    if (!months && detail) months = detail.months;
+  }
   if (!fee) {
     const fromPlan = await getMonthlyFee(pkg).catch(() => null);
     if (fromPlan) fee = formatFee(Number(fromPlan));
   }
-  const months = contractMonths(pkg);
   if (fee && months) return { fee, months };
   return askTerms(pkg, { fee, months });
 }
