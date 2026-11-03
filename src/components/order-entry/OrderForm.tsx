@@ -399,6 +399,7 @@ export function OrderForm({
     email: email.trim(),
     serviceCategory,
     offerCategory,
+    preferredInstallDate: preferredDate,
   };
 
   // What "Generate all" would run right now. Also the button's count, so the

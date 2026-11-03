@@ -1,10 +1,7 @@
 // The company and the director a business case prints.
 //
-// Both the Bizz Chat's "Business Owner Name" and the Biz Auth Letter's director
-// come from here, because the two documents are generated from one case and
-// routinely travel together — the Combine dialog puts them in one PDF. Two
-// generators would eventually name two different people for one company, and
-// the mismatch would be visible side by side.
+// The Biz Auth Letter's director comes from here. (The Bizz Chat printed it too
+// until the TM consent template replaced it; that template has no owner field.)
 
 import { parseCompanyPair, resolveBizzChatFields, type BusinessSignals } from "./case-kind";
 import { decodeCustomerName } from "./html-entities";
@@ -62,10 +59,7 @@ export interface BizDirector {
 /**
  * The director, as WifiBizz records it: the Customer-tab Name and National ID No.
  *
- * Both the Bizz Chat's "Business Owner Name" and the Biz Auth Letter's director
- * come from here, because the two documents are generated from one case and
- * routinely travel together — the Combine dialog puts them in one PDF — so they
- * must name the same person.
+ * The Biz Auth Letter's director.
  *
  * NOTHING IS INVENTED OR FILTERED: the case's original data (user, 2026-09-19).
  * The ID prints even under a missing name, and even when it is really the

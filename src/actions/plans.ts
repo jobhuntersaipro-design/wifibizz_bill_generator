@@ -8,6 +8,7 @@ import {
   nestOfferItems,
   normalizeBandwidth,
   normalizePlanName,
+  parseMonthlyFee,
   splitPlanOffer,
   toOfferGroupKind,
   OFFER_GROUP_KINDS,
@@ -57,6 +58,7 @@ function toView(p: {
   bandwidth: string | null;
   published: boolean;
   notes: string | null;
+  monthlyFee: { toFixed(digits: number): string } | null;
   offerGroups: {
     id: string;
     name: string;
@@ -72,6 +74,7 @@ function toView(p: {
     bandwidth: p.bandwidth,
     published: p.published,
     notes: p.notes,
+    monthlyFee: p.monthlyFee ? p.monthlyFee.toFixed(2) : null,
     offerGroups: p.offerGroups.map((g) => ({
       id: g.id,
       name: g.name,
@@ -172,6 +175,32 @@ export async function adminSetPlanPublished(id: string, published: boolean) {
   }
   await prisma.plan.update({ where: { id }, data: { published } });
   return { success: true as const };
+}
+
+/** Set or clear a plan's monthly fee (RM). Blank clears it. */
+export async function adminSetPlanFee(id: string, raw: string) {
+  if (!(await verifyAdminSession())) return { success: false as const, error: "Unauthorized" };
+  const fee = parseMonthlyFee(raw);
+  if (fee === undefined) return { success: false as const, error: "Enter the fee as a number, e.g. 139 or 139.00." };
+  await prisma.plan.update({ where: { id }, data: { monthlyFee: fee } });
+  return { success: true as const };
+}
+
+/**
+ * The monthly fee of the plan whose name matches `pkg` (case and spacing
+ * ignored), for the consent chat. Null when no plan matches or none is set:
+ * the caller then asks the agent.
+ */
+export async function getMonthlyFee(pkg: string | null): Promise<string | null> {
+  const session = await auth();
+  if (!session?.user?.id) return null;
+  const name = (pkg ?? "").replace(/\s+/g, " ").trim();
+  if (!name) return null;
+  const plan = await prisma.plan.findFirst({
+    where: { hidden: false, name: { equals: name, mode: "insensitive" }, monthlyFee: { not: null } },
+    select: { monthlyFee: true },
+  });
+  return plan?.monthlyFee ? plan.monthlyFee.toFixed(2) : null;
 }
 
 /**

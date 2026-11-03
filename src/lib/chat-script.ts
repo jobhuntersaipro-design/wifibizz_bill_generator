@@ -1,32 +1,20 @@
-// The closing script the WhatsApp chrome renders, and the field formatting
-// every template shares.
+// The TM consent chat the WhatsApp chrome renders, and the field formatting it uses.
 //
-// One shape for every variant, so the chrome prints whatever the script holds
-// and carries no per-template branches. The Conversation Chat and the Bizz Chat
-// print the same customer fields under different labels, so the rules for a
-// phone number, a package name and the preferred installation date live here
-// once rather than once per template.
+// One template for every customer (ClickUp z8v9xnjzb8). It replaced the residential
+// Conversation Chat and the business Bizz Chat; the two buttons stay, and `variant`
+// now only decides what field 3 prints and the PNG's filename.
 
 import { decodeCustomerName } from "./html-entities";
 import { formatPhone } from "./order-types";
+import { resolveBizzChatFields } from "./case-kind";
 
-/** Which template a chat prints. Conversation is residential only; Bizz is the business path. */
+/** Which button generated the chat. Conversation = residential, Bizz = business. */
 export type ChatScriptVariant = "conversation" | "bizz";
 
-export interface ScriptLine {
-  /** Printed first, including its colon and trailing space; the value follows on the same line. */
-  label: string;
-  value: string;
-}
-
+/** The message the chat bubble prints, then the customer's reply. */
 export interface ChatScript {
-  /** Printed above the fields. The home conversation says "UNIFI"; the other templates have none. */
-  heading?: string;
-  lines: ScriptLine[];
-  /** Without the leading ✅. The chrome adds it. */
-  terms: string[];
-  /** The sentence between the terms and the customer's reply, where the template has one. */
-  consent?: string;
+  /** The TM consent template, filled. Tabs and spacing are the template's own. */
+  text: string;
   /** The customer's reply that closes the script. */
   agreement: string;
 }
@@ -34,28 +22,16 @@ export interface ChatScript {
 /**
  * A Malaysian mobile as `+60 14-889 3212`, whatever shape it arrived in.
  *
- * The two entry points hand this different strings for the same customer — the
- * Case List passes the portal's `+60137089093`, Order Entry concatenates its
- * prefix and number field into `60137089093` — and a leading `0` turns up in
- * both. Normalising to one canonical form HERE is what stops a chat generated
- * from an order reading differently from the same customer's chat generated
- * from their case.
- *
- * Grouped by `formatPhone`, not by a second copy of the rule: the orders table
- * already prints phone numbers and the two must not drift apart.
- *
+ * The Case List passes the portal's `+60137089093`, Order Entry passes
+ * `60137089093`, and a leading `0` turns up in both: one canonical form here.
  * A number that is not a Malaysian mobile is returned as its bare digits rather
- * than being stamped `+60`, which would put an authoritative and wrong country
- * code on a foreign number — the same rule `formatPhone` follows for a length
- * it does not recognise.
+ * than being stamped `+60`.
  */
 export function formatMobileRaw(mobile: string | null): string {
   if (!mobile) return "—";
   const digits = mobile.replace(/[^0-9]/g, "");
   if (!digits) return "—";
   const national = digits.startsWith("60") ? digits.slice(2) : digits.replace(/^0+/, "");
-  // Malaysian mobiles are 1X… at 9 or 10 national digits, so a national number
-  // can never itself begin "60" and the strip above is unambiguous.
   return /^1\d{8,9}$/.test(national) ? (formatPhone("60", national) ?? digits) : digits;
 }
 
@@ -74,54 +50,125 @@ export function formatPackage(pkg: string | null): string {
   return pkg;
 }
 
-/** Residential Conversation Chat only — never the Bizz BRN/owner T&C template. */
-export function buildConversationChatScript(
-  c: {
-    full_name: string | null;
-    mobile: string | null;
-    id_no: string | null;
-    email: string | null;
-    full_address: string | null;
-    package: string | null;
-    case_created_at: string | null;
-  },
-  installOffsetDays: number,
-): ChatScript {
-  const name = formatCustomerName(c.full_name);
-  const mobile = formatMobileRaw(c.mobile);
-  const idNo = c.id_no || "—";
-  const email = c.email || "—";
-  const address = c.full_address || "—";
-  const pkg = formatPackage(c.package);
-  const installDate = formatInstallDate(c.case_created_at, installOffsetDays);
+// The TM consent template, verbatim. {n} = field n's value; {months} and {fee}
+// fill the two "[XX]" in the terms. Spacing after each ✅ (one or two spaces)
+// and the tabs are the template's own: do not tidy them.
+export const CONSENT_TEMPLATE = [
+  "1.\tCustomer Name (as per NRIC/Passport/BRN) :{1}",
+  "2.\tContact Number :{2}",
+  "3.\tCustomer IC (NRIC/Passport/BRN) :{3}",
+  "4.\tEmail Address :{4}",
+  "5.\tInstallation Address :{5}",
+  "6.\tBilling Address :{6}",
+  "7.\tOrder Type (New Install / Upgrade / Add-On / Other) :{7}",
+  "8.\tPackage / Service to be Subscribed :{8}",
+  "9.\tMonthly Subscription Fee :{9}",
+  "10.\tContract Period (if applicable) :{10}",
+  "11.\tPreferred Installation Date (if applicable) :{11}",
+  "12.\tRepresentative Name (for Business customers, if applicable) :{12}",
+  "13.\tExisting Service Login ID / Account Number (for Upgrade or Add-On orders, if applicable) :{13}",
+  "",
+  "Terms & Conditions:",
+  "✅ I hereby consent to subscribe to the above service/package with a contract period of *{months} months* (if applicable).",
+  "✅  I acknowledge that I have been informed, understood and agree to be bound by the applicable Terms & Conditions and TM Privacy Notice available at:",
+  "•\tConsumer Customers: https://unifi.com.my/personal/home/fibre-broadband/tnc",
+  "•\tBusiness Customers: https://biz.unifi.com.my/business/biz-tnc",
+  "✅  As a Business Customer representative, I confirm that I am authorised to act on behalf of the Company and in a capacity to request the subscription, upgrade or any add on with regards to the service.",
+  "✅  I agree to subscribe to the service/package at the monthly fee of *RM{fee}* (if applicable).",
+  "✅  For new installations, customers are required to pay any applicable advance payment starting from RM100, in accordance with TM's prevailing policies. Foreign customers shall be subject to a mandatory deposit of RM500. The deposit must be paid prior to the submission of the installation order, while the advance payment must be settled within fourteen (14) days after the completion of the installation order.",
+  "✅  I understand and agree that early termination of the service/package may result to early termination penalty based on the remaining contract commitment including any outstanding fees, device penalty (including where the device has already been processed, dispatched or delivered) and/or other applicable charges (if applicable).",
+  "✅  I acknowledge and agree that the service/package order cannot be cancelled once the order has been submitted for processing.",
+  "✅ I acknowledge that free installation covers up to 50 meters under Standard Installation. Additional charges may apply for cabling beyond 50 meters or any Non-Standard Installation works. For details, refer to the https://unifi.com.my/support/installation",
+  "✅  I confirm that all information and supporting documents provided to TM is true, accurate, complete and genuine.",
+  "✅  I hereby authorize TM and its representatives to verify and process my order. Kindly notify me if there are any issues pertaining to my request.",
+  "✅  I acknowledge that this confirmation, whether provided electronically, digitally, verbally through recorded channels, or by any other method accepted by TM, shall constitute valid evidence of my consent and agreement to the service/package subscription and applicable contractual obligation",
+].join("\n");
 
+/** The 13 field values (index 0 = field 1) and the two term placeholders. "" = blank. */
+export interface ConsentValues {
+  fields: string[];
+  months: string;
+  fee: string;
+}
+
+/** Fill the template. A blank field leaves the label ending at its colon. */
+export function fillConsentTemplate(v: ConsentValues): string {
+  return CONSENT_TEMPLATE.replace(/\{(\d+|months|fee)\}/g, (_, k: string) => {
+    if (k === "months") return v.months;
+    if (k === "fee") return v.fee;
+    const value = (v.fields[Number(k) - 1] ?? "").trim();
+    return value ? ` ${value}` : "";
+  });
+}
+
+/** "Unifi Home 300Mbps Premium Value (36M)" → "36". Blank when the name has no "(NNM)". */
+export function contractMonths(pkg: string | null): string {
+  return pkg?.match(/\((\d+)\s*M\)/i)?.[1] ?? "";
+}
+
+/** The case fields the consent chat prints. A CaseRow satisfies it as-is. */
+export interface ConsentSource {
+  full_name: string | null;
+  mobile: string | null;
+  id_no: string | null;
+  email: string | null;
+  full_address: string | null;
+  package: string | null;
+  case_created_at: string | null;
+  company_name?: string | null;
+  company_reg?: string | null;
+  director_name?: string | null;
+  /** "YYYY-MM-DD" from an Order Entry draft. Wins over the +3 days default. */
+  preferred_install_date?: string | null;
+}
+
+/** Days after the case/order date the install date defaults to when none was chosen. */
+export const DEFAULT_INSTALL_OFFSET_DAYS = 3;
+
+const orBlank = (s: string) => (s === "—" ? "" : s);
+
+/**
+ * The TM consent chat for one case or order. `variant: "bizz"` prints the BRN in
+ * field 3 (as the Bizz Chat did); otherwise the IC. `monthlyFee` is RM, e.g.
+ * "139.00": the caller makes sure it is set, so the fee is never blank.
+ */
+export function buildConsentChatScript(
+  c: ConsentSource,
+  opts: { variant: ChatScriptVariant; monthlyFee: string },
+): ChatScript {
+  const customerId =
+    opts.variant === "bizz" ? resolveBizzChatFields(c).customerId || c.id_no : c.id_no;
+  const months = contractMonths(c.package);
+  const fee = opts.monthlyFee.trim();
+  const pref = c.preferred_install_date?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const installDate = pref
+    ? `${pref[3]}/${pref[2]}/${pref[1]}`
+    : formatInstallDate(c.case_created_at, DEFAULT_INSTALL_OFFSET_DAYS);
   return {
-    heading: "UNIFI",
-    lines: [
-      { label: "1.\u2060 \u2060Customer Name (as per NRIC/Passport): ", value: name },
-      { label: "2.\u2060 \u2060Contact Number: ", value: mobile },
-      { label: "3.\u2060 \u2060Customer IC/Passport No.: ", value: idNo },
-      { label: "4.\u2060 \u2060Email Address:", value: "" },
-      { label: "", value: email },
-      { label: "5.\u2060 \u2060Installation Address: ", value: address },
-      { label: "6.\u2060 \u2060Package to be Subscribed: ", value: pkg },
-      { label: "7.\u2060 \u2060Preferred Installation Date: ", value: installDate },
-    ],
-    terms: [
-      "I hereby consent to subscribed the service with subscription contract of 24/27/30/36 months.",
-      "I agree to pay advance payment of RM100 for Malaysian within 10 days after installation complete or Deposit RM500 for foreigner before installation",
-      "I have been informed on the Terms & Condition as at https://unifi.com.my/personal/home/fibre-broadband/tnc and Privacy Notice of TM",
-      "I hereby consent TM representative to proceed and process my order. Kindly notify me if there is any issues pertaining to my request.",
-      "I acknowledge that the package order cannot be cancelled once the order has been submitted. Where applicable, I agree to bear any device penalty or related charges arising from cancellation, including where the device has already been processed for delivery.",
-      "I acknowledge and agree to be liable for all applicable costs, charges, device penalties and expenses arising from any cancellation, early termination or breach of the applicable subscription terms.",
-      "I hereby authorise the *TM representative* to proceed with and process my order based on the information provided.",
-    ],
-    consent: "By replying \u201CYES\u201D , I hereby acknowledge, confirm and agree to the following.",
+    text: fillConsentTemplate({
+      fields: [
+        orBlank(formatCustomerName(c.full_name)),
+        orBlank(formatMobileRaw(c.mobile)),
+        customerId ?? "",
+        c.email ?? "",
+        c.full_address ?? "",
+        "SAME AS ABOVE",
+        "New Install",
+        orBlank(formatPackage(c.package?.trim() || null)),
+        fee ? `RM${fee}` : "",
+        months ? `${months} months` : "",
+        installDate,
+        "",
+        "",
+      ],
+      months,
+      fee,
+    }),
     agreement: "YES I AGREED",
   };
 }
 
-/** The case's creation date (or today) plus the randomised offset, as DD/MM/YYYY. */
+/** The case's creation date (or today) plus the offset, as DD/MM/YYYY. */
 export function formatInstallDate(caseCreatedAt: string | null, offsetDays: number): string {
   const base = caseCreatedAt ? new Date(caseCreatedAt) : new Date();
   const d = new Date(base);

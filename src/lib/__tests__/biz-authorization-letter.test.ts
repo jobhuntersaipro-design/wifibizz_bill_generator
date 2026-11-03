@@ -10,7 +10,6 @@ import {
 import { authLetterVariant, AUTH_LETTER_LABEL } from "@/lib/case-kind";
 import { generatableDocTypes } from "@/lib/order-documents";
 import { buildMergeItems, mergeItemUrl } from "@/lib/bill-generator/merge-plan";
-import { buildBizzChatScript } from "@/lib/bizz-chat-script";
 import { bizSignatureRng } from "@/lib/biz-director";
 
 /** Every drawn text run, in the order the page draws them. */
@@ -208,20 +207,6 @@ describe("the director — WifiBizz's own, never invented", () => {
     for (const director_name of ["", "-", null]) {
       expect(bizSignatureRng({ ...CASE, director_name })).toBeNull();
     }
-  });
-
-  it("is the same person the Bizz Chat prints as Business Owner", () => {
-    const owner = (c: Record<string, unknown>) =>
-      buildBizzChatScript(
-        { ...c, full_name: (c.full_name as string) ?? null, mobile: null, id_no: null, email: null,
-          full_address: null, package: null, case_created_at: null },
-        3,
-      ).lines.find((l) => l.label.includes("Business Owner Name"))?.value;
-
-    expect(owner(CASE)).toBe("TAN WEI MING");
-    expect(owner(CASE)).toBe(resolveBizLetterFields(CASE).directorName);
-    // No name: the letter prints blank, the chat its usual dash — neither invents.
-    expect(owner({ ...CASE, director_name: "" })).toBe("—");
   });
 });
 

@@ -72,6 +72,8 @@ export interface PlanView {
   bandwidth: string | null;
   published: boolean;
   notes: string | null;
+  /** RM, two decimals ("139.00"). Null = not set. */
+  monthlyFee: string | null;
   offerGroups: OfferGroupView[];
 }
 
@@ -328,4 +330,16 @@ export function speedChipLabel(key: string): string {
   };
   if (known[key]) return known[key];
   return key === NO_SPEED ? "No speed set" : bandwidthLabel(key);
+}
+
+/**
+ * A typed monthly fee as a number with up to 2 decimals. Blank → null (clears).
+ * Anything else that is not a positive amount → undefined (refused).
+ */
+export function parseMonthlyFee(raw: string): number | null | undefined {
+  const t = raw.replace(/^\s*RM\s*/i, "").replace(/,/g, "").trim();
+  if (!t) return null;
+  if (!/^\d{1,7}(\.\d{1,2})?$/.test(t)) return undefined;
+  const n = Number(t);
+  return n > 0 ? n : undefined;
 }

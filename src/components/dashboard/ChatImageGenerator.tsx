@@ -6,9 +6,8 @@ import Image from "next/image";
 import { toPng } from "html-to-image";
 import type { CaseRow } from "./shared";
 import { CloseIcon, DownloadIcon } from "./icons";
-import { buildConversationChatScript, formatMobileRaw, type ChatScriptVariant } from "@/lib/chat-script";
+import { buildConsentChatScript, formatMobileRaw, type ChatScriptVariant } from "@/lib/chat-script";
 import { decodeCustomerName } from "@/lib/html-entities";
-import { buildBizzChatScript } from "@/lib/bizz-chat-script";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { useIsArc } from "@/components/design/use-design";
@@ -59,28 +58,10 @@ function TextWithLinks({ text, style }: { text: string; style?: React.CSSPropert
   );
 }
 
-// Everything that differs between the two chats, in one row per variant, so the
-// chrome and the modal read from it instead of branching on the variant.
-const CHAT_VARIANTS: Record<
-  ChatScriptVariant,
-  {
-    build: (c: CaseRow, installOffsetDays: number) => ReturnType<typeof buildConversationChatScript>;
-    /** Follows the case number in the modal header. */
-    kind: (c: CaseRow) => string;
-    /** Prefix of the downloaded PNG's filename. */
-    filePrefix: string;
-  }
-> = {
-  conversation: {
-    build: buildConversationChatScript,
-    kind: () => "Home",
-    filePrefix: "closing_script",
-  },
-  bizz: {
-    build: buildBizzChatScript,
-    kind: () => "Bizz",
-    filePrefix: "bizz_chat",
-  },
+// The two buttons print the same template; this is what still differs.
+const CHAT_VARIANTS: Record<ChatScriptVariant, { kind: string; filePrefix: string }> = {
+  conversation: { kind: "Home", filePrefix: "closing_script" },
+  bizz: { kind: "Bizz", filePrefix: "bizz_chat" },
 };
 
 // WhatsApp iPhone dark mode wallpaper colors
@@ -107,7 +88,6 @@ interface ChatRandomization {
   wallpaper: string;
   time: string;
   unreadCount: number;
-  installOffsetDays: number;
 }
 
 // Generates all randomized display values together. Called outside render
@@ -117,7 +97,6 @@ export function makeRandomization(): ChatRandomization {
     wallpaper: pickWallpaper(),
     time: getTimeString(),
     unreadCount: 10 + Math.floor(Math.random() * 30),
-    installOffsetDays: 3 + Math.floor(Math.random() * 5), // 3-7 days
   };
 }
 
@@ -131,17 +110,18 @@ export function WhatsAppChat({
   wallpaper,
   time,
   unreadCount,
-  installOffsetDays,
   variant = "conversation",
+  monthlyFee,
 }: {
-  caseData: CaseRow;
+  caseData: CaseRow & { preferred_install_date?: string | null };
   wallpaper: string;
   time: string;
   unreadCount: number;
-  installOffsetDays: number;
   variant?: ChatScriptVariant;
+  /** RM, e.g. "139.00". Resolved by the caller (plan price or the agent's entry). */
+  monthlyFee: string;
 }) {
-  const script = CHAT_VARIANTS[variant].build(caseData, installOffsetDays);
+  const script = buildConsentChatScript(caseData, { variant, monthlyFee });
   const mobileDisplay = formatMobileDisplay(caseData.mobile);
 
   return (
@@ -247,66 +227,11 @@ export function WhatsAppChat({
               borderBottom: "10px solid transparent",
             }} />
 
-            {script.heading && (
-              <div style={{ ...S.text }}>{script.heading}</div>
-            )}
-
-            {/* Script lines */}
-            <div style={{ ...S.text }}>
-              {script.lines.map((line, i) => {
-                // Email address on its own line (the blank label line for email value)
-                if (line.label === "" && line.value) {
-                  return (
-                    <div key={i}>
-                      <span style={{ color: "#53BDEB", textDecoration: "underline" }}>{line.value}</span>
-                    </div>
-                  );
-                }
-                // "4.Email Address :" with no inline value
-                if (line.label && line.value === "") {
-                  return <div key={i}>{line.label}</div>;
-                }
-                // Normal field: label + value on same line, value wraps naturally
-                return (
-                  <div key={i}>
-                    <span>{line.label}</span>
-                    {line.value && <span>{line.value}</span>}
-                  </div>
-                );
-              })}
+            {/* The template verbatim. pre-wrap keeps its tabs and line breaks;
+                TextWithLinks renders the URLs and WhatsApp *bold* as WhatsApp does. */}
+            <div style={{ ...S.text, whiteSpace: "pre-wrap", tabSize: 4 }}>
+              <TextWithLinks text={script.text} style={S.text} />
             </div>
-
-            {/* Terms header */}
-            <div style={{ ...S.text, marginTop: 2 }}>
-              Terms & Conditions:
-            </div>
-
-            {/* T&C items with green checkmarks.
-                INLINE, not one flex row per clause, because of how the PNG is
-                rasterised: html-to-image copies each element's measured height
-                onto its clone but re-lays the text out, and the raster fits
-                slightly more per line than the DOM does. A clause whose last DOM
-                line held one orphan word rasterised a line shorter than the box
-                reserved for it, and the spare line showed as a blank gap between
-                two clauses (seen live between the advance-payment clause and the
-                one after it, and again before the final authorisation clause).
-                A non-replaced inline element's computed height is `auto`, so
-                nothing is reserved and the raster's own wrap decides the height.
-                Wrapped lines now return to the left margin instead of hanging
-                under the text — which is what real WhatsApp does anyway. */}
-            <div style={{ ...S.text }}>
-              {script.terms.map((term, i) => (
-                <span key={i}>
-                  <span style={{ fontSize: 14.2, lineHeight: 1.4 }}>✅ </span>
-                  <TextWithLinks text={term} style={S.text} />
-                  {i < script.terms.length - 1 && <br />}
-                </span>
-              ))}
-            </div>
-
-            {script.consent && (
-              <div style={{ ...S.text, marginTop: 14 }}>{script.consent}</div>
-            )}
 
             <div style={{ ...S.text, fontWeight: 700, marginTop: 14 }}>
               {script.agreement}
@@ -407,9 +332,10 @@ interface ChatImageGeneratorProps {
   caseData: CaseRow;
   onClose: () => void;
   variant?: ChatScriptVariant;
+  monthlyFee: string;
 }
 
-export default function ChatImageGenerator({ caseData, onClose, variant = "conversation" }: ChatImageGeneratorProps) {
+export default function ChatImageGenerator({ caseData, onClose, variant = "conversation", monthlyFee }: ChatImageGeneratorProps) {
   const arc = useIsArc();
   const chat = CHAT_VARIANTS[variant];
   const chatRef = useRef<HTMLDivElement>(null);
@@ -482,7 +408,7 @@ export default function ChatImageGenerator({ caseData, onClose, variant = "conve
           <div>
             <h3 className="text-sm font-semibold text-ink">Closing Script</h3>
             <p className="text-xs text-ink-muted mt-0.5">
-              {caseData.case_no} &middot; {chat.kind(caseData)}
+              {caseData.case_no} &middot; {chat.kind}
             </p>
           </div>
           <Button unstyled variant="ghost" size="icon-sm"
@@ -504,7 +430,7 @@ export default function ChatImageGenerator({ caseData, onClose, variant = "conve
                 wallpaper={rand.wallpaper}
                 time={rand.time}
                 unreadCount={rand.unreadCount}
-                installOffsetDays={rand.installOffsetDays}
+                monthlyFee={monthlyFee}
                 variant={variant}
               />
             </div>

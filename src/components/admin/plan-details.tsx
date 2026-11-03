@@ -10,6 +10,7 @@ import {
   adminListPlans,
   adminCreatePlan,
   adminSetPlanPublished,
+  adminSetPlanFee,
   adminDeletePlan,
   adminAddOfferGroup,
   adminDeleteOfferGroup,
@@ -438,6 +439,37 @@ function RemovePlanModal({
   );
 }
 
+/** Monthly fee (RM) printed on the TM consent chat. Saved on blur or Enter. */
+function FeeEditor({ plan, onChanged }: { plan: PlanView; onChanged: () => void }) {
+  const id = useId();
+  const [value, setValue] = useState(plan.monthlyFee ?? "");
+  async function save() {
+    if (value.trim() === (plan.monthlyFee ?? "")) return;
+    const res = await adminSetPlanFee(plan.id, value);
+    if (!res.success) {
+      toast.error(res.error ?? "Couldn't save the fee.");
+      return;
+    }
+    toast.success("Monthly fee saved", { description: plan.name });
+    onChanged();
+  }
+  return (
+    <div className="mt-2 flex items-center gap-2">
+      <label htmlFor={id} className="text-[12px] text-ink-soft">Monthly fee (RM)</label>
+      <Input
+        id={id}
+        inputMode="decimal"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => e.key === "Enter" && save()}
+        placeholder="e.g. 139.00"
+        className="h-8 w-32 text-[13px]"
+      />
+    </div>
+  );
+}
+
 /**
  * One plan, collapsed to its title until opened.
  *
@@ -530,6 +562,7 @@ function PlanRow({
             </span>
             <span className="mt-0.5 block text-[11px] text-ink-muted">
               {plan.bandwidth ?? "—"}
+              {plan.monthlyFee ? ` · RM${plan.monthlyFee}/mth` : " · no monthly fee"}
               {plan.offerGroups.length === 0
                 ? " · no offer groups yet"
                 : ` · ${plan.offerGroups.length} offer group${plan.offerGroups.length === 1 ? "" : "s"}` +
@@ -578,6 +611,7 @@ function PlanRow({
       )}
 
       <div id={panelId} hidden={!open}>
+        <FeeEditor plan={plan} onChanged={onChanged} />
         {plan.offerGroups.length > 0 && (
           <ul className="mt-2 flex flex-col gap-1.5">
           {plan.offerGroups.map((g) => (
