@@ -2,7 +2,7 @@
 
 ## Status
 
-CODE COMPLETE (branch `claude/exciting-hamilton-tup3zk`, not committed). Vercel-only. **Migration
+MERGED TO MAIN 2026-11-03 (branch `claude/exciting-hamilton-tup3zk`). Vercel-only. **Migration
 `20261103120000_plan_monthly_fee`** (`plans.monthly_fee`, nullable) applies on the Vercel build. NOT verified on
 production (AC7: 3 real orders).
 
