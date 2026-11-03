@@ -7,6 +7,7 @@
 import { decodeCustomerName } from "./html-entities";
 import { formatPhone } from "./order-types";
 import { resolveBizzChatFields } from "./case-kind";
+import { formatFee } from "./plan-offer";
 
 /** Which button generated the chat. Conversation = residential, Bizz = business. */
 export type ChatScriptVariant = "conversation" | "bizz";
@@ -130,7 +131,7 @@ const orBlank = (s: string) => (s === "—" ? "" : s);
 /**
  * The TM consent chat for one case or order. `variant: "bizz"` prints the BRN in
  * field 3 (as the Bizz Chat did); otherwise the IC. `monthlyFee` is RM, e.g.
- * "139.00": the caller makes sure it is set, so the fee is never blank.
+ * "189": the caller makes sure it is set, so the fee is never blank.
  */
 export function buildConsentChatScript(
   c: ConsentSource,
@@ -139,7 +140,9 @@ export function buildConsentChatScript(
   const customerId =
     opts.variant === "bizz" ? resolveBizzChatFields(c).customerId || c.id_no : c.id_no;
   const months = contractMonths(c.package);
-  const fee = opts.monthlyFee.trim();
+  // "189.00" prints as "189"; a real fraction keeps two decimals ("139.50").
+  const raw = opts.monthlyFee.trim();
+  const fee = /^\d+(\.\d+)?$/.test(raw) ? formatFee(Number(raw)) : raw;
   const pref = c.preferred_install_date?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   const installDate = pref
     ? `${pref[3]}/${pref[2]}/${pref[1]}`

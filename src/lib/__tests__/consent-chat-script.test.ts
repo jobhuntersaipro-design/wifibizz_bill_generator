@@ -5,7 +5,7 @@ import {
   fillConsentTemplate,
   formatMobileRaw,
 } from "../chat-script";
-import { parseMonthlyFee } from "../plan-offer";
+import { feeFromPackageName, formatFee, parseMonthlyFee } from "../plan-offer";
 
 // The ticket's template (ClickUp z8v9xnjzb8), copied verbatim, [XX] included.
 const TICKET = `1.	Customer Name (as per NRIC/Passport/BRN) :
@@ -64,11 +64,11 @@ describe("TM consent template", () => {
     expect(line(6)).toBe("6.\tBilling Address : SAME AS ABOVE");
     expect(line(7)).toBe("7.\tOrder Type (New Install / Upgrade / Add-On / Other) : New Install");
     expect(line(8)).toBe("8.\tPackage / Service to be Subscribed : Unifi Home 300Mbps Premium Value (36M)");
-    expect(line(9)).toBe("9.\tMonthly Subscription Fee : RM139.00");
+    expect(line(9)).toBe("9.\tMonthly Subscription Fee : RM139");
     expect(line(10)).toBe("10.\tContract Period (if applicable) : 36 months");
     expect(line(11)).toBe("11.\tPreferred Installation Date (if applicable) : 20/11/2026");
     expect(text).toContain("contract period of *36 months*");
-    expect(text).toContain("monthly fee of *RM139.00*");
+    expect(text).toContain("monthly fee of *RM139*");
     expect(agreement).toBe("YES I AGREED");
   });
 
@@ -113,6 +113,17 @@ describe("helpers", () => {
     expect(parseMonthlyFee("abc")).toBeUndefined();
     expect(parseMonthlyFee("0")).toBeUndefined();
     expect(parseMonthlyFee("1.234")).toBeUndefined();
+  });
+
+  it("reads the price written in the plan name", () => {
+    expect(feeFromPackageName("Unifi Home 500Mbps Premium Value With Device TV 65inch RM189")).toBe(189);
+    expect(feeFromPackageName("Unifi Biz RM 139.50 promo")).toBe(139.5);
+    expect(feeFromPackageName("Unifi Home 300Mbps Premium Value (36M)")).toBeNull();
+  });
+
+  it("prints whole ringgit without decimals", () => {
+    expect(formatFee(189)).toBe("189");
+    expect(formatFee(139.5)).toBe("139.50");
   });
 
   it("formats mobiles from both entry points the same way", () => {

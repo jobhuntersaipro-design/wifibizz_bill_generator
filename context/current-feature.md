@@ -17,9 +17,10 @@ picks field 3 (business = BRN, else IC) and the PNG filename.
 
 Decided with the user 2026-11-03: field 6 "SAME AS ABOVE", field 7 "New Install", 12 and 13 blank, contract =
 "(NNM)" in the plan name (blank if none), install date = the order's preferred date, else case/order date + 3 days.
-Monthly fee: new admin field per plan (Plan Settings, "Monthly fee (RM)"), matched to the package by name (case and
-spacing ignored). No match or no price → the agent is prompted (`window.prompt`); cancel = no chat. Fee prints
-"RM139.00". The "UNIFI" heading and "By replying" line are gone; the "YES I AGREED" reply bubble stays.
+Monthly fee, in order: the price written in the plan name ("… RM189"), else the plan's admin fee (Plan Settings,
+matched by name, case and spacing ignored), else the agent types it in a dialog (Arc `Dialog`/`Input`/`Button`,
+`src/lib/monthly-fee-prompt.tsx`); cancel = no chat. Whole ringgit prints with no decimals ("RM189"); a fraction
+keeps two ("RM139.50"). The "UNIFI" heading and "By replying" line are gone; the "YES I AGREED" reply bubble stays.
 
 Verified: 8 new vitest (AC1 diff vs ticket, AC2-AC5), full suite passing (4 failing files = pre-existing Playwright
 specs), `next build` clean, lint clean on touched files, chat rendered in Chromium and inspected. NOT verified: the

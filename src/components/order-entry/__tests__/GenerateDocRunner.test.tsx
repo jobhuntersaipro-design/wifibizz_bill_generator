@@ -48,7 +48,7 @@ describe("WhatsAppChat", () => {
       ),
     );
     expect(text).toContain("1.\tCustomer Name (as per NRIC/Passport/BRN) : PHONG KONE LEE");
-    expect(text).toContain("9.\tMonthly Subscription Fee : RM139.00");
+    expect(text).toContain("9.\tMonthly Subscription Fee : RM139");
     expect(text).toContain("11.\tPreferred Installation Date (if applicable) : 01/12/2026");
     expect(text).toContain("contract period of 24 months");
     expect(text).toContain("As a Business Customer representative");

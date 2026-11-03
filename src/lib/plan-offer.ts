@@ -343,3 +343,15 @@ export function parseMonthlyFee(raw: string): number | null | undefined {
   const n = Number(t);
   return n > 0 ? n : undefined;
 }
+
+/** The price written in a plan name: "… TV 65inch RM189" → 189. Last "RM" wins. Null when none. */
+export function feeFromPackageName(pkg: string | null): number | null {
+  const all = [...(pkg ?? "").matchAll(/RM\s?(\d{1,7}(?:\.\d{1,2})?)(?![\d.])/gi)];
+  const n = all.length ? Number(all[all.length - 1][1]) : NaN;
+  return n > 0 ? n : null;
+}
+
+/** RM amount as printed on the consent chat: 189 → "189", 139.5 → "139.50". */
+export function formatFee(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+}
