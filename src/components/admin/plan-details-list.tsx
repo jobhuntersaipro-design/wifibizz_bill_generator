@@ -1,0 +1,212 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { toast } from "@/lib/toast";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { adminDeletePlanDetail, adminListPlanDetails, adminSavePlanDetail } from "@/actions/plan-details";
+import { checkPlanDetail, type PlanDetailInput, type PlanDetailView } from "@/lib/plan-detail";
+import { formatFee } from "@/lib/plan-offer";
+
+const EMPTY: PlanDetailInput = { name: "", price: "", contractMonths: "" };
+
+export function PlanDetailsList() {
+  const [rows, setRows] = useState<PlanDetailView[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<{ id: string | null; input: PlanDetailInput } | null>(null);
+  const [deleting, setDeleting] = useState<PlanDetailView | null>(null);
+
+  useEffect(() => {
+    void adminListPlanDetails().then((res) => {
+      if (res.success) setRows(res.data);
+      else setError(res.error);
+    });
+  }, []);
+
+  function onSaved(row: PlanDetailView) {
+    setRows((prev) =>
+      [...(prev ?? []).filter((r) => r.id !== row.id), row].sort((a, b) => a.name.localeCompare(b.name)),
+    );
+  }
+
+  async function confirmDelete() {
+    if (!deleting) return;
+    const res = await adminDeletePlanDetail(deleting.id);
+    if (!res.success) return toast.error(res.error);
+    setRows((prev) => (prev ?? []).filter((r) => r.id !== deleting.id));
+    toast.success(`Deleted ${deleting.name}`);
+    setDeleting(null);
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-ink-muted">{rows ? `${rows.length} plan${rows.length === 1 ? "" : "s"}` : ""}</p>
+        <Button onClick={() => setEditing({ id: null, input: EMPTY })}>Add plan</Button>
+      </div>
+
+      {error && <p className="text-sm text-danger">{error}</p>}
+      {!rows && !error && <p className="text-sm text-ink-muted">Loading…</p>}
+      {rows && rows.length === 0 && (
+        <p className="rounded-lg border border-line bg-card p-6 text-center text-sm text-ink-muted">
+          No plans yet. Add one with its price and contract period.
+        </p>
+      )}
+
+      {rows && rows.length > 0 && (
+        <div className="overflow-x-auto rounded-lg border border-line bg-card">
+          <table className="w-full text-sm">
+            <thead className="bg-wash text-left text-ink-muted">
+              <tr>
+                <th className="px-4 py-2.5 font-medium">Plan name</th>
+                <th className="px-4 py-2.5 font-medium whitespace-nowrap">Price</th>
+                <th className="px-4 py-2.5 font-medium whitespace-nowrap">Contract</th>
+                <th className="px-4 py-2.5" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id} className="border-t border-line">
+                  <td className="px-4 py-2.5 text-ink">{r.name}</td>
+                  <td className="px-4 py-2.5 tabular-nums whitespace-nowrap">RM{formatFee(Number(r.price))}</td>
+                  <td className="px-4 py-2.5 tabular-nums whitespace-nowrap">{r.contractMonths} months</td>
+                  <td className="px-4 py-2.5">
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setEditing({
+                            id: r.id,
+                            input: { name: r.name, price: formatFee(Number(r.price)), contractMonths: String(r.contractMonths) },
+                          })
+                        }
+                      >
+                        Edit
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => setDeleting(r)}>
+                        Delete
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {editing && (
+        <PlanDetailDialog
+          key={editing.id ?? "new"}
+          id={editing.id}
+          initial={editing.input}
+          onClose={() => setEditing(null)}
+          onSaved={(row) => {
+            onSaved(row);
+            setEditing(null);
+          }}
+        />
+      )}
+
+      <Dialog open={!!deleting} onOpenChange={(open) => !open && setDeleting(null)}>
+        <DialogContent showCloseButton={false} className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete plan</DialogTitle>
+            <DialogDescription>
+              Delete &ldquo;{deleting?.name}&rdquo;? The consent chat will then ask the agent for its price and
+              contract period, unless the plan name says them.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleting(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={() => void confirmDelete()}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function PlanDetailDialog({
+  id,
+  initial,
+  onClose,
+  onSaved,
+}: {
+  id: string | null;
+  initial: PlanDetailInput;
+  onClose: () => void;
+  onSaved: (row: PlanDetailView) => void;
+}) {
+  const [input, setInput] = useState(initial);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const set = (k: keyof PlanDetailInput) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInput((prev) => ({ ...prev, [k]: e.target.value }));
+    setError(null);
+  };
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const check = checkPlanDetail(input);
+    if (!check.ok) return setError(check.error);
+    setSaving(true);
+    const res = await adminSavePlanDetail(id, input);
+    setSaving(false);
+    if (!res.success) return setError(res.error);
+    toast.success(id ? "Plan updated" : "Plan added");
+    onSaved(res.data);
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent showCloseButton={false} className="sm:max-w-md">
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <DialogHeader>
+            <DialogTitle>{id ? "Edit plan" : "Add plan"}</DialogTitle>
+            <DialogDescription>Type the plan name as it appears in the order&apos;s package.</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="pd-name">Plan name</Label>
+            <Input id="pd-name" autoFocus value={input.name} onChange={set("name")} placeholder="e.g. Unifi Home 500Mbps" />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="pd-price">Price (RM per month)</Label>
+            <Input id="pd-price" inputMode="decimal" value={input.price} onChange={set("price")} placeholder="e.g. 189" />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="pd-months">Contract (months)</Label>
+            <Input id="pd-months" inputMode="numeric" value={input.contractMonths} onChange={set("contractMonths")} placeholder="e.g. 24" />
+          </div>
+          {error && (
+            <p role="alert" className="text-[12px] text-danger">
+              {error}
+            </p>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? "Saving…" : id ? "Save" : "Add plan"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}

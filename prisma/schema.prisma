@@ -282,6 +282,20 @@ model OrderStatusEvent {
 // dialog only exists on an order's own detail page — so an admin reads the group
 // names off the portal once and records them here, rather than the system
 // minting a real order per package to discover them.
+// Plan Details (/admin/plan-details): a plain list admin keeps by hand, separate from
+// the dealer plans above. The consent chat reads price and contract months from it,
+// matched by name with case and spacing ignored.
+model PlanDetail {
+  id             String   @id @default(cuid())
+  name           String   @unique
+  price          Decimal  @db.Decimal(10, 2)
+  contractMonths Int      @map("contract_months")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("plan_details")
+}
+
 model Plan {
   id          String           @id @default(cuid())
   // EXACT portal offer name — matched verbatim against the Subscription Plan

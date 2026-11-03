@@ -14,6 +14,7 @@ const ALERT_POLL_MS = 60_000;
 const navItems = [
   { label: "Users", href: "/admin", icon: UsersIcon },
   { label: "Plan Settings", href: "/admin/plans", icon: PlanIcon },
+  { label: "Plan Details", href: "/admin/plan-details", icon: PlanIcon },
   { label: "Orders", href: "/admin/orders", icon: OrdersIcon },
   { label: "Umobile Image", href: "/admin/umobile-image", icon: ImageIcon },
   { label: "Landlord Signature", href: "/admin/landlord-signature", icon: SignatureIcon },
