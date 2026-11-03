@@ -94,6 +94,15 @@ describe("TM consent template", () => {
     }
   });
 
+  it("prints contract months the agent entered when the plan name has none", () => {
+    const { text } = buildConsentChatScript(
+      { ...CASE, package: "Unifi Home 500Mbps" },
+      { variant: "conversation", monthlyFee: "189", contractMonths: "24" },
+    );
+    expect(text.split("\n")[9]).toBe("10.\tContract Period (if applicable) : 24 months");
+    expect(text).toContain("contract period of *24 months*");
+  });
+
   it("defaults the install date to the case date + 3 days", () => {
     const { text } = buildConsentChatScript({ ...CASE, preferred_install_date: null }, { variant: "conversation", monthlyFee: "1" });
     expect(text.split("\n")[10]).toMatch(/: 04\/11\/2026$/);

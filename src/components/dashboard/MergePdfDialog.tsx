@@ -28,7 +28,7 @@ import {
 } from "@/lib/bill-generator/merge-plan";
 import { MergeIcon, GripIcon, CloseIcon } from "./icons";
 import { WhatsAppChat, makeRandomization } from "./ChatImageGenerator";
-import { FEE_CANCELLED, resolveMonthlyFee } from "@/lib/monthly-fee-prompt";
+import { FEE_CANCELLED, resolveConsentTerms, type ConsentTerms } from "@/lib/monthly-fee-prompt";
 import { closingScriptVariant } from "@/lib/case-kind";
 import type { CaseRow } from "./shared";
 import { NO_ADDRESS_ERROR, hasAddress } from "@/lib/address-required";
@@ -70,7 +70,7 @@ export default function MergePdfDialog({
   const [addressChecked, setAddressChecked] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
   const rand = useMemo(makeRandomization, []);
-  const [monthlyFee, setMonthlyFee] = useState<string | null>(null);
+  const [terms, setTerms] = useState<ConsentTerms | null>(null);
   // One case at a time, so the plan helpers get a single-element list.
   const cases = useMemo(() => [caseData], [caseData]);
   // Everything is ticked on open: bundling the lot is the common case, and an
@@ -175,15 +175,15 @@ export default function MergePdfDialog({
 
   async function handleMerge() {
     if (included.length === 0 || merging || addressMissing || addressLoading) return;
-    // The chat prints the monthly fee, which must never be blank: the plan's price,
-    // else the agent types it. Mounted with the fee one frame before it is captured.
-    if (included.some((i) => i.type === "chat") && !monthlyFee) {
-      const fee = await resolveMonthlyFee(chatCase.package);
-      if (!fee) {
+    // The chat prints the fee and contract months, which must never be blank: from the
+    // plan, else the agent types them. Mounted with them one frame before capture.
+    if (included.some((i) => i.type === "chat") && !terms) {
+      const resolved = await resolveConsentTerms(chatCase.package);
+      if (!resolved) {
         toast.error(FEE_CANCELLED);
         return;
       }
-      setMonthlyFee(fee);
+      setTerms(resolved);
       await new Promise((r) => setTimeout(r, 150));
     }
     setMerging(true);
@@ -468,7 +468,7 @@ export default function MergePdfDialog({
 
           {/* Off-screen render the capture reads from. Only mounted when the
               chat is actually wanted — it is a heavy subtree. */}
-          {wantsChat && monthlyFee && (
+          {wantsChat && terms && (
             <div style={{ position: "absolute", left: -9999, top: -9999 }} aria-hidden="true">
               <div ref={chatRef}>
                 <WhatsAppChat
@@ -476,7 +476,7 @@ export default function MergePdfDialog({
                   wallpaper={rand.wallpaper}
                   time={rand.time}
                   unreadCount={rand.unreadCount}
-                  monthlyFee={monthlyFee}
+                  terms={terms}
                   variant={closingScriptVariant(chatCase)}
                 />
               </div>

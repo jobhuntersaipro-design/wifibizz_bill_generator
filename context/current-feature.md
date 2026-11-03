@@ -20,7 +20,8 @@ Decided with the user 2026-11-03: field 6 "SAME AS ABOVE", field 7 "New Install"
 Monthly fee, in order: the price written in the plan name ("… RM189"), else the plan's admin fee (Plan Settings,
 matched by name, case and spacing ignored), else the agent types it in a dialog (Arc `Dialog`/`Input`/`Button`,
 `src/lib/monthly-fee-prompt.tsx`); cancel = no chat. Whole ringgit prints with no decimals ("RM189"); a fraction
-keeps two ("RM139.50"). The "UNIFI" heading and "By replying" line are gone; the "YES I AGREED" reply bubble stays.
+keeps two ("RM139.50"). Contract months, in order: the "(NNM)" in the plan name, else the agent types
+them (whole months). One dialog asks for whatever is missing (fee, months, or both). The "UNIFI" heading and "By replying" line are gone; the "YES I AGREED" reply bubble stays.
 
 Verified: 8 new vitest (AC1 diff vs ticket, AC2-AC5), full suite passing (4 failing files = pre-existing Playwright
 specs), `next build` clean, lint clean on touched files, chat rendered in Chromium and inspected. NOT verified: the

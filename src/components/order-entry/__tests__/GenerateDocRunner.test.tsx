@@ -7,7 +7,7 @@ import type { CaseRow } from "@/components/dashboard/shared";
 
 // The actions drag in auth, Prisma and R2. Static rendering never reaches them.
 vi.mock("@/actions/order", () => ({ uploadOrderDocument: vi.fn() }));
-vi.mock("@/lib/monthly-fee-prompt", () => ({ resolveMonthlyFee: vi.fn(), FEE_CANCELLED: "" }));
+vi.mock("@/lib/monthly-fee-prompt", () => ({ resolveConsentTerms: vi.fn(), FEE_CANCELLED: "" }));
 
 const SOURCE: GenerateDocSource = {
   fullName: "PHONG KONE LEE",
@@ -24,7 +24,7 @@ const textOf = (html: string) =>
   html.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&#x27;/g, "'");
 
 describe("GenerateDocRunner", () => {
-  it("renders nothing until the chat's monthly fee is known", () => {
+  it("renders nothing until the chat's fee and contract are known", () => {
     for (const { type } of GENERATED_DOCS) {
       expect(
         renderToStaticMarkup(<GenerateDocRunner type={type} source={SOURCE} existingOfType={0} onDone={() => {}} />),
@@ -44,7 +44,7 @@ describe("WhatsAppChat", () => {
     } as CaseRow & { preferred_install_date: string };
     const text = textOf(
       renderToStaticMarkup(
-        <WhatsAppChat caseData={caseData} wallpaper="#000" time="10:00 AM" unreadCount={1} monthlyFee="139.00" />,
+        <WhatsAppChat caseData={caseData} wallpaper="#000" time="10:00 AM" unreadCount={1} terms={{ fee: "139.00", months: "24" }} />,
       ),
     );
     expect(text).toContain("1.\tCustomer Name (as per NRIC/Passport/BRN) : PHONG KONE LEE");

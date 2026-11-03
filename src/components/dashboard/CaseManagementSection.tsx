@@ -19,7 +19,7 @@ import {
   MessageSquareIcon, AuthLetterIcon, SyncSheetIcon, TimeBillIcon, TenancyAgreementIcon, MergeIcon,
 } from "./icons";
 import ChatImageGenerator from "./ChatImageGenerator";
-import { FEE_CANCELLED, resolveMonthlyFee } from "@/lib/monthly-fee-prompt";
+import { FEE_CANCELLED, resolveConsentTerms, type ConsentTerms } from "@/lib/monthly-fee-prompt";
 import type { ChatScriptVariant } from "@/lib/chat-script";
 import { AUTH_LETTER_LABEL, UMOBILE_BILL_LABEL, UMOBILE_BILL_SHORT, authLetterVariant, closingScriptVariant } from "@/lib/case-kind";
 import MergePdfDialog from "./MergePdfDialog";
@@ -300,7 +300,7 @@ export default function CaseManagementSection() {
   const [generatingCell, setGeneratingCell] = useState<string | null>(null);
   const [statuses, setStatuses] = useState<string[]>([]);
   // The chat open in the modal, and which template it prints.
-  const [chatCase, setChatCase] = useState<{ caseData: CaseRow; variant: ChatScriptVariant; monthlyFee: string } | null>(null);
+  const [chatCase, setChatCase] = useState<{ caseData: CaseRow; variant: ChatScriptVariant; terms: ConsentTerms } | null>(null);
   // Case whose installation address is being fetched before the chat opens,
   // keyed with the variant so only the button that was clicked spins.
   const [chatLoadingCase, setChatLoadingCase] = useState<{ caseNo: string; variant: ChatScriptVariant } | null>(null);
@@ -605,12 +605,12 @@ export default function CaseManagementSection() {
     if (chatLoadingCase) return;
     if (variant !== closingScriptVariant(c)) return;
     const open = async (caseData: CaseRow) => {
-      const monthlyFee = await resolveMonthlyFee(caseData.package);
-      if (!monthlyFee) {
+      const terms = await resolveConsentTerms(caseData.package);
+      if (!terms) {
         toast.error(FEE_CANCELLED);
         return;
       }
-      setChatCase({ caseData, variant, monthlyFee });
+      setChatCase({ caseData, variant, terms });
     };
     const needsAddress = !hasAddress(c.full_address);
     // No address and no WifiBizz page to scrape it from: nothing to generate.
@@ -1203,7 +1203,7 @@ export default function CaseManagementSection() {
           key={`${chatCase.caseData.case_no}-${chatCase.variant}`}
           caseData={chatCase.caseData}
           variant={chatCase.variant}
-          monthlyFee={chatCase.monthlyFee}
+          terms={chatCase.terms}
           onClose={() => setChatCase(null)}
         />
       )}
