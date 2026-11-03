@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { neon } from "@neondatabase/serverless";
 import { prisma } from "@/lib/prisma";
 import { caseDateFilterBounds, isInvalidCaseDateRange, parseCaseDateField } from "@/lib/case-list-filters";
+import { caseSearchPattern } from "@/lib/case-search";
 
 export async function GET(request: Request) {
   try {
@@ -41,21 +42,15 @@ export async function GET(request: Request) {
     );
 
     const sql = neon(process.env.DATABASE_URL!);
-    const searchPattern = search ? `%${search}%` : "";
+    const searchPattern = caseSearchPattern(search);
 
     const rows = await sql`
       SELECT case_no
       FROM wifibizz_cases
       WHERE user_id = ${wifibizzUser.id}
-        AND (${!search} OR (
-          full_name ILIKE ${searchPattern}
-          OR case_no ILIKE ${searchPattern}
-          OR order_no ILIKE ${searchPattern}
-          OR mobile ILIKE ${searchPattern}
-          OR email ILIKE ${searchPattern}
-          OR provider ILIKE ${searchPattern}
-          OR full_address ILIKE ${searchPattern}
-        ))
+        AND (${!searchPattern} OR concat_ws(' ', case_no, full_name, mobile, email, id_no, id_type,
+          company_name, company_reg, director_name, full_address, provider, package,
+          order_no, agent, agent_remark, status) ILIKE ${searchPattern})
         AND (${!status} OR status = ${status})
         AND (${!createdFrom} OR case_created_at >= ${createdFrom || '1970-01-01'}::timestamp)
         AND (${!createdTo} OR case_created_at <= (${createdTo || '9999-12-31'}::date + interval '1 day'))

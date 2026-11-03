@@ -1,3 +1,19 @@
+# Current Feature: Case List search covers every field
+
+## Status
+
+MERGED TO MAIN 2026-11-03. Vercel-only, no migration.
+
+## Notes
+
+Asked 2026-11-03: a search for a package name found nothing. The box matched only name, case no., order no.,
+mobile, email, provider and address. It now matches every text column of the case (`concat_ws` in `/api/cases`
+and `/api/cases/ids`): package, agent, agent remark, status, ID number/type, company, company reg and director
+too. Spaces in the query match any spacing, and `%`, `_`, `\` are literal (`src/lib/case-search.ts`).
+
+Verified: 3 new vitest, full suite 1387 passed, `next build` clean; the SQL run on a local Postgres 16 (the
+screenshot's package text matches, NULL columns skipped, `%` literal). NOT verified: production.
+
 # Current Feature: Plan Details tab on /admin
 
 ## Status
