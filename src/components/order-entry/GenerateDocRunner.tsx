@@ -5,7 +5,7 @@ import { toPng } from "html-to-image";
 import { WhatsAppChat, makeRandomization } from "@/components/dashboard/ChatImageGenerator";
 import type { CaseRow } from "@/components/dashboard/shared";
 import { uploadOrderDocument } from "@/actions/order";
-import { FEE_CANCELLED, resolveMonthlyFee } from "@/lib/monthly-fee-prompt";
+import { FEE_CANCELLED, resolveConsentTerms, type ConsentTerms } from "@/lib/monthly-fee-prompt";
 import type { OrderDocument } from "@/lib/order-types";
 import {
   docSpec,
@@ -52,9 +52,9 @@ export default function GenerateDocRunner({ type, source, existingOfType, onDone
   const chatRef = useRef<HTMLDivElement>(null);
   const [rand] = useState(makeRandomization);
   const chatVariant = spec.chatVariant;
-  // The chat prints the monthly fee, which must never be blank: the plan's
-  // price, else the agent types it. The chat mounts once it is known.
-  const [monthlyFee, setMonthlyFee] = useState<string | null>(null);
+  // The chat prints the fee and contract months, which must never be blank: from
+  // the plan, else the agent types them. The chat mounts once they are known.
+  const [terms, setTerms] = useState<ConsentTerms | null>(null);
 
   const run = useCallback(async () => {
     try {
@@ -62,9 +62,9 @@ export default function GenerateDocRunner({ type, source, existingOfType, onDone
 
       if (chatVariant) {
         if (!chatRef.current) {
-          const fee = await resolveMonthlyFee(source.offerName);
-          if (!fee) throw new Error(FEE_CANCELLED);
-          setMonthlyFee(fee);
+          const resolved = await resolveConsentTerms(source.offerName);
+          if (!resolved) throw new Error(FEE_CANCELLED);
+          setTerms(resolved);
           await new Promise((r) => setTimeout(r, 150));
         }
         const node = chatRef.current;
@@ -153,7 +153,7 @@ export default function GenerateDocRunner({ type, source, existingOfType, onDone
     return () => clearTimeout(timer);
   }, [type, chatVariant]);
 
-  if (!chatVariant || !monthlyFee) return null;
+  if (!chatVariant || !terms) return null;
 
   const chatCase: CaseRow & { preferred_install_date: string | null } = {
     case_no: seed,
@@ -186,7 +186,7 @@ export default function GenerateDocRunner({ type, source, existingOfType, onDone
           wallpaper={rand.wallpaper}
           time={rand.time}
           unreadCount={rand.unreadCount}
-          monthlyFee={monthlyFee}
+          terms={terms}
           variant={chatVariant}
         />
       </div>

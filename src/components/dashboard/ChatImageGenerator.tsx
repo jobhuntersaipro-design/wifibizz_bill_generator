@@ -1,5 +1,6 @@
 "use client";
 
+import type { ConsentTerms } from "@/lib/monthly-fee-prompt";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
@@ -111,17 +112,17 @@ export function WhatsAppChat({
   time,
   unreadCount,
   variant = "conversation",
-  monthlyFee,
+  terms,
 }: {
   caseData: CaseRow & { preferred_install_date?: string | null };
   wallpaper: string;
   time: string;
   unreadCount: number;
   variant?: ChatScriptVariant;
-  /** RM, e.g. "139.00". Resolved by the caller (plan price or the agent's entry). */
-  monthlyFee: string;
+  /** Fee and contract months, resolved by the caller (plan or the agent's entry). */
+  terms: ConsentTerms;
 }) {
-  const script = buildConsentChatScript(caseData, { variant, monthlyFee });
+  const script = buildConsentChatScript(caseData, { variant, monthlyFee: terms.fee, contractMonths: terms.months });
   const mobileDisplay = formatMobileDisplay(caseData.mobile);
 
   return (
@@ -332,10 +333,10 @@ interface ChatImageGeneratorProps {
   caseData: CaseRow;
   onClose: () => void;
   variant?: ChatScriptVariant;
-  monthlyFee: string;
+  terms: ConsentTerms;
 }
 
-export default function ChatImageGenerator({ caseData, onClose, variant = "conversation", monthlyFee }: ChatImageGeneratorProps) {
+export default function ChatImageGenerator({ caseData, onClose, variant = "conversation", terms }: ChatImageGeneratorProps) {
   const arc = useIsArc();
   const chat = CHAT_VARIANTS[variant];
   const chatRef = useRef<HTMLDivElement>(null);
@@ -430,7 +431,7 @@ export default function ChatImageGenerator({ caseData, onClose, variant = "conve
                 wallpaper={rand.wallpaper}
                 time={rand.time}
                 unreadCount={rand.unreadCount}
-                monthlyFee={monthlyFee}
+                terms={terms}
                 variant={variant}
               />
             </div>

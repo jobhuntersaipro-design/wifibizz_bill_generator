@@ -131,15 +131,16 @@ const orBlank = (s: string) => (s === "—" ? "" : s);
 /**
  * The TM consent chat for one case or order. `variant: "bizz"` prints the BRN in
  * field 3 (as the Bizz Chat did); otherwise the IC. `monthlyFee` is RM, e.g.
- * "189": the caller makes sure it is set, so the fee is never blank.
+ * "189": the caller makes sure it is set, so the fee is never blank. `contractMonths`
+ * wins over the "(NNM)" in the plan name; the caller asks for it when the name has none.
  */
 export function buildConsentChatScript(
   c: ConsentSource,
-  opts: { variant: ChatScriptVariant; monthlyFee: string },
+  opts: { variant: ChatScriptVariant; monthlyFee: string; contractMonths?: string },
 ): ChatScript {
   const customerId =
     opts.variant === "bizz" ? resolveBizzChatFields(c).customerId || c.id_no : c.id_no;
-  const months = contractMonths(c.package);
+  const months = opts.contractMonths?.trim() || contractMonths(c.package);
   // "189.00" prints as "189"; a real fraction keeps two decimals ("139.50").
   const raw = opts.monthlyFee.trim();
   const fee = /^\d+(\.\d+)?$/.test(raw) ? formatFee(Number(raw)) : raw;
