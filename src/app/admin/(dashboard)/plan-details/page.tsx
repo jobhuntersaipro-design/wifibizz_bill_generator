@@ -6,7 +6,7 @@ export default function AdminPlanDetailsPage() {
       <div>
         <h1 className="text-2xl font-semibold text-ink">Plan Details</h1>
         <p className="text-sm text-ink-muted mt-1">
-          Price and contract period for each plan. The consent chat uses them when the plan name does not say.
+          Monthly price and contract period of each plan. Add plans one by one or upload a CSV.
         </p>
       </div>
       <PlanDetailsList />

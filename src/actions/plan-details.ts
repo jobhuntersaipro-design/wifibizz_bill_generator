@@ -3,7 +3,13 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { verifyAdminSession } from "@/lib/admin-auth";
-import { checkPlanDetail, cleanPlanName, type PlanDetailInput, type PlanDetailView } from "@/lib/plan-detail";
+import {
+  checkPlanDetail,
+  cleanPlanName,
+  PLAN_CSV_MAX_ROWS,
+  type PlanDetailInput,
+  type PlanDetailView,
+} from "@/lib/plan-detail";
 
 type Result<T = undefined> = { success: true; data: T } | { success: false; error: string };
 
@@ -35,6 +41,41 @@ export async function adminSavePlanDetail(id: string | null, input: PlanDetailIn
     ? await prisma.planDetail.update({ where: { id }, data })
     : await prisma.planDetail.create({ data });
   return { success: true, data: toView(row) };
+}
+
+/**
+ * Save the rows of an uploaded CSV. A name already on the list (case and spacing ignored) is
+ * updated; a new name is added. Every row is checked first; any bad row saves nothing.
+ */
+export async function adminImportPlanDetails(
+  rows: PlanDetailInput[],
+): Promise<Result<{ added: number; updated: number }>> {
+  if (!(await verifyAdminSession())) return { success: false, error: "Unauthorized" };
+  if (!Array.isArray(rows) || rows.length === 0) return { success: false, error: "The file has no plans." };
+  if (rows.length > PLAN_CSV_MAX_ROWS) return { success: false, error: `Upload ${PLAN_CSV_MAX_ROWS} plans or fewer at a time.` };
+  const checked = [];
+  for (const [i, row] of rows.entries()) {
+    const c = checkPlanDetail(row);
+    if (!c.ok) return { success: false, error: `Row ${i + 1}: ${c.error}` };
+    checked.push(c);
+  }
+  const existing = await prisma.planDetail.findMany({ select: { id: true, name: true } });
+  const byName = new Map(existing.map((e) => [e.name.toLowerCase(), e.id]));
+  let added = 0;
+  let updated = 0;
+  await prisma.$transaction(
+    checked.map((c) => {
+      const data = { name: c.name, price: c.price, contractMonths: c.contractMonths };
+      const id = byName.get(c.name.toLowerCase());
+      if (id) {
+        updated++;
+        return prisma.planDetail.update({ where: { id }, data });
+      }
+      added++;
+      return prisma.planDetail.create({ data });
+    }),
+  );
+  return { success: true, data: { added, updated } };
 }
 
 export async function adminDeletePlanDetail(id: string): Promise<Result> {

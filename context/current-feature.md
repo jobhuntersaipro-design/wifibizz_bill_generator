@@ -1,3 +1,22 @@
+# Current Feature: Plan Details CSV upload + description
+
+## Status
+
+MERGED TO MAIN 2026-11-04. Vercel-only, no migration.
+
+## Notes
+
+Asked 2026-11-04. On `/admin/plan-details`: a "What this list is for" card (the consent chat reads fee and contract
+from here when the package name does not say them), **Upload CSV** and **Download CSV template**. The CSV needs a
+header row naming Plan name, Price, Contract months (any order; `24 months`/`24M` accepted). Every line is checked
+first; any bad line or a duplicate name refuses the whole file and lists the lines. A name already on the list
+(case and spacing ignored) is updated, a new name is added, in one transaction. Max 500 rows. Reader:
+`readPlanCsv` in `src/lib/plan-detail.ts`; save: `adminImportPlanDetails`.
+
+Verified: 6 new vitest, full suite 1393 passed, `next build` clean, lint clean; in Chromium a bad CSV showed both
+line errors, the template link holds the right CSV, no overflow at 375 px. NOT verified: a real import (no database
+or admin session here), production.
+
 # Current Feature: Case List search covers every field
 
 ## Status
