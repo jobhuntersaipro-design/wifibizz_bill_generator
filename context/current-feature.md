@@ -1,3 +1,19 @@
+# Current Feature: Plan Details upload progress bar + table search
+
+## Status
+
+MERGED TO MAIN 2026-11-04. Vercel-only, no migration.
+
+## Notes
+
+Asked 2026-11-04. Upload CSV shows the design-aware `Progress` (Arc in Arc mode) with its step: reading, checking,
+saving, refreshing, done. The import is one server call in one transaction, so the bar moves by step, not by row.
+A search box above the table filters by plan name, price ("189", "RM189") or contract ("24"); the count reads
+"N of M plans".
+
+Verified: lint clean, `next build` clean, tsc no new errors. NOT verified: in the browser (the list needs a database
+and admin session), production.
+
 # Current Feature: Plan Details CSV upload + description
 
 ## Status
