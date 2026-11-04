@@ -1,3 +1,20 @@
+# Current Feature: Fix — Plan Details CSV upload froze at "Saving"
+
+## Status
+
+MERGED TO MAIN 2026-11-04. Vercel-only, no migration.
+
+## Notes
+
+Reported 2026-11-04 with an 89-row CSV. `readPlanCsv` accepts that file without errors, so the fault is the save.
+`adminImportPlanDetails` ran one query per row inside one `$transaction`. The database is in ap-southeast-1 and
+Vercel functions run in iad1 by default, so 89 round trips passed Prisma's 5 s transaction limit. The action
+threw, and the page had no catch, so the bar stayed at "Saving". The save is now one
+`INSERT … ON CONFLICT (id) DO UPDATE` statement, which is also atomic. A thrown action now shows its message.
+
+Verified: the SQL on a local Postgres 16 (insert, update, created_at default), tsc and lint clean, vitest 1388
+passed, `next build`. NOT verified: the cause on production (no Vercel log read), a real upload.
+
 # Current Feature: Plan Details upload progress bar + table search
 
 ## Status

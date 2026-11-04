@@ -2,6 +2,7 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/generated/prisma/client";
 import { verifyAdminSession } from "@/lib/admin-auth";
 import {
   checkPlanDetail,
@@ -61,20 +62,20 @@ export async function adminImportPlanDetails(
   }
   const existing = await prisma.planDetail.findMany({ select: { id: true, name: true } });
   const byName = new Map(existing.map((e) => [e.name.toLowerCase(), e.id]));
+  // One statement, not one query per row: the database is far from the server, and N round trips
+  // in one transaction passed Prisma's 5 s transaction limit on an 89-row file.
   let added = 0;
-  let updated = 0;
-  await prisma.$transaction(
-    checked.map((c) => {
-      const data = { name: c.name, price: c.price, contractMonths: c.contractMonths };
-      const id = byName.get(c.name.toLowerCase());
-      if (id) {
-        updated++;
-        return prisma.planDetail.update({ where: { id }, data });
-      }
-      added++;
-      return prisma.planDetail.create({ data });
-    }),
-  );
+  const values = checked.map((c) => {
+    const id = byName.get(c.name.toLowerCase());
+    if (!id) added++;
+    return Prisma.sql`(${id ?? crypto.randomUUID()}, ${c.name}, ${c.price}::numeric, ${c.contractMonths}::int, now())`;
+  });
+  await prisma.$executeRaw`
+    INSERT INTO plan_details (id, name, price, contract_months, updated_at)
+    VALUES ${Prisma.join(values)}
+    ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, price = EXCLUDED.price,
+      contract_months = EXCLUDED.contract_months, updated_at = now()`;
+  const updated = checked.length - added;
   return { success: true, data: { added, updated } };
 }
 
