@@ -63,7 +63,10 @@ export function PlanDetailsList() {
       return setCsvErrors(parsed.errors);
     }
     setUpload({ step: `Saving ${parsed.rows.length} plan${parsed.rows.length === 1 ? "" : "s"}…`, pct: 65 });
-    const res = await adminImportPlanDetails(parsed.rows);
+    const res = await adminImportPlanDetails(parsed.rows).catch((e: unknown) => ({
+      success: false as const,
+      error: `The server did not save the file: ${e instanceof Error ? e.message : String(e)}`,
+    }));
     if (!res.success) {
       setUpload(null);
       return setCsvErrors([res.error]);
