@@ -5,6 +5,7 @@ import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import {
   Dialog,
   DialogContent,
@@ -36,7 +37,8 @@ export function PlanDetailsList() {
   const [editing, setEditing] = useState<{ id: string | null; input: PlanDetailInput } | null>(null);
   const [deleting, setDeleting] = useState<PlanDetailView | null>(null);
   const [csvErrors, setCsvErrors] = useState<string[]>([]);
-  const [importing, setImporting] = useState(false);
+  const [upload, setUpload] = useState<{ step: string; pct: number } | null>(null);
+  const [query, setQuery] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = () =>
@@ -52,15 +54,35 @@ export function PlanDetailsList() {
   async function onCsv(file: File | undefined) {
     if (!file) return;
     setCsvErrors([]);
-    const parsed = readPlanCsv(await file.text());
-    if (!parsed.ok) return setCsvErrors(parsed.errors);
-    setImporting(true);
+    setUpload({ step: `Reading ${file.name}…`, pct: 15 });
+    const text = await file.text();
+    setUpload({ step: "Checking each line…", pct: 35 });
+    const parsed = readPlanCsv(text);
+    if (!parsed.ok) {
+      setUpload(null);
+      return setCsvErrors(parsed.errors);
+    }
+    setUpload({ step: `Saving ${parsed.rows.length} plan${parsed.rows.length === 1 ? "" : "s"}…`, pct: 65 });
     const res = await adminImportPlanDetails(parsed.rows);
-    setImporting(false);
-    if (!res.success) return setCsvErrors([res.error]);
-    toast.success(`Uploaded ${file.name}: ${res.data.added} added, ${res.data.updated} updated`);
+    if (!res.success) {
+      setUpload(null);
+      return setCsvErrors([res.error]);
+    }
+    setUpload({ step: "Refreshing the list…", pct: 90 });
     await load();
+    setUpload({ step: "Done", pct: 100 });
+    toast.success(`Uploaded ${file.name}: ${res.data.added} added, ${res.data.updated} updated`);
+    setTimeout(() => setUpload(null), 600);
   }
+
+  const q = query.trim().toLowerCase();
+  const shown = rows?.filter(
+    (r) =>
+      !q ||
+      r.name.toLowerCase().includes(q) ||
+      `rm${formatFee(Number(r.price))}`.includes(q.replace(/\s+/g, "")) ||
+      `${r.contractMonths} months`.includes(q),
+  );
 
   function onSaved(row: PlanDetailView) {
     setRows((prev) =>
@@ -91,7 +113,9 @@ export function PlanDetailsList() {
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-ink-muted">{rows ? `${rows.length} plan${rows.length === 1 ? "" : "s"}` : ""}</p>
+        <p className="text-sm text-ink-muted">
+          {rows ? (q ? `${shown?.length ?? 0} of ${rows.length} plans` : `${rows.length} plan${rows.length === 1 ? "" : "s"}`) : ""}
+        </p>
         <div className="flex flex-wrap gap-2">
           <a
             href={`data:text/csv;charset=utf-8,${encodeURIComponent(PLAN_CSV_TEMPLATE)}`}
@@ -110,12 +134,33 @@ export function PlanDetailsList() {
               e.target.value = "";
             }}
           />
-          <Button variant="outline" disabled={importing} onClick={() => fileRef.current?.click()}>
-            {importing ? "Uploading…" : "Upload CSV"}
+          <Button variant="outline" disabled={!!upload} onClick={() => fileRef.current?.click()}>
+            {upload ? "Uploading…" : "Upload CSV"}
           </Button>
           <Button onClick={() => setEditing({ id: null, input: EMPTY })}>Add plan</Button>
         </div>
       </div>
+
+      {upload && (
+        <div role="status" className="rounded-lg border border-line bg-card p-4 space-y-2">
+          <div className="flex justify-between text-sm">
+            <span className="text-ink">{upload.step}</span>
+            <span className="tabular-nums text-ink-muted">{upload.pct}%</span>
+          </div>
+          <Progress value={upload.pct} aria-label="CSV upload progress" />
+        </div>
+      )}
+
+      {rows && rows.length > 0 && (
+        <Input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search plan name, price or contract"
+          aria-label="Search plans"
+          className="max-w-sm"
+        />
+      )}
 
       {csvErrors.length > 0 && (
         <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -137,7 +182,13 @@ export function PlanDetailsList() {
         </p>
       )}
 
-      {rows && rows.length > 0 && (
+      {shown && shown.length === 0 && rows && rows.length > 0 && (
+        <p className="rounded-lg border border-line bg-card p-6 text-center text-sm text-ink-muted">
+          No plan matches &ldquo;{query.trim()}&rdquo;.
+        </p>
+      )}
+
+      {shown && shown.length > 0 && (
         <div className="overflow-x-auto rounded-lg border border-line bg-card">
           <table className="w-full text-sm">
             <thead className="bg-wash text-left text-ink-muted">
@@ -149,7 +200,7 @@ export function PlanDetailsList() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {shown.map((r) => (
                 <tr key={r.id} className="border-t border-line">
                   <td className="px-4 py-2.5 text-ink">{r.name}</td>
                   <td className="px-4 py-2.5 tabular-nums whitespace-nowrap">RM{formatFee(Number(r.price))}</td>
