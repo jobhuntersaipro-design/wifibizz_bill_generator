@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,8 +13,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { adminDeletePlanDetail, adminListPlanDetails, adminSavePlanDetail } from "@/actions/plan-details";
-import { checkPlanDetail, type PlanDetailInput, type PlanDetailView } from "@/lib/plan-detail";
+import {
+  adminDeletePlanDetail,
+  adminImportPlanDetails,
+  adminListPlanDetails,
+  adminSavePlanDetail,
+} from "@/actions/plan-details";
+import {
+  checkPlanDetail,
+  PLAN_CSV_TEMPLATE,
+  readPlanCsv,
+  type PlanDetailInput,
+  type PlanDetailView,
+} from "@/lib/plan-detail";
 import { formatFee } from "@/lib/plan-offer";
 
 const EMPTY: PlanDetailInput = { name: "", price: "", contractMonths: "" };
@@ -24,13 +35,32 @@ export function PlanDetailsList() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ id: string | null; input: PlanDetailInput } | null>(null);
   const [deleting, setDeleting] = useState<PlanDetailView | null>(null);
+  const [csvErrors, setCsvErrors] = useState<string[]>([]);
+  const [importing, setImporting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    void adminListPlanDetails().then((res) => {
+  const load = () =>
+    adminListPlanDetails().then((res) => {
       if (res.success) setRows(res.data);
       else setError(res.error);
     });
+
+  useEffect(() => {
+    void load();
   }, []);
+
+  async function onCsv(file: File | undefined) {
+    if (!file) return;
+    setCsvErrors([]);
+    const parsed = readPlanCsv(await file.text());
+    if (!parsed.ok) return setCsvErrors(parsed.errors);
+    setImporting(true);
+    const res = await adminImportPlanDetails(parsed.rows);
+    setImporting(false);
+    if (!res.success) return setCsvErrors([res.error]);
+    toast.success(`Uploaded ${file.name}: ${res.data.added} added, ${res.data.updated} updated`);
+    await load();
+  }
 
   function onSaved(row: PlanDetailView) {
     setRows((prev) =>
@@ -49,10 +79,55 @@ export function PlanDetailsList() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-ink-muted">{rows ? `${rows.length} plan${rows.length === 1 ? "" : "s"}` : ""}</p>
-        <Button onClick={() => setEditing({ id: null, input: EMPTY })}>Add plan</Button>
+      <div className="rounded-lg border border-line bg-card p-4 text-sm text-ink-muted space-y-2">
+        <p className="font-medium text-ink">What this list is for</p>
+        <p>
+          The consent chat (Chat and Bizz Chat on the Case List, Combine, and the Order Entry chat cards) prints the
+          monthly fee and the contract period of the customer&apos;s package. When the package name does not say
+          them (for example &ldquo;RM189&rdquo; or &ldquo;(24M)&rdquo;), the chat looks up the package here. Type
+          the plan name as it appears in the package. Capitals and extra spaces do not matter.
+        </p>
+        <p>If a package is not on this list, the agent must type the fee and the contract period before the chat is made.</p>
       </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-ink-muted">{rows ? `${rows.length} plan${rows.length === 1 ? "" : "s"}` : ""}</p>
+        <div className="flex flex-wrap gap-2">
+          <a
+            href={`data:text/csv;charset=utf-8,${encodeURIComponent(PLAN_CSV_TEMPLATE)}`}
+            download="plan-details-template.csv"
+            className="self-center text-sm text-brand underline-offset-2 hover:underline"
+          >
+            Download CSV template
+          </a>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(e) => {
+              void onCsv(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+          />
+          <Button variant="outline" disabled={importing} onClick={() => fileRef.current?.click()}>
+            {importing ? "Uploading…" : "Upload CSV"}
+          </Button>
+          <Button onClick={() => setEditing({ id: null, input: EMPTY })}>Add plan</Button>
+        </div>
+      </div>
+
+      {csvErrors.length > 0 && (
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <p className="font-medium">The CSV was not uploaded. Correct these lines and upload it again:</p>
+          <ul className="mt-1 list-disc pl-5">
+            {csvErrors.slice(0, 20).map((e) => (
+              <li key={e}>{e}</li>
+            ))}
+          </ul>
+          {csvErrors.length > 20 && <p className="mt-1">…and {csvErrors.length - 20} more.</p>}
+        </div>
+      )}
 
       {error && <p className="text-sm text-danger">{error}</p>}
       {!rows && !error && <p className="text-sm text-ink-muted">Loading…</p>}
