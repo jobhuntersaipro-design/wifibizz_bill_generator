@@ -1,3 +1,21 @@
+# Current Feature: Chatbot API for aichatbot.bizzflow.top
+
+## Status
+
+MERGED TO MAIN 2026-11-05. Vercel-only, no migration. Needs `CHATBOT_API_SECRET` on Vercel (same value as the chatbot app).
+
+## Notes
+
+The WhatsApp inbox moved to its own app (repo `bizzflow-aichatbot`). That app reads BizzFlow only through
+`/api/chatbot/*`, with a bearer `CHATBOT_API_SECRET`. No secret means 503. `GET contact?phone=…` (orders and
+cases, same query as `getWhatsappContact`), `GET accounts` (Order Entry users, no password columns),
+`POST order-draft` (`{accountId, waId, name}` → a draft, remark "From WhatsApp +…"), and
+`POST order-draft/<id>/document` (raw body, one JPEG/PNG/WEBP/PDF up to 4 MB, only on a draft whose remark
+starts "From WhatsApp +", max 10). Rules: `src/lib/chatbot-api.ts`. Audit actor `aichatbot`.
+
+Verified: 8 new vitest, full suite 1401 passed (4 failing files = pre-existing Playwright specs), tsc clean,
+`next build` lists the 4 routes. NOT verified: a call from the chatbot app on production.
+
 # Current Feature: Fix — Plan Details CSV upload froze at "Saving"
 
 ## Status
